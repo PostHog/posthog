@@ -60,7 +60,6 @@ rules:
               - '/frontend/src/lib/components/TaxonomicFilter/utils/buildGroupAnalyticsGroups.ts'
               - '/frontend/src/lib/components/TaxonomicFilter/utils/buildTaxonomicGroups.tsx'
               - '/frontend/src/lib/logic/eventIngestionRestrictionLogic.ts'
-              - '/frontend/src/lib/readOnlyGuard.ts'
               - '/frontend/src/models/dashboardsModel.tsx'
               - '/frontend/src/models/propertyDefinitionsModel.ts'
               - '/frontend/src/queries/nodes/DataNode/dataNodeLogic.ts'

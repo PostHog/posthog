@@ -1,28 +1,35 @@
 import pytest
 from freezegun import freeze_time
 
+from django.db import OperationalError
+
 from products.tasks.backend.exceptions import (
-    RequiredMcpUnavailableError,
+    OAuthTokenError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
+    CollectAgentShadowResultInput,
     StartAgentServerInput,
     _agentsh_domains_for,
     _ensure_repository_on_disk,
-    _ensure_required_posthog_mcp_available,
     _include_personal_mcp_for_task,
     _invoke_start_agent_server,
+    _is_agent_shadow_enabled,
+    _launch_agent_shadow,
     _LaunchParams,
     _network_enforcement_observation,
+    _prepare_launch,
+    _read_agent_shadow_result,
     _record_boot_total,
     _resolve_protected_base_branch,
     await_agent_server_ready,
+    collect_agent_shadow_result,
     start_agent_server,
 )
-from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
 @freeze_time("2026-08-06T12:01:30Z")
@@ -134,9 +141,12 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
         use_modal_network_allowlist=True,
         network_policy_fingerprint="policy-hash",
     )
+    sandbox = mocker.Mock()
+    sandbox.supports_combined_agent_server_start_and_health.return_value = False
+    sandbox.wait_for_agent_server_ready.side_effect = RuntimeError("health check failed")
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
-        return_value=mocker.Mock(),
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
@@ -144,7 +154,7 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server",
-        side_effect=RuntimeError("health check failed"),
+        return_value=None,
     )
     record_observation = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
@@ -160,16 +170,105 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
         )
 
     record_observation.assert_not_called()
+    sandbox.wait_for_agent_server_ready.assert_called_once()
+
+
+@pytest.mark.parametrize("error_type", [SandboxExecutionError, SandboxTimeoutError])
+def test_invoke_start_agent_server_preserves_process_task_error(mocker, error_type) -> None:
+    context = _context()
+    error = error_type(
+        "Agent-server failed to start",
+        {"sandbox_id": "sandbox-id", "failure_reason": "not ready"},
+        cause=RuntimeError("not ready"),
+        capture=False,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.side_effect = error
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+
+    with pytest.raises(error_type) as raised:
+        _invoke_start_agent_server(sandbox, context, mocker.Mock(agentsh_domains=None), repo_ready_file=None)
+
+    assert raised.value is error
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_statuses"),
+    [
+        (
+            SandboxExecutionError(
+                "Agent-server failed to start",
+                {"health_poll_ms": 120, "start_and_health_ms": 150},
+                cause=RuntimeError("not ready"),
+                capture=False,
+            ),
+            ["COMPLETED", "FAILED"],
+        ),
+        (
+            SandboxTimeoutError(
+                "Execution timed out",
+                {"timeout_seconds": 155},
+                cause=RuntimeError("timed out"),
+                capture=False,
+            ),
+            ["FAILED"],
+        ),
+    ],
+)
+async def test_combined_start_failure_records_step_statuses(mocker, error, expected_statuses) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.supports_combined_agent_server_start_and_health.return_value = True
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=mocker.Mock(agentsh_domains=None),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server",
+        side_effect=error,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow",
+        return_value=False,
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    record_step = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_agent_server_step_ms"
+    )
+
+    with pytest.raises(type(error)) as raised:
+        await start_agent_server(
+            StartAgentServerInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                sandbox_url="https://sandbox.example",
+                used_snapshot=True,
+            )
+        )
+
+    assert raised.value is error
+    assert [record.kwargs["status"] for record in record_step.call_args_list] == expected_statuses
+    assert all(record.kwargs["used_snapshot"] is True for record in record_step.call_args_list)
+    if len(record_step.call_args_list) == 2:
+        assert record_step.call_args_list[0].args[:2] == ("agent_server_invoke", 30)
+        assert record_step.call_args_list[1].args[:2] == ("agent_server_health", 120)
 
 
 @pytest.mark.parametrize(("attempt", "expects_relaunch"), [(1, False), (2, True), (3, True)])
 async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, attempt, expects_relaunch) -> None:
     context = _context()
     sandbox = mocker.Mock(id="sandbox-id")
-    sandbox.read_agent_server_session_init_ms.return_value = None
+    sandbox.execute.return_value.stdout = ""
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
-        return_value=sandbox,
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
@@ -213,9 +312,10 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
     )
 
     assert result.sandbox_url == "https://sandbox.example"
+    sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
     if expects_relaunch:
-        sandbox.wait_for_agent_server_ready.assert_not_called()
         sandbox.start_agent_server.assert_called_once()
+        assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is False
         record_retry.assert_called_once_with(
             attempt,
             "succeeded",
@@ -224,7 +324,6 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             runtime="gvisor",
         )
     else:
-        sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
         sandbox.start_agent_server.assert_not_called()
         record_retry.assert_not_called()
 
@@ -234,8 +333,8 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.start_agent_server.side_effect = RuntimeError("session did not initialize")
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
-        return_value=sandbox,
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
@@ -313,6 +412,46 @@ def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
     assert _include_personal_mcp_for_task(task) is expected
 
 
+def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> None:
+    task_get = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
+    ).return_value.get
+    task_get.side_effect = [
+        OperationalError("server conn crashed?"),
+        OperationalError("server conn crashed?"),
+    ]
+
+    with pytest.raises(OperationalError):
+        _prepare_launch(_context(), mocker.Mock(), "sandbox-id")
+
+    assert task_get.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "raised,expected",
+    [
+        (OperationalError("server conn crashed?"), OperationalError),
+        (RuntimeError("token mint failed"), OAuthTokenError),
+    ],
+)
+def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised, expected) -> None:
+    task = mocker.Mock(internal=True, created_by_id=None, team_id=1)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
+    ).return_value.get.return_value = task
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_task_run_credential_user",
+        return_value=None,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
+        side_effect=raised,
+    )
+
+    with pytest.raises(expected):
+        _prepare_launch(_context(), mocker.Mock(), "sandbox-id")
+
+
 @pytest.mark.parametrize(
     "pr_base,branch,expected",
     [
@@ -331,12 +470,11 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
 
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
-    # Repo-less runs (e.g. Slack) must pass the branch through untouched, with no GitHub lookup.
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
     )
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
-    assert _resolve_protected_base_branch(context) == "some-branch"
+    assert _resolve_protected_base_branch(context) is None
     get.assert_not_called()
 
 
@@ -401,62 +539,224 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     sandbox.execute.assert_not_called()
 
 
-def test_report_canvas_run_fails_when_posthog_mcp_is_unreachable(mocker) -> None:
-    sandbox = mocker.Mock()
-    sandbox.execute.return_value = ExecutionResult(
-        stdout="",
-        stderr="curl: (7) Failed to connect",
-        exit_code=7,
+def test_agent_shadow_flag_uses_server_side_organization_targeting(mocker) -> None:
+    feature_enabled = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
+        return_value=True,
     )
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-    config = McpServerConfig(type="http", name="posthog", url="http://host.docker.internal:8787/mcp")
 
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _ensure_required_posthog_mcp_available(context, sandbox, [config])
+    assert _is_agent_shadow_enabled(_context()) is True
+    feature_enabled.assert_called_once_with(
+        "agent-server-shadow-observer",
+        distinct_id="distinct-id",
+        groups={"organization": "organization-id"},
+        group_properties={"organization": {"id": "organization-id"}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
 
-    assert exc_info.value.non_retryable is True
-    assert "Start the MCP server and retry" in str(exc_info.value)
+
+def test_agent_shadow_flag_fails_closed(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("unavailable"),
+    )
+
+    assert _is_agent_shadow_enabled(_context()) is False
 
 
-def test_report_canvas_run_fails_when_posthog_mcp_is_not_configured(mocker) -> None:
-    sandbox = mocker.Mock()
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
+def test_agent_shadow_launches_without_credentials(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = False
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _ensure_required_posthog_mcp_available(context, sandbox, [])
+    assert _launch_agent_shadow(_context(), sandbox) is True
+    command = sandbox.execute.call_args.args[0]
+    assert "/usr/local/bin/agent-shadow" in command
+    assert "/usr/bin/env -i /usr/bin/setsid /usr/local/bin/agent-shadow" in command
+    assert "--boot-id run-id" in command
+    assert "--timeout 6m" in command
+    assert "POSTHOG" not in command
 
-    assert exc_info.value.non_retryable is True
-    assert "SANDBOX_MCP_URL" in str(exc_info.value)
+
+def test_agent_shadow_launch_guards_on_marker_not_its_own_command_line(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = False
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    assert _launch_agent_shadow(_context(), sandbox) is True
+    command = sandbox.execute.call_args.args[0]
+    assert "pgrep" not in command
+    assert "/tmp/agent-shadow-launched" in command
+
+
+def test_agent_shadow_launch_recovers_prior_attempt_from_marker(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
+        return_value=2,
+    )
+    feature_enabled = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=False,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = False
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    assert _launch_agent_shadow(_context(), sandbox) is True
+    assert "head -c 128 /tmp/agent-shadow-launched" in sandbox.execute.call_args.args[0]
+    feature_enabled.assert_not_called()
+
+
+@pytest.mark.parametrize("exit_code,launched", [(0, True), (1, False)])
+def test_agent_shadow_launch_fails_closed_on_nonzero_exit(mocker, exit_code, launched) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = False
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=exit_code)
+
+    assert _launch_agent_shadow(_context(), sandbox) is launched
+
+
+def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
+        return_value=2,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = True
+    sandbox.config.snapshot_kind = "filesystem"
+
+    assert _launch_agent_shadow(_context(), sandbox) is False
     sandbox.execute.assert_not_called()
 
 
-def test_invoke_start_agent_server_preserves_required_mcp_error(mocker) -> None:
-    # The probe runs inside _invoke_start_agent_server's try, whose broad handler rewraps failures as
-    # retryable SandboxExecutionError. A fatal RequiredMcpUnavailableError must survive that unchanged,
-    # otherwise a missing MCP config burns all three activity attempts. The direct-probe tests above
-    # pass regardless of this, so they don't cover the integrated path.
-    mocker.patch("products.tasks.backend.exceptions.capture_exception")
-    sandbox = mocker.Mock()
-    sandbox.id = "sandbox-id"
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-    params = _LaunchParams(
-        mcp_configs=[],
-        relayed_mcp_servers=[],
-        actor_user_id=None,
-        agentsh_domains=None,
-        protected_base_branch=None,
-        event_ingest_token=None,
-        task_run_session_token=None,
-        event_ingest_url=None,
-        event_ingest_keep_stream_open=False,
+def test_agent_shadow_result_is_allowlisted(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout=(
+            'run-id\n{"contractVersion":1,"bootId":"run-id","outcome":"ready",'
+            '"observedReadyMs":120,"productionReadyMs":100,"secret":"ignored"}\n'
+        ),
+        stderr="",
+        exit_code=0,
     )
 
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None, wait_for_health=True)
+    assert _read_agent_shadow_result(sandbox, "run-id") == {
+        "launched": True,
+        "outcome": "ready",
+        "observed_ready_ms": 120,
+        "production_ready_ms": 100,
+    }
+    command = sandbox.execute.call_args.args[0]
+    assert "head -c 128" in command
+    assert "tail -c 65536" in command
+    assert "[a]gent-shadow --boot-id run-id" in command
 
-    assert exc_info.value.non_retryable is True
-    assert not isinstance(exc_info.value, SandboxExecutionError)
-    sandbox.start_agent_server.assert_not_called()
+
+def test_agent_shadow_failed_result_omits_readiness_timings(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout=(
+            'run-id\n{"contractVersion":1,"bootId":"run-id","outcome":"failed",'
+            '"observedReadyMs":120,"productionReadyMs":0,"failureClass":"timeout"}\n'
+        ),
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {
+        "launched": True,
+        "outcome": "failed",
+        "failure_class": "timeout",
+    }
+
+
+def test_agent_shadow_result_rejects_another_boot(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout='run-id\n{"contractVersion":1,"bootId":"other-run","outcome":"ready"}\n',
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {"launched": True}
+
+
+@pytest.mark.parametrize(
+    "stdout,expected",
+    [
+        ("run-id\ntimed_out\n", {"launched": True, "timed_out": True}),
+        ("run-id\nno_output\n", {"launched": True, "failure_class": "no_output"}),
+        (
+            "run-id\nno_output\n/usr/local/bin/agent-shadow: Exec format error\n",
+            {"launched": True, "failure_class": "no_output"},
+        ),
+    ],
+)
+def test_agent_shadow_result_reports_sentinel_outcomes(mocker, stdout, expected) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == expected
+
+
+@pytest.mark.parametrize("payload", ["null", "true", "1", "[]", '"value"'])
+def test_agent_shadow_result_ignores_non_object_json(mocker, payload) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout=f"run-id\n{payload}\n",
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {"launched": True}
+
+
+def test_agent_shadow_result_rejects_stale_launch_marker(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout='other-run\n{"contractVersion":1,"bootId":"run-id","outcome":"ready"}\n',
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {}
+
+
+async def test_collect_agent_shadow_result_reads_after_startup(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
+    )
+    read_result = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._read_agent_shadow_result",
+        return_value={"launched": True, "outcome": "ready"},
+    )
+
+    result = await collect_agent_shadow_result(CollectAgentShadowResultInput(sandbox_id="sandbox-id", run_id="run-id"))
+
+    assert result == {"launched": True, "outcome": "ready"}
+    read_result.assert_called_once_with(sandbox, "run-id")
 
 
 @pytest.mark.django_db
@@ -465,9 +765,11 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.start_agent_server.return_value = 125
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
-        return_value=sandbox,
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
     )
     mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
     task = mocker.Mock(
@@ -502,6 +804,13 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_sandbox_event_ingest_token",
         return_value="event-ingest-token",
     )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow",
+        return_value=True,
+    )
+    shadow_result_reader = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._read_agent_shadow_result"
+    )
 
     result = await start_agent_server(
         StartAgentServerInput(
@@ -514,6 +823,8 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
 
     assert result.sandbox_url == "https://sandbox.example"
     assert result.connect_token == "connect-token"
+    assert result.shadow_launched is True
+    shadow_result_reader.assert_not_called()
     create_event_ingest_token.assert_called_once()
     assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
     task_queryset.get.assert_called_once_with(id="task-id")
@@ -530,6 +841,9 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         allowed_gateway_server_ids=["srv-1"],
     )
     sandbox.start_agent_server.assert_called_once()
+    sandbox.wait_for_agent_server_ready.assert_not_called()
+    assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is True
+    assert result.health_poll_ms == 125
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
 
 
@@ -538,9 +852,10 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
-        return_value=sandbox,
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
     )
     mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
     mocker.patch(
@@ -596,9 +911,10 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
-        return_value=sandbox,
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
     )
     mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
     mocker.patch(

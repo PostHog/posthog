@@ -70,6 +70,7 @@ class AccountProperties:
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
+    website_domain: str | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -166,6 +167,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    gong_url: str | None
     start_time: datetime
     end_time: datetime | None
     organizer_email: str
@@ -226,8 +228,27 @@ class AccountTableAssignedToFilter:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTableUnassignedFilter:
     pass
+
+
+class AccountTableRelationshipOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRelationshipFilter:
+    definition_id: UUID
+    operator: AccountTableRelationshipOperator
+    user_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -283,11 +304,86 @@ AccountTableFilter = (
     AccountTableSearchFilter
     | AccountTableTagsFilter
     | AccountTableAssignedToFilter
+    | AccountTableAssignedFilter
     | AccountTableUnassignedFilter
+    | AccountTableRelationshipFilter
     | AccountTableAccountIdFilter
     | AccountTableFieldFilter
     | AccountTableCustomPropertyFilter
 )
+
+
+class AccountTrackRuleFieldKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleField:
+    kind: AccountTrackRuleFieldKind
+    field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleCondition:
+    field: AccountTrackRuleField
+    operator: str
+    values: tuple[float | bool | str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleGroup:
+    conditions: tuple[AccountTrackRuleCondition, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulesConfig:
+    schema_version: int = 1
+    version: int = 0
+    enabled: bool = False
+    groups: tuple[AccountTrackRuleGroup, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleSample:
+    id: UUID
+    name: str
+    external_id: str | None
+    rule_values: dict[str, float | bool | str | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulePreview:
+    config_version: int
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    tracked_samples: tuple[AccountTrackRuleSample, ...]
+    ignored_samples: tuple[AccountTrackRuleSample, ...]
+    validation_errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleRunView:
+    id: UUID
+    config_version: int
+    trigger: str
+    status: str
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    error: str | None
+    created_by: int | None
+    created_at: datetime
 
 
 class AccountTableSortKind(str, Enum):
@@ -361,6 +457,7 @@ class AccountTableRow:
     id: UUID
     name: str
     external_id: str | None
+    logo_domain: str | None = None
     account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
     tags: list[str] | None = None
     note_count: int | None = None
@@ -630,6 +727,7 @@ class FeatureRequestView:
     can_update: bool = False
     account: FeatureRequestAccountView | None = None
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
+    evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
@@ -814,6 +912,7 @@ class CustomPropertyDefinitionView:
     created_by: int | None = None
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
+    has_workflow_reference: bool = False
     source: "CustomPropertySourceView | None" = None
     options: list[CustomPropertyOption] | None = None
 
@@ -864,11 +963,16 @@ class CustomPropertySourceView:
 
 @stdlib_dataclass(frozen=True)
 class CustomPropertySyncRunView:
-    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
-    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
-    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+    """One warehouse-backed custom property sync run."""
 
     id: UUID | None = None
+    job_id: str | None = None
+    account_segment: str | None = None
+    sync_phase: str | None = None
+    attempt: int | None = None
+    workflow_id: str | None = None
+    workflow_run_id: UUID | None = None
+    temporal_url: str | None = None
     trigger: str = ""
     status: str = ""
     started_at: datetime | None = None

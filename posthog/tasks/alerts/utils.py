@@ -12,11 +12,11 @@ from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayTyp
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_background_capture
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
@@ -64,6 +64,7 @@ WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
     ChartDisplayType.ACTIONS_PIE,
+    ChartDisplayType.ACTIONS_DONUT,
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
@@ -151,10 +152,14 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     "there was nothing to send" apart from "sending failed".
     """
 
+    log_properties = dict(properties)
+    if "insight_chart_url" in log_properties:
+        # The chart URL embeds a bearer token, so logs must not carry a usable credential.
+        log_properties["insight_chart_url"] = "[redacted]"
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
         alert_id=alert.id,
-        properties=properties,
+        properties=log_properties,
     )
 
     props = {
@@ -332,6 +337,7 @@ def dispatch_alert_notification(
     alert_check: AlertCheck,
     breaches: list[str] | None,
     extra_properties: dict[str, str] | None = None,
+    idempotency_key: str | None = None,
 ) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -340,10 +346,15 @@ def dispatch_alert_notification(
     receipts to record_alert_delivery so the `targets_notified` sentinel reflects reality,
     never claiming delivery for a state that didn't actually send.
 
+    `idempotency_key` defaults to the check id, which gives at-most-once email delivery per
+    check. A caller that deliberately sends a second message about the same check must pass
+    its own key, or MessagingRecord drops that email as a duplicate of the first.
+
     Raises:
         ValueError: state is FIRING but breaches is None/empty.
         AssertionError: unknown state — surfaces a missing AlertState branch loudly.
     """
+    key = idempotency_key or str(alert_check.id)
     with ExitStack() as stack:
         if alert_check.state == AlertState.FIRING:
             stack.enter_context(
@@ -374,7 +385,7 @@ def dispatch_alert_notification(
                         alert_check_id=alert_check.id,
                     )
                     return None
-                return send_notifications_for_errors(alert, alert_check.error, idempotency_key=str(alert_check.id))
+                return send_notifications_for_errors(alert, alert_check.error, idempotency_key=key)
             case AlertState.FIRING:
                 if not breaches:
                     raise ValueError(
@@ -386,9 +397,9 @@ def dispatch_alert_notification(
                 # keeping the common threshold-alert call unchanged.
                 if extra_properties:
                     return send_notifications_for_breaches(
-                        alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
+                        alert, breaches, idempotency_key=key, extra_properties=extra_properties
                     )
-                return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
+                return send_notifications_for_breaches(alert, breaches, idempotency_key=key)
             case _:
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 
@@ -488,7 +499,13 @@ def add_alert_check(
     return alert_check, should_notify(outcome)
 
 
-def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
+def disable_invalid_alert(
+    alert: AlertConfiguration,
+    reason: str,
+    *,
+    notify_subscribers: bool = True,
+    error_code: str | None = None,
+) -> AlertCheck:
     """Auto-disable a misconfigured alert and email its subscribers.
 
     Used for configuration problems that make the alert unevaluable as set up — a deliberate,
@@ -501,15 +518,18 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
     alert.save(update_fields=[*state_fields, "last_checked_at"])
 
     targets_to_notify = alert.get_subscribed_users_emails()
+    error = {"message": reason}
+    if error_code:
+        error["code"] = error_code
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=None,
         condition=alert.condition,
         targets_notified={},
         state=AlertState.ERRORED,
-        error={"message": reason},
+        error=error,
     )
-    if targets_to_notify:
+    if targets_to_notify and notify_subscribers:
         deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
         record_alert_delivery(alert, alert_check, deliveries)
     return alert_check

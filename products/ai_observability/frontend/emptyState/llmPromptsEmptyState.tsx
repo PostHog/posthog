@@ -25,7 +25,7 @@ export const llmPromptsEmptyState: SceneProductEmptyState = {
         text: {
             'needs-setup': {
                 headline: 'Update prompts without redeploying',
-                lead: 'Create and version LLM prompts in PostHog, then fetch them from your code at runtime. Every change becomes an immutable version you can compare, restore, and A/B test. Point a label like production at any version to control what your app serves, and move it whenever you want.',
+                lead: 'Create and version LLM prompts in PostHog, then fetch them from your code at runtime. Every change becomes an immutable version you can compare, restore, and A/B test. Point a label like production at any version to control what your app serves, and move it whenever you want. Prompt management is free.',
             },
         },
         primaryAction: {

@@ -42,6 +42,11 @@ pub struct KafkaLogRow {
     // Per-row retention in days. capture-logs always writes None — the Node consumer stamps
     // this from team retention rules. Null lets ClickHouse fall back to the batch header.
     pub retention_days: Option<i32>,
+    // Masked body and the rule set that produced it. capture-logs always writes None — the Node
+    // consumer stamps both. The fields exist here so the schema carries them; a value the writer
+    // schema has no slot for is silently dropped at encode.
+    pub pattern: Option<String>,
+    pub pattern_version: Option<i32>,
 }
 
 /// Sum byte lengths of the row's string and map content. Fixed-width fields
@@ -179,6 +184,8 @@ impl KafkaLogRow {
             attributes,
             bytes_uncompressed: None,
             retention_days: None,
+            pattern: None,
+            pattern_version: None,
         }
         .with_computed_bytes();
         debug!("log: {:?}", log_row);
@@ -395,6 +402,8 @@ mod tests {
             attributes,
             bytes_uncompressed: None,
             retention_days: None,
+            pattern: None,
+            pattern_version: None,
         }
     }
 

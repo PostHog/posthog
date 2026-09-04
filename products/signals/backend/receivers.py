@@ -8,7 +8,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.apps import apps
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -21,12 +20,13 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from products.signals.backend.implementation_pr import PrCloseReason
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embedding,
     emit_report_tombstone,
     render_report_document,
 )
+from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
 from products.signals.backend.tasks import close_dismissed_report_pr
 
 logger = structlog.get_logger(__name__)
@@ -36,47 +36,6 @@ _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Sta
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
-
-
-@receiver(post_save, sender="tasks.TaskThreadMessage")
-def mark_report_canvas_collaborative_from_message(
-    sender: type[object], instance: Any, created: bool, **kwargs: Any
-) -> None:
-    if created:
-        SignalReportCanvas.objects.for_team(instance.team_id).filter(discussion_task_id=instance.task_id).update(
-            collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
-            updated_at=timezone.now(),
-        )
-
-
-@receiver(post_save, sender="canvas.CanvasSourceVersion")
-def mark_report_canvas_collaborative_from_version(
-    sender: type[object], instance: Any, created: bool, **kwargs: Any
-) -> None:
-    if not created:
-        return
-    canvases = SignalReportCanvas.objects.for_team(instance.team_id).filter(canvas_id=instance.canvas_id)
-    # A version's task_id is null only on a human or app publish (the sandbox publish path always
-    # stamps its task). That is a direct edit and always claims the canvas. A version stamped with
-    # this session's own generation task is the pipeline republishing, so it is excluded.
-    if instance.task_id is not None:
-        if canvases.filter(generation_task_id=instance.task_id).exists():
-            return
-        report_ids = canvases.values("report_id")
-        task_model = apps.get_model("tasks", "Task")
-        is_report_generation = task_model.objects.filter(
-            id=instance.task_id,
-            team_id=instance.team_id,
-            internal=True,
-            origin_product="signal_report",
-            signal_report_id__in=report_ids,
-        ).exists()
-        if is_report_generation:
-            return
-    canvases.update(
-        collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
-        updated_at=timezone.now(),
-    )
 
 
 def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: str) -> None:
@@ -207,6 +166,11 @@ def _pr_close_reason(
     if instance.status == SignalReport.Status.POTENTIAL and prior_status in _SNOOZE_SOURCE_STATUSES:
         return "snoozed"
 
+    # Only a resolve that a caller asked for through the state API supersedes the PR. The PR-merge
+    # webhook also lands in RESOLVED, and its PR is merged, so there is nothing to close there.
+    if instance.status == SignalReport.Status.RESOLVED and getattr(instance, "_close_pr_on_resolve", False):
+        return "resolved"
+
     return None
 
 
@@ -218,12 +182,13 @@ def close_pr_when_report_dismissed(
     update_fields: set[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    """Close the implementation PR when a report is suppressed or snoozed.
+    """Close the implementation PR when a report is suppressed, snoozed, or resolved by a caller.
 
-    This is the single choke point for the archive→close side effect: every suppression surface
+    This is the single choke point for the dismiss→close side effect: every suppression surface
     (Slack, the REST state/bulk-state API, any future one) ends in a ``save`` that flips status
     to SUPPRESSED, and snoozing a ready/resolved report ends in READY/RESOLVED → POTENTIAL, so
-    hooking the model here covers them all without each caller opting in.
+    hooking the model here covers them all without each caller opting in. A resolve closes the PR
+    only when the state API flagged it (see ``_pr_close_reason``).
     """
     prior_status = getattr(instance, "_prior_status", None)
     reason = _pr_close_reason(
@@ -284,6 +249,14 @@ def emit_report_embedding_on_document_change(
         _schedule_tombstone(team_id=team_id, report_id=report_id, created_at=created_at, reason="unreviewed edit")
         return
 
+    # The inverse marker: a judged rewrite that re-sent the exact stored document. The text is
+    # unchanged, but the current embedding row may be a tombstone from an earlier unreviewed edit, so
+    # the no-op shortcut below must not skip this save. Consumed like `_unreviewed_edit`: it
+    # describes the one save it was set for.
+    reviewed_reindex = getattr(instance, "_reviewed_reindex", False)
+    if reviewed_reindex:
+        instance._reviewed_reindex = False  # type: ignore[attr-defined]
+
     # An edit can still land on a deleted report: `update_scout_report` gates on team ownership, not
     # status. Emitting a live row for one would supersede the deletion tombstone and make the report
     # visible to embedding queries again.
@@ -308,7 +281,7 @@ def emit_report_embedding_on_document_change(
     # bare `save()` is what Django admin does, so treating it as judged would let re-saving a report in
     # admin republish text an edit had retracted, under a verdict that predates it.
     carries_status_transition = update_fields is not None and "status" in update_fields
-    if not carries_status_transition and getattr(instance, "_prior_document", None) == content:
+    if not carries_status_transition and not reviewed_reindex and getattr(instance, "_prior_document", None) == content:
         return
 
     def _emit() -> None:
@@ -590,6 +563,7 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
     (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, "priority", "priority"),
     (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "actionability", "actionability"),
     (SignalReportArtefact.ArtefactType.DISMISSAL, "reason", "dismissal_reason"),
+    (SignalReportArtefact.ArtefactType.DISMISSAL, "corrected_repository", "dismissal_corrected_repository"),
 ]
 
 
@@ -650,3 +624,19 @@ def _classification_snapshot(
                 value = None
         snapshot[prop] = value if isinstance(value, str) else None
     return snapshot
+
+
+@receiver(post_save, sender="signals.SignalScoutConfig")
+@receiver(post_delete, sender="signals.SignalScoutConfig")
+def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **kwargs: Any) -> None:
+    """A suggestion batch describes gaps in the fleet it was generated against, so a scout being
+    enabled, disabled, or removed flips a `fresh` batch to `stale`; regeneration waits for the
+    normal refresh. Saves that cannot change the enabled set (`update_fields` without `enabled`)
+    skip the read entirely, and nothing here may fail the config write."""
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "enabled" not in update_fields:
+        return
+    try:
+        mark_stale_if_fleet_changed(instance.team_id)
+    except Exception:
+        logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)

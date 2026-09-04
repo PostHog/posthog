@@ -19,7 +19,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -34,7 +34,7 @@ _DELEGATION_UNSUPPRESS_WARN_THRESHOLD = 5
 
 
 def validate_private_project_access(value):
-    from posthog.rbac.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
+    from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
 
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")

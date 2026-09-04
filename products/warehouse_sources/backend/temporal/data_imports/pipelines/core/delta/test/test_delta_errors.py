@@ -1,6 +1,7 @@
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
 import deltalake
+import psycopg.errors
 import botocore.exceptions
 from parameterized import parameterized
 
@@ -12,6 +13,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_maintenance_error,
     is_transient_object_store_error,
 )
+
+
+def _internal_error_with_cause(cause: BaseException) -> InternalError:
+    """Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: `raise dj_exc_value ... from exc_value`."""
+    error = InternalError("cannot execute SELECT FOR UPDATE in a read-only transaction")
+    error.__cause__ = cause
+    return error
 
 
 class TestIsTransientObjectStoreError:
@@ -172,6 +180,23 @@ class TestIsTransientMaintenanceError:
                 True,
             ),
             ("genuine_bug", RuntimeError("maintenance blew up"), False),
+            # A primary failover briefly turns the write connection into a read-only standby mid
+            # watermark-persist — Postgres raises ReadOnlySqlTransaction (25006), which psycopg
+            # classifies under InternalError rather than OperationalError.
+            (
+                "watermark_persist_during_failover",
+                _internal_error_with_cause(
+                    psycopg.errors.ReadOnlySqlTransaction("cannot execute SELECT FOR UPDATE in a read-only transaction")
+                ),
+                True,
+            ),
+            # Other InternalError subtypes (e.g. real corruption) must not be swept up by the
+            # ReadOnlySqlTransaction check just because they share the same Django exception class.
+            (
+                "internal_error_unrelated_cause_not_matched",
+                _internal_error_with_cause(psycopg.errors.DataCorrupted("index is corrupted")),
+                False,
+            ),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):

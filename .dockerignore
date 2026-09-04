@@ -89,7 +89,11 @@ packages/llm-normalizer/**/dist
 products/**/node_modules
 # Nested standalone workspace, not imported by any server image; `!products` above
 # would otherwise pull ~56 MiB of desktop assets into every image build context.
-products/desktop
+products/desktop/*
+!products/desktop/packages
+products/desktop/packages/*
+!products/desktop/packages/agent-shadow
+!products/desktop/packages/agent-shadow/**
 nodejs/node_modules
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.

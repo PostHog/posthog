@@ -1,5 +1,6 @@
 from .account import Account
 from .account_channel_summary import AccountChannelSummary, SlackSummaryCadence
+from .account_track_rule_run import AccountTrackRuleRun, AccountTrackRuleRunStatus, AccountTrackRuleRunTrigger
 from .announcement import Announcement
 from .announcement_delivery import AnnouncementDelivery
 from .custom_property_definition import (
@@ -31,6 +32,7 @@ from .feature_request import (
 from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
 from .relationship import AccountRelationship, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from .user_customer_analytics_config import UserCustomerAnalyticsConfig
 
 __all__ = [
     "CANONICAL_DISPLAY_TYPE_BY_NAME",
@@ -38,6 +40,9 @@ __all__ = [
     "DATA_TYPE_BY_DISPLAY_TYPE",
     "Account",
     "AccountChannelSummary",
+    "AccountTrackRuleRun",
+    "AccountTrackRuleRunStatus",
+    "AccountTrackRuleRunTrigger",
     "AccountRelationship",
     "AccountRelationshipDefinition",
     "Announcement",
@@ -71,4 +76,5 @@ __all__ = [
     "SyncTrigger",
     "TargetType",
     "TeamCustomerAnalyticsConfig",
+    "UserCustomerAnalyticsConfig",
 ]

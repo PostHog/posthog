@@ -11,7 +11,8 @@ import { teamLogic } from 'scenes/teamLogic'
 const DATE_FORMAT = 'MMM D, YYYY'
 const DATETIME_FORMAT = 'MMM D, YYYY h:mm A'
 
-const formatPercent = (value: number | null): string => (value === null ? '—' : `${(value * 100).toFixed(2)}%`)
+const formatPercent = (value: number | null): string =>
+    value === null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(2)}%`
 
 export interface VariantTimeseriesTooltipProps {
     date: string

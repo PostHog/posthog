@@ -229,6 +229,7 @@ export interface llmEvaluationLogicValues {
     evaluationLoading: boolean
     evaluationProviderKeyIssue: LLMProviderKey | null
     evaluationRuns: EvaluationRun[]
+    evaluationRunsError: boolean
     evaluationRunsFilter: EvaluationRunsFilter
     evaluationRunsLoading: boolean
     filteredEvaluationRuns: EvaluationRun[]
@@ -730,6 +731,16 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 refreshEvaluationRuns: () => true,
                 loadEvaluationRunsSuccess: () => false,
                 loadEvaluationRunsFailure: () => false,
+            },
+        ],
+        // The runs loader keeps its default empty list when the query fails. Track the failure so
+        // the table can show a real error state with retry instead of the "no runs yet" empty state.
+        evaluationRunsError: [
+            false as boolean,
+            {
+                loadEvaluationRuns: () => false,
+                loadEvaluationRunsSuccess: () => false,
+                loadEvaluationRunsFailure: () => true,
             },
         ],
         evaluationLoading: [

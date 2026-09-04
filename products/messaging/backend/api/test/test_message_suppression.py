@@ -66,6 +66,40 @@ class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
             assert set(response.json()) == {"count", "next", "previous", "results"}
 
 
+class TestSuppressionListSearch(APIBaseTest):
+    def test_search_filters_by_identifier_within_suppressed_rows(self) -> None:
+        for identifier in ["alice@example.com", "bob@example.com"]:
+            MessageSuppression.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                identifier=identifier,
+                source=SuppressionSource.MANUAL,
+                suppressed=True,
+            )
+        # Bounce-counting row that hasn't crossed the threshold: matches the search term but must
+        # stay off the list because it isn't suppressed
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            identifier="alice@not-suppressed.com",
+            source=SuppressionSource.BOUNCE,
+            suppressed=False,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/", {"search": "ALICE"}
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["count"] == 1
+        assert data["results"][0]["identifier"] == "alice@example.com"
+
+    def test_search_term_too_long(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/", {"search": "a" * 513}
+        )
+        assert response.status_code == 400
+
+
 class TestRemoveSuppressionResetsSource(APIBaseTest):
     """
     Guards against a regression where remove_suppression keeps source='MANUAL' on the removed row.

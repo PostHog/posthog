@@ -3,11 +3,17 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.contrib import admin
+from django.contrib.messages import get_messages
+from django.test import RequestFactory
 from django.urls import reverse
 
-from posthog.admin import register_all_admin
+from parameterized import parameterized
 
-from products.tasks.backend.models import Channel, CodeInvite, Task, TaskRun
+from posthog.admin import register_all_admin
+from posthog.models.team.team import Team
+
+from products.tasks.backend.models import Channel, Loop, Task, TaskRun, TeamTasksConfig, UserTasksConfig
 
 register_all_admin()
 
@@ -108,24 +114,119 @@ class TestTaskRunAdminDownloadLogs(BaseTest):
         self.assertIn("/login", resp["Location"])
 
 
-class TestCodeInviteAdminExpireAction(BaseTest):
-    def setUp(self):
+class TestLoopAdminPauseAction(BaseTest):
+    def setUp(self) -> None:
         super().setUp()
         self.user.is_staff = True
         self.user.save()
         self.client.force_login(self.user)
+        self.mock_pause_schedules = patch("products.tasks.backend.loop_lifecycle.pause_loop_schedules").start()
+        self.mock_dispatch = patch("products.tasks.backend.loop_lifecycle.dispatch_loop_event").start()
+        self.addCleanup(patch.stopall)
+        self.enabled = self._loop("enabled")
+        self.already_paused = self._loop("already paused", enabled=False)
+        self.deleted = self._loop("deleted", deleted=True)
+        self.unselected = self._loop("unselected")
 
-    def test_expires_selected_invites_only(self):
-        selected = CodeInvite.objects.create(code="SELECTED")
-        other = CodeInvite.objects.create(code="OTHER")
+    def _loop(self, name: str, **overrides: object) -> Loop:
+        fields: dict[str, object] = {
+            "team": self.team,
+            "created_by": self.user,
+            "name": name,
+            "instructions": "Summarize",
+            "runtime_adapter": "claude",
+            "model": "claude-sonnet-5",
+            "enabled": True,
+        }
+        fields.update(overrides)
+        return Loop.objects.unscoped().create(**fields)
 
+    def _pause(self, *loops: Loop) -> list[str]:
         resp = self.client.post(
-            reverse("admin:tasks_codeinvite_changelist"),
-            {"action": "expire_invites", "_selected_action": [str(selected.id)]},
+            reverse("admin:tasks_loop_changelist"),
+            {"action": "pause_loops", "_selected_action": [str(loop.id) for loop in loops]},
+        )
+        self.assertEqual(resp.status_code, 302)
+        return [notice.message for notice in get_messages(resp.wsgi_request)]
+
+    def _state(self, loop: Loop) -> tuple[bool, str | None]:
+        fresh = Loop.objects.unscoped().get(id=loop.id)
+        return fresh.enabled, fresh.disabled_reason
+
+    def test_pauses_selected_enabled_loops_only(self) -> None:
+        notices = self._pause(self.enabled, self.already_paused, self.deleted)
+
+        self.assertEqual(self._state(self.enabled), (False, "admin_paused"))
+        self.assertEqual(self._state(self.already_paused), (False, None))
+        self.assertEqual(self._state(self.deleted), (True, None))
+        self.assertEqual(self._state(self.unselected), (True, None))
+        self.assertEqual([call.args[0].id for call in self.mock_pause_schedules.call_args_list], [self.enabled.id])
+        self.mock_dispatch.assert_called_once()
+        self.assertEqual(self.mock_dispatch.call_args.args[2]["reason"], "admin_paused")
+        self.assertEqual(
+            notices,
+            ["Paused 1 of 3 selected loop(s). Loops that were already paused or deleted were left unchanged."],
         )
 
-        self.assertEqual(resp.status_code, 302)
-        selected.refresh_from_db()
-        other.refresh_from_db()
-        self.assertIsNotNone(selected.expires_at)
-        self.assertIsNone(other.expires_at)
+    def test_keeps_going_when_one_loop_fails(self) -> None:
+        failing = self._loop("failing")
+
+        def fail_for_failing(loop: Loop, event: str, payload: dict[str, object]) -> None:
+            if loop.id == failing.id:
+                raise RuntimeError("notifications down")
+
+        self.mock_dispatch.side_effect = fail_for_failing
+
+        notices = self._pause(failing, self.enabled)
+
+        self.assertEqual(self._state(self.enabled), (False, "admin_paused"))
+        # pause_loop saves the row before it notifies, so the failing loop is paused even though
+        # the action reports it as a failure. The report is deliberately the pessimistic one.
+        self.assertEqual(self._state(failing), (False, "admin_paused"))
+        self.assertEqual(len(notices), 2)
+        self.assertEqual(notices[0], "Paused 1 of 2 selected loop(s).")
+        self.assertIn(str(failing.id), notices[1])
+
+
+class TestTasksConfigAdminForms(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        request = RequestFactory().get("/")
+        request.user = self.user
+        self.team_form_class = admin.site._registry[TeamTasksConfig].get_form(request)
+        self.user_form_class = admin.site._registry[UserTasksConfig].get_form(request)
+
+    @parameterized.expand(
+        [
+            ("model_without_adapter", {"model": "claude-opus-4-8"}),
+            ("unknown_key", {"runtime_adapter": "claude", "model": "claude-opus-4-8", "profile": "max"}),
+            ("non_string_value", {"runtime_adapter": "claude", "model": 7}),
+        ]
+    )
+    def test_rejects_invalid_preference_payloads(self, _name: str, payload: dict) -> None:
+        form = self.team_form_class(data={"team": self.team.pk, "ai_run_preferences": payload})
+        assert not form.is_valid()
+        assert "ai_run_preferences" in form.errors
+
+    def test_accepts_a_valid_payload_on_both_admin_forms(self) -> None:
+        # The extension row is auto-created with the team, so the admin flow is a change form.
+        team_form = self.team_form_class(
+            instance=TeamTasksConfig.objects.get(team=self.team),
+            data={
+                "team": self.team.pk,
+                "ai_run_preferences": {"runtime_adapter": "claude", "model": "claude-opus-4-8"},
+            },
+        )
+        assert team_form.is_valid(), team_form.errors
+        user_form = self.user_form_class(data={"team": self.team.pk, "user": self.user.pk, "ai_run_preferences": {}})
+        assert user_form.is_valid(), user_form.errors
+
+    def test_rejects_a_row_keyed_on_an_environment_team(self) -> None:
+        env_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="env"
+        )
+        form = self.team_form_class(data={"team": env_team.pk, "ai_run_preferences": None})
+        assert not form.is_valid()
+        assert "project root team" in str(form.errors["team"])

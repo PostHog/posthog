@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -14,7 +14,7 @@ import * as zod from 'zod'
  * Source is versioned per publish and built server-side; the canvas app
  * renders the published build's artifact from the isolated artifact origin.
  */
-export const CanvasesListParams = /* @__PURE__ */ zod.object({
+export const CanvasesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -22,7 +22,7 @@ export const CanvasesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CanvasesListQueryParams = /* @__PURE__ */ zod.object({
+export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
     kind: zod
         .enum(['component', 'freeform', 'grid'])
@@ -39,7 +39,7 @@ export const CanvasesListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create a new, empty canvas in a channel; give it source by publishing a project.
  */
-export const CanvasesCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -54,7 +54,7 @@ export const canvasesCreateBodyDescriptionDefault = ``
 export const canvasesCreateBodyTemplateIdDefault = `freeform`
 export const canvasesCreateBodyTemplateIdMax = 64
 
-export const CanvasesCreateBody = /* @__PURE__ */ zod
+export const CanvasesCreateBody = () => zod
     .object({
         name: zod.string().max(canvasesCreateBodyNameMax).describe('Display name for the canvas.'),
         channel_id: zod.string().describe('Id of the channel the canvas belongs to.'),
@@ -80,13 +80,9 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
     .describe('Payload for creating a new, empty canvas in a channel.')
 
 /**
- * Read the canvas's build lifecycle: live pointers plus recent builds.
- *
- * A publish queues a build; poll this until it is ready (the live pointer
- * advances) or failed (fix the error diagnostics and publish again — the
- * last good build stays live).
+ * Update canvas metadata, including the space it belongs to.
  */
-export const CanvasesBuildsRetrieveParams = /* @__PURE__ */ zod.object({
+export const CanvasesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -95,7 +91,42 @@ export const CanvasesBuildsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CanvasesBuildsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const canvasesPartialUpdateBodyNameMax = 400
+
+export const CanvasesPartialUpdateBody = () => zod
+    .object({
+        name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
+        context: zod.string().optional().describe('Updated author context markdown.'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Updated canvas description (for components, the store-search text).'),
+        channel_id: zod.string().optional().describe('Id of the space the canvas belongs to.'),
+        pinned: zod.boolean().optional().describe('Whether the canvas is pinned in its channel.'),
+        generation_task_id: zod
+            .string()
+            .nullish()
+            .describe('Task currently generating this canvas, or null to clear it.'),
+    })
+    .describe('Writable canvas fields: metadata only — source changes go through publish\/edit.')
+
+/**
+ * Read the canvas's build lifecycle: live pointers plus recent builds.
+ *
+ * A publish queues a build; poll this until it is ready (the live pointer
+ * advances) or failed (fix the error diagnostics and publish again — the
+ * last good build stays live).
+ */
+export const CanvasesBuildsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CanvasesBuildsRetrieveQueryParams = () => zod.object({
     version_id: zod
         .string()
         .optional()
@@ -112,7 +143,7 @@ export const CanvasesBuildsRetrieveQueryParams = /* @__PURE__ */ zod.object({
  * current head's, so growth in access can be reviewed before it ships.
  * No version guard applies: a draft conflicts with nothing.
  */
-export const CanvasesDraftCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesDraftCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -157,7 +188,7 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemM
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
-export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
+export const CanvasesDraftCreateBody = () => zod
     .object({
         project: zod
             .object({
@@ -325,7 +356,7 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
  * A draft is a version that was built but never made the head. Preview one
  * with `source?version_id=`, then make it live with `promote`.
  */
-export const CanvasesDraftsRetrieveParams = /* @__PURE__ */ zod.object({
+export const CanvasesDraftsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -334,7 +365,7 @@ export const CanvasesDraftsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CanvasesDraftsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -348,7 +379,7 @@ export const CanvasesDraftsRetrieveQueryParams = /* @__PURE__ */ zod.object({
  * relative edits against an unverified base could silently merge into
  * someone else's newer work.
  */
-export const CanvasesEditCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesEditCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -359,7 +390,7 @@ export const CanvasesEditCreateParams = /* @__PURE__ */ zod.object({
 
 export const canvasesEditCreateBodyNameMax = 400
 
-export const CanvasesEditCreateBody = /* @__PURE__ */ zod
+export const CanvasesEditCreateBody = () => zod
     .object({
         operations: zod
             .array(
@@ -404,7 +435,7 @@ export const CanvasesEditCreateBody = /* @__PURE__ */ zod
  * not overwritten. A grid canvas with no versions yet returns the
  * default empty layout with a null version id.
  */
-export const CanvasesLayoutRetrieveParams = /* @__PURE__ */ zod.object({
+export const CanvasesLayoutRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -413,7 +444,7 @@ export const CanvasesLayoutRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CanvasesLayoutRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const CanvasesLayoutRetrieveQueryParams = () => zod.object({
     version_id: zod
         .string()
         .optional()
@@ -428,7 +459,7 @@ export const CanvasesLayoutRetrieveQueryParams = /* @__PURE__ */ zod.object({
  * `expected_current_version_id` is mandatory so an agent filling a box
  * and a user rearranging widgets cannot overwrite each other.
  */
-export const CanvasesLayoutPatchCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesLayoutPatchCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -460,7 +491,7 @@ export const canvasesLayoutPatchCreateBodyOperationsItemChangesOneYMin = 0
 
 export const canvasesLayoutPatchCreateBodyOperationsItemChangesOnePromptMax = 10000
 
-export const CanvasesLayoutPatchCreateBody = /* @__PURE__ */ zod
+export const CanvasesLayoutPatchCreateBody = () => zod
     .object({
         operations: zod
             .array(
@@ -651,7 +682,7 @@ export const CanvasesLayoutPatchCreateBody = /* @__PURE__ */ zod
  * build. Validation errors reject the publish (400) and leave the canvas
  * untouched; a stale `expected_current_version_id` is rejected with 409.
  */
-export const CanvasesLayoutPublishCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesLayoutPublishCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -675,7 +706,7 @@ export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemYMin = 0
 
 export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemPromptMax = 10000
 
-export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
+export const CanvasesLayoutPublishCreateBody = () => zod
     .object({
         layout: zod
             .object({
@@ -790,7 +821,7 @@ export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
  * A draft whose build is ready goes live immediately, with no rebuild;
  * otherwise a fresh build is queued. Returns that build.
  */
-export const CanvasesPromoteCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesPromoteCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -799,7 +830,7 @@ export const CanvasesPromoteCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CanvasesPromoteCreateBody = /* @__PURE__ */ zod
+export const CanvasesPromoteCreateBody = () => zod
     .object({
         version_id: zod.string().describe('Id of the draft source version to make live.'),
         expected_current_version_id: zod
@@ -818,7 +849,7 @@ export const CanvasesPromoteCreateBody = /* @__PURE__ */ zod
  * untouched; a stale `expected_current_version_id` is rejected with 409.
  * A successful publish queues a server-side build.
  */
-export const CanvasesPublishCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesPublishCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -865,7 +896,7 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax
 
 export const canvasesPublishCreateBodyNameMax = 400
 
-export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
+export const CanvasesPublishCreateBody = () => zod
     .object({
         project: zod
             .object({
@@ -1043,7 +1074,7 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
 /**
  * Queue a build for the current source version without changing source or metadata.
  */
-export const CanvasesPublishCurrentVersionCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesPublishCurrentVersionCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -1052,7 +1083,7 @@ export const CanvasesPublishCurrentVersionCreateParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const CanvasesPublishCurrentVersionCreateBody = /* @__PURE__ */ zod.object({
+export const CanvasesPublishCurrentVersionCreateBody = () => zod.object({
     expected_current_version_id: zod
         .string()
         .describe('Current source version to publish. A changed head returns a 409 version_conflict.'),
@@ -1066,7 +1097,7 @@ export const CanvasesPublishCurrentVersionCreateBody = /* @__PURE__ */ zod.objec
  * `expected_current_version_id` so concurrent edits are not overwritten.
  * `?version_id=` reads a historical version instead of the head.
  */
-export const CanvasesSourceRetrieveParams = /* @__PURE__ */ zod.object({
+export const CanvasesSourceRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -1075,7 +1106,7 @@ export const CanvasesSourceRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CanvasesSourceRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const CanvasesSourceRetrieveQueryParams = () => zod.object({
     version_id: zod
         .string()
         .optional()
@@ -1088,7 +1119,7 @@ export const CanvasesSourceRetrieveQueryParams = /* @__PURE__ */ zod.object({
  * Returns shared entries plus the authenticated user's own user-scoped
  * entries — never another user's.
  */
-export const CanvasesStateRetrieveParams = /* @__PURE__ */ zod.object({
+export const CanvasesStateRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -1097,14 +1128,14 @@ export const CanvasesStateRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CanvasesStateRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const CanvasesStateRetrieveQueryParams = () => zod.object({
     scope: zod.enum(['shared', 'user']).optional().describe('Only return entries in this scope.'),
 })
 
 /**
  * Write one key of the canvas's runtime state, or delete it with a null value.
  */
-export const CanvasesStateSetParams = /* @__PURE__ */ zod.object({
+export const CanvasesStateSetParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -1115,7 +1146,7 @@ export const CanvasesStateSetParams = /* @__PURE__ */ zod.object({
 
 export const canvasesStateSetBodyKeyMax = 200
 
-export const CanvasesStateSetBody = /* @__PURE__ */ zod
+export const CanvasesStateSetBody = () => zod
     .object({
         scope: zod
             .enum(['user', 'shared'])
@@ -1131,7 +1162,7 @@ export const CanvasesStateSetBody = /* @__PURE__ */ zod
 /**
  * Validate a candidate source project without publishing it. Side-effect free.
  */
-export const CanvasesValidateCreateParams = /* @__PURE__ */ zod.object({
+export const CanvasesValidateCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
     project_id: zod
         .string()
@@ -1176,7 +1207,7 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsIt
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
-export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
+export const CanvasesValidateCreateBody = () => zod
     .object({
         project: zod
             .object({

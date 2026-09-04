@@ -143,7 +143,7 @@ export function ConfigureAgentsSection() {
         description={
           <>
             Scheduled agents that sweep this project on a cadence and emit
-            signals to your inbox.{" "}
+            signals to Self-driving.{" "}
             {/* Placeholder docs link until a dedicated scouts page exists. */}
             <a
               href="https://posthog.com/blog/self-driving-product"

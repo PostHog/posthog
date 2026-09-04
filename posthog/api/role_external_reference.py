@@ -12,10 +12,10 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.role_external_reference import RoleExternalReference
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
-from ee.models.rbac.role import Role
+from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role_external_reference import RoleExternalReference
 
 
 class OrganizationRoleScopedPrimaryKeyRelatedField(OrgScopedPrimaryKeyRelatedField):

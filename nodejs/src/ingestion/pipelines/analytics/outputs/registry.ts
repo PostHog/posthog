@@ -1,4 +1,11 @@
-import { ASYNC_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '.'
+import {
+    ASYNC_OUTPUT,
+    EVENTS_OUTPUT,
+    FLAG_EVALUATIONS_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '.'
 
 import {
     APP_METRICS_OUTPUT,
@@ -18,6 +25,10 @@ export function createOutputsRegistry() {
             .register(EVENTS_OUTPUT, {
                 topicKey: 'INGESTION_OUTPUT_EVENTS_TOPIC',
                 producerKey: 'INGESTION_OUTPUT_EVENTS_PRODUCER',
+            })
+            .register(FLAG_EVALUATIONS_OUTPUT, {
+                topicKey: 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC',
+                producerKey: 'INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER',
             })
             .register(INGESTION_WARNINGS_OUTPUT, {
                 topicKey: 'INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC',

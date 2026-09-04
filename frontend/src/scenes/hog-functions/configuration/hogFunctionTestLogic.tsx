@@ -41,10 +41,6 @@ export type HogTransformationEvent = {
 
 const convertToTransformationEvent = (result: any): HogTransformationEvent => {
     const properties = result.properties ?? {}
-    // We don't want to use these values given they will change in the test invocation
-    delete properties.$transformations_failed
-    delete properties.$transformations_succeeded
-    delete properties.$transformations_skipped
     return {
         event: result.event,
         uuid: result.uuid,
@@ -55,9 +51,6 @@ const convertToTransformationEvent = (result: any): HogTransformationEvent => {
 }
 
 const convertFromTransformationEvent = (result: HogTransformationEvent): Record<string, any> => {
-    delete result.properties.$transformations_failed
-    delete result.properties.$transformations_succeeded
-    delete result.properties.$transformations_skipped
     return {
         event: result.event,
         uuid: result.uuid,

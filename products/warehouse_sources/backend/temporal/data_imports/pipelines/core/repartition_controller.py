@@ -12,7 +12,6 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import deltalake as deltalake
@@ -21,7 +20,6 @@ from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.utils import retry_on_db_connection_drop
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -39,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_COARSEN_DECLINE_TOTAL,
     DELTA_REPARTITION_SKIP_TOTAL,
 )
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -103,59 +102,15 @@ def repartition_oom_window_days() -> int:
 
 
 def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
-    return _is_flag_enabled(schema, WAREHOUSE_AUTO_REPARTITION_FLAG)
+    return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_REPARTITION_FLAG)
 
 
 def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
-    return _is_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
+    return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
 
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
-    return _is_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
-
-
-def _is_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
-    """Evaluate a rollout flag for this schema.
-
-    `schema_id`, `team_id`, and `source_type` are passed as person properties so the flag can be
-    released to a single table — set a release condition `schema_id = <id>` to dogfood the controller
-    on one schema before rolling out by team/org/project.
-    """
-    from posthog.models import Team
-
-    try:
-        team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=schema.team_id))
-    except Team.DoesNotExist:
-        return False
-    except (OperationalError, InterfaceError) as e:
-        # retry_on_db_connection_drop already retried once; a second failure is a genuinely degraded
-        # DB, not a bug here. Some callers (repartition_table.py) evaluate this flag with no enclosing
-        # try/except, so this function's contract of "never raises, defaults to disabled" must hold on
-        # its own.
-        capture_exception(e)
-        return False
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                person_properties={
-                    "schema_id": str(schema.id),
-                    "team_id": str(schema.team_id),
-                    "source_type": schema.source.source_type,
-                },
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
+    return is_schema_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
 
 
 def base_event_props(schema: ExternalDataSchema, source: ExternalDataSource, job_id: str | None) -> dict[str, Any]:

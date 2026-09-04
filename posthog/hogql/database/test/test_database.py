@@ -57,7 +57,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -69,6 +70,7 @@ from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.schema_enums import SessionTableVersion
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -209,6 +211,54 @@ def _catalog_node(names: list[str]) -> TableNode:
             node = node.children.setdefault(part, TableNode(name=part, children={}))
         node.table = Table(fields={"id": StringDatabaseField(name="id")})
     return root
+
+
+class TestTableNodeCaseInsensitiveLookup(TestCase):
+    def _node(self, name: str = "leaf", *, case_insensitive: bool) -> TableNode:
+        return TableNode(
+            name=name,
+            table=Table(fields={"id": StringDatabaseField(name="id")}),
+            case_insensitive=case_insensitive,
+        )
+
+    def test_exact_match_wins_over_case_insensitive(self):
+        ci = self._node(case_insensitive=True)
+        exact = self._node(case_insensitive=False)
+        root = TableNode(name="root", children={"NATION": ci, "nation": exact})
+
+        assert root.get_child(["nation"]) is exact
+        assert root.get_child(["NATION"]) is ci
+        assert root.get_child(["NaTiOn"]) is ci
+
+    def test_only_opted_in_children_match_case_insensitively(self):
+        root = TableNode(name="root", children={"events": self._node(case_insensitive=False)})
+
+        assert root.has_child(["events"])
+        assert not root.has_child(["EVENTS"])
+
+    def test_collision_keeps_first_child_in_iteration_order(self):
+        first = self._node(case_insensitive=True)
+        second = self._node(case_insensitive=True)
+        root = TableNode(name="root", children={"Nation": first, "NATION": second})
+
+        assert root.get_child(["nation"]) is first
+
+    def test_lookup_sees_child_replaced_through_add_child(self):
+        root = TableNode(name="root", children={"Nation": self._node("Nation", case_insensitive=True)})
+        assert root.has_child(["nation"])  # warms the case-insensitive index
+
+        root.add_child(self._node("Nation", case_insensitive=False), children_conflict_mode="override")
+
+        assert root.has_child(["Nation"])
+        assert not root.has_child(["nation"])
+
+    def test_lookup_sees_externally_removed_child(self):
+        root = TableNode(name="root", children={"Nation": self._node("Nation", case_insensitive=True)})
+        assert root.has_child(["nation"])  # warms the case-insensitive index
+
+        del root.children["Nation"]
+
+        assert not root.has_child(["nation"])
 
 
 class TestUnknownTableSuggestions(TestCase):
@@ -1852,15 +1902,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ), query
 
     def test_selecting_persons_from_events_ignores_future_persons(self):
-        db = Database.create_for(team=self.team)
+        # disable PoE for the database too: the field layout comes from the
+        # database, so a context-only pin prints the team default's SQL
+        modifiers = create_default_modifiers_for_team(
+            self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+        )
+        db = Database.create_for(team=self.team, modifiers=modifiers)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             database=db,
-            # disable PoE
-            modifiers=create_default_modifiers_for_team(
-                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-            ),
+            modifiers=modifiers,
         )
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
@@ -1932,6 +1984,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with self.assertNumQueries(num_queries):
                 Database.create_for(team=self.team)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_database_warehouse_joins_persons_poe_old_properties(self):
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -4130,3 +4183,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestCreateForPosthogTables(BaseTest):
+    def test_builds_without_postgres_and_applies_modifiers(self):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            # One cached instance-setting read is fine; the full build issues a dozen queries.
+            self.assertNumQueries(FuzzyInt(0, 1)),
+        ):
+            database = Database.create_for_posthog_tables(self.team, modifiers=modifiers)
+
+        assert isinstance(database.get_table("raw_sessions"), RawSessionsTableV2)
+        assert "events" in database.get_posthog_table_names()
+        assert database.get_warehouse_table_names() == []
+
+    def test_removes_gated_system_tables(self):
+        database = Database.create_for_posthog_tables(self.team)
+
+        system_table_names = database.get_system_table_names()
+        assert "system.feature_flags" not in system_table_names
+        assert "system.activity_logs" not in system_table_names
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.activity_logs")

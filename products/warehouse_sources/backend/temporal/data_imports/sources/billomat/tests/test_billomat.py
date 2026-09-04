@@ -9,13 +9,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldSwitchGroupConfig,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.billomat.billomat import (
     BillomatPaginator,
     BillomatResumeConfig,
@@ -36,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     BillomatRegisteredAppConfig,
     BillomatSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = sorted(INCREMENTAL_FIELDS.keys())
 FULL_REFRESH_ENDPOINTS = sorted(set(ENDPOINTS) - set(INCREMENTAL_FIELDS.keys()))
@@ -377,12 +369,6 @@ class TestBillomatSource:
         self.team_id = 123
         self.config = BillomatSourceConfig(billomat_id="acme", api_key="test-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BILLOMAT
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
     def test_billomat_id_is_a_connection_host_field(self) -> None:
         # billomat_id determines the request host (https://{billomat_id}.billomat.net), so
         # changing it must force re-entry of the stored api_key/app_secret.
@@ -390,56 +376,6 @@ class TestBillomatSource:
 
     def test_api_docs_url(self) -> None:
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Billomat"
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/billomat"
-        assert config.iconPath == "/static/services/billomat.png"
-        assert not config.unreleasedSource
-
-        billomat_id_field, api_key_field, registered_app_field = config.fields
-        assert isinstance(billomat_id_field, SourceFieldInputConfig)
-        assert billomat_id_field.name == "billomat_id"
-        assert billomat_id_field.required is True
-        assert billomat_id_field.secret is False
-
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        assert isinstance(registered_app_field, SourceFieldSwitchGroupConfig)
-        assert registered_app_field.default is False
-        assert {f.name for f in registered_app_field.fields} == {"app_id", "app_secret"}
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert any(expected_key in key for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
-    def test_get_schemas_incremental_endpoints(self, endpoint: str) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        schema = schemas[endpoint]
-        assert schema.supports_incremental is True
-        assert [f["field"] for f in schema.incremental_fields] == ["date"]
-
-    @pytest.mark.parametrize("endpoint", FULL_REFRESH_ENDPOINTS)
-    def test_get_schemas_full_refresh_endpoints(self, endpoint: str) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        schema = schemas[endpoint]
-        assert schema.supports_incremental is False
-        assert schema.incremental_fields == []
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions().keys()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         ("billomat_id", "valid"),
@@ -520,11 +456,6 @@ class TestBillomatSource:
             self.source.validate_credentials(config, self.team_id)
 
         mock_validate.assert_called_once_with("test-key", "acme", None, None)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BillomatResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source.billomat_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

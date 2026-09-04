@@ -16,7 +16,9 @@ export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
 
-export const savedCreateBodyDataUrlMax = 2000
+export const savedCreateBodyDataUrlOneMax = 2000
+
+export const savedCreateBodyDataUrlTwoMax = 0
 
 export const savedCreateBodyWidthsItemMin = 100
 export const savedCreateBodyWidthsItemMax = 3000
@@ -32,9 +34,8 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         .max(savedCreateBodyUrlMax)
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedCreateBodyDataUrlMax)
-        .nullish()
+        .union([zod.url().max(savedCreateBodyDataUrlOneMax).nullable(), zod.string().max(savedCreateBodyDataUrlTwoMax)])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedCreateBodyWidthsItemMin).max(savedCreateBodyWidthsItemMax))
@@ -66,7 +67,9 @@ export const savedPartialUpdateBodyNameMax = 400
 
 export const savedPartialUpdateBodyUrlMax = 2000
 
-export const savedPartialUpdateBodyDataUrlMax = 2000
+export const savedPartialUpdateBodyDataUrlOneMax = 2000
+
+export const savedPartialUpdateBodyDataUrlTwoMax = 0
 
 export const savedPartialUpdateBodyWidthsItemMin = 100
 export const savedPartialUpdateBodyWidthsItemMax = 3000
@@ -87,9 +90,11 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedPartialUpdateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedPartialUpdateBodyDataUrlOneMax).nullable(),
+            zod.string().max(savedPartialUpdateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedPartialUpdateBodyWidthsItemMin).max(savedPartialUpdateBodyWidthsItemMax))
@@ -134,7 +139,7 @@ export const savedCaptureCreateBodyNameMax = 400
 export const SavedCaptureCreateBody = /* @__PURE__ */ zod.object({
     image: zod
         .url()
-        .optional()
+        .nullish()
         .describe(
             "Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'\/'widths' instead to save several viewport widths on one heatmap."
         ),
@@ -196,6 +201,19 @@ export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, ask the headless browser to dismiss cookie\/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused.'
         ),
+})
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxtBodyUrlMax = 2048
+
+export const WebAnalyticsFetchLlmsTxtBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .url()
+        .max(webAnalyticsFetchLlmsTxtBodyUrlMax)
+        .describe('Public HTTP or HTTPS URL of the llms.txt file to load.'),
 })
 
 /**

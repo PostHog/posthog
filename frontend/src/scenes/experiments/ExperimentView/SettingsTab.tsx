@@ -9,17 +9,18 @@ import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { DEFAULT_LOOKBACK_DAYS } from '../constants'
+import { DEFAULT_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { CupedModal } from 'products/experiments/frontend/modals/CupedModal/CupedModal'
+import { StatsMethodModal } from 'products/experiments/frontend/modals/StatsMethodModal/StatsMethodModal'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getBaselineVariantKey } from '../utils'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
-import { CupedModal } from './CupedModal'
 import { resolveSequentialEnabled } from './sequential'
-import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
-    const { experiment, statsMethod, variants } = useValues(experimentLogic)
+    const { experiment, statsMethod, variants, experimentUpdateLoading } = useValues(experimentLogic)
     const { updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
@@ -60,7 +61,14 @@ export function SettingsTab(): JSX.Element {
                         {isBayesian ? 'Bayesian' : 'Frequentist'} / {confidenceDisplay}
                         {!isBayesian && sequentialEnabled && ' · Sequential testing'}
                     </span>
-                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openStatsEngineModal} />
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconPencil />}
+                        onClick={openStatsEngineModal}
+                        tooltip="Edit statistics settings"
+                        aria-label="Edit statistics settings"
+                    />
                 </div>
                 <StatsMethodModal />
             </div>
@@ -71,7 +79,14 @@ export function SettingsTab(): JSX.Element {
                         {cupedEnabled ? 'Enabled' : 'Disabled'}
                     </LemonTag>
                     {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
-                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconPencil />}
+                        onClick={openCupedModal}
+                        tooltip="Edit CUPED settings"
+                        aria-label="Edit CUPED settings"
+                    />
                 </div>
                 <p className="text-muted text-xs mt-1">
                     Use pre-experiment data to detect significant effects faster. Currently supported for mean and
@@ -92,6 +107,7 @@ export function SettingsTab(): JSX.Element {
                 <h2 className="font-semibold text-lg">Baseline variant</h2>
                 <LemonSelect
                     value={getBaselineVariantKey(experiment)}
+                    loading={experimentUpdateLoading}
                     options={variants.map((v) => ({
                         value: v.key,
                         label: v.key,
@@ -110,6 +126,7 @@ export function SettingsTab(): JSX.Element {
                     <LemonCheckbox
                         label="Require completed conversion or retention window"
                         checked={experiment.only_count_matured_users ?? false}
+                        disabled={experimentUpdateLoading}
                         onChange={(checked) => {
                             updateExperimentSettings({ only_count_matured_users: checked })
                         }}

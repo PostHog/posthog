@@ -58,6 +58,8 @@ class EventsPersonSubTable(VirtualTable):
 
 
 class EventsGroupSubTable(VirtualTable):
+    group_index: int = 0
+
     def __init__(self, group_index: int):
         super().__init__(
             fields={
@@ -66,6 +68,7 @@ class EventsGroupSubTable(VirtualTable):
                 "properties": StringJSONDatabaseField(name=f"group{group_index}_properties", nullable=False),
             }
         )
+        self.group_index = group_index
 
     def avoid_asterisk_fields(self):
         return []
@@ -126,6 +129,7 @@ class EventsTable(Table):
             name="$window_id", nullable=False, description="Window/tab identifier within a session."
         ),
         "person_mode": StringDatabaseField(name="person_mode", nullable=False),
+        "event_person_id": UUIDDatabaseField(name="person_id", hidden=True),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(
             from_field=["distinct_id"],

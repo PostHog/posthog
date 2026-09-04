@@ -12,7 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
@@ -25,7 +25,7 @@ from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
-from products.tasks.backend.logic.services.compute_quota import ComputeQuotaDenialReason
+from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
 
@@ -114,17 +114,6 @@ class CanvasAPIBaseTest(APIBaseTest):
 
 
 class TestCanvasCrud(CanvasAPIBaseTest):
-    def test_retrieve_includes_the_stable_discussion_task(self):
-        canvas_id = self._create_canvas()
-        discussion_task_id = uuid4()
-        with team_scope(self.team.id):
-            Canvas.objects.filter(id=canvas_id).update(discussion_task_id=discussion_task_id)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["discussion_task_id"] == str(discussion_task_id)
-
     def test_missing_user_only_sees_public_channels(self):
         with team_scope(self.team.id):
             public = Channel.objects.create(team=self.team, name="public")
@@ -155,6 +144,85 @@ class TestCanvasCrud(CanvasAPIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
+
+    def test_notebook_widget_canvas_is_hidden_from_the_canvas_api(self):
+        with team_scope(self.team.id):
+            notebook_canvas = Canvas.objects.create(
+                team=self.team,
+                channel=self.channel,
+                name="Notebook widget",
+                created_by=self.user,
+                source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
+            )
+        base = f"/api/projects/{self.team.id}/canvases/{notebook_canvas.id}"
+
+        listed_ids = {row["id"] for row in self.client.get(f"/api/projects/{self.team.id}/canvases/").json()["results"]}
+
+        assert str(notebook_canvas.id) not in listed_ids
+        assert self.client.get(f"{base}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{base}/source/").status_code == status.HTTP_404_NOT_FOUND
+        assert self._publish(str(notebook_canvas.id)).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_can_file_canvas_to_another_visible_channel(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel"] == str(destination.id)
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == destination.id
+
+    def test_cannot_file_canvas_to_invisible_personal_channel(self):
+        canvas_id = self._create_canvas()
+        other_user = self._create_user("canvas-owner@example.com")
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(
+                team=self.team,
+                name="me",
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=other_user,
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Channel not found in this team."
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
+
+    def test_task_bound_sandbox_cannot_move_canvas_to_another_space(self):
+        canvas_id = self._create_canvas()
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination", created_by=self.user)
+        client = self._sandbox_client(bound_task.id)
+
+        response = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This sandbox can file canvases only in its task's space."
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
         # A canvas filed into a teammate's personal channel is private to them:
@@ -257,7 +325,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         # The rejection names the task's channel so the agent can recover in one step.
         assert str(self.channel.id) in wrong_channel.json()["detail"]
 
-    def test_task_bound_sandbox_can_write_its_linked_canvas_and_canvases_created_by_the_actor(self):
+    def test_task_bound_sandbox_can_read_canvases_created_by_the_authenticated_user(self):
         bound_task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -314,8 +382,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert earlier_detail.status_code == status.HTTP_200_OK
         assert update.status_code == status.HTTP_200_OK
         assert update.json()["name"] == "Updated by later task"
-        assert linked_update.status_code == status.HTTP_200_OK
-        assert linked_update.json()["name"] == "Linked but unowned"
+        assert linked_update.status_code == status.HTTP_404_NOT_FOUND
 
     def test_rebound_sandbox_does_not_inherit_task_creator_canvas_access(self) -> None:
         actor = self._create_user("rebound-sandbox-actor@example.com")
@@ -539,6 +606,35 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/", {"pinned": False}, format="json"
         )
         assert response.json()["pinned"] is False
+
+    def test_moving_canvas_clears_channel_pin(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination", created_by=self.user)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"pinned": True},
+            format="json",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["pinned"] is False
+        assert self._changes(self._activity("updated")[-1]) == [
+            {
+                "type": "Canvas",
+                "action": "changed",
+                "field": "channel",
+                "before": str(self.channel.id),
+                "after": str(destination.id),
+            },
+            {"type": "Canvas", "action": "changed", "field": "pinned", "before": True, "after": False},
+        ]
 
     def test_generation_task_pointer_validates_team(self):
         canvas_id = self._create_canvas()
@@ -993,10 +1089,21 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
             )
             return Canvas.objects.create(team_id=self.team.id, channel=channel, name="Private", created_by=owner)
 
+    def _notebook_widget(self) -> Canvas:
+        with team_scope(self.team.id):
+            return Canvas.objects.create(
+                team=self.team,
+                channel=self.channel,
+                name="Notebook widget",
+                created_by=self.user,
+                source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
+            )
+
     def test_team_visible_ids_include_public_but_hide_others_personal_canvas(self):
         other = self._create_user("teammate-vis@example.com")
         private = self._personal_canvas(self.user)
         public_id = self._create_canvas(name="Public")
+        notebook_widget = self._notebook_widget()
 
         owner_visible = activity_visibility.visible_canvas_ids(self.team.id, self.user)
         other_visible = activity_visibility.visible_canvas_ids(self.team.id, other)
@@ -1004,15 +1111,41 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         assert {public_id, str(private.id)} <= owner_visible
         assert public_id in other_visible
         assert str(private.id) not in other_visible
+        assert str(notebook_widget.id) not in owner_visible
+        assert str(notebook_widget.id) not in other_visible
 
     def test_org_hidden_ids_exclude_owner_but_include_other_members(self):
         other = self._create_user("teammate-org@example.com")
         private = self._personal_canvas(self.user)
+        notebook_widget = self._notebook_widget()
 
-        assert str(private.id) not in activity_visibility.hidden_personal_canvas_ids_for_org(
-            self.organization.id, self.user
-        )
-        assert str(private.id) in activity_visibility.hidden_personal_canvas_ids_for_org(self.organization.id, other)
+        assert str(private.id) not in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, self.user)
+        assert str(private.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, other)
+        assert str(notebook_widget.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, self.user)
+        assert str(notebook_widget.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, other)
+
+    def test_team_activity_feed_hides_notebook_widget_rows(self):
+        public_id = self._create_canvas(name="Public")
+        notebook_widget = self._notebook_widget()
+        for item_id, name in ((public_id, "Public"), (str(notebook_widget.id), "Notebook widget")):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=item_id,
+                scope="Canvas",
+                activity="published",
+                detail=Detail(name=name),
+                force_save=True,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        visible_canvas_ids = {row["item_id"] for row in response.json()["results"] if row["scope"] == "Canvas"}
+        assert public_id in visible_canvas_ids
+        assert str(notebook_widget.id) not in visible_canvas_ids
 
 
 class TestCanvasDraftBuilds(CanvasAPIBaseTest):

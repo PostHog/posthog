@@ -630,7 +630,7 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyGenericSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -642,7 +642,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -681,7 +681,7 @@ export const ExistenceOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyExistsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -693,7 +693,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -722,7 +722,7 @@ export const DateOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyDateSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -734,7 +734,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -777,7 +777,7 @@ export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertySemverSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -789,7 +789,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -824,7 +824,7 @@ export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -836,7 +836,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -884,7 +884,7 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -930,7 +930,7 @@ export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -1163,10 +1163,10 @@ export interface DependentFlagApi {
 export interface FeatureFlagRolloutSummaryApi {
     /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
     effectively_full_rollout: boolean
-    /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+    /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list. */
     has_targeting_conditions: boolean
     /**
-     * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+     * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.
      * @nullable
      */
     max_rollout_percentage: number | null
@@ -1179,6 +1179,8 @@ export interface FeatureFlagStatusResponseApi {
     status: string
     /** Human-readable explanation of the status */
     reason: string
+    /** True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it. */
+    reason_states_rollout: boolean
     /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
     rollout: FeatureFlagRolloutSummaryApi
 }
@@ -1248,6 +1250,11 @@ export interface FeatureFlagTestEvaluationResponseApi {
     result: unknown
     /** The reason for the evaluation result */
     reason: string
+    /**
+     * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
+     * @nullable
+     */
+    reason_description?: string | null
     /**
      * The index of the condition that matched, if applicable
      * @nullable
@@ -1589,9 +1596,10 @@ export interface FlagValueResponseApi {
 /**
  * * `FeatureFlag` - feature flag
  */
-export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
+export type ScheduledChangeAllowedModelsEnumApi =
+    (typeof ScheduledChangeAllowedModelsEnumApi)[keyof typeof ScheduledChangeAllowedModelsEnumApi]
 
-export const ModelNameEnumApi = {
+export const ScheduledChangeAllowedModelsEnumApi = {
     FeatureFlag: 'FeatureFlag',
 } as const
 
@@ -1611,6 +1619,44 @@ export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Yearly: 'yearly',
 } as const
 
+/**
+ * * `pending` - Pending
+ * * `approved` - Approved (awaiting application)
+ * * `applied` - Applied
+ * * `rejected` - Rejected
+ * * `expired` - Expired
+ * * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
+
+export const ChangeRequestStateEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+/**
+ * Minimal read-only ChangeRequest shape for embedding on resources gated by an approval,
+ * e.g. the scheduled change that carries it. Exposes just enough to show the approval state
+ * and link to the change request.
+ */
+export interface ChangeRequestSummaryApi {
+    /** ID of the approval change request. Use it to link to the change request in the UI. */
+    readonly id: string
+    /** Current approval state: 'pending' (awaiting approval), 'approved' (awaiting application), 'applied', 'rejected', 'expired', or 'failed'.
+     *
+     * * `pending` - Pending
+     * * `approved` - Approved (awaiting application)
+     * * `applied` - Applied
+     * * `rejected` - Rejected
+     * * `expired` - Expired
+     * * `failed` - Failed to apply */
+    readonly state: ChangeRequestStateEnumApi
+}
+
 export interface ScheduledChangeApi {
     readonly id: number
     readonly team_id: number
@@ -1622,7 +1668,7 @@ export interface ScheduledChangeApi {
     /** The type of record to modify. Currently only "FeatureFlag" is supported.
      *
      * * `FeatureFlag` - feature flag */
-    model_name: ModelNameEnumApi
+    model_name: ScheduledChangeAllowedModelsEnumApi
     /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
     payload: unknown
     /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
@@ -1660,6 +1706,8 @@ export interface ScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone: string | null
+    /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+    readonly change_request: ChangeRequestSummaryApi | null
 }
 
 export interface PaginatedScheduledChangeListApi {
@@ -1682,7 +1730,7 @@ export interface PatchedScheduledChangeApi {
     /** The type of record to modify. Currently only "FeatureFlag" is supported.
      *
      * * `FeatureFlag` - feature flag */
-    model_name?: ModelNameEnumApi
+    model_name?: ScheduledChangeAllowedModelsEnumApi
     /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
     payload?: unknown
     /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
@@ -1720,6 +1768,8 @@ export interface PatchedScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone?: string | null
+    /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+    readonly change_request?: ChangeRequestSummaryApi | null
 }
 
 export type FeatureFlagsStaffCacheListParams = {

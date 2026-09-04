@@ -74,7 +74,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property
-from posthog.models.team.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
@@ -555,7 +555,8 @@ class CSVConfig:
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
-    ENCODING = "utf-8"
+    # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
+    ENCODING = "utf-8-sig"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
@@ -1002,12 +1003,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 result = self._find_id_column(first_row)
 
                 if result is None:
-                    available_headers = [h for h in first_row if h.strip()]
+                    available_headers = [h.strip() for h in first_row if h.strip()]
                     raise ValidationError(
                         {
                             "csv": [
                                 CSVConfig.ErrorMessages.MISSING_ID_COLUMN.format(
-                                    columns=", ".join(available_headers) if available_headers else "none"
+                                    columns=", ".join(f"'{h}'" for h in available_headers)
+                                    if available_headers
+                                    else "none"
                                 )
                             ]
                         }
@@ -1692,9 +1695,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if is_basic_list:
                 queryset = queryset.defer("query")
 
-        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
-        # one query instead of the two extra round-trips `prefetch_related` costs.
-        queryset = queryset.select_related("created_by", "team")
+        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in one query
+        # instead of the extra round-trips `prefetch_related` costs. The list serializer never
+        # reads `cohort.team`, so the list path only `select_related`s `created_by`. Project
+        # scoping still JOINs `posthog_team` to filter on `project_id`, but without hydration that
+        # JOIN reads only the id — not the full team payload (heavy JSON and array columns) each
+        # cohort row would otherwise carry. Detail and write actions do read `cohort.team`, so they
+        # keep the hydrating JOIN but re-apply `.defer(*DEPRECATED_ATTRS)` — mirroring
+        # `TeamManager`'s lazy-load defer — so the deprecated taxonomy columns, which TOAST out to
+        # megabytes per team, stay off it.
+        if self.action == "list":
+            queryset = queryset.select_related("created_by")
+        else:
+            queryset = queryset.select_related("created_by", "team").defer(
+                *(f"team__{attr}" for attr in DEPRECATED_ATTRS)
+            )
 
         # `experiment_set` is a reverse relation (a prefetch) and the per-row correlated
         # subquery over CohortCalculationHistory only feeds `last_error_message`. The basic

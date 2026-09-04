@@ -6,7 +6,6 @@ import { loaders } from 'kea-loaders'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -17,50 +16,43 @@ import { userLogic } from 'scenes/userLogic'
 
 import { UserType } from '~/types'
 
-export type ProxyRecord = {
-    id: string
-    domain: string
-    status: 'waiting' | 'issuing' | 'valid' | 'warning' | 'erroring' | 'deleting' | 'timed_out'
-    message?: string
-    target_cname: string
-}
+import {
+    proxyRecordsCreate,
+    proxyRecordsDestroy,
+    proxyRecordsDiagnoseCreate,
+    proxyRecordsList,
+    proxyRecordsPartialUpdate,
+    proxyRecordsRetryCreate,
+} from 'products/platform_features/frontend/generated/api'
+import type {
+    DiagnosticCheckResultApi,
+    DiagnosticCheckResultStatusEnumApi,
+    DiagnosticReportApi,
+    DiagnosticReportSummaryStatusEnumApi,
+    DiagnosticRemediationApi,
+    DiagnosticRemediationTypeEnumApi,
+    ProxyRecordApi,
+    ProxyRecordListResponseApi,
+    ProxyRecordStatusEnumApi,
+} from 'products/platform_features/frontend/generated/api.schemas'
+
+export type ProxyRecord = ProxyRecordApi
 
 export type FormState = 'collapsed' | 'active'
 
-export type DiagnosticCheckStatus = 'passed' | 'warned' | 'failed' | 'skipped'
-export type DiagnosticSummaryStatus = 'healthy' | 'warn' | 'fail'
-export type DiagnosticRemediationType = 'dns' | 'config' | 'wait' | 'retry'
+export type DiagnosticCheckStatus = DiagnosticCheckResultStatusEnumApi
+export type DiagnosticSummaryStatus = DiagnosticReportSummaryStatusEnumApi
+export type DiagnosticRemediationType = DiagnosticRemediationTypeEnumApi
+export type DiagnosticRemediation = DiagnosticRemediationApi
+export type DiagnosticCheckResult = DiagnosticCheckResultApi
+export type DiagnosticReport = DiagnosticReportApi
 
-export type DiagnosticDnsRecord = {
-    name: string
-    type: string
-    value: string
-}
-
-export type DiagnosticRemediation = {
-    type: DiagnosticRemediationType
-    summary: string
-    records: DiagnosticDnsRecord[]
-}
-
-export type DiagnosticCheckResult = {
-    id: string
-    name: string
-    status: DiagnosticCheckStatus
-    detail: string
-    remediation?: DiagnosticRemediation | null
-}
-
-export type DiagnosticReportSummary = {
-    status: DiagnosticSummaryStatus
-    primary_issue: string | null
-    next_action: string | null
-}
-
-export type DiagnosticReport = {
-    ran_at: string
-    summary: DiagnosticReportSummary
-    checks: DiagnosticCheckResult[]
+export function canConfigureRootRedirect(proxyRecord: ProxyRecord, featureEnabled: boolean): boolean {
+    return (
+        featureEnabled &&
+        proxyRecord.root_redirect_supported &&
+        (proxyRecord.status === 'valid' || proxyRecord.status === 'warning')
+    )
 }
 
 export function domainFor(proxyRecord: ProxyRecord | undefined): string {
@@ -145,6 +137,7 @@ export interface proxyLogicValues {
     proxyRecordsLoaded: boolean
     proxyRecordsLoading: boolean
     recordActiveTabs: Record<string, string>
+    rootRedirectDrafts: Record<string, string>
     shouldRefreshRecords: boolean
     shouldShowCloudflareOptIn: boolean
     showCreateRecordErrors: boolean
@@ -172,12 +165,12 @@ export interface proxyLogicActions {
         errorObject?: any
     }
     createRecordSuccess: (
-        proxyRecords: any[],
+        proxyRecords: ProxyRecordApi[],
         payload?: {
             domain: string
         }
     ) => {
-        proxyRecords: any[]
+        proxyRecords: ProxyRecordApi[]
         payload?: {
             domain: string
         }
@@ -192,20 +185,30 @@ export interface proxyLogicActions {
     }
     deleteRecordSuccess: (
         proxyRecords: {
+            created_at: string
+            created_by: number
             domain: string
             id: string
-            message?: string | undefined
-            status: 'deleting' | 'erroring' | 'issuing' | 'timed_out' | 'valid' | 'waiting' | 'warning'
+            message: string | null
+            root_redirect_supported: boolean
+            root_redirect_url: string | null
+            status: ProxyRecordStatusEnumApi
             target_cname: string
+            updated_at: string
         }[],
         payload?: ProxyRecord[]
     ) => {
         proxyRecords: {
+            created_at: string
+            created_by: number
             domain: string
             id: string
-            message?: string | undefined
-            status: 'deleting' | 'erroring' | 'issuing' | 'timed_out' | 'valid' | 'waiting' | 'warning'
+            message: string | null
+            root_redirect_supported: boolean
+            root_redirect_url: string | null
+            status: ProxyRecordStatusEnumApi
             target_cname: string
+            updated_at: string
         }[]
         payload?: ProxyRecord[]
     }
@@ -224,7 +227,7 @@ export interface proxyLogicActions {
         report: DiagnosticReport
     ) => {
         id: string
-        report: DiagnosticReport
+        report: DiagnosticReportApi
     }
     loadRecords: () => any
     loadRecordsFailure: (
@@ -235,10 +238,10 @@ export interface proxyLogicActions {
         errorObject?: any
     }
     loadRecordsSuccess: (
-        proxyRecords: ProxyRecord[],
+        proxyRecords: ProxyRecordApi[],
         payload?: any
     ) => {
-        proxyRecords: ProxyRecord[]
+        proxyRecords: ProxyRecordApi[]
         payload?: any
     }
     maybeRefreshRecords: () => {
@@ -258,10 +261,10 @@ export interface proxyLogicActions {
         errorObject?: any
     }
     retryRecordSuccess: (
-        proxyRecords: ProxyRecord[],
+        proxyRecords: ProxyRecordApi[],
         payload?: ProxyRecord[]
     ) => {
-        proxyRecords: ProxyRecord[]
+        proxyRecords: ProxyRecordApi[]
         payload?: ProxyRecord[]
     }
     setCloudflareOptInChecked: (checked: boolean) => {
@@ -303,6 +306,13 @@ export interface proxyLogicActions {
         expanded: boolean
         id: string
     }
+    setRootRedirectDraft: (
+        id: ProxyRecord['id'],
+        rootRedirectUrl: string
+    ) => {
+        id: string
+        rootRedirectUrl: string
+    }
     showForm: () => {
         value: true
     }
@@ -329,16 +339,40 @@ export interface proxyLogicActions {
     touchCreateRecordField: (key: string) => {
         key: string
     }
+    updateRootRedirect: ({ id, rootRedirectUrl }: { id: string; rootRedirectUrl: string }) => {
+        id: string
+        rootRedirectUrl: string
+    }
+    updateRootRedirectFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    updateRootRedirectSuccess: (
+        proxyRecords: ProxyRecordApi[],
+        payload?: {
+            id: string
+            rootRedirectUrl: string
+        }
+    ) => {
+        proxyRecords: ProxyRecordApi[]
+        payload?: {
+            id: string
+            rootRedirectUrl: string
+        }
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface proxyLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        shouldRefreshRecords: (proxyRecords: ProxyRecord[]) => boolean
+        shouldRefreshRecords: (proxyRecords: ProxyRecordApi[]) => boolean
         shouldShowCloudflareOptIn: (
             cloudflareOptInAcknowledged: boolean,
             proxyRecordsLoaded: boolean,
-            proxyRecords: ProxyRecord[],
+            proxyRecords: ProxyRecordApi[],
             user: UserType | null
         ) => boolean
     }
@@ -364,6 +398,7 @@ export const proxyLogic = kea<proxyLogicType>([
         clearDiagnosticReport: (id: ProxyRecord['id']) => ({ id }),
         setRecordExpanded: (id: ProxyRecord['id'], expanded: boolean) => ({ id, expanded }),
         setRecordActiveTab: (id: ProxyRecord['id'], tab: string) => ({ id, tab }),
+        setRootRedirectDraft: (id: ProxyRecord['id'], rootRedirectUrl: string) => ({ id, rootRedirectUrl }),
     })),
     reducers(() => ({
         formState: ['collapsed' as FormState, { showForm: () => 'active', collapseForm: () => 'collapsed' }],
@@ -437,25 +472,35 @@ export const proxyLogic = kea<proxyLogicType>([
                 },
             },
         ],
+        rootRedirectDrafts: [
+            {} as Record<string, string>,
+            {
+                setRootRedirectDraft: (state, { id, rootRedirectUrl }) => ({ ...state, [id]: rootRedirectUrl }),
+                updateRootRedirectSuccess: (state, { payload }) =>
+                    payload ? { ...state, [payload.id]: payload.rootRedirectUrl } : state,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
-                const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
+                // drf-spectacular correctly describes this custom list response as an object, but
+                // Orval still applies its list-action array heuristic to the generated function.
+                const response = (await proxyRecordsList(
+                    values.currentOrganizationId
+                )) as unknown as ProxyRecordListResponseApi
                 actions.setMaxProxyRecords(response.max_proxy_records)
                 return response.results
             },
             createRecord: async ({ domain }: { domain: string }) => {
-                const response = await api.create(`api/organizations/${values.currentOrganizationId}/proxy_records`, {
-                    domain,
-                })
+                const response = await proxyRecordsCreate(values.currentOrganizationId, { domain })
                 lemonToast.success('Record created')
                 actions.collapseForm()
                 return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
-                void api.delete(`api/organizations/${values.currentOrganizationId}/proxy_records/${id}`)
+                void proxyRecordsDestroy(values.currentOrganizationId, id)
                 const newRecords = [...values.proxyRecords].map((r) => ({
                     ...r,
                     status: r.id === id ? 'deleting' : r.status,
@@ -463,13 +508,20 @@ export const proxyLogic = kea<proxyLogicType>([
                 return newRecords
             },
             retryRecord: async (id: ProxyRecord['id']) => {
-                await api.create(`api/organizations/${values.currentOrganizationId}/proxy_records/${id}/retry`)
+                await proxyRecordsRetryCreate(values.currentOrganizationId, id)
                 lemonToast.success('Retry initiated')
                 return values.proxyRecords.map((r) => ({
                     ...r,
                     status: r.id === id ? 'waiting' : r.status,
                     message: r.id === id ? undefined : r.message,
                 })) as ProxyRecord[]
+            },
+            updateRootRedirect: async ({ id, rootRedirectUrl }: { id: string; rootRedirectUrl: string }) => {
+                const updatedRecord = await proxyRecordsPartialUpdate(values.currentOrganizationId, id, {
+                    root_redirect_url: rootRedirectUrl || null,
+                })
+                lemonToast.success(rootRedirectUrl ? 'Root redirect updated' : 'Root redirect removed')
+                return values.proxyRecords.map((record) => (record.id === id ? updatedRecord : record))
             },
         },
     })),
@@ -519,9 +571,7 @@ export const proxyLogic = kea<proxyLogicType>([
         },
         diagnose: async ({ id }) => {
             try {
-                const report = (await api.create(
-                    `api/organizations/${values.currentOrganizationId}/proxy_records/${id}/diagnose`
-                )) as DiagnosticReport
+                const report = await proxyRecordsDiagnoseCreate(values.currentOrganizationId, id)
                 actions.diagnoseSuccess(id, report)
             } catch (e) {
                 const message = e instanceof Error ? e.message : String(e)

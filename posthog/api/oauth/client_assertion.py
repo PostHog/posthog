@@ -278,9 +278,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)
-    # A CIMD client names itself by its metadata URL, not by the opaque client_id column, so
-    # that is the identity its assertion carries.
-    client_identifier = app.effective_client_id
+    client_identifier = app.client_id
 
     try:
         claims = jwt.decode(

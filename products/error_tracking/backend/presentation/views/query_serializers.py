@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from typing import cast
 
+from django.db import models
+
 from rest_framework import serializers
 
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
+
+from products.error_tracking.backend.facade import contracts
+from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
     "oneOf": [
@@ -79,6 +84,14 @@ class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["user", "role"], help_text="Assignee target type: user or role.")
 
 
+class ErrorTrackingIssueOrderBy(models.TextChoices):
+    LAST_SEEN = "last_seen", "last_seen"
+    FIRST_SEEN = "first_seen", "first_seen"
+    OCCURRENCES = "occurrences", "occurrences"
+    USERS = "users", "users"
+    SESSIONS = "sessions", "sessions"
+
+
 class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     dateRange = ErrorTrackingDateRangeSerializer(
         required=False,
@@ -112,7 +125,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         help_text="Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.",
     )
     orderBy = serializers.ChoiceField(
-        choices=["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        choices=ErrorTrackingIssueOrderBy.choices,
         required=False,
         default="occurrences",
         help_text="Field used to sort issues. Defaults to occurrences.",
@@ -259,6 +272,12 @@ class ErrorTrackingIssueListItemSerializer(serializers.Serializer):
     name = serializers.CharField(required=False, allow_null=True, help_text="Issue name.")
     description = serializers.CharField(required=False, allow_null=True, help_text="Issue description.")
     status = serializers.CharField(required=False, help_text="Issue status.")
+    severity = ErrorTrackingIssueSeverityField(
+        choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
+        required=False,
+        allow_null=True,
+        help_text="Issue severity, or null when no severity is assigned.",
+    )
     first_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="First seen timestamp.")
     last_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="Last seen timestamp.")
     library = serializers.CharField(required=False, allow_null=True, help_text="SDK/library associated with the issue.")

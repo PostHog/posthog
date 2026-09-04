@@ -9,7 +9,6 @@ import { engineeringAnalyticsRepoOverview, engineeringAnalyticsRepoRunActivity }
 import type { RepoOverviewApi, WorkflowRunActivityApi } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
-import { type TrendSeries, trendSeries } from '../lib/trends'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
 import type { WorkflowHealthRow } from './engineeringAnalyticsLogic'
@@ -39,22 +38,17 @@ export interface repoOverviewLogicValues {
     activityTruncated: boolean
     attentionPrs: PullRequestRow[]
     costByWorkflow: CostShareRow[]
-    costPerMergeSeries: TrendSeries | null
     draftCount: number
     jobsAvailable: boolean
-    openToMergeSeries: TrendSeries | null
     otherCostWorkflowCount: number
     overview: RepoOverviewApi | null
     overviewDefaultBranch: string
     overviewFailed: boolean
     overviewLoading: boolean
-    passRateSeries: TrendSeries | null
     prPreviewCount: number
-    readyToMergeSeries: TrendSeries | null
     repoActivity: WorkflowRunActivityApi
     repoActivityFailed: boolean
     repoActivityLoading: boolean
-    timeToGreenSeries: TrendSeries | null
     workflowPreviewCount: number
 }
 
@@ -109,11 +103,6 @@ export interface repoOverviewLogicMeta {
         draftCount: (pullRequests: PullRequestRow[]) => number
         costByWorkflow: (workflowHealth: WorkflowHealthRow[]) => CostShareRow[]
         otherCostWorkflowCount: (workflowHealth: WorkflowHealthRow[]) => number
-        costPerMergeSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
-        timeToGreenSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
-        passRateSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
-        openToMergeSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
-        readyToMergeSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
     }
 }
 
@@ -157,6 +146,9 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     await engineeringAnalyticsRepoOverview(projectId(), {
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        // The hub renders window-vs-previous comparisons from the headline
+                        // aggregates; skipping the chart series skips their query cost too.
+                        include_series: false,
                         source_id: values.sourceId ?? undefined,
                         repo: values.scopeRepo ?? undefined,
                     }),
@@ -286,58 +278,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 Math.max(
                     0,
                     workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0).length - TOP_COST_WORKFLOWS
-                ),
-        ],
-        // The Trends strip, one selector per card. Each hands `trendSeries` the bucket list and the
-        // measure to read off a bucket; gap and baseline handling is the same for all of them and
-        // lives there.
-        // Cost per merged PR is a trailing rolling ratio, so a gap means the whole trailing window
-        // shipped nothing; carried forward like the rest, never drawn as $0 of CI.
-        costPerMergeSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): TrendSeries | null =>
-                trendSeries(
-                    overview?.cost_series ?? [],
-                    (bucket) => bucket.cost_per_merge_usd,
-                    overview?.cost_series_granularity
-                ),
-        ],
-        // In minutes, the unit the card's formatter labels.
-        timeToGreenSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): TrendSeries | null =>
-                trendSeries(
-                    overview?.time_to_green_series ?? [],
-                    (bucket) => (bucket.p50_seconds == null ? null : bucket.p50_seconds / 60),
-                    overview?.time_to_green_series_granularity
-                ),
-        ],
-        passRateSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): TrendSeries | null =>
-                trendSeries(
-                    overview?.success_rate_series ?? [],
-                    (bucket) => bucket.success_rate,
-                    overview?.success_rate_series_granularity
-                ),
-        ],
-        openToMergeSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): TrendSeries | null =>
-                trendSeries(
-                    overview?.open_to_merge_series ?? [],
-                    (bucket) => bucket.p50_seconds,
-                    overview?.open_to_merge_series_granularity
-                ),
-        ],
-        // Null when the backend can't observe ready→merge, and the scene falls back to openToMergeSeries.
-        readyToMergeSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): TrendSeries | null =>
-                trendSeries(
-                    overview?.ready_to_merge_series ?? [],
-                    (bucket) => bucket.p50_seconds,
-                    overview?.ready_to_merge_series_granularity
                 ),
         ],
     }),

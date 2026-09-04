@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -8,13 +9,18 @@ import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
-import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
+import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
+    type ClaudeTaskRunCreateSchemaApi,
+    type CodexTaskRunCreateSchemaApi,
+    type LegacyDesktopAccessResponseApi,
     type ModelChoiceApi,
-    OriginProductEnumApi,
+    TaskOriginProductEnumApi,
     ReasoningEffortEnumApi,
     type TaskWriteApi,
     TaskExecutionModeEnumApi,
+    type WarmTaskRequestApi,
+    WarmTaskRequestOriginProductEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { IntegrationType, UserBasicType } from '../../../../../frontend/src/types'
@@ -26,7 +32,10 @@ import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import type { ActiveCreation } from '../../logics/runnerPanelLogic'
+import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
+import { taskWarmLogic } from '../../logics/taskWarmLogic'
+import type { WarmLease } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
@@ -34,8 +43,9 @@ import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
 import {
     buildRunCreateRequest,
-    DEFAULT_COMPOSER_EFFORT,
+    buildServerResolvedRunCreateRequest,
     DEFAULT_COMPOSER_MODEL,
+    getRuntimeAdapterForModel,
     resolveEffortForModel,
 } from '../../utils/composerModels'
 import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
@@ -46,8 +56,11 @@ export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 export interface TaskCreateForm {
     description: string
     repositoryConfig: RepositoryConfig
-    model: string
-    reasoningEffort: ReasoningEffortEnumApi
+    /** null = no explicit pick; the run launches with the server-resolved default (user preference
+     * over project default, else the built-in composer default). An explicit pick applies to this
+     * run only — the form resets to null after submit. */
+    model: string | null
+    reasoningEffort: ReasoningEffortEnumApi | null
     permissionMode: PermissionMode
 }
 
@@ -65,14 +78,64 @@ export interface TaskTrackerSceneLogicProps {
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
 
+/**
+ * The warm request for the current composer selection, or `null` when this selection can't be warmed.
+ *
+ * A repo-scoped warm must already know its branch: the backend matches branch as a `None`-normalized
+ * exact value, so warming while `GitHubBranchCombobox` is still resolving the repo's default would
+ * book a sandbox on `null` and then miss on submit. Repo-less drafts carry `null` on both sides and
+ * warm immediately.
+ */
+function buildWarmRequest(
+    form: TaskCreateForm,
+    catalogue: ModelChoiceApi[],
+    // The displayed selection, not the raw form pick: a partially pinned form still warms on
+    // exactly the triple the submit will send.
+    displayModel: string,
+    displayEffort: ReasoningEffortEnumApi
+): WarmTaskRequestApi | null {
+    const { repositoryConfig, model, reasoningEffort, permissionMode } = form
+    if (repositoryConfig.repository && !repositoryConfig.branch) {
+        return null
+    }
+    const base = {
+        repository: repositoryConfig.repository ?? null,
+        github_integration: repositoryConfig.integrationId ?? null,
+        branch: repositoryConfig.branch ?? null,
+        origin_product: WarmTaskRequestOriginProductEnumApi.PosthogAi,
+    }
+    // An untouched selection warms without the triple, mirroring the submit: the backend
+    // resolves the stored default for provisioning and matching alike, so both sides agree
+    // whatever the defaults fetch has or hasn't returned yet.
+    if (!model && !reasoningEffort) {
+        return {
+            ...base,
+            initial_permission_mode: permissionMode as WarmTaskRequestApi['initial_permission_mode'],
+        }
+    }
+    const runRequest = buildRunCreateRequest(catalogue, displayModel, displayEffort, permissionMode, {
+        branch: repositoryConfig.branch ?? null,
+    })
+    if (!('runtime_adapter' in runRequest)) {
+        return null
+    }
+    return {
+        ...base,
+        runtime_adapter: runRequest.runtime_adapter,
+        model: runRequest.model,
+        reasoning_effort: runRequest.reasoning_effort,
+        initial_permission_mode: runRequest.initial_permission_mode,
+    }
+}
+
 const EMPTY_TASK_FORM: TaskCreateForm = {
     description: '',
     repositoryConfig: {
         integrationId: undefined,
         repository: undefined,
     },
-    model: DEFAULT_COMPOSER_MODEL,
-    reasoningEffort: DEFAULT_COMPOSER_EFFORT,
+    model: null,
+    reasoningEffort: null,
     permissionMode: DEFAULT_COMPOSER_MODE,
 }
 
@@ -86,14 +149,25 @@ export interface taskTrackerSceneLogicValues {
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
+    defaultEffort: string | null // taskRunDefaultsLogic
+    defaultModel: string | null // taskRunDefaultsLogic
+    defaultRuntimeAdapter: string | null // taskRunDefaultsLogic
+    warmLease: WarmLease | null // taskWarmLogic
     repositories: string[] // tasksLogic
     taskListParams: TaskListParams // tasksLogic
     tasks: Task[] // tasksLogic
     overrideHeadlines: string[] | null // welcomeOverrideLogic
     activeSuggestionGroup: SuggestionGroup | null
+    composerAdapter: string
     consentBlocked: boolean
+    desktopAccess: LegacyDesktopAccessResponseApi | null
+    desktopAccessLoading: boolean
+    displayEffort: ReasoningEffortEnumApi
     displayHeadline: string
+    displayModel: string
+    hasDesktopAccess: boolean
     headlineSeed: number
+    isDefaultSelection: boolean
     isSubmittingTask: boolean
     newTaskData: TaskCreateForm
     persistedRepositoryConfig: PersistedRepositoryConfig
@@ -121,6 +195,7 @@ export interface taskTrackerSceneLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -130,6 +205,7 @@ export interface taskTrackerSceneLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -180,6 +256,7 @@ export interface taskTrackerSceneLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -189,6 +266,7 @@ export interface taskTrackerSceneLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -245,6 +323,19 @@ export interface taskTrackerSceneLogicActions {
     toggleHistory: () => {
         value: true
     } // runnerPanelLogic
+    consumeWarm: () => {
+        value: true
+    } // taskWarmLogic
+    noteDraft: (
+        hasText: boolean,
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest
+    ) => {
+        hasText: boolean
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest
+    } // taskWarmLogic
+    releaseWarm: () => {
+        value: true
+    } // taskWarmLogic
     deleteTask: (args_0: { taskId: string }) => {
         taskId: string
     } // tasksLogic
@@ -267,6 +358,21 @@ export interface taskTrackerSceneLogicActions {
     }
     clearConsentBlock: () => {
         value: true
+    }
+    loadDesktopAccess: () => any
+    loadDesktopAccessFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDesktopAccessSuccess: (
+        desktopAccess: LegacyDesktopAccessResponseApi,
+        payload?: any
+    ) => {
+        desktopAccess: LegacyDesktopAccessResponseApi
+        payload?: any
     }
     maybeAutoSelectIntegration: () => {
         value: true
@@ -307,7 +413,22 @@ export interface taskTrackerSceneLogicActions {
 export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
+        displayModel: (newTaskData: TaskCreateForm, defaultModel: string | null) => string
+        displayEffort: (
+            newTaskData: TaskCreateForm,
+            defaultEffort: string | null,
+            displayModel: string,
+            catalogue: ModelChoiceApi[]
+        ) => ReasoningEffortEnumApi
+        composerAdapter: (
+            newTaskData: TaskCreateForm,
+            displayModel: string,
+            defaultRuntimeAdapter: string | null,
+            catalogue: ModelChoiceApi[]
+        ) => string
+        isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
     }
 }
 
@@ -346,6 +467,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['overrideHeadlines'],
             modelCatalogueLogic,
             ['catalogue'],
+            // Only `panelId`: the scene is mounted with the `/tasks/:taskId` route param in its props, and
+            // this composer always creates a fresh task, so a forwarded `taskId` would point the warm at
+            // the resume endpoint for a task that doesn't exist yet.
+            taskWarmLogic({ panelId: props.panelId }),
+            ['warmLease'],
+            taskRunDefaultsLogic,
+            ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -360,6 +488,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['claimApplyBackTargets', 'releaseApplyBackTargets'],
             composerSeedLogic(props),
             ['consumeSeed', 'setSeed'],
+            taskWarmLogic({ panelId: props.panelId }),
+            ['noteDraft', 'consumeWarm', 'releaseWarm'],
         ],
     })),
 
@@ -435,13 +565,67 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         ],
     }),
 
+    loaders({
+        desktopAccess: [
+            null as LegacyDesktopAccessResponseApi | null,
+            {
+                loadDesktopAccess: async () => codeInvitesCheckAccessRetrieve(),
+            },
+        ],
+    }),
+
     selectors({
+        hasDesktopAccess: [
+            (s) => [s.desktopAccess],
+            (desktopAccess: LegacyDesktopAccessResponseApi | null): boolean => desktopAccess?.has_access ?? false,
+        ],
         // Contextual headlines registered by the active scene (welcomeOverrideLogic) win over the
         // generic defaults; the seed keeps the pick stable across re-renders.
         displayHeadline: [
             (s) => [s.overrideHeadlines, s.headlineSeed],
             (overrideHeadlines: string[] | null, headlineSeed: number): string =>
                 pickHeadline(overrideHeadlines ?? DEFAULT_HEADLINES, headlineSeed),
+        ],
+    }),
+
+    selectors({
+        // The pickers render these and a submit sends exactly these, so the composer can never
+        // show one model or effort while the run launches with another.
+        displayModel: [
+            (s) => [s.newTaskData, s.defaultModel],
+            (newTaskData: TaskCreateForm, defaultModel: string | null): string =>
+                newTaskData.model ?? defaultModel ?? DEFAULT_COMPOSER_MODEL,
+        ],
+        displayEffort: [
+            (s) => [s.newTaskData, s.defaultEffort, s.displayModel, s.catalogue],
+            (
+                newTaskData: TaskCreateForm,
+                defaultEffort: string | null,
+                displayModel: string,
+                catalogue: ModelChoiceApi[]
+            ): ReasoningEffortEnumApi =>
+                resolveEffortForModel(catalogue, newTaskData.reasoningEffort ?? defaultEffort, displayModel),
+        ],
+        // The harness the composer's controls speak for. An explicit pick derives it from the
+        // catalogue; an untouched selection carries the server-resolved default's adapter, which
+        // stays right even when a stale catalogue no longer lists the default's model.
+        composerAdapter: [
+            (s) => [s.newTaskData, s.displayModel, s.defaultRuntimeAdapter, s.catalogue],
+            (
+                newTaskData: TaskCreateForm,
+                displayModel: string,
+                defaultRuntimeAdapter: string | null,
+                catalogue: ModelChoiceApi[]
+            ): string =>
+                newTaskData.model || !defaultRuntimeAdapter
+                    ? getRuntimeAdapterForModel(catalogue, displayModel)
+                    : defaultRuntimeAdapter,
+        ],
+        // Neither picker touched: submit omits the triple so the backend resolves it, which also
+        // lets a warm run provisioned under the default match.
+        isDefaultSelection: [
+            (s) => [s.newTaskData],
+            (newTaskData: TaskCreateForm): boolean => !newTaskData.model && !newTaskData.reasoningEffort,
         ],
     }),
 
@@ -464,6 +648,24 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (data.repositoryConfig?.repository) {
                 const { integrationId, repository } = data.repositoryConfig
                 actions.setPersistedRepositoryConfig({ integrationId, repository })
+            }
+            // Warm a sandbox while the user is still typing, so the submit lands on one that is already
+            // up. `useDebouncedDraft` already coalesces keystrokes into this action, and `taskWarmLogic`
+            // debounces again before it commits to a sandbox. Skipped while a run is being created —
+            // that run is the desired state, not a warm.
+            // Consent gates warming as it gates submitting (see `submitNewTask`): a warm boots a cloud
+            // sandbox and clones the selected repository, so it must not run before the organization
+            // accepts AI data processing.
+            if (!values.activeCreation && values.dataProcessingAccepted) {
+                const request = buildWarmRequest(
+                    values.newTaskData,
+                    values.catalogue,
+                    values.displayModel,
+                    values.displayEffort
+                )
+                if (request) {
+                    actions.noteDraft(values.newTaskData.description.trim().length > 0, request)
+                }
             }
         },
         // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
@@ -507,7 +709,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
 
-            const { description, repositoryConfig, model, reasoningEffort, permissionMode } = values.newTaskData
+            const { description, repositoryConfig, permissionMode } = values.newTaskData
 
             if (!description.trim()) {
                 lemonToast.error('Description is required')
@@ -535,43 +737,74 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             stream.actions.startOptimisticRun(description)
 
             try {
+                const pendingUserMessage = wrapWithPosthogContext(description, seededContext)
+                const runPayload = {
+                    branch: repositoryConfig.branch ?? null,
+                    mode: TaskExecutionModeEnumApi.Interactive,
+                    pending_user_message: pendingUserMessage,
+                }
+                // An untouched selection pins nothing: the backend resolves the model triple from the
+                // stored team/user default (correct even while the defaults fetch is in flight or has
+                // failed) and clamps the stated permission mode to the resolved runtime. The warm run
+                // was provisioned the same way, so provisioning and matching resolve alike. An explicit
+                // pick sends the full displayed selection, runtime derived from the model.
+                let pinnedRequest: ClaudeTaskRunCreateSchemaApi | CodexTaskRunCreateSchemaApi | null = null
+                if (!values.isDefaultSelection) {
+                    const built = buildRunCreateRequest(
+                        values.catalogue,
+                        values.displayModel,
+                        values.displayEffort,
+                        permissionMode,
+                        runPayload
+                    )
+                    if (!('runtime_adapter' in built)) {
+                        throw new Error('Run request is missing a runtime adapter')
+                    }
+                    pinnedRequest = built
+                }
+                const runRequest = pinnedRequest ?? buildServerResolvedRunCreateRequest(permissionMode, runPayload)
                 const taskData: TaskWriteApi = {
                     title: '',
                     description,
-                    origin_product: OriginProductEnumApi.PosthogAi,
+                    origin_product: TaskOriginProductEnumApi.PosthogAi,
                     // PostHog AI can run without a repo; null means the task is not scoped to any repository.
                     repository: repositoryConfig.repository ?? null,
                     github_integration: repositoryConfig.integrationId ?? null,
+                    // Warm-reuse hints. The backend matches these against an idling warm Run and, on a hit,
+                    // activates it in place and returns it as `latest_run` — no second Run is created. All of
+                    // them are write-only and ignored on a cold create. `branch` must be present as a key
+                    // (even `null`) or reuse is never attempted at all. The model triple is left off when
+                    // the selection is untouched, so the backend resolves it for warm matching too.
+                    branch: runPayload.branch,
+                    ...(pinnedRequest
+                        ? {
+                              runtime_adapter: pinnedRequest.runtime_adapter,
+                              model: pinnedRequest.model,
+                              reasoning_effort: pinnedRequest.reasoning_effort,
+                              initial_permission_mode: pinnedRequest.initial_permission_mode,
+                          }
+                        : { initial_permission_mode: permissionMode }),
+                    pending_user_message: pendingUserMessage,
                 }
 
                 const projectId = String(values.currentProjectId)
                 const newTask = await tasksCreate(projectId, taskData)
+                // Whatever happened, this submit owns the warm now: drop the lease without cancelling it,
+                // since the Run it points at is the one the create just activated.
+                actions.consumeWarm()
 
-                // Auto-run the task after creation; the detail scene shows the latest run by default. The
-                // run checks out the chosen branch (server falls back to the repo's default branch if unset)
+                // `latest_run` set means the create matched an idling warm Run and activated it in place,
+                // with `pending_user_message` as turn 1. Creating a second Run here would strand that warm
+                // sandbox and cold-boot another one.
+                //
+                // Otherwise auto-run the task; the detail scene shows the latest run by default. The run
+                // checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
-                const runResponse = await tasksRunCreate(
-                    projectId,
-                    newTask.id,
-                    buildRunCreateRequest(
-                        values.catalogue,
-                        model,
-                        resolveEffortForModel(values.catalogue, reasoningEffort, model),
-                        permissionMode,
-                        {
-                            branch: repositoryConfig.branch ?? null,
-                            // Interactive keeps the sandbox agent-server's event stream open across turns, so
-                            // follow-up messages stream their reply over the same SSE (background runs seal the
-                            // stream after the first turn). Interactive runs boot with the agent-server pulling
-                            // pending_user_message from run state (the workflow doesn't forward it), so seed the
-                            // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
-                            mode: TaskExecutionModeEnumApi.Interactive,
-                            // Wrap only the message sent to the agent with the on-screen context block; the task
-                            // `description` field and the optimistic seed (`startOptimisticRun`) stay raw.
-                            pending_user_message: wrapWithPosthogContext(description, seededContext),
-                        }
-                    )
-                )
+                let runId = newTask.latest_run?.id
+                if (!runId) {
+                    const runResponse = await tasksRunCreate(projectId, newTask.id, runRequest)
+                    runId = runResponse.latest_run?.id
+                }
 
                 // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
                 // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
@@ -583,7 +816,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
                 // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
-                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
+                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId })
                 // An embedded instance (`panelId` set) keeps the run in place — the host renders it from
                 // `activeCreation` — rather than navigating the main app to the `/tasks/:id` detail page.
                 if (!props.panelId) {
@@ -598,9 +831,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadRepositories()
             } catch (error) {
                 actions.releaseApplyBackTargets(streamKey)
-                // Show the existing failure and return to the composer with the typed text intact.
+                // Return to the composer with the typed text intact, and no toast: the composer is
+                // still on screen, so a failure banner over it reads as a dead end.
                 actions.clearActiveCreation()
-                lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
         },
@@ -660,6 +893,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
     events(({ actions, values, cache }) => ({
         afterMount: () => {
+            actions.loadDesktopAccess()
             actions.loadTasks(values.taskListParams)
             actions.loadRepositories()
             // Roll a headline seed once per mount (pickHeadline forces index 0 under Storybook for

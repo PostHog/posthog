@@ -1,6 +1,6 @@
-# The sharded_ingestion_warnings store, hosted by prod-us AUX and the local
-# data node. Base is the AUX form; the local node's partitioning, details codec
-# and replication path are patches in roles/data/local.
+# The sharded_ingestion_warnings store, hosted by every cloud AUX node and the
+# local data node. Base is the AUX form; the local node's partitioning, details
+# codec and replication path are patches in roles/data/local.
 database "posthog" {
   table "sharded_ingestion_warnings" {
     order_by     = ["team_id", "toHour(timestamp)", "type", "source", "timestamp"]

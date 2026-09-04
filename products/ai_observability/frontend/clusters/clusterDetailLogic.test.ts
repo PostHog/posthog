@@ -199,12 +199,12 @@ describe('clusterDetailLogic', () => {
             })
         })
 
-        describe('scatterPlotDatasets', () => {
+        describe('scatterPlotSeries', () => {
             it('returns empty array when no cluster', () => {
-                expect(logic.values.scatterPlotDatasets).toEqual([])
+                expect(logic.values.scatterPlotSeries).toEqual([])
             })
 
-            it('returns datasets with trace points and centroid for regular cluster', async () => {
+            it('returns item points and centroid for regular cluster', async () => {
                 logic.actions.loadClusterDataSuccess({
                     cluster: mockCluster,
                     runTimestamp: '2025-01-05T00:00:00Z',
@@ -213,22 +213,23 @@ describe('clusterDetailLogic', () => {
                     clusteringLevel: 'trace',
                 })
 
-                const datasets = logic.values.scatterPlotDatasets
-                expect(datasets).toHaveLength(2) // trace points + centroid
+                const series = logic.values.scatterPlotSeries
+                expect(series).toHaveLength(2) // item points + centroid
 
-                // First dataset is trace points
-                expect(datasets[0].label).toBe('Test Cluster')
-                expect(datasets[0].data).toHaveLength(3)
-                expect(datasets[0].pointStyle).toBe('circle')
+                // First series is item points
+                expect(series[0].label).toBe('Test Cluster')
+                expect(series[0].points).toHaveLength(3)
+                expect(series[0].shape).toBe('circle')
 
-                // Second dataset is centroid
-                expect(datasets[1].label).toBe('Centroid')
-                expect(datasets[1].data).toHaveLength(1)
-                expect(datasets[1].data[0].x).toBe(mockCluster.centroid_x)
-                expect(datasets[1].data[0].y).toBe(mockCluster.centroid_y)
+                // Second series is the centroid
+                expect(series[1].label).toBe('Centroid')
+                expect(series[1].points).toHaveLength(1)
+                expect(series[1].points[0].x).toBe(mockCluster.centroid_x)
+                expect(series[1].points[0].y).toBe(mockCluster.centroid_y)
+                expect(series[1].points[0].meta).toMatchObject({ isCentroid: true })
             })
 
-            it('returns datasets without centroid for outlier cluster', async () => {
+            it('returns items without centroid for outlier cluster', async () => {
                 logic.actions.loadClusterDataSuccess({
                     cluster: mockOutlierCluster,
                     runTimestamp: '2025-01-05T00:00:00Z',
@@ -237,10 +238,10 @@ describe('clusterDetailLogic', () => {
                     clusteringLevel: 'trace',
                 })
 
-                const datasets = logic.values.scatterPlotDatasets
-                expect(datasets).toHaveLength(1) // only trace points, no centroid
+                const series = logic.values.scatterPlotSeries
+                expect(series).toHaveLength(1) // only item points, no centroid
 
-                expect(datasets[0].pointStyle).toBe('crossRot')
+                expect(series[0].shape).toBe('cross')
             })
         })
 

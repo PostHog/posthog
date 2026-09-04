@@ -7,6 +7,7 @@ import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -25,24 +26,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import { CopyExperimentToProjectModal } from 'scenes/experiments/CopyExperimentToProjectModal'
-import { DuplicateExperimentModal } from 'scenes/experiments/DuplicateExperimentModal'
-import {
-    canArchiveExperiment,
-    confirmArchiveExperiment,
-    confirmDeleteExperiment,
-} from 'scenes/experiments/experimentActions'
-import {
-    EXPERIMENTS_PER_PAGE,
-    ExperimentsFilters,
-    experimentsLogic,
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from 'scenes/experiments/experimentsLogic'
-import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -64,14 +47,36 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
+import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
+import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+import {
+    canArchiveExperiment,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+} from 'products/experiments/frontend/experimentActions'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
  */
 import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
+
+// "NPS - Experiments" in project 2: https://us.posthog.com/project/2/surveys/01902c1f-6675-0000-913b-686c40c3a957
+// The survey also self-triggers as a popover on experiment URLs; this is the on-demand path.
+const EXPERIMENTS_NPS_SURVEY_ID = '01902c1f-6675-0000-913b-686c40c3a957'
 
 export const scene: SceneExport = {
     component: ExperimentsScene,
@@ -570,60 +575,66 @@ export function ExperimentsScene(): JSX.Element {
                     type: 'experiment',
                 }}
                 actions={
-                    tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Experiment}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <div className="flex items-center gap-2">
-                                <MaxTool
-                                    identifier="create_experiment"
-                                    initialMaxPrompt="Create an experiment for "
-                                    suggestions={[
-                                        'Create an experiment to test…',
-                                        'Set up an A/B test with a 70/30 split between control and test for…',
-                                    ]}
-                                    callback={(toolOutput: {
-                                        experiment_id?: string | number
-                                        experiment_name?: string
-                                        feature_flag_key?: string
-                                        error?: string
-                                    }) => {
-                                        if (toolOutput?.error || !toolOutput?.experiment_id) {
-                                            lemonToast.error(
-                                                `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
-                                            )
-                                            return
-                                        }
-                                        // Refresh experiments list to show new experiment, then redirect to it
-                                        loadExperiments()
-                                        router.actions.push(urls.experiment(toolOutput.experiment_id))
-                                    }}
-                                    position="bottom-right"
-                                    active={true}
-                                    context={{}}
-                                >
-                                    <Shortcut
-                                        name="NewExperiment"
-                                        keybind={[keyBinds.new]}
-                                        intent="New experiment"
-                                        interaction="click"
-                                        scope={Scene.Experiments}
+                    <>
+                        <FeedbackSurveyButton
+                            surveyId={EXPERIMENTS_NPS_SURVEY_ID}
+                            data-attr="experiments-feedback-button"
+                        />
+                        {tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Experiment}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <MaxTool
+                                        identifier="create_experiment"
+                                        initialMaxPrompt="Create an experiment for "
+                                        suggestions={[
+                                            'Create an experiment to test…',
+                                            'Set up an A/B test with a 70/30 split between control and test for…',
+                                        ]}
+                                        callback={(toolOutput: {
+                                            experiment_id?: string | number
+                                            experiment_name?: string
+                                            feature_flag_key?: string
+                                            error?: string
+                                        }) => {
+                                            if (toolOutput?.error || !toolOutput?.experiment_id) {
+                                                lemonToast.error(
+                                                    `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
+                                                )
+                                                return
+                                            }
+                                            // Refresh experiments list to show new experiment, then redirect to it
+                                            loadExperiments()
+                                            router.actions.push(urls.experiment(toolOutput.experiment_id))
+                                        }}
+                                        position="bottom-right"
+                                        active={true}
+                                        context={{}}
                                     >
-                                        <LemonButton
-                                            size="small"
-                                            type="primary"
-                                            data-attr="create-experiment"
-                                            to={urls.experiment('new')}
-                                            tooltip="New experiment"
+                                        <Shortcut
+                                            name="NewExperiment"
+                                            keybind={[keyBinds.new]}
+                                            intent="New experiment"
+                                            interaction="click"
+                                            scope={Scene.Experiments}
                                         >
-                                            <span className="pr-3">New experiment</span>
-                                        </LemonButton>
-                                    </Shortcut>
-                                </MaxTool>
-                            </div>
-                        </AccessControlAction>
-                    ) : undefined
+                                            <LemonButton
+                                                size="small"
+                                                type="primary"
+                                                data-attr="create-experiment"
+                                                to={urls.experiment('new')}
+                                                tooltip="New experiment"
+                                            >
+                                                <span className="pr-3">New experiment</span>
+                                            </LemonButton>
+                                        </Shortcut>
+                                    </MaxTool>
+                                </div>
+                            </AccessControlAction>
+                        ) : undefined}
+                    </>
                 }
             />
             <LemonTabs

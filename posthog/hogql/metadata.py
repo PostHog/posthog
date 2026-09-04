@@ -2,9 +2,19 @@ from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
 
+import structlog
 from pydantic import BaseModel
 
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, HogQLQuery
+from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLNotice,
+    HogQLQuery,
+    PredicateIndexUsage,
+    PredicateIndexVerdict,
+    PredicateScope,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -16,8 +26,14 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_dir
 from posthog.hogql.direct_sql import get_adapter
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.index_eligibility import build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.observability import (
+    INDEX_ELIGIBILITY_DURATION_SECONDS,
+    INDEX_ELIGIBILITY_TOTAL,
+    INDEX_ELIGIBILITY_VERDICT_TOTAL,
+)
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -28,6 +44,10 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
+from posthog.schema_enums import PersonsOnEventsMode
+
+logger = structlog.get_logger(__name__)
 
 
 def get_hogql_metadata(
@@ -116,6 +136,22 @@ def get_hogql_metadata(
                 direct_dialect: HogQLDialect = (
                     direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
                 )
+                if source and direct_dialect == "trino":
+                    from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
+                        find_unsupported_pure_trino_features,
+                    )
+
+                    # Execution rejects these regardless of Django expansion, so surface the
+                    # same error at edit time.
+                    find_unsupported_pure_trino_features(hogql_ast)
+                    # Direct queries cannot join PostHog person tables, so the team's
+                    # person-on-events mode has no effect; print with the one mode the Trino
+                    # dialect accepts. A direct database exposes no event or person properties,
+                    # so property restrictions cannot apply either.
+                    context.modifiers = context.modifiers.model_copy(
+                        update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+                    )
+                    context.restricted_properties = set()
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
@@ -124,6 +160,9 @@ def get_hogql_metadata(
 
             if prepared_ast:
                 response.ch_table_names = get_table_names(prepared_ast)
+
+            if source is None and query.indexUsage and _index_usage_enabled(team):
+                _attach_index_usage(response, hogql_ast, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -133,10 +172,13 @@ def get_hogql_metadata(
             # cpp-json (ANTLR) and rust-py word EOF differently; collapse both into a single human-readable string.
             if "mismatched input '<EOF>' expecting" in error or "unexpected token in expression: Eof" in error:
                 error = "Unexpected end of query"
-            if e.end and e.start and e.end < e.start:
-                response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
-            else:
-                response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
+            start, end = e.start, e.end
+            if start is not None and end is not None and end < start:
+                start, end = end, start
+            # A notice without a span marks the whole query, so a fix carried alongside one would
+            # replace everything the user typed instead of the token the suggestion stands in for.
+            fix = e.fix if start is not None and end is not None else None
+            response.errors.append(HogQLNotice(message=error, start=start, end=end, fix=fix))
         elif (
             settings.DEBUG
         ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled
@@ -161,6 +203,86 @@ def get_hogql_metadata(
                 err.end -= 2
 
     return response
+
+
+def _index_usage_enabled(team: Team) -> bool:
+    """Index eligibility is still being calibrated against real query plans, so it stays off by default.
+
+    The verdicts are reasoned from ClickHouse semantics rather than measured, and a wrong verdict is
+    indistinguishable from a right one to whoever reads it. Rolling out behind a flag keeps that
+    exposure where the analysis can be checked against what queries actually do.
+    """
+    return feature_enabled_or_false(
+        "hogql-index-eligibility",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+    )
+
+
+def _attach_index_usage(
+    response: HogQLMetadataResponse,
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
+    context: HogQLContext,
+) -> None:
+    """Report which property filters will prune data, and warn about the ones a fix would unblock.
+
+    Every predicate reaches the response; only the ones a query edit can unblock become warnings.
+    Reading a property out of the JSON blob is the normal case for most teams, and how a property is
+    stored is not something the editor can change, so marking either would bury the predicates where
+    a type mismatch is wasting an index that already exists.
+    """
+    with INDEX_ELIGIBILITY_DURATION_SECONDS.time():
+        try:
+            report = build_index_eligibility_report(hogql_ast, context)
+        except Exception:
+            # Index eligibility is advisory. A query that compiles must not be reported as invalid
+            # because the analysis over it failed. The counter is the only user-visible trace of that:
+            # the response just comes back without a report.
+            INDEX_ELIGIBILITY_TOTAL.labels(result="failed").inc()
+            logger.exception("hogql_index_eligibility_failed", team_id=context.team_id)
+            return
+
+    INDEX_ELIGIBILITY_TOTAL.labels(result="ok").inc()
+    for predicate in report.predicates:
+        INDEX_ELIGIBILITY_VERDICT_TOTAL.labels(
+            verdict=predicate.verdict.value, source_kind=predicate.source_kind.value
+        ).inc()
+
+    response.isUsingIndices = report.usage
+    response.index_usage = [
+        PredicateIndexUsage(
+            property_name=predicate.property_name,
+            scope=PredicateScope(predicate.scope.value),
+            operator=predicate.operator.value,
+            source_label=predicate.source_label,
+            column_name=predicate.column_name,
+            semantic_type=predicate.semantic_type,
+            physical_type=predicate.physical_type,
+            usable_indexes=[index.value for index in predicate.usable_indexes],
+            verdict=PredicateIndexVerdict(predicate.verdict.value),
+            message=predicate.message,
+            fix=predicate.fix,
+            start=predicate.start,
+            end=predicate.end,
+        )
+        for predicate in report.predicates
+    ]
+
+    for predicate in report.predicates:
+        if predicate.editor_actionable:
+            # `HogQLNotice.fix` is literal replacement text for the marked range (see
+            # taxonomy_validation), so the prose advice must not go here. The `ai_prompt:` form is
+            # the editor's other contract: it becomes a "Fix with AI" action instead of an edit.
+            context.add_warning(
+                message=predicate.message,
+                start=predicate.start,
+                end=predicate.end,
+                fix=f"ai_prompt:{predicate.ai_fix_prompt}" if predicate.ai_fix_prompt else None,
+            )
 
 
 def enrich_hogql_validation_error(

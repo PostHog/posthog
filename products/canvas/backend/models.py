@@ -33,6 +33,10 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     KIND_COMPONENT = "component"
     KINDS = [KIND_FREEFORM, KIND_GRID, KIND_COMPONENT]
 
+    SOURCE_POLICY_STANDARD = "standard"
+    SOURCE_POLICY_NOTEBOOK_WIDGET = "notebook_widget"
+    SOURCE_POLICIES = [SOURCE_POLICY_STANDARD, SOURCE_POLICY_NOTEBOOK_WIDGET]
+
     # db_constraint=False: a real FK constraint to the hot posthog_team table
     # takes a parent lock during migration; scoping is enforced app-side.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
@@ -41,6 +45,7 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
 
     name = models.CharField(max_length=400)
     kind = models.CharField(max_length=16, default=KIND_FREEFORM)
+    source_policy = models.CharField(max_length=32, default=SOURCE_POLICY_STANDARD, db_default=SOURCE_POLICY_STANDARD)
     # Short prose describing what the canvas is/does. For components this is
     # the store-search text agents match against, so it should say what the
     # widget shows and what its config controls.
@@ -52,9 +57,6 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # than a FK: Task lives in the tasks app and a schema-level FK would chain
     # the two products' migrations together for a soft pointer.
     generation_task_id = models.UUIDField(null=True, blank=True)
-    # Unlike generation_task_id, this task stays fixed so canvas comments and
-    # shared discussion survive later generation runs.
-    discussion_task_id = models.UUIDField(null=True, blank=True)
     # Set when the canvas is pinned to its channel (shared across users).
     pinned_at = models.DateTimeField(null=True, blank=True)
 

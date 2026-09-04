@@ -11,7 +11,7 @@ jest.mock('undici', () => ({
 
 const requestMock = request as jest.MockedFunction<typeof request>
 
-function respond(chunks: Buffer[], headers: Record<string, string> = {}): void {
+function respond(chunks: Buffer[], headers: Record<string, string> | string[] = {}): void {
     requestMock.mockResolvedValue({
         statusCode: 200,
         headers,
@@ -46,7 +46,16 @@ describe('fetchStreamed', () => {
         const { bytes, overLimit } = await response.read(10)
 
         expect(overLimit).toBe(true)
-        // Empty, because a truncated image is not an image and must not look like one to a caller.
+        expect(bytes).toHaveLength(10)
+    })
+
+    it('can discard a capped prefix that its caller will not parse', async () => {
+        respond([Buffer.alloc(8), Buffer.alloc(8)])
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        const { bytes, overLimit } = await response.read(10, false)
+
+        expect(overLimit).toBe(true)
         expect(bytes).toHaveLength(0)
     })
 
@@ -87,6 +96,23 @@ describe('fetchStreamed', () => {
         expect(response.headers['__proto__']).toBe('polluted')
         expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
         expect(Object.getPrototypeOf(response.headers)).toBeNull()
+    })
+
+    it('preserves repeated response field lines in their received order', async () => {
+        respond([], ['X-Robots-Tag', 'index', 'Content-Type', 'image/png', 'X-Robots-Tag', 'noai'])
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        response.discard()
+
+        expect(response.headerLines).toEqual([
+            { name: 'x-robots-tag', value: 'index' },
+            { name: 'content-type', value: 'image/png' },
+            { name: 'x-robots-tag', value: 'noai' },
+        ])
+        expect(requestMock).toHaveBeenCalledWith(
+            'https://example.com/a.png',
+            expect.objectContaining({ responseHeaders: 'raw' })
+        )
     })
 
     it.each([['ftp://example.com/a.png'], ['not a url']])('refuses %s before opening a socket', async (url) => {

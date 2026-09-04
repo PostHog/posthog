@@ -33,6 +33,13 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
     }
 })
 
+// A delay offset points either side of the date it offsets, so unlike DURATION_STRING it is signed.
+const OFFSET_DURATION_STRING = z.string().superRefine((v, ctx) => {
+    if (!/^-?\d*\.?\d+[dhms]$/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Offset must be a number followed by s, m, h, or d' })
+    }
+})
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -96,6 +103,8 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_model',
         'task_repository',
         'task_mcp_installations',
+        'signals_scout',
+        'task_skills',
     ]),
     key: z.string(),
     label: z.string(),
@@ -183,9 +192,10 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         key_property: z.string().optional(),
     }),
     z.object({
-        type: z.literal('slack-message'),
+        type: z.literal('internal-event'),
         filters: z.object({
-            // Message properties only, channel included — see the trigger registry entry
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
             properties: z.array(z.any()).optional(),
         }),
     }),
@@ -241,9 +251,56 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('delay'),
-        config: z.object({
-            delay_duration: DURATION_STRING,
-        }),
+        // Two ways to say when to continue, exactly one of which is set. `delay_duration` waits a fixed span
+        // from when the step starts; `delay_until` waits for an instant carried by the person or the event.
+        // Keep in sync with nodejs/src/cdp/schema/hogflow.ts and the server-side validation in hog_flow.py.
+        config: z
+            .object({
+                delay_duration: DURATION_STRING.optional(),
+                delay_until: z
+                    .object({
+                        // HogQL evaluating to a datetime. The builder composes it from a property picker,
+                        // but the API accepts any expression, so anything can turn up here.
+                        expression: z.string(),
+                        offset: OFFSET_DURATION_STRING.optional(),
+                        // Which zone a date carrying no offset of its own is read in, the same three
+                        // fields wait_until_time_window uses.
+                        timezone: z.string().nullish(),
+                        use_person_timezone: z.boolean().optional(),
+                        fallback_timezone: z.string().nullish(),
+                        // Compiled server-side at save; whatever the client sends is discarded.
+                        bytecode: z.any().optional(),
+                        bytecode_error: z.string().optional(),
+                    })
+                    .optional(),
+                max_delay_duration: DURATION_STRING.optional(),
+            })
+            .superRefine((config, ctx) => {
+                if (!config.delay_until) {
+                    if (config.delay_duration === undefined) {
+                        ctx.addIssue({
+                            code: z.ZodIssueCode.custom,
+                            path: ['delay_duration'],
+                            message: 'Please enter a duration',
+                        })
+                    }
+                    return
+                }
+                if (config.delay_duration !== undefined) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: ['delay_until'],
+                        message: 'A delay waits either for a duration or until a date, not both',
+                    })
+                }
+                if (!config.delay_until.expression.trim()) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: ['delay_until', 'expression'],
+                        message: 'Please choose a date to wait for',
+                    })
+                }
+            }),
     }),
     z.object({
         ..._commonActionFields,

@@ -1,10 +1,13 @@
-import type {
-  ArtifactType,
-  Task,
-  TaskRun,
-  TaskRunArtifact,
-  TaskRunArtifactMetadata,
-  TaskRunStatus,
+import {
+  type ArtifactType,
+  type EffortLevel,
+  effortLevelSchema,
+  type Task,
+  type TaskRun,
+  type TaskRunArtifact,
+  type TaskRunArtifactMetadata,
+  type TaskRunStatus,
+  taskRunStateSchema,
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
@@ -20,20 +23,19 @@ export type TaskRunArtifactDTO = Omit<
 };
 
 type TaskRunResponseDTO = Partial<
-  Omit<Schemas.TaskRunDetail, "artifacts" | "status">
+  Omit<Schemas.TaskRunDetailDTO, "artifacts" | "state">
 > & {
   id: string;
   artifacts?: Array<TaskRunArtifactDTO> | null;
-  status?: Schemas.StatusA35Enum | "started" | null;
+  state?: unknown;
   team?: number | null;
 };
 
 type TaskResponseDTO = Partial<
-  Omit<Schemas.Task, "created_by" | "json_schema" | "latest_run">
+  Omit<Schemas.TaskDetailDTO, "json_schema" | "latest_run">
 > & {
   id: string;
   channel?: string | null;
-  created_by?: Schemas.UserBasic | null;
   github_user_integration?: string | null;
   last_activity_at?: string | null;
   json_schema?: unknown | null;
@@ -64,6 +66,11 @@ function normalizeTaskRunStatus(status: unknown): TaskRunStatus {
     default:
       return "not_started";
   }
+}
+
+function normalizeEffortLevel(value: string | null): EffortLevel | null {
+  const parsed = effortLevelSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function normalizeArtifactType(type: string): ArtifactType {
@@ -180,14 +187,16 @@ export function normalizeTaskRunResponse(
     ...(dto.model === undefined ? {} : { model: dto.model }),
     ...(dto.reasoning_effort === undefined
       ? {}
-      : { reasoning_effort: dto.reasoning_effort }),
+      : { reasoning_effort: normalizeEffortLevel(dto.reasoning_effort) }),
     ...(dto.stage === undefined ? {} : { stage: dto.stage }),
-    ...(dto.environment === undefined ? {} : { environment: dto.environment }),
+    ...(dto.environment === "local" || dto.environment === "cloud"
+      ? { environment: dto.environment }
+      : {}),
     status: normalizeTaskRunStatus(dto.status),
     log_url: dto.log_url ?? "",
     error_message: dto.error_message ?? null,
     output: isRecord(dto.output) ? dto.output : null,
-    state: isRecord(dto.state) ? dto.state : {},
+    state: taskRunStateSchema.parse(dto.state),
     ...(dto.artifacts == null
       ? {}
       : { artifacts: dto.artifacts.map(normalizeTaskRunArtifact) }),

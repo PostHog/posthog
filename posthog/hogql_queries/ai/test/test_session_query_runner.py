@@ -132,6 +132,54 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)
         self.assertEqual(trace.totalLatency, 3)
 
+    def test_sums_distinguish_reported_zero_from_no_report(self) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-zero",
+                        "$ai_trace_id": "trace_zero",
+                        "$ai_latency": 1,
+                        "$ai_input_tokens": 0,
+                        "$ai_output_tokens": 0,
+                        "$ai_input_cost_usd": 0,
+                        "$ai_output_cost_usd": 0,
+                        "$ai_total_cost_usd": 0,
+                    },
+                },
+                # A generation whose provider never reported usage carries no
+                # token or cost properties at all.
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 1, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-zero",
+                        "$ai_trace_id": "trace_unpriced",
+                        "$ai_latency": 1,
+                    },
+                },
+            ]
+        )
+
+        runner = SessionQueryRunner(team=self.team, query=SessionQuery(sessionId="session-zero"))
+        traces = {trace.id: trace for trace in runner.calculate().results}
+
+        zero_trace = traces["trace_zero"]
+        self.assertEqual(zero_trace.totalCost, 0)
+        self.assertEqual(zero_trace.inputCost, 0)
+        self.assertEqual(zero_trace.inputTokens, 0)
+
+        unpriced_trace = traces["trace_unpriced"]
+        self.assertIsNone(unpriced_trace.totalCost)
+        self.assertIsNone(unpriced_trace.inputCost)
+        self.assertIsNone(unpriced_trace.inputTokens)
+
     def test_paginates_session_traces(self) -> None:
         bulk_create_ai_events(
             [

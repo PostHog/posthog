@@ -1,5 +1,6 @@
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import type { TabsSnapshot } from "@posthog/shared";
+import type { BrowserTabsClient } from "./browserTabsClient";
 
 /**
  * Local-first sync policy for the browser-tabs mirror.
@@ -29,11 +30,18 @@ let needsAuthoritativeReconcile = false;
 // contribution (tabsSync can't reach the injected BrowserTabsClient itself).
 // Used to reconcile after a failed write or a dropped remote snapshot.
 let fetchAuthoritative: (() => Promise<TabsSnapshot>) | null = null;
+let writeTabTarget: BrowserTabsClient["setTabTarget"] | null = null;
 
 export function registerSnapshotFetcher(
   fetch: (() => Promise<TabsSnapshot>) | null,
 ): void {
   fetchAuthoritative = fetch;
+}
+
+export function registerTabTargetWriter(
+  write: BrowserTabsClient["setTabTarget"] | null,
+): void {
+  writeTabTarget = write;
 }
 
 function reconcileAuthoritative(): void {
@@ -105,6 +113,16 @@ export async function persistWrite(
       }
     }
   }
+}
+
+/** Persist an imperative background-tab navigation through the client supplied
+ * by the browser-tabs contribution at boot. */
+export function persistTabTarget(
+  input: Parameters<BrowserTabsClient["setTabTarget"]>[0],
+): void {
+  const write = writeTabTarget;
+  if (!write) return;
+  void persistWrite(() => write(input));
 }
 
 /**

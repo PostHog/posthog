@@ -17,151 +17,39 @@ ui_apps:
         item_name_field: id
         entity_label: observation
 tools:
-    vision-actions-create:
-        operation: vision_actions_create
-        enabled: true
-        scopes:
-            - vision_action:write
-            - session_recording:read
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create vision action
-        description: >
-            Create a vision action, an "and then…" automation over a scanner's observations. Two modes: `group_summary`
-            (a scheduled report synthesized from the observations matching `selection`; set the cadence via
-            `trigger_config` `{rrule, timezone}`, an iCal RRULE without DTSTART, e.g. `FREQ=DAILY`) and `alert`
-            (evaluated continuously on the scanner's sweep; requires `alert_config`: `every_match` notifies about each
-            new matching observation, `on_breach` needs a `threshold` and fires when the `metric` (`count`, or
-            `avg_score` for scorer scanners) crosses it over `window_days` of 1/3/7/14/30). `selection` narrows which
-            observations count (verdict/tags/score bounds). Deliver to Slack or a webhook via `delivery_config`, e.g.
-            `[{type: 'slack', integration_id, channel}]`. Find the workspace's `integration_id` with `integrations-list`
-            (filter kind=slack) and the channel ID with `integrations-channels-retrieve`; without a delivery target,
-            results only appear in-app. Names must be unique within the team.
-        exclude_params:
-            - id
-            - next_run_at
-            - last_run_at
-            - hog_flow_id
-            - created_at
-            - created_by
-            - updated_at
-        requires_ai_consent: true
-    vision-actions-delete:
-        operation: vision_actions_destroy
-        enabled: true
-        scopes:
-            - vision_action:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete vision action
-        description: >
-            Permanently delete a vision action by ID, along with its run history (past group summaries and alert
-            firings). Its delivery destinations stop firing. To stop an action without losing its history, set `enabled:
-            false` via `vision-actions-update` instead.
-    vision-actions-list:
-        operation: vision_actions_list
-        enabled: true
-        scopes:
-            - vision_action:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List vision actions
-        description: >
-            List the vision actions (the "and then…" automations that run over a scanner's observations) for the current
-            project. A vision action in `mode: group_summary` produces the group summary shown on the scanner's "Digests
-            and alerts" tab — one report synthesized from up to `max_observations` observations of its bound scanner;
-            `mode: alert` delivers only when its alert condition holds. Each row carries the bound `scanner`, `mode`,
-            `trigger_type`, cadence, and `is_scanner_digest` (the built-in daily digest). Pass `?scanner=<id>` to filter
-            to one scanner. To read a specific action's produced reports, list its runs with `vision-actions-runs-list`.
-    vision-actions-retrieve:
-        operation: vision_actions_retrieve
-        enabled: true
-        scopes:
-            - vision_action:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a vision action
-        description: >
-            Get a single vision action by ID. Returns its configuration: the bound `scanner`, `mode`
-            (group_summary/alert), `selection` (the observation-targeting predicate — verdict/tags/score bounds/window),
-            `synthesis_config`, `alert_config`, cadence, and delivery targets. Use `vision-actions-runs-list` +
-            `vision-actions-runs-retrieve` to read the reports it has actually produced.
-    vision-actions-run-create:
-        operation: vision_actions_run_create
+    environment-vision-quota-spend-series-retrieve:
+        operation: environment_vision_quota_spend_series_retrieve
         enabled: false
-    vision-actions-runs-list:
-        operation: vision_actions_runs_list
-        enabled: true
-        scopes:
-            - vision_action:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List a vision action's runs
-        description: >
-            List the run history for one vision action (nested under the action). Each run is one execution that
-            produced a group summary or evaluated an alert. Rows are lightweight — `status`
-            (running/completed/failed/skipped), `scheduled_at`, `observation_count` (how many observations fed the
-            summary), `error_reason`, and `is_recovery` — without the report body. Fetch a completed run with
-            `vision-actions-runs-retrieve` to get the synthesized report and the observations it cited.
-    vision-actions-runs-retrieve:
-        operation: vision_actions_runs_retrieve
-        enabled: true
-        scopes:
-            - vision_action:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a vision action run's full group summary
-        description: >
-            Get one vision action run in full: `synthesized_markdown` (the group-summary report, which cites its source
-            observations inline with `[obs N]` markers) and `observations` — the recordings the run included, in summary
-            order, each carrying the 1-based `index` that the report's `[obs N]` markers reference plus that
-            observation's title and outcome. This is the tool for auditing a group summary: for each `[obs N]` in the
-            markdown, `observations[N-1]` is the observation it cites, so you can check whether the cited observation
-            actually supports the claim. Empty `synthesized_markdown`/`observations` means the run skipped, failed, or
-            predates observation tracking.
-    vision-actions-update:
-        operation: vision_actions_partial_update
-        enabled: true
-        scopes:
-            - vision_action:write
-            - session_recording:read
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update vision action
-        description: >
-            Partially update a vision action by ID. Send only the fields you want to change. Common changes: toggle
-            `enabled` to pause/resume it, tune the `alert_config` threshold, change the `trigger_config` cadence, or
-            point `delivery_config` at a different Slack channel or webhook. Nested objects and lists you send replace
-            the stored value wholesale (e.g. `delivery_config` is the full new list), so fetch the action with
-            `vision-actions-retrieve` first and resend the parts you want to keep. `mode` cross-field rules apply as on
-            create: switching to `alert` requires an `alert_config`.
-        exclude_params:
-            - id
-            - next_run_at
-            - last_run_at
-            - hog_flow_id
-            - created_at
-            - created_by
-            - updated_at
-        requires_ai_consent: true
+    vision-alerts-create:
+        operation: vision_alerts_create
+        enabled: false
+    vision-alerts-destinations-create:
+        operation: vision_alerts_destinations_create
+        enabled: false
+    vision-alerts-destinations-delete-create:
+        operation: vision_alerts_destinations_delete_create
+        enabled: false
+    vision-alerts-destroy:
+        operation: vision_alerts_destroy
+        enabled: false
+    vision-alerts-events-list:
+        operation: vision_alerts_events_list
+        enabled: false
+    vision-alerts-list:
+        operation: vision_alerts_list
+        enabled: false
+    vision-alerts-partial-update:
+        operation: vision_alerts_partial_update
+        enabled: false
+    vision-alerts-reset-create:
+        operation: vision_alerts_reset_create
+        enabled: false
+    vision-alerts-retrieve:
+        operation: vision_alerts_retrieve
+        enabled: false
+    vision-alerts-update:
+        operation: vision_alerts_update
+        enabled: false
     vision-observations-create-task-create:
         operation: vision_observations_create_task_create
         enabled: false
@@ -238,11 +126,14 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{session_id}'
-        title: Get a session's replay vision observation
+        title: Get a replay vision observation
         description: >
-            Get a single replay vision observation by ID, scoped to the scanners the caller can read. Returns the full
-            `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any
-            event citations). Use `vision-observations-list` to find observation IDs for a session first.
+            Get a single replay vision observation, scoped to the scanners the caller can read. `id` is the
+            *observation* id, not a session id and not a scanner id. Returns the full `scanner_snapshot` (the scanner's
+            configuration at run time) and `scanner_result` (the LLM output, with any event citations). A
+            `$recording_observed` event row's `uuid` is the observation id, so pass `toString(uuid)` as `id`. If you
+            only have a session id, call `vision-observations-list` with that `session_id` first and take `id` off the
+            row you want.
         agent_note: >
             `_posthogUrl` opens the recording this observation analysed.
             `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
@@ -253,6 +144,30 @@ tools:
     vision-observations-retry-create:
         operation: vision_observations_retry_create
         enabled: false
+    vision-observations-search:
+        operation: vision_observations_search_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Semantically search replay vision observations
+        description: >
+            Search replay vision observations by meaning, not keywords: `q` is a natural-language description of what to
+            find (e.g. "users confused by the pricing page") and results come back under `results`, most relevant first.
+            Each result pairs the `observation` with its `distance` to the query (lower is closer, only comparable
+            within one response) and `matched_content`, the excerpt of the observation's text that matched (may be empty
+            for old rows). The search ranks each observation's LLM output (a summarizer's intent/outcome/friction
+            facets, other scanners' reasoning) by semantic similarity, so it finds sessions described differently from
+            the query. Scope with `scanner_id` to search one scanner, otherwise every scanner the caller can read is
+            searched. Narrow by exact outcome with `verdict` (comma-separated, e.g. `yes,inconclusive`), `tags`
+            (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds). These filter, while `q`
+            ranks. `limit` defaults to 20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or
+            `vision-observations-list` for everything observed about one session.
+        requires_ai_consent: true
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -338,13 +253,10 @@ tools:
             itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set
             `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's
             other scanners. The scanner stops scanning once the credits left cannot cover another observation, and
-            resumes when the period resets. Creating a scanner also creates its built-in daily digest: an enabled vision
-            action with no delivery targets that synthesizes the scanner's observations once a day and spends credits of
-            its own, on top of the observations. Disable or delete it with `vision-actions-update` /
-            `vision-actions-delete` if you don't want it. To get notified about what the scanner finds (a Slack alert or
-            a summary on another schedule), create a further vision action bound to it with `vision-actions-create`. For
-            a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision`
-            skill first — it derives the query from the experiment's exposure criteria.
+            resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert
+            from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, load
+            the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's
+            exposure criteria.
         exclude_params:
             - id
             - scanner_version
@@ -373,6 +285,9 @@ tools:
             `vision-scanners-update` instead.
     vision-scanners-draft-create:
         operation: vision_scanners_draft_create
+        enabled: false
+    vision-scanners-duplicate-create:
+        operation: vision_scanners_duplicate_create
         enabled: false
     vision-scanners-estimate-create:
         operation: vision_scanners_estimate_create
@@ -408,10 +323,11 @@ tools:
             idempotent: true
         title: Get replay vision scanner
         description: >
-            Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the
-            type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and
-            operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`,
-            and `last_swept_at`.
+            Get a single replay vision scanner. The scanner id goes in `id` — the `vision-scanners-observations-*` tools
+            take the same value as `scanner_id`, but this one does not accept that name. Get an id from
+            `vision-scanners-list`. Returns the full configuration including `scanner_config` (the type-specific prompt
+            and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like
+            `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.
     vision-scanners-impact-retrieve:
         operation: vision_scanners_impact_retrieve
         enabled: true

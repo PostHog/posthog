@@ -13,12 +13,29 @@ describe('scannerScout', () => {
     const scannerId = '0198B7C4-1111-2222-3333-444455556666'
 
     it('slugifies user names into valid, unique skill names and humanizes them back', () => {
-        const name = scoutNameToSkillName('Checkout friction (weekly)', [])
-        expect(name).toBe('signals-scout-checkout-friction-weekly')
+        const name = scoutNameToSkillName('Checkout friction (weekly)', 'Rage clicks', [])
+        expect(name).toBe('signals-scout-rage-clicks-checkout-friction-weekly')
         expect(name).toMatch(/^signals-scout-[a-z0-9-]+$/)
-        expect(scoutNameToSkillName('Checkout friction (weekly)', [name])).toBe(`${name}-2`)
-        expect(scoutNameToSkillName('', [])).toBe('signals-scout-digest')
-        expect(scoutNameToSkillName('x'.repeat(100), []).length).toBeLessThanOrEqual(64)
+        expect(scoutNameToSkillName('Checkout friction (weekly)', 'Rage clicks', [name])).toBe(`${name}-2`)
+        expect(scoutNameToSkillName('', 'Rage clicks', [])).toBe('signals-scout-rage-clicks-digest')
+        expect(scoutNameToSkillName('x'.repeat(100), 'Rage clicks', []).length).toBeLessThanOrEqual(64)
+    })
+
+    it('numbers a scout per scanner rather than across the team', () => {
+        // Skill names are unique per team, so deriving one from the label alone made the second
+        // scanner's first daily digest `signals-scout-daily-digest-2`, and the number climbed with
+        // every scanner the team set up.
+        const first = scoutNameToSkillName('Daily digest', 'Checkout rage clicks', [])
+        const second = scoutNameToSkillName('Daily digest', 'Signup drop-off', [first])
+        expect(first).toBe('signals-scout-checkout-rage-clicks-daily-digest')
+        expect(second).toBe('signals-scout-signup-drop-off-daily-digest')
+    })
+
+    it('keeps the label whole when the scanner name would overrun the cap', () => {
+        // The label is what tells two scouts on one scanner apart; the scanner name is context.
+        const name = scoutNameToSkillName('new issue watch', 'x'.repeat(80), [])
+        expect(name.length).toBeLessThanOrEqual(64)
+        expect(name.endsWith('-new-issue-watch')).toBe(true)
     })
 
     it('claims only the scouts recorded as belonging to this scanner', () => {
@@ -40,6 +57,10 @@ describe('scannerScout', () => {
         for (const template of templates) {
             expect(template.body).toContain(scannerId)
             expect(template.cron).toMatch(/^\d+ \d+ \* \* \*$/)
+            // vision-scanners-get takes `id`; only the sibling vision-scanners-observations-* tools
+            // take `scanner_id`. Pairing the get call with scanner_id fails validation on the first
+            // move of every scheduled run.
+            expect(template.body).toContain(`\`vision-scanners-get\` with id \`${scannerId}\``)
         }
         for (const template of templates) {
             expect(template.defaultName.trim()).not.toBe('')

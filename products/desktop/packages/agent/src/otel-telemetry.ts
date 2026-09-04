@@ -232,11 +232,6 @@ export function mapNotificationToLogRecord(
         attrs,
       );
     }
-    case POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT: {
-      const attrs: Attributes = {};
-      strAttr(attrs, "branch", params.branch);
-      return record(INFO, "git checkpoint", method, attrs);
-    }
     case POSTHOG_NOTIFICATIONS.BRANCH_CREATED: {
       const attrs: Attributes = {};
       strAttr(attrs, "branch", params.branch ?? params.branchName);

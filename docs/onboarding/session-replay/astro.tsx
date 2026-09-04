@@ -1,10 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getAstroSteps as getAstroStepsPA } from '../product-analytics/astro'
+import { getAstroInstallSteps } from '../product-analytics/astro'
 import { StepDefinition } from '../steps'
-import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
+import { sessionReplayFinalStep } from './_snippets/session-replay-final-step'
 
-export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =>
-    createSessionReplayStepsFromPA(getAstroStepsPA, ctx)
+export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getAstroInstallSteps(ctx),
+    sessionReplayFinalStep(ctx),
+]
 
 export const AstroInstallation = createInstallation(getAstroSteps)

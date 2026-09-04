@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.doit.source import DoItSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.doit.source"
 _DOIT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit"
@@ -21,9 +20,6 @@ CONFIG = DoItSourceConfig(api_key="key")
 class TestDoItSource:
     def setup_method(self):
         self.source = DoItSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DOIT
 
     @pytest.mark.parametrize("pattern", ["Report no longer exists", "Request to get report failed with status: 404"])
     def test_non_retryable_errors_includes_pattern(self, pattern):

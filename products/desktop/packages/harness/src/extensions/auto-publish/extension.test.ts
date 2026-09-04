@@ -19,5 +19,9 @@ describe("createAutoPublishExtension", () => {
     expect(result.systemPrompt).toContain("Base system prompt");
     expect(result.systemPrompt).toContain("gh pr create --draft");
     expect(result.systemPrompt).toContain("git_signed_commit");
+    // Pi never sees buildCloudSystemPrompt; this is its only stacking guidance.
+    expect(result.systemPrompt).toContain("gh_stack");
+    expect(result.systemPrompt).toContain("Default to a single pull request");
+    expect(result.systemPrompt).toContain("Do not use the `gh stack` CLI");
   });
 });

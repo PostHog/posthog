@@ -2,10 +2,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.role_external_reference import RoleExternalReference
+
+from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role_external_reference import RoleExternalReference
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role
 
 
 class TestRoleExternalReferenceAPI(APILicensedTest):

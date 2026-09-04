@@ -5,13 +5,15 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+
+from products.access_control.backend.models.role import Role
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.user import PostHogSCIMUser
 from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role
 
 
 class TestSCIMAPI(APILicensedTest):
@@ -40,8 +42,9 @@ class TestSCIMAPI(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -52,11 +55,13 @@ class TestSCIMAPI(APILicensedTest):
     def test_scim_uses_config_slug(self):
         self.config.scim_slug = "custom-scim-slug"
         self.config.save(update_fields=["scim_slug"])
-        OrganizationDomain.objects.create(
+        second_domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="example.co.uk",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=second_domain, identity_provider_config=self.config
         )
         self.client.credentials(**self.scim_headers)
 
@@ -101,7 +106,7 @@ class TestSCIMAPI(APILicensedTest):
             domain="no-config.example.com",
             verified_at="2024-01-01T00:00:00Z",
         )
-        assert unconfigured.identity_provider_config is None
+        assert not unconfigured.identity_provider_configs.exists()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.plain_token}")
         response = self.client.get(f"/scim/v2/{unconfigured.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -119,9 +124,8 @@ class TestSCIMAPI(APILicensedTest):
         config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        unverified.identity_provider_config = config
-        unverified.save()
-        assert unverified.has_scim  # config is SCIM-enabled with a token
+        LinkedIdentityProviderConfig.objects.create(organization_domain=unverified, identity_provider_config=config)
+        assert config.has_scim
 
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {plain_token}")
         response = self.client.get(f"/scim/v2/{unverified.id}/Users")
@@ -318,8 +322,9 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -559,8 +564,9 @@ class TestSCIMAuditLogging(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -657,8 +663,9 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}

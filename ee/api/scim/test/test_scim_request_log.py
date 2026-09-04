@@ -11,6 +11,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -41,8 +42,9 @@ class TestSCIMRequestLogCapture(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
     def test_get_request_creates_log(self):
@@ -120,7 +122,9 @@ class TestSCIMRequestLogCleanup(TestCase):
             organization=self.organization,
             domain="cleanup-test.com",
             verified_at=timezone.now(),
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
         )
 
     def _create_log(self, age_days: int) -> SCIMRequestLog:
@@ -184,7 +188,9 @@ class TestSCIMLogsEndpoint(APILicensedTest):
             organization=self.organization,
             domain="example.com",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
         )
 
     def _create_log(self, **kwargs) -> SCIMRequestLog:

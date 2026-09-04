@@ -22,7 +22,7 @@ export const RESERVED_PREFIX = '__'
 /** Comma-separated names of the secrets that are in recovery. */
 export const RECOVERY_KEYS = 'INTEGRATION_RECOVERY_KEYS'
 
-/** Suffix holding the outgoing value during a rotation, comma-separated, newest first. */
+/** Suffix holding the staged (incoming) value during a rotation, comma-separated, newest first. */
 export const FALLBACK_SUFFIX = '_FALLBACKS'
 
 function commaList(value: string | undefined): string[] {
@@ -130,8 +130,9 @@ export class SecretMount {
 
         for (const [key, value] of Object.entries(values)) {
             // Signing keys, the recovery list and rotation siblings are the mount's own
-            // machinery; served as secrets they would leak the outgoing value of a
-            // rotation and the list of burned keys.
+            // machinery. A sibling IS served, but as the `incoming` field of the key it belongs
+            // to — never as a secret in its own right, which would hand out a staged value under
+            // a name nobody asked for, alongside the list of burned keys.
             if (key.startsWith(RESERVED_PREFIX) || key === RECOVERY_KEYS || key.endsWith(FALLBACK_SUFFIX)) {
                 continue
             }
@@ -139,9 +140,9 @@ export class SecretMount {
                 secrets[key] = { state: 'recovery', versionId: contentHash, fetchedAt }
                 continue
             }
-            const previous = commaList(values[`${key}${FALLBACK_SUFFIX}`])[0]
-            if (previous !== undefined && previous !== value) {
-                secrets[key] = { state: 'rotating', value, previous, versionId: contentHash, fetchedAt }
+            const incoming = commaList(values[`${key}${FALLBACK_SUFFIX}`])[0]
+            if (incoming !== undefined && incoming !== value) {
+                secrets[key] = { state: 'rotating', value, incoming, versionId: contentHash, fetchedAt }
                 continue
             }
             secrets[key] = { state: 'steady', value, versionId: contentHash, fetchedAt }

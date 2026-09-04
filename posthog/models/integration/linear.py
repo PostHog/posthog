@@ -81,18 +81,33 @@ class LinearIntegration:
             raise ValidationError("Failed to attach the PostHog link to the Linear issue")
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Search existing Linear issues by title / identifier for the link-existing flow."""
-        search_query = """
-        query SearchIssues($term: String!, $first: Int!) {
-            searchIssues(term: $term, first: $first) {
-                nodes { identifier title url }
-            }
-        }
+        """Search existing Linear issues by title / identifier for the link-existing flow.
+
+        A blank query lists recently updated issues instead - searchIssues requires a term.
         """
-        body = self.query(search_query, variables={"term": query, "first": limit})
-        if body.get("errors") or common.dot_get(body, "data.searchIssues") is None:
+        if query.strip():
+            search_query = """
+            query SearchIssues($term: String!, $first: Int!) {
+                searchIssues(term: $term, first: $first) {
+                    nodes { identifier title url }
+                }
+            }
+            """
+            body = self.query(search_query, variables={"term": query, "first": limit})
+            nodes_path = "data.searchIssues"
+        else:
+            recent_query = """
+            query RecentIssues($first: Int!) {
+                issues(first: $first, orderBy: updatedAt) {
+                    nodes { identifier title url }
+                }
+            }
+            """
+            body = self.query(recent_query, variables={"first": limit})
+            nodes_path = "data.issues"
+        if body.get("errors") or common.dot_get(body, nodes_path) is None:
             raise ValidationError("Failed to search Linear issues")
-        nodes = common.dot_get(body, "data.searchIssues.nodes") or []
+        nodes = common.dot_get(body, f"{nodes_path}.nodes") or []
         results: list[dict[str, Any]] = []
         for node in nodes:
             identifier = node.get("identifier")

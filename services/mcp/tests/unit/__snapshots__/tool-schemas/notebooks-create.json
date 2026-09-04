@@ -31,6 +31,29 @@
             ],
             "description": "Title of the notebook."
         },
+        "variables": {
+            "description": "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.",
+            "items": {
+                "description": "One notebook-level variable. Shared by the notebook's own `variables` field and a run body.",
+                "properties": {
+                    "name": {
+                        "description": "Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'.",
+                        "type": "string"
+                    },
+                    "value": {
+                        "description": "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                    }
+                },
+                "required": ["name", "type"],
+                "type": "object"
+            },
+            "type": "array"
+        },
         "version": {
             "description": "Version number for optimistic concurrency control. Must match the current version when updating content.",
             "maximum": 2147483647,

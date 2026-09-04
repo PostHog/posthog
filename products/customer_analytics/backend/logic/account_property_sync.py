@@ -13,15 +13,28 @@ from uuid import UUID
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from structlog.typing import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 
+from products.customer_analytics.backend.logic.account_property_runs import (
+    AccountPropertySyncRunContext,
+    AccountPropertySyncRunOutcome,
+    finalize_account_property_sync_runs,
+    finish_account_property_sync_runs,
+)
 from products.customer_analytics.backend.logic.custom_property_values import (
     InvalidCustomPropertyValue,
     set_synced_custom_property_value,
 )
+from products.customer_analytics.backend.metrics import record_account_property_sync_phase_duration
 from products.customer_analytics.backend.models import Account, CustomPropertySource, TargetType
+from products.customer_analytics.backend.models.custom_property_sync_run import (
+    SyncPhase,
+    SyncSegment as AccountPropertySyncSegment,
+    SyncStatus,
+)
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding
 from products.warehouse_sources.backend.facade.temporal import (
@@ -35,11 +48,19 @@ logger = structlog.get_logger(__name__)
 _ACCOUNT_LOOKUP_CHUNK_SIZE = 1_000
 _PARQUET_BATCH_SIZE = 50_000
 _SEGMENTS_REQUIRED_FOR_CLEANUP = frozenset({"tracked", "ignored"})
+_RUN_FAILED_ERROR = "Couldn't update accounts. Run the source view again. If it keeps failing, contact support."
+_INVALID_VALUE_ERROR = (
+    "A warehouse value doesn't match this property's type. Update the source data, then run the view again."
+)
 
 
-class AccountPropertySyncSegment(StrEnum):
-    TRACKED = "tracked"
-    IGNORED = "ignored"
+class AccountPropertySyncPhase(StrEnum):
+    LOAD_STATE = "load_state"
+    READ_STAGED_ROWS = "read_staged_rows"
+    DIFF_VALUES = "diff_values"
+    MATCH_ACCOUNTS = "match_accounts"
+    APPLY_VALUES = "apply_values"
+    PERSIST_STATE = "persist_state"
 
 
 class AccountPropertySourceValueError(Exception):
@@ -58,7 +79,32 @@ class SourceSyncState:
     source: CustomPropertySource
     prior_hashes: dict[str, str]
     applied_hashes: dict[str, str] = field(default_factory=dict)
-    failed: bool = False
+    rows_read: int = 0
+    changed: int = 0
+    matched: int = 0
+    written: int = 0
+    error: str | None = None
+
+
+def _record_phase_duration(
+    log: FilteringBoundLogger,
+    segment: AccountPropertySyncSegment,
+    phase: AccountPropertySyncPhase,
+    started_at: float,
+    details: dict[str, bool | float | int | str],
+) -> None:
+    duration_seconds = asyncio.get_running_loop().time() - started_at
+    log.info(
+        "Account-property sync phase completed",
+        phase=phase.value,
+        duration_seconds=duration_seconds,
+        **details,
+    )
+    record_account_property_sync_phase_duration(
+        phase=phase.value,
+        segment=segment.value,
+        duration_seconds=duration_seconds,
+    )
 
 
 def _json_safe(value: Any) -> Any:
@@ -276,69 +322,206 @@ async def _mark_completed_and_maybe_cleanup(
 
 
 async def run_account_property_segment_sync(
-    *, team_id: int, binding: WarehouseBinding, job_id: str, segment: AccountPropertySyncSegment
+    *,
+    team_id: int,
+    binding: WarehouseBinding,
+    job_id: str,
+    segment: AccountPropertySyncSegment,
+    final_attempt: bool = False,
 ) -> dict[str, int]:
-    if await _segment_already_completed(team_id, binding, job_id, segment):
-        return {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
-
-    sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
+    log = logger.bind(
+        team_id=team_id,
+        saved_query_id=binding.id,
+        job_id=job_id,
+        segment=segment.value,
+    )
     counts = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
 
     states: list[SourceSyncState] = []
-    for source in sources:
-        if source.source_column is None:
-            continue
-        states.append(
-            SourceSyncState(
-                source=source,
-                prior_hashes=await _read_snapshot_hashes(team_id, binding, str(source.id), segment),
-            )
-        )
+    run_context = AccountPropertySyncRunContext(
+        team_id=team_id,
+        saved_query_id=binding.id,
+        job_id=job_id,
+    )
 
-    async for rows in _iter_parquet_row_batches(team_id, binding, job_id):
-        counts["rows_read"] += len(rows)
+    try:
+        if await _segment_already_completed(team_id, binding, job_id, segment):
+            return {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
+
+        sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
+        states = [
+            SourceSyncState(source=source, prior_hashes={}) for source in sources if source.source_column is not None
+        ]
+        phase_started_at = asyncio.get_running_loop().time()
         for state in states:
-            source = state.source
-            source_column = source.source_column
-            if source_column is None:
-                continue
-            values_by_external_id: dict[str, Any] = {}
-            for row in rows:
-                external_id = row.get(source.key_column)
-                value = row.get(source_column)
-                if external_id is not None and value is not None:
-                    values_by_external_id[str(external_id)] = _json_safe(value)
-            changed = {
-                external_id: value
-                for external_id, value in values_by_external_id.items()
-                if state.prior_hashes.get(external_id) != _value_hash(value)
-            }
-            counts["changed"] += len(changed)
-            if not changed:
-                continue
-            account_ids = await database_sync_to_async(_matching_account_ids, thread_sensitive=False)(
-                team_id, segment, list(changed)
-            )
-            counts["matched"] += len(account_ids)
-            applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
-                team_id, source, account_ids, changed, segment
-            )
-            counts["written"] += applied.written
-            state.failed = state.failed or applied.failed
-            state.applied_hashes.update(applied.hashes)
-            state.prior_hashes.update(applied.hashes)
-
-    for state in states:
-        if state.failed:
-            counts["source_errors"] += 1
-        await _write_snapshot_hashes(
-            team_id,
-            binding,
-            str(state.source.id),
+            state.prior_hashes.update(await _read_snapshot_hashes(team_id, binding, str(state.source.id), segment))
+        _record_phase_duration(
+            log,
             segment,
-            job_id,
-            state.applied_hashes,
+            AccountPropertySyncPhase.LOAD_STATE,
+            phase_started_at,
+            {"source_count": len(states)},
         )
+
+        batch_index = 0
+        batches = aiter(_iter_parquet_row_batches(team_id, binding, job_id))
+        while True:
+            phase_started_at = asyncio.get_running_loop().time()
+            try:
+                rows = await anext(batches)
+            except StopAsyncIteration:
+                break
+            _record_phase_duration(
+                log,
+                segment,
+                AccountPropertySyncPhase.READ_STAGED_ROWS,
+                phase_started_at,
+                {"batch_index": batch_index, "batch_rows": len(rows)},
+            )
+            counts["rows_read"] += len(rows)
+            for state in states:
+                state.rows_read += len(rows)
+                source = state.source
+                source_column = source.source_column
+                if source_column is None:
+                    continue
+
+                phase_started_at = asyncio.get_running_loop().time()
+                values_by_external_id: dict[str, Any] = {}
+                for row in rows:
+                    external_id = row.get(source.key_column)
+                    value = row.get(source_column)
+                    if external_id is not None and value is not None:
+                        values_by_external_id[str(external_id)] = _json_safe(value)
+                changed = {
+                    external_id: value
+                    for external_id, value in values_by_external_id.items()
+                    if state.prior_hashes.get(external_id) != _value_hash(value)
+                }
+                state.changed += len(changed)
+                counts["changed"] += len(changed)
+                phase_details: dict[str, bool | float | int | str] = {
+                    "batch_index": batch_index,
+                    "source_id": str(source.id),
+                    "candidate_values": len(values_by_external_id),
+                    "changed_values": len(changed),
+                }
+                _record_phase_duration(
+                    log,
+                    segment,
+                    AccountPropertySyncPhase.DIFF_VALUES,
+                    phase_started_at,
+                    phase_details,
+                )
+                if not changed:
+                    continue
+
+                phase_started_at = asyncio.get_running_loop().time()
+                account_ids = await database_sync_to_async(_matching_account_ids, thread_sensitive=False)(
+                    team_id, segment, list(changed)
+                )
+                state.matched += len(account_ids)
+                counts["matched"] += len(account_ids)
+                _record_phase_duration(
+                    log,
+                    segment,
+                    AccountPropertySyncPhase.MATCH_ACCOUNTS,
+                    phase_started_at,
+                    {**phase_details, "matched_accounts": len(account_ids)},
+                )
+
+                phase_started_at = asyncio.get_running_loop().time()
+                applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
+                    team_id, source, account_ids, changed, segment
+                )
+                state.written += applied.written
+                counts["written"] += applied.written
+                if applied.failed:
+                    state.error = _INVALID_VALUE_ERROR
+                state.applied_hashes.update(applied.hashes)
+                state.prior_hashes.update(applied.hashes)
+                _record_phase_duration(
+                    log,
+                    segment,
+                    AccountPropertySyncPhase.APPLY_VALUES,
+                    phase_started_at,
+                    {
+                        **phase_details,
+                        "matched_accounts": len(account_ids),
+                        "written_values": applied.written,
+                        "source_failed": applied.failed,
+                    },
+                )
+            batch_index += 1
+
+        phase_started_at = asyncio.get_running_loop().time()
+        persisted_hashes = 0
+        for state in states:
+            if state.error is not None:
+                counts["source_errors"] += 1
+            await _write_snapshot_hashes(
+                team_id,
+                binding,
+                str(state.source.id),
+                segment,
+                job_id,
+                state.applied_hashes,
+            )
+            persisted_hashes += len(state.applied_hashes)
+        _record_phase_duration(
+            log,
+            segment,
+            AccountPropertySyncPhase.PERSIST_STATE,
+            phase_started_at,
+            {"source_count": len(states), "persisted_hashes": persisted_hashes},
+        )
+    except Exception:
+        if final_attempt:
+            await database_sync_to_async(finish_account_property_sync_runs)(
+                run_context,
+                segment,
+                [
+                    AccountPropertySyncRunOutcome(
+                        source_id=state.source.id,
+                        rows_read=state.rows_read,
+                        changed=state.changed,
+                        matched=state.matched,
+                        written=state.written,
+                        error=_RUN_FAILED_ERROR,
+                    )
+                    for state in states
+                ],
+            )
+            await database_sync_to_async(finalize_account_property_sync_runs)(
+                run_context,
+                status=SyncStatus.FAILED,
+                phase=SyncPhase.SYNCING,
+                error=_RUN_FAILED_ERROR,
+                segment=segment,
+            )
+        raise
+
+    await database_sync_to_async(finish_account_property_sync_runs)(
+        run_context,
+        segment,
+        [
+            AccountPropertySyncRunOutcome(
+                source_id=state.source.id,
+                rows_read=state.rows_read,
+                changed=state.changed,
+                matched=state.matched,
+                written=state.written,
+                error=state.error,
+            )
+            for state in states
+        ],
+    )
+    await database_sync_to_async(finalize_account_property_sync_runs)(
+        run_context,
+        status=SyncStatus.COMPLETED,
+        phase=SyncPhase.COMPLETED,
+        segment=segment,
+    )
 
     if counts["source_errors"]:
         raise AccountPropertySourceValueError(

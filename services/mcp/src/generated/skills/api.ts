@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const LlmSkillsListParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const LlmSkillsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsListQueryParams = () => zod.object({
     category: zod
         .string()
         .optional()
@@ -26,10 +26,16 @@ export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    owner_id: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.'
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to skill names and descriptions.'),
 })
 
-export const LlmSkillsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -39,7 +45,7 @@ export const LlmSkillsCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmSkillsCreateBodyNameMax = 64
 
-export const llmSkillsCreateBodyDescriptionMax = 4096
+export const llmSkillsCreateBodyDescriptionMax = 1024
 
 export const llmSkillsCreateBodyLicenseMax = 255
 
@@ -52,7 +58,7 @@ export const llmSkillsCreateBodyFilesItemPathMax = 500
 export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
 export const llmSkillsCreateBodyFilesItemContentTypeMax = 100
 
-export const LlmSkillsCreateBody = /* @__PURE__ */ zod
+export const LlmSkillsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -61,7 +67,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
         description: zod
             .string()
             .max(llmSkillsCreateBodyDescriptionMax)
-            .describe('What this skill does and when to use it. Max 4096 characters.'),
+            .describe('What this skill does and when to use it. Max 1024 characters.'),
         body: zod.string().describe('The SKILL.md instruction content (markdown).'),
         license: zod
             .string()
@@ -112,7 +118,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
  *
  * Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
  */
-export const LlmSkillsMarketplaceInstallCommandCreateParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsMarketplaceInstallCommandCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -122,7 +128,7 @@ export const LlmSkillsMarketplaceInstallCommandCreateParams = /* @__PURE__ */ zo
 
 export const llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault = false
 
-export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.object({
+export const LlmSkillsMarketplaceInstallCommandCreateBody = () => zod.object({
     rotate: zod
         .boolean()
         .default(llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault)
@@ -133,7 +139,7 @@ export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.
 
 export const llmSkillsNameRetrievePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -144,7 +150,7 @@ export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const llmSkillsNameRetrieveQueryBodyOffsetMin = 0
 
-export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameRetrieveQueryParams = () => zod.object({
     body_length: zod
         .number()
         .min(1)
@@ -168,7 +174,7 @@ export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
 
 export const llmSkillsNamePartialUpdatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNamePartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -177,7 +183,7 @@ export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     skill_name: zod.string().regex(llmSkillsNamePartialUpdatePathSkillNameRegExp),
 })
 
-export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
+export const llmSkillsNamePartialUpdateBodyDescriptionMax = 1024
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
 
@@ -194,7 +200,7 @@ export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
 
 export const llmSkillsNamePartialUpdateBodyVersionDescriptionMax = 400
 
-export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmSkillsNamePartialUpdateBody = () => zod.object({
     body: zod
         .string()
         .optional()
@@ -297,7 +303,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNameArchiveCreateParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameArchiveCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -308,7 +314,7 @@ export const LlmSkillsNameArchiveCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmSkillsNameDuplicateCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameDuplicateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -319,7 +325,7 @@ export const LlmSkillsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmSkillsNameDuplicateCreateBodyNewNameMax = 64
 
-export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameDuplicateCreateBody = () => zod.object({
     new_name: zod
         .string()
         .max(llmSkillsNameDuplicateCreateBodyNewNameMax)
@@ -328,7 +334,7 @@ export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
 
 export const llmSkillsNameFilesCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNameFilesCreateParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -342,7 +348,7 @@ export const llmSkillsNameFilesCreateBodyPathMax = 500
 export const llmSkillsNameFilesCreateBodyContentTypeDefault = `text/plain`
 export const llmSkillsNameFilesCreateBodyContentTypeMax = 100
 
-export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesCreateBody = () => zod.object({
     path: zod
         .string()
         .max(llmSkillsNameFilesCreateBodyPathMax)
@@ -364,7 +370,7 @@ export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
 
 export const llmSkillsNameFilesRenameCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNameFilesRenameCreateParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesRenameCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -377,7 +383,7 @@ export const llmSkillsNameFilesRenameCreateBodyOldPathMax = 500
 
 export const llmSkillsNameFilesRenameCreateBodyNewPathMax = 500
 
-export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesRenameCreateBody = () => zod.object({
     old_path: zod.string().max(llmSkillsNameFilesRenameCreateBodyOldPathMax).describe('Current file path to rename.'),
     new_path: zod
         .string()
@@ -395,7 +401,7 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
 export const llmSkillsNameFilesRetrievePathFilePathRegExp = new RegExp('^.+$')
 export const llmSkillsNameFilesRetrievePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNameFilesRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesRetrieveParams = () => zod.object({
     file_path: zod.string().regex(llmSkillsNameFilesRetrievePathFilePathRegExp),
     project_id: zod
         .string()
@@ -405,7 +411,7 @@ export const LlmSkillsNameFilesRetrieveParams = /* @__PURE__ */ zod.object({
     skill_name: zod.string().regex(llmSkillsNameFilesRetrievePathSkillNameRegExp),
 })
 
-export const LlmSkillsNameFilesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesRetrieveQueryParams = () => zod.object({
     version: zod
         .number()
         .min(1)
@@ -416,7 +422,7 @@ export const LlmSkillsNameFilesRetrieveQueryParams = /* @__PURE__ */ zod.object(
 export const llmSkillsNameFilesDestroyPathFilePathRegExp = new RegExp('^.+$')
 export const llmSkillsNameFilesDestroyPathSkillNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmSkillsNameFilesDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesDestroyParams = () => zod.object({
     file_path: zod.string().regex(llmSkillsNameFilesDestroyPathFilePathRegExp),
     project_id: zod
         .string()
@@ -426,7 +432,7 @@ export const LlmSkillsNameFilesDestroyParams = /* @__PURE__ */ zod.object({
     skill_name: zod.string().regex(llmSkillsNameFilesDestroyPathSkillNameRegExp),
 })
 
-export const LlmSkillsNameFilesDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const LlmSkillsNameFilesDestroyQueryParams = () => zod.object({
     base_version: zod
         .number()
         .min(1)

@@ -54,14 +54,20 @@ function SelectTrigger({
 function SelectContent({
     className,
     children,
+    popupSibling,
     side = 'bottom',
     sideOffset = 4,
     align = 'center',
     alignOffset = 0,
     alignItemWithTrigger = true,
     ...props
-}: SelectPrimitive.Popup.Props &
-    Pick<
+}: SelectPrimitive.Popup.Props & {
+    /**
+     * Rendered in the positioner as the popup's sibling, escaping the popup's overflow and scroll
+     * mask. Use position: absolute — in-flow content here resizes the box the positioner measures.
+     */
+    popupSibling?: React.ReactNode
+} & Pick<
         SelectPrimitive.Positioner.Props,
         'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'
     >): React.ReactElement {
@@ -77,6 +83,7 @@ function SelectContent({
                 alignItemWithTrigger={alignItemWithTrigger}
                 className="isolate"
             >
+                {popupSibling}
                 <SelectPrimitive.Popup
                     data-slot="select-content"
                     data-align-trigger={alignItemWithTrigger}

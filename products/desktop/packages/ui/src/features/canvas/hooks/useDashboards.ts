@@ -21,13 +21,8 @@ import {
 } from "./spaceQueryPolicy";
 
 const log = logger.scope("dashboards");
-
 // The naming helpers moved to @posthog/core (CanvasApplicationService uses them
 // for auto-naming); re-exported here for the UI surfaces that import them.
-export {
-  isPlaceholderCanvasName,
-  UNTITLED_CANVAS_NAME,
-} from "@posthog/core/canvas/canvasNaming";
 
 /** Saved canvases for a channel. */
 export function useDashboards(
@@ -57,29 +52,21 @@ export function useDashboards(
   return { dashboards: data ?? [], isLoading };
 }
 
-/**
- * Warm the dashboards-list cache for a channel ahead of opening it (e.g. on
- * hover), so expanding the channel shows its canvases without a cold fetch.
- * Respects the same staleTime, so it no-ops when the data is already fresh.
- */
-export function usePrefetchDashboards(): (channelId: string) => void {
+/** Every canvas across every visible space. */
+export function useAllCanvases(): {
+  dashboards: DashboardRecord[];
+  isLoading: boolean;
+} {
   const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  return useCallback(
-    (channelId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.dashboards.list.queryOptions(
-          { channelId },
-          {
-            gcTime: SPACE_QUERY_GC_TIME_MS,
-            meta: AUTH_SCOPED_QUERY_META,
-            staleTime: SPACE_QUERY_STALE_TIME_MS,
-          },
-        ),
-      );
-    },
-    [trpc, queryClient],
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.listAll.queryOptions(undefined, {
+      gcTime: SPACE_QUERY_GC_TIME_MS,
+      meta: AUTH_SCOPED_QUERY_META,
+      refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
+      staleTime: SPACE_QUERY_STALE_TIME_MS,
+    }),
   );
+  return { dashboards: data ?? [], isLoading };
 }
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
@@ -196,6 +183,9 @@ export function useDashboardMutations() {
   const setPinned = useMutation(
     trpc.dashboards.setPinned.mutationOptions({ onSuccess: invalidate }),
   );
+  const file = useMutation(
+    trpc.dashboards.file.mutationOptions({ onSuccess: invalidate }),
+  );
 
   return {
     // Refresh the canvas queries after a mutation that didn't go through this
@@ -232,6 +222,8 @@ export function useDashboardMutations() {
     // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
+    fileDashboard: (id: string, channelId: string) =>
+      file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
     isSavingContext: saveContext.isPending,
@@ -242,8 +234,8 @@ export function useDashboardMutations() {
 
 /**
  * Create an empty canvas in a channel, enter edit mode, and navigate to it.
- * `opts.channelId` overrides the bound channel, for callers whose channel is
- * provisioned lazily and so has no id at render time (the "me" row).
+ * `opts.channelId` overrides the bound channel, for callers whose channel has no id at
+ * render time because the list has not loaded (the "me" row).
  */
 export function useCreateAndOpenDashboard(
   channelId: string | undefined,
@@ -266,7 +258,7 @@ export function useCreateAndOpenDashboard(
         const record = await createDashboard(targetChannelId, name, templateId);
         setEditing(record.id, true);
         await navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
+          to: "/spaces/$channelId/dashboards/$dashboardId",
           params: { channelId: targetChannelId, dashboardId: record.id },
         });
       } catch (error) {

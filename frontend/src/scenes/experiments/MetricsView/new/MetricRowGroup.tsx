@@ -27,7 +27,6 @@ import {
 import { NodeKind } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
-import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
 import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
@@ -56,6 +55,10 @@ import {
 } from '~/scenes/experiments/MetricsView/shared/utils'
 import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
+import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
+
 import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
@@ -68,10 +71,8 @@ import {
     VIEW_BOX_WIDTH,
 } from './constants'
 import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
 interface CollapsibleBreakdownSectionProps {
@@ -619,6 +620,22 @@ export function MetricRowGroup({
         }
     }, [])
 
+    // The tooltip is fixed-positioned from coordinates captured on hover, so it
+    // doesn't track the page on scroll — dismiss it instead, like native tooltips.
+    useEffect(() => {
+        if (!tooltipState.isVisible) {
+            return
+        }
+        const handleScroll = (): void => {
+            clearTooltipCloseTimer()
+            hideTooltipState()
+        }
+        // Capture phase so scrolls of any ancestor scroll container are caught, not just the window
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', handleScroll, { capture: true })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tooltipState.isVisible])
+
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
@@ -783,7 +800,7 @@ export function MetricRowGroup({
                 >
                     {/* Metric column: real header spanning every variant row, stays interactive while loading */}
                     <td
-                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                        className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                             !isLastMetric ? 'border-b' : ''
                         } ${bg}`}
                         rowSpan={skeletonVariantKeys.length}
@@ -861,7 +878,7 @@ export function MetricRowGroup({
                 >
                     {/* Metric column - always visible */}
                     <td
-                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                        className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                             !isLastMetric ? 'border-b' : ''
                         } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                         // eslint-disable-next-line react/forbid-dom-props
@@ -977,7 +994,7 @@ export function MetricRowGroup({
             >
                 {/* Metric column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    className={`group/metric-cell w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={variantResults.length + 1}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={totalRowsHeightStyle}

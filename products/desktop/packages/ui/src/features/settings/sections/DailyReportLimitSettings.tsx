@@ -73,13 +73,13 @@ export function DailyReportLimitSettings({
   };
 
   return (
-    <div className="flex flex-col gap-2 border-(--gray-5) border-t border-dashed pt-3">
+    <div className="flex flex-col gap-2 border-border border-t border-dashed pt-3">
       <div className="flex flex-col gap-1">
         <Text className="font-medium text-(--gray-12) text-sm">
           Daily report limit
         </Text>
         <Text className="text-(--gray-11) text-[13px]">
-          Cap how many new reports reach the inbox each day. Leave the field
+          Cap how many new reports reach Self-driving each day. Leave the field
           empty for no limit.
         </Text>
       </div>

@@ -17,13 +17,12 @@ from posthog.hogql_queries.query_runner import (
     API_QUERIES_QUOTA_LIMITED_COUNTER,
     _api_queries_enforcement_enabled,
     _api_queries_quota_detail,
-    _enforcement_flag_cache,
     _format_data_size,
     get_api_queries_quota_limited_until,
 )
 
 
-@override_settings(API_QUERIES_ENABLED=True, API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=1000)
+@override_settings(API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=1000)
 class TestGetApiQueriesQuotaLimitedUntil(BaseTest):
     def _set(self, has_active_subscription, counter_bytes):
         self.organization.has_active_subscription = has_active_subscription
@@ -65,11 +64,6 @@ class TestGetApiQueriesQuotaLimitedUntil(BaseTest):
             get_api_queries_quota_limited_until(self.team)
         after = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check")._value.get()
         assert after == before + 1
-
-    @override_settings(API_QUERIES_ENABLED=False)
-    def test_disabled_setting_returns_none(self):
-        self._set(False, 2000)
-        assert get_api_queries_quota_limited_until(self.team) is None
 
 
 class TestApiQueriesQuotaDetail(SimpleTestCase):
@@ -116,21 +110,9 @@ class TestApiQueriesQuotaDetail(SimpleTestCase):
 
 
 class TestApiQueriesEnforcementEnabled(BaseTest):
-    def setUp(self):
-        super().setUp()
-        _enforcement_flag_cache.clear()
-
     def test_flag_on_returns_true(self):
         with patch("posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled", return_value=True):
             assert _api_queries_enforcement_enabled(self.team) is True
-
-    def test_flag_result_is_cached_within_ttl(self):
-        with patch(
-            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled", return_value=True
-        ) as mock_flag:
-            assert _api_queries_enforcement_enabled(self.team) is True
-            assert _api_queries_enforcement_enabled(self.team) is True
-        assert mock_flag.call_count == 1
 
     def test_flag_service_error_fails_open_to_false(self):
         with patch(
@@ -140,12 +122,7 @@ class TestApiQueriesEnforcementEnabled(BaseTest):
             assert _api_queries_enforcement_enabled(self.team) is False
 
 
-@override_settings(API_QUERIES_ENABLED=True)
 class TestApiQueriesQuotaEnforcement(BaseTest):
-    def setUp(self):
-        super().setUp()
-        _enforcement_flag_cache.clear()
-
     def _runner(self):
         runner = HogQLQueryRunner(query=HogQLQuery(query="select 1"), team=self.team)
         runner.is_query_service = True

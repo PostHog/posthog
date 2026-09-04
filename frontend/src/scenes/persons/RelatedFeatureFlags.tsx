@@ -113,11 +113,18 @@ const columns: LemonTableColumns<RelatedFeatureFlag> = [
         width: 150,
         render: function Render(_, featureFlag: RelatedFeatureFlag) {
             const matchesSet = featureFlag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
+            const description = featureFlag.evaluation.description
             return (
-                <div>
+                <div className="inline-flex items-center gap-1">
                     {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
 
                     {matchesSet && <LemonSnack>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonSnack>}
+
+                    {featureFlag.active && !matchesSet && description && (
+                        <Tooltip title={description}>
+                            <IconInfo className="text-secondary text-base" />
+                        </Tooltip>
+                    )}
                 </div>
             )
         },

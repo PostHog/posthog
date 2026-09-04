@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
     paddle_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source import PaddleSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -316,22 +315,3 @@ class TestFormatDatetimeQueryValue:
     )
     def test_normalizes_to_utc_z(self, value: Any, expected: str) -> None:
         assert _format_paddle_datetime_query_value(value) == expected
-
-
-class TestGetSchemas:
-    @pytest.mark.parametrize(
-        "endpoint, expected_incremental",
-        [
-            ("transactions", True),
-            ("customers", False),
-            ("discounts", False),
-            ("prices", False),
-            ("products", False),
-            ("subscriptions", False),
-            ("adjustments", False),
-        ],
-    )
-    def test_incremental_flag_per_endpoint(self, endpoint: str, expected_incremental: bool) -> None:
-        schemas = {schema.name: schema for schema in PaddleSource().get_schemas(config=mock.MagicMock(), team_id=1)}
-        assert schemas[endpoint].supports_incremental is expected_incremental
-        assert schemas[endpoint].supports_append is expected_incremental

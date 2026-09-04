@@ -567,6 +567,7 @@ export function useUserRepositoryIntegration() {
     getInstallationIdForRepo,
     isRepoInIntegration: repoInIntegration,
     isLoadingRepos: liveLoading && !servingFromCache,
+    isLoadingIntegrations: integrationsPending,
     isRefreshingRepos: isRefreshingRepos || servingFromCache,
     refreshRepositories,
     hasGithubIntegration:

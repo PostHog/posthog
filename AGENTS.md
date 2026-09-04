@@ -29,11 +29,37 @@
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - Cloud task VMs (prebaked dev-stack image): run `bootstrap-dev-stack` first (restores compose host aliases, starts dockerd), then `uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait` (the detached start returns while the stack is still booting; `hogli wait` blocks until every process is ready) — always detached: the sandbox has no TTY, and phrocs under a pseudo-TTY balloons in memory until OOM-killed
+    - Cloud task VMs: on user-created runs the backend usually starts the stack itself. While it does, `hogli start` exits without starting anything. Poll `/tmp/posthog-preview/status.json` until `state` is `ready` or `failed`. On `ready`, run `hogli wait`; it reports `not reachable` until the backend reaches the phrocs step, so retry it rather than forcing a second start. On `failed` (the backend does not retry), start the stack yourself with `hogli start -y -d`
     - Cloud task VMs, frontend work: `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled; product/Storybook builds still run from source
+    - Cloud task VMs, tests: scope every run to what you changed, with `hogli test --changed` or the test files that cover the touched code. Run a whole module, package, or repo-wide suite at most once, right before you push, and only for a cross-cutting change. CI runs the full matrix; repeating it in the sandbox costs minutes per run and floods the context with output. In a sandbox `hogli test` runs pytest with `-q` (set `HOGLI_TEST_VERBOSE=1` to stream prints). `pytest.ini` already enables `--reuse-db`, and the prebaked dev-stack image seeds `test_posthog`; do not pass `--create-db` or override pytest `addopts`, because either discards the prewarmed schema. If pytest starts the full migration history, the VM image predates the database seed or the test database was replaced. Let that migration finish before retrying; interrupting it leaves a partial database that the next run must continue migrating.
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
   **Local agents must use it too**: when a hogli command or local dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Do not run it from cloud tasks or agent-server sandboxes; the command is a no-op there.
+
+## Starting a task
+
+Several agents work on this repository at the same time, so the change you plan can already be in flight.
+Before you plan the work or write code, look for open PRs that clash with it.
+This matters most for a broken `master`: the break is visible to everyone, so it attracts duplicate PRs.
+
+Search the open PRs by keyword, then look at each candidate:
+
+```bash
+gh pr list --state open --search "<keywords>" --limit 20
+gh pr diff <number> --name-only  # the files it touches
+gh pr diff <number>              # the patch, once a candidate looks like a match
+```
+
+Take the keywords from the error message, the failing test, the symbol, or the feature name.
+Run two or three searches with different words, because another author can describe the same problem differently.
+Keep draft PRs in the results, because most agent PRs start as drafts.
+
+Then act on what you find:
+
+- An open PR already makes this change: do not open a second one. Tell the user the PR number, and continue the work on that PR.
+- An open PR changes the same files for a different reason: keep your diff clear of the overlap when possible, and name the other PR in your PR description.
+- Nothing matches: continue with the work.
 
 ## Commits and Pull Requests
 
@@ -104,7 +130,7 @@ Guarding it inside the workflow is worse: skipping the gate job cascades to the 
 #### Stacked PRs
 
 GitHub's native stacked PRs are enabled on this repo — use the `gh stack` CLI and the `/stacking-prs` skill instead of hand-managing branch chains.
-A stack lands through the merge queue: comment `/trunk merge` on the top layer to enqueue the whole stack (the queue tests and merges it and every unmerged layer below it atomically), or land bottom-first one layer at a time; either way, `gh stack sync --prune` afterwards.
+A stack lands through the merge queue only after explicit user approval in the current conversation: comment `/trunk merge` on the top layer to enqueue the whole stack (the queue tests and merges it and every unmerged layer below it atomically), or land bottom-first one layer at a time; either way, `gh stack sync --prune` afterwards.
 Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the stack reaches `master` outside the queue.
 
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
@@ -128,6 +154,7 @@ The check fails open (missing `gh` or `trunk`, not logged in, offline, API error
 
 A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
 If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
+Advisories never block the push; in a cloud task sandbox, do not boot the dev stack only to clear one.
 In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
 
 ### Merging PRs
@@ -135,12 +162,14 @@ In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix
 All merges into `master` go through the Trunk merge queue.
 Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
 
-- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`. Enqueueing a stacked PR also enqueues every unmerged layer below it — comment on the top PR to merge the whole stack. `--no-batch` opts the PR (or stack) out of batching.
-- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment but needs a one-time interactive `trunk login`, so agents and headless environments should keep using the comments.
+Agents must not enqueue, merge, re-enqueue, or otherwise cause a PR to land without explicit user approval in the current conversation for the identified PR or stack. Do not infer that approval from requests to prepare a PR, move it toward merge, make it ready, monitor it, or resolve its blockers. Agents may inspect status, fix code and CI, apply `stamphog` when approval is missing, and report that a PR is ready; then they must wait for a direct instruction to merge or enqueue it.
+
+- After explicit user approval: enqueue with `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`. Enqueueing a stacked PR also enqueues every unmerged layer below it — comment on the top PR to merge the whole stack. `--no-batch` opts the PR (or stack) out of batching.
+- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment and needs a one-time interactive `trunk login` — run it once even if you prefer the comments, because the same login arms the pre-push merge-queue guard that stops you from knocking a queued PR out of the queue. Agents and headless environments that can't complete the interactive login use the comments.
 - Missing required approval: apply the `stamphog` label (`gh pr edit <number> --add-label stamphog`) to trigger the automated review-and-approve flow, and re-apply it whenever it was stripped (`REFUSED`/`ESCALATE` verdict) once the feedback is addressed — re-applying is always safe.
 - After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
 - Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
-- On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
+- On failure the Trunk bot comments with links to the failing workflows; fix and push if appropriate, then wait for explicit user approval before re-enqueueing.
 - Never force-push a branch while it is in the queue — it removes the PR from the queue.
 
 ### Public open source repo guidance
@@ -191,6 +220,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` in Celery tasks — events are silently lost. Use `ph_scoped_capture` from `posthog.ph_client` instead (see its docstring for why and usage).
 - **Django admin `ForeignKey` fields need explicit widget config.** When adding a `ForeignKey`/`OneToOneField` to a model that's exposed in Django admin (including via inlines attached to a _related_ admin), list the new field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model — otherwise the default `<select>` widget loads the entire target table per row on each change-page render. Prefer declaring the config on a shared base inline so per-parent variants (e.g., subclasses differentiated by `fk_name`) inherit it automatically.
 - **Use personhog client for all person/group data access — do not query persons DB tables via the Django ORM or raw SQL.** The `posthog/personhog_client/` gRPC client is the required interface for reading and writing person-related data. This applies to the following tables: `posthog_person`, `posthog_persondistinctid`, `posthog_cohortpeople`, `posthog_group`, `posthog_grouptypemapping`, and related override tables (`posthog_personoverride`, `posthog_pendingpersonoverride`, `posthog_flatpersonoverride`, `posthog_featureflaghashkeyoverride`, `posthog_personlessdistinctid`, `posthog_personoverridemapping`). Use the helpers in `posthog/models/person/util.py` (e.g. `get_person_by_uuid`, `get_persons_by_distinct_ids`, `get_person_by_distinct_id`) and `posthog/models/group_type_mapping.py` (`get_group_types_for_project`) — these already route through personhog with ORM fallback via `_personhog_routed()`. When adding new person/group data access, follow the same `_personhog_routed()` pattern: provide a `personhog_fn` using `get_personhog_client()` and an `orm_fn` fallback. Never add new direct ORM queries like `Person.objects.filter(...)` or `PersonDistinctId.objects.filter(...)` — use the existing routed helpers or create new ones following the established pattern. See `posthog/personhog_client/README.md` for client details and `posthog/personhog_client/client.py` for the full RPC interface.
+- **Personhog is for identity questions only; person properties and bulk person reads come from ClickHouse.** Use personhog for resolving distinct IDs to persons, point lookups by person id/UUID, and lifecycle writes. Use ClickHouse (HogQL over the `persons` table, `ActorsQueryRunner`) for loading person properties, hydrating lists of persons, and searching/filtering persons. Avoid reading the `properties` field from personhog where possible — the API will eventually stop surfacing it to users; single-person point lookups that need properties are exempt only while no ClickHouse primitive covers them, and never in bulk. See [docs/internal/person-data-access.md](docs/internal/person-data-access.md).
 - **PostHog does not enable `ATOMIC_REQUESTS` — there is no implicit per-request transaction.** Each database operation runs in autocommit mode unless explicitly wrapped. Use `with transaction.atomic():` around the specific writes that must succeed or fail together. Do not wrap an entire view method atomically — keep the block as narrow as possible around the related writes. Avoid performing irreversible side effects (sending emails, calling external APIs, enqueuing Celery tasks) inside an atomic block: if the transaction rolls back, those side effects have already happened. Schedule such side effects after the commit, or use `transaction.on_commit()` for Celery task dispatch.
 - **Object storage is SeaweedFS — do not add new MinIO dependencies.** Both S3-compatible stores in the dev/CI stack are SeaweedFS: the `objectstorage` service (S3 API on `:19000`) backs general object storage (`OBJECT_STORAGE_*` settings — exports, media uploads, error-tracking source maps, query cache, tasks), and the `seaweedfs` service (S3 API on `:8333`) backs session replay v2 (`SESSION_RECORDING_V2_S3_*` settings). MinIO now survives only as migration tooling: `docker-compose.hobby.yml` keeps it as a source for `bin/migrate-storage-hobby`, and `bin/upgrade-objectstorage` starts a throwaway MinIO to salvage objects off the pre-swap volume. Outside that, don't add docker-compose services, scripts, tests, or docs that stand up a `minio/minio` container. Code that talks to object storage should go through the existing `OBJECT_STORAGE_*` / `SESSION_RECORDING_V2_S3_*` config and a standard S3 client rather than hardcoding an endpoint — that keeps backends swappable. Note the `objectstorage` service registers its credentials at runtime via a bootstrap loop and returns `InvalidAccessKeyId` until that completes, so anything depending on it must wait for its readiness sentinel rather than just for the container to start.
 - **Temporal activity payloads have a ~2 MiB hard limit — pass large data by reference, not by value.** Activity inputs and outputs are serialized across a gRPC boundary that Temporal caps at ~2 MiB per payload (the server rejects larger payloads via `blobSizeLimitError`). As a conservative field-level rule, if a field could exceed ~256 KB once serialized (serialized query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres / S3 / object storage from _inside_ the activity and return only the reference (row ID, S3 key). The workflow already has access to any row ID created earlier in the same run; it does not need the content to flow back through. Shuttling large data through the workflow on the way to persistence is a foreseeable failure mode that produces `PayloadSizeError` (`TMPRL1103`) the moment the underlying data crosses the limit.
@@ -208,16 +238,19 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Frontend (quill design system): before writing UI that imports `@posthog/quill` / `lib/ui/quill`, read [packages/quill/packages/primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) — component choice (dropdown vs select vs combobox, accordion vs collapsible, etc.), composition, and spacing rules. Charts: [packages/quill/packages/charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md); DataTable/DateTimePicker: [packages/quill/packages/components/AGENTS.md](packages/quill/packages/components/AGENTS.md)
 - Frontend (quill vs LemonUI): quill is for MCP apps and the desktop app. It is deliberately more compact than LemonUI, so its components look out of place in the main app, and there is no active migration of the main app onto it. In `frontend/src/` and `products/*/frontend/`, use LemonUI, including for menus — `LemonMenu` with a `LemonButton` trigger is the default there. `lib/ui/DropdownMenu` (Radix) is legacy; don't add new ones. Where quill is the right library, don't mix quill and Lemon components within one component's internals, and note that quill uses Base UI's `render` prop rather than Radix's `asChild`, so don't carry `asChild` over when converting
 - Frontend: Any button or form submit that triggers a network request must guard against double-submission — disable the button and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight. Never leave a submit button clickable during an active mutation; reset the state in both success and error paths. This applies to `<form onSubmit>` handlers, `onClick` handlers that call `api.*`, and any kea `listener` that issues a request — wire the in-flight state (loader `*Loading` selectors, local `useState`, or a reducer) into the trigger's disabled/loading props.
+- Frontend: Any UI a person reads must hold up in a narrow scene. The nav sidebar and an open side panel leave a 1280px window about 520px of scene, so break on container queries rather than `md:`/`lg:`/`xl:`, wrap or truncate instead of clipping, and stack halves that no longer fit. Render the surface at a few widths before calling the work done. We do not support mobile — don't add phone-width layouts or touch-sized targets. See "Rule 6" in [frontend/src/AGENTS.md](frontend/src/AGENTS.md)
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: default to short or 1-line comments. Explain _why_, not _what_, and only when a future reader (with no access to this PR or chat) would otherwise be confused
+- Comments: use mostly ASD-STE100 Simplified Technical English. Use active voice, simple tenses, one idea per sentence, and consistent terms
 - Comments: never log change history or chat context in code — no "previously did X, now does Y", "per <task/PR>", "changed because…", or "AI:"/"agent:" notes. That goes in the commit message and PR description
 - Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
 - Python: leave `__init__.py` alone unless a check asks for it. Whether a directory needs one depends on what sits above it. `hogli product:lint` and `posthog/test/repo_invariants/test_pytest_module_collisions.py` say where, and print the fix
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
+- Node.js Jest tests: use `.test.ts` by default. Use `.serial.test.ts` only when shared mutable infrastructure cannot be isolated, such as tests that reset a shared database.
 - Tests: when adding coverage, prefer extending a relevant existing test over creating a new standalone test when practical. Prefer parameterized cases (use the `parameterized` library in Python and `test.each` in Jest) when testing variations of the same behavior
 - Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
@@ -243,7 +276,9 @@ When automating a convention, try these in order — only fall back to the next 
 3. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
 4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
-Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
+Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile.
+Changes to `.claude/hooks/` trigger a warning from the `pre-commit` hook; changes to `.claude/settings.json` are blocked outright by lint-staged.
+A warn-only check belongs in the `pre-commit` hook body rather than in a lint-staged task, because lint-staged discards the output of every task that exits 0.
 
 ### Mandatory skill invocation
 
@@ -256,7 +291,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-ui-components` — creating, moving, splitting, or restructuring any component or file under `frontend/src/` or `products/*/frontend/`, extracting or promoting a shared component, or renaming frontend symbols or feature vocabulary
-- `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
+- `/writing-tests` — any change to what a test asserts or sets up (pytest, Jest, or Playwright), down to one fixture or one assertion added to an existing block; renames, formatting, and import sorts are exempt
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
@@ -264,19 +299,23 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Invoke when in the area:**
 
 - `/writing-dataclasses` — adding or changing a Python dataclass, replacing a tuple or `dict[str, Any]` payload, or passing a dataclass or facade contract through internal layers
+- `/announcing-behavior-changes` — shipping a fix that changes what an existing user sees (a metric moves, a count drops, a range resolves differently), or adding, reviewing, or removing an in-app change notice
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
 - `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
+- `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
+- `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
 - [`ee/hogai/eval/AGENTS.md`](ee/hogai/eval/AGENTS.md) — writing eval cases or fixture data by hand anywhere (not a skill, and not covered by `/writing-evals`): where that data may come from, and why anonymizing a real conversation does not make it publishable
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
-- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it; propose, and land the move as a stacked base PR rather than inside your feature diff
+- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it, including before you restructure code inside a module over roughly a thousand lines; propose, and land the move as a stacked base PR rather than inside your feature diff
 - `/auditing-llm-gateway-parity` — changing either gateway's auth, attribution, billing, endpoints, providers, models, routing, or metadata contract; reviewing a `services/llm-gateway` change; or refreshing `services/llm-gateway/PARITY.md`
 - `/finding-llm-gateway-migration-candidates` — finding, auditing, or ranking callers that could move from `services/llm-gateway` to `PostHog/ai-gateway`, including requests for the next or lowest-risk migration candidate
 - `/migrating-llm-gateway-callers` — adding an LLM gateway caller or migrating an existing caller from `services/llm-gateway` to `PostHog/ai-gateway`, including shared client and gateway setting changes made for that migration

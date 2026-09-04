@@ -66,9 +66,10 @@ Product-facing destination setup is exported from `products.alerts.backend.facad
 - `soft_delete_all_alert_destinations`
 - `send_alert_email`
 
-`EventKindSpec` describes destination-neutral content for one event kind. The shared builder converts it into Slack, Discord, webhook, or Microsoft Teams HogFunction payloads. Products own event IDs, event properties, wording, actions, and their allowed destination list.
+`EventKindSpec` describes destination-neutral content for one event kind. The shared builder converts it into a HogFunction payload through `DESTINATION_SPECS`, the registry where each destination type owns its template ID, required fields, input building, read-back, and read redaction. Adding a destination type means adding one entry there. Products own event IDs, event properties, wording, actions, and their allowed destination list.
 
 Deletion is fail-closed. Always scope it with `team_id`, `alert_id`, and the product's allowed event IDs.
+`create_alert_destination_hog_functions` refuses any destination in the call that the alert already has, so call it with the alert row locked.
 
 ## Delivery contract
 

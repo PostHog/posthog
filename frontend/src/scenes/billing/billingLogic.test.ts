@@ -136,6 +136,19 @@ describe('billingLogic', () => {
             message: expect.stringContaining('You have reached the usage limit for Product analytics.'),
             productKey: ProductKey.PRODUCT_ANALYTICS,
         })
+        expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(true)
+    })
+
+    it('does not treat usage below 100% as at the product limit', async () => {
+        billingState = billingWithProducts([productWithUsage(0.99)])
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
     })
 
     it('clears a stale usage limit alert when refreshed billing data no longer qualifies', async () => {

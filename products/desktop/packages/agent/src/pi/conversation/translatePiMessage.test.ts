@@ -149,6 +149,7 @@ describe("createPiMessageTranslator", () => {
           id: "extension-1",
           status: "completed",
           rawOutput: content,
+          details: { resultCount: 3 },
           content: [
             {
               type: "content",
@@ -188,6 +189,68 @@ describe("createPiMessageTranslator", () => {
               },
             },
           ],
+        },
+      },
+    ]);
+  });
+
+  it("adds canonical metadata to a bridged MCP tool result", () => {
+    const translator = createPiMessageTranslator();
+    const content: ToolResultMessage["content"] = [
+      { type: "text", text: "ok" },
+    ];
+
+    expect(
+      translator.translateToolExecutionEnd(
+        "action-1",
+        "mcp_posthog_code_tools_show_actions",
+        {
+          content,
+          details: {
+            posthog: {
+              mcp: { server: "posthog-code-tools", tool: "show_actions" },
+            },
+          },
+        },
+        false,
+        12,
+      ),
+    ).toMatchObject([
+      {
+        type: "tool_call_updated",
+        toolCall: {
+          _meta: {
+            posthog: {
+              toolName: "mcp__posthog-code-tools__show_actions",
+              mcp: {
+                server: "posthog-code-tools",
+                tool: "show_actions",
+              },
+            },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("classifies ls as a directory listing", () => {
+    const translator = createPiMessageTranslator();
+    const message = makeAssistant([
+      {
+        id: "ls-1",
+        type: "toolCall",
+        name: "ls",
+        arguments: { path: "src" },
+      } as never,
+    ]);
+
+    expect(translator.translate(message)).toMatchObject([
+      {
+        type: "tool_call_started",
+        toolCall: {
+          id: "ls-1",
+          kind: "list",
+          locations: [{ path: "src" }],
         },
       },
     ]);

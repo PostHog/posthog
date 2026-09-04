@@ -1,6 +1,10 @@
+import { useValues } from 'kea'
+
 import { IconBell } from '@posthog/icons'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { InsightShortId } from '~/types'
 
@@ -27,6 +31,11 @@ export function InsightAlertNotificationSection({
     showSectionTitle = true,
     onSetAlertFormValue,
 }: InsightAlertNotificationSectionProps): JSX.Element {
+    const { preflight, preflightLoading } = useValues(preflightLogic)
+    const hasEmailRecipients = alertForm.subscribed_users?.some((user) => Boolean(user.email)) ?? false
+    const showEmailUnavailableWarning =
+        !preflightLoading && preflight?.email_service_available === false && hasEmailRecipients
+
     let destinations: JSX.Element
     if (inlineNotificationsEnabled) {
         destinations = <InlineAlertNotifications alertId={alertId} />
@@ -42,6 +51,14 @@ export function InsightAlertNotificationSection({
 
     const content = (
         <>
+            {showEmailUnavailableWarning ? (
+                <LemonBanner type="warning" data-attr="alert-email-unavailable-banner" className="mb-4">
+                    Email delivery is unavailable for this instance. This alert will not send email notifications.{' '}
+                    <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
+                        Configure email settings
+                    </Link>
+                </LemonBanner>
+            ) : null}
             <div className="flex gap-4 items-center">
                 <div>E-mail</div>
                 <div className="flex-auto" data-prevent-wizard-submit>

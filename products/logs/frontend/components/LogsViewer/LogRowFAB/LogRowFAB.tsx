@@ -1,12 +1,27 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBrackets, IconChevronLeft, IconChevronRight, IconExpand45, IconPin, IconPinFilled } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconChevronLeft,
+    IconChevronRight,
+    IconExpand45,
+    IconGraph,
+    IconListTree,
+    IconPin,
+    IconPinFilled,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { logsMetricRuleQuickCreateLogic } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRuleQuickCreateLogic'
+import { buildMetricRuleSeedFromLog } from 'products/logs/frontend/components/LogsMetricRules/metricRuleSeed'
 import { CopyLogButton } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal'
@@ -15,6 +30,7 @@ import { useCellScrollControls } from 'products/logs/frontend/components/Virtual
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
+import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { FABGroup } from './FABGroup'
 
@@ -39,8 +55,18 @@ export function LogRowFAB({
     const { configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { copyLinkToLog } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
+    const { openWithSeed } = useActions(logsMetricRuleQuickCreateLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
+    const metricRulesEnabled = useFeatureFlag('METRICS')
+    const metricsEditorDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Metrics,
+        AccessControlLevel.Editor
+    )
+    const tracingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Tracing,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <div
@@ -106,6 +132,34 @@ export function LogRowFAB({
                     data-attr="logs-viewer-copy-link"
                 />
                 <LogContextSelector log={log} noPadding />
+                {log.trace_id && !tracingDisabledReason && (
+                    <LemonButton
+                        size="xsmall"
+                        noPadding
+                        icon={<IconListTree />}
+                        to={traceUrl({ traceId: log.trace_id, spanId: log.span_id || null, ts: log.timestamp })}
+                        tooltip="View trace"
+                        aria-label="View trace"
+                        className="text-muted"
+                        data-attr="logs-viewer-view-trace"
+                    />
+                )}
+                {metricRulesEnabled && (
+                    <LemonButton
+                        size="xsmall"
+                        noPadding
+                        icon={<IconGraph />}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            openWithSeed(buildMetricRuleSeedFromLog(log))
+                        }}
+                        tooltip="Create log-based metric"
+                        aria-label="Create log-based metric"
+                        className="text-muted"
+                        data-attr="logs-viewer-create-metric-rule"
+                        disabledReason={metricsEditorDisabledReason ?? undefined}
+                    />
+                )}
                 {sessionId && (
                     <ViewRecordingButton
                         sessionId={sessionId}

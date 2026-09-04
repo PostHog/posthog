@@ -354,33 +354,67 @@ describe('InstructionsFormatter', () => {
             },
         ]
 
-        it.each(surfaces)(
-            '$name puts gated metric routing before generic analytics guidance',
-            ({ render, mustPrecede }) => {
-                const formatter = new InstructionsFormatter()
-                const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
-                const metricRoutingPosition = flagOn.indexOf('#### Metric discovery (semantic layer)')
-                expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
-                expect(flagOn).toContain('system.information_schema.metrics')
-                expect(flagOn).toContain('data-catalog-metric-run')
-                for (const genericGuidance of mustPrecede) {
-                    expect(metricRoutingPosition).toBeLessThan(flagOn.indexOf(genericGuidance))
-                }
-
-                // Flag-off must be byte-identical to a context without the field, so orgs
-                // without the catalog are never steered at a table that doesn't exist.
-                const flagOff = render(formatter, { ...fullCtx, dataCatalogEnabled: false })
-                expect(flagOff).not.toContain('#### Metric discovery')
-                expect(flagOff).toBe(render(formatter, fullCtx))
-            }
-        )
-
-        it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
+        it.each(surfaces)('$name puts metric routing before generic analytics guidance', ({ render, mustPrecede }) => {
             const formatter = new InstructionsFormatter()
-            const analyticsDescription = (ctx: InstructionsContext): string =>
-                formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
-            expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
-            expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
+            const rendered = render(formatter, fullCtx)
+            const metricRoutingPosition = rendered.indexOf('#### Metric discovery (semantic layer)')
+            expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
+            expect(rendered).toContain('metric-list')
+            expect(rendered).toContain('metric-describe')
+            expect(rendered).toContain('data-catalog-metric-run')
+            for (const genericGuidance of mustPrecede) {
+                expect(metricRoutingPosition).toBeLessThan(rendered.indexOf(genericGuidance))
+            }
+        })
+
+        it('advertises governed metrics in the analytics topic description', () => {
+            const formatter = new InstructionsFormatter()
+            const analyticsEntry = formatter
+                .buildClaudeExecHelpEntries(fullCtx)
+                .find((entry) => entry.id === 'analytics')!
+            expect(analyticsEntry.description).toContain('governed metrics')
+        })
+    })
+
+    describe('analysis artifact guidance', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+        }[] = [
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                name: 'analytics learn topic content',
+                render: (formatter, ctx) =>
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+            },
+            {
+                name: 'buildExecCommandReference',
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+            },
+        ]
+
+        it.each(surfaces)('$name routes deep dives to notebooks and tracking to dashboards', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const result = render(formatter, fullCtx)
+            expect(result).toContain('### Where an analysis lands')
+            expect(result).toContain('**Notebook**')
+            expect(result).toContain('**Dashboard**')
+        })
+
+        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        // for clients that aren't advertised the cell tools.
+        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### Python in an analysis')
+            expect(cellsOn).toContain("cell_type: 'python'")
+
+            const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### Python in an analysis')
+            expect(cellsOff).toBe(render(formatter, fullCtx))
         })
     })
 

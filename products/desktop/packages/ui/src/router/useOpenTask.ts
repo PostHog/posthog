@@ -1,6 +1,8 @@
+import type { EditorContent } from "@posthog/core/message-editor/content";
 import { resolveService, resolveServiceOptional } from "@posthog/di/container";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { navigateBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
   NAVIGATION_TASK_BINDER,
@@ -23,8 +25,8 @@ import * as nav from "./navigationBridge";
  * stale folder, we redirect to folder settings.
  *
  * When `opts.channelId` is provided (the task is filed to a Project Bluebird
- * channel), navigation targets the channel-organized view under /website,
- * keeping the channels chrome; otherwise it targets /code/tasks/$taskId. Every
+ * channel), navigation targets the channel-organized view under /spaces,
+ * keeping the channels chrome; otherwise it targets /tasks/$taskId. Every
  * other side effect is identical — channel tasks still need workspace
  * provisioning so TaskDetail resolves a cwd.
  *
@@ -32,7 +34,7 @@ import * as nav from "./navigationBridge";
  */
 export async function openTask(
   task: Task,
-  opts?: { channelId?: string },
+  opts?: { channelId?: string; tabId?: string | null },
 ): Promise<void> {
   // Seed the detail cache so the route loader resolves from cache and never
   // fetches — critical for optimistic/local/cloud-pending tasks that the API
@@ -41,19 +43,43 @@ export async function openTask(
     taskDetailQuery(task.id).queryKey,
     task,
   );
-  if (opts?.channelId) {
-    nav.navigateToChannelTask(opts.channelId, task.id);
-  } else {
-    nav.navigateToTaskDetail(task.id);
+  const href = opts?.channelId
+    ? `/spaces/${opts.channelId}/tasks/${task.id}`
+    : `/tasks/${task.id}`;
+  const navigationResult = navigateBrowserTab(
+    opts?.tabId ?? null,
+    {
+      href,
+      title: task.title,
+      taskId: task.id,
+      channelId: opts?.channelId ?? null,
+    },
+    () => {
+      if (opts?.channelId) {
+        nav.navigateToChannelTask(opts.channelId, task.id);
+      } else {
+        nav.navigateToTaskDetail(task.id);
+      }
+    },
+  );
+  if (navigationResult === "active") {
+    setActiveTaskContext(task);
+    track(ANALYTICS_EVENTS.TASK_VIEWED, { task_id: task.id });
   }
-  setActiveTaskContext(task);
-  track(ANALYTICS_EVENTS.TASK_VIEWED, { task_id: task.id });
 
   const result = await resolveServiceOptional<NavigationTaskBinder>(
     NAVIGATION_TASK_BINDER,
   )?.ensureWorkspaceForTask(task);
-  if (result?.staleFolderId) {
-    nav.navigateToFolderSettings(result.staleFolderId);
+  const staleFolderId = result?.staleFolderId;
+  if (staleFolderId) {
+    navigateBrowserTab(
+      opts?.tabId ?? null,
+      {
+        href: `/folders/${staleFolderId}`,
+        title: "Folder settings",
+      },
+      () => nav.navigateToFolderSettings(staleFolderId),
+    );
   }
 }
 
@@ -71,6 +97,14 @@ export interface TaskInputNavigationOptions {
    */
   folderRepository?: string;
   initialPrompt?: string;
+  /**
+   * Full editor content to restore (chips + attachments), preferred over
+   * initialPrompt. Used when recovering an interrupted prompt so nothing but
+   * the plain text is lost.
+   */
+  initialContent?: EditorContent;
+  /** Pending-prompt record key being recovered; the composer clears it once applied. */
+  recoveredFromKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
@@ -80,9 +114,8 @@ export interface TaskInputNavigationOptions {
    */
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: { reportId: string; title: string };
-  // Which space's new-task screen to open. Both render the same TaskInput; the
-  // channels variant keeps the channels chrome instead of switching to Code.
-  space?: "code" | "website";
+  /** Ignore whichever space is scoped and file the task nowhere. */
+  unscoped?: boolean;
   /**
    * Create inside this channel. Callers that already know the channel should
    * say so rather than relying on the sidebar's scope agreeing with them — and
@@ -110,6 +143,8 @@ export function openTaskInput(
     !!options.folderId ||
     !!options.folderRepository ||
     !!options.initialPrompt ||
+    !!options.initialContent ||
+    !!options.recoveredFromKey ||
     !!options.initialCloudRepository ||
     !!options.initialModel ||
     !!options.initialMode ||
@@ -120,6 +155,8 @@ export function openTaskInput(
       folderId: options.folderId,
       folderRepository: options.folderRepository,
       initialPrompt: options.initialPrompt,
+      initialContent: options.initialContent,
+      recoveredFromKey: options.recoveredFromKey,
       initialCloudRepository: options.initialCloudRepository,
       initialModel: options.initialModel,
       initialMode: options.initialMode,
@@ -137,18 +174,9 @@ export function openTaskInput(
   // of channel scoping; otherwise the scoped channel decides.
   const channelId =
     options.channelId ??
-    (options.space === "code"
+    (options.unscoped
       ? null
       : useCurrentChannelStore.getState().currentChannelId);
-  if (channelId) {
-    nav.navigateToChannelNewTask(channelId);
-  } else if (options.space === "website") {
-    nav.navigateToWebsiteNew();
-  } else {
-    nav.navigateToCode();
-  }
-}
-
-export function useOpenTaskInput(): typeof openTaskInput {
-  return useCallback(openTaskInput, []);
+  if (channelId) nav.navigateToChannelNewTask(channelId);
+  else nav.navigateToNewTask();
 }

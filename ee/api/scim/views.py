@@ -24,6 +24,8 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.identity_provider_config import IdentityProviderConfig
 
+from products.access_control.backend.models.role import Role
+
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
@@ -34,7 +36,6 @@ from ee.api.scim.utils import (
     mask_scim_payload,
     normalize_scim_operations,
 )
-from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from ee.models.scim_request_log import SCIMRequestLog
 
@@ -388,7 +389,7 @@ class SCIMUserDetailView(SCIMBaseView):
         user = User.objects.filter(
             Q(organization_membership__organization=config.organization)
             | Q(scim_provisions__identity_provider_config=config)
-            | Q(scim_provisions__organization_domain__identity_provider_config=config),
+            | Q(scim_provisions__organization_domain__in=config.organization_domains),
             id=user_id,
         ).first()
         if not user:

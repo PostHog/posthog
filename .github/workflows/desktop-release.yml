@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
     prepare-release:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         permissions:
             contents: write
@@ -42,7 +42,7 @@ jobs:
                     echo "Release desktop-v$APP_VERSION already exists — reusing it"
                   else
                     gh release create "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft \
-                      --title "v$APP_VERSION" --notes "Release v$APP_VERSION (build in progress)"
+                      --title "desktop-v$APP_VERSION" --notes "Release v$APP_VERSION (build in progress)"
                   fi
 
     publish-macos:
@@ -50,12 +50,9 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                include:
-                    - arch: arm64
-                      runner: macos-15
-                    - arch: x64
-                      runner: macos-15-intel
-        runs-on: ${{ matrix.runner }}
+                arch: [arm64, x64]
+        # Depot macOS runners are Apple silicon only; the x64 build cross-compiles here.
+        runs-on: depot-macos-26
         timeout-minutes: 90
         defaults:
             run:
@@ -130,6 +127,13 @@ jobs:
                   jq --arg v "$APP_VERSION" '.version = $v' apps/code/package.json > tmp.json && mv tmp.json apps/code/package.json
                   echo "Set apps/code/package.json version to $APP_VERSION"
 
+            # pnpm installs native optional packages for the host CPU only, and the x64
+            # build runs on an Apple silicon runner.
+            - name: Install x64 native packages on the arm64 runner
+              if: matrix.arch == 'x64'
+              run: |
+                  printf '\nsupportedArchitectures:\n    cpu: [x64, arm64]\n' >> pnpm-workspace.yaml
+
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
@@ -165,8 +169,9 @@ jobs:
             - name: Build agent package
               run: pnpm --filter @posthog/agent run build
 
-            # build/Assets.car is gitignored; regenerate it on the runner so the packaged
-            # app ships the liquid-glass icon (the script falls back to .icns if actool fails).
+            # build/Assets.car is gitignored, so compile it here. actool only handles the .icon
+            # bundle with Xcode 26, which this job gets from its macOS 26 runner's default
+            # toolchain; the script fails the build when it cannot produce one.
             - name: Compile macOS liquid-glass icon
               working-directory: products/desktop/apps/code
               run: bash scripts/compile-glass-icon.sh
@@ -228,6 +233,10 @@ jobs:
                     fi
                     echo "OK: codex-acp/$f"
                   done
+
+            - name: Install Rosetta for the x64 smoke test
+              if: matrix.arch == 'x64'
+              run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
 
             - name: Smoke test packaged app
               env:
@@ -296,7 +305,7 @@ jobs:
 
     publish-windows:
         needs: [prepare-release]
-        runs-on: windows-2022
+        runs-on: depot-windows-2022-4
         timeout-minutes: 90
         defaults:
             run:
@@ -475,9 +484,9 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - runner: ubuntu-24.04
+                    - runner: depot-ubuntu-24.04-4
                       arch: x64
-                    - runner: ubuntu-24.04-arm
+                    - runner: depot-ubuntu-24.04-arm-4
                       arch: arm64
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 60
@@ -652,7 +661,7 @@ jobs:
         # Publish only when every platform built successfully. Without an `if:` override
         # the default `needs` gate skips this job (leaving the GitHub release a draft) if
         # any of the macOS, Windows or Linux publish jobs fails.
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         permissions:
             contents: write
@@ -736,7 +745,8 @@ jobs:
                   CURRENT_TAG="desktop-v$APP_VERSION"
                   node .github/scripts/desktop/generate-release-notes.mjs "$CURRENT_TAG" > /tmp/release-notes.md
                   node products/desktop/apps/code/scripts/generate-release-download-tables.mjs /tmp/checksums >> /tmp/release-notes.md
-                  gh release edit "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file /tmp/release-notes.md
+                  gh release edit "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false \
+                    --title "desktop-v$APP_VERSION" --notes-file /tmp/release-notes.md
 
             - name: Download windows manifest
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

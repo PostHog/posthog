@@ -7,6 +7,7 @@ import { useActions, useValues } from 'kea'
 import { Handler, viewportResizeDimension } from 'posthog-js/rrweb-types'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
@@ -36,16 +37,14 @@ export const PlayerFrame = (): JSX.Element => {
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
-            // Cap at 0.999 instead of 1 to avoid a Chrome GPU compositing bug where
-            // an identity transform (scale(1)) causes the iframe layer to paint outside
-            // its clipping bounds, overlapping the rest of the UI.
-            const scale = Math.min(
-                parentDimensions.width / dimensions.width,
-                parentDimensions.height / dimensions.height,
-                0.999
-            )
+            const { scale, transform } = getPlayerFrameScale(parentDimensions, dimensions)
 
-            player.replayer.wrapper.style.transform = `scale(${scale})`
+            const wrapperStyle = player.replayer.wrapper.style
+            if (transform === null) {
+                wrapperStyle.removeProperty('transform')
+            } else {
+                wrapperStyle.setProperty('transform', transform)
+            }
 
             setScale(scale)
         },
@@ -89,7 +88,7 @@ export const PlayerFrame = (): JSX.Element => {
         // Click indicator duration scales with playback speed: 1/3s at 1x, 1/6s at 2x, etc.
         <div
             ref={containerRef}
-            className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight')}
+            className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight', isIOS() && 'PlayerFrame--ios')}
             style={
                 {
                     '--player-frame-click-duration': `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`,

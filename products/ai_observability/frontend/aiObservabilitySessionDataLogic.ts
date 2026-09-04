@@ -33,10 +33,9 @@ import type {
     TraceSpansQueryResponse,
 } from '../../../frontend/src/queries/schema/schema-general'
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
-import { restoreTree } from './aiObservabilityTraceDataLogic'
 import { SessionTurn, extractSessionTurns } from './extractSessionTurns'
-import { llmAnalyticsSummarizationBatchCheckCreate } from './generated/api'
-import { eventLabel } from './utils'
+import { llmAnalyticsSummarizationBatchCheckCreate, llmAnalyticsSummarizationCreate } from './generated/api'
+import { eventLabel, getSummarizationLookupDateRange } from './utils'
 
 export interface TraceSummary {
     title: string
@@ -562,35 +561,15 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 }
 
                 try {
-                    // If a trace is missing from the session response, fetch it directly as a fallback.
-                    let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
-                    if (!fullTrace) {
-                        const dateRange = getTraceQueryDateRange(values.dateRange)
-                        const traceQuery: TraceQuery = {
-                            kind: NodeKind.TraceQuery,
-                            traceId,
-                            dateRange,
-                        }
-                        const traceResponse = await api.query(traceQuery)
-                        if (traceResponse.results && traceResponse.results[0]) {
-                            fullTrace = traceResponse.results[0]
-                        } else {
-                            throw new Error('Failed to load full trace')
-                        }
-                    }
-
-                    // Build the hierarchy tree from full trace events
-                    const hierarchy = restoreTree(fullTrace.events || [], traceId)
-
-                    // nosemgrep: prefer-codegen-api
-                    const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, {
-                        summarize_type: 'trace',
+                    // Summarize by ID. The backend refetches the trace, so we neither load it here
+                    // just to post it straight back, nor risk a body big enough for the proxy to
+                    // reject with a 413.
+                    const trace = values.fullTraces[traceId] ?? values.traces.find((t) => t.id === traceId)
+                    const data = await llmAnalyticsSummarizationCreate(String(teamId), {
                         mode: 'minimal',
                         force_refresh: forceRefresh,
-                        data: {
-                            trace: fullTrace,
-                            hierarchy,
-                        },
+                        trace_id: traceId,
+                        ...getSummarizationLookupDateRange(trace?.createdAt),
                     })
 
                     actions.summarizeTraceSuccess(traceId, data.summary?.title || 'Untitled trace')

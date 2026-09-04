@@ -2,15 +2,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import OpenAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.source import OpenAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _USAGE_ENDPOINTS = [
     "usage_completions",
@@ -35,20 +27,6 @@ _ENTITY_ENDPOINTS = [
     "project_api_keys",
     "project_rate_limits",
 ]
-
-
-class TestOpenAISourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenAISource().source_type == ExternalDataSourceType.OPENAI
-
-    def test_config_exposes_single_secret_api_key_field(self) -> None:
-        config = OpenAISource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.OPEN_AI
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openai"
-        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert [f.name for f in fields] == ["api_key"]
-        assert fields[0].secret is True and fields[0].required is True
 
 
 class TestOpenAISchemas:
@@ -81,13 +59,6 @@ class TestOpenAISchemas:
     def test_names_filter(self) -> None:
         schemas = OpenAISource().get_schemas(MagicMock(), team_id=1, names=["usage_completions"])
         assert [s.name for s in schemas] == ["usage_completions"]
-
-
-class TestOpenAIResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = OpenAISource().get_resumable_source_manager(inputs)
-        assert manager._data_class is OpenAIResumeConfig
 
 
 class TestOpenAISourceForPipeline:

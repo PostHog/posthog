@@ -17,6 +17,9 @@ from posthog.models import Organization, OrganizationMembership, PersonalAPIKey,
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.insight_queries import default_pageview_query
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -69,8 +72,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        if "query" not in data:
+            data["query"] = default_pageview_query()
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
         self.assertEqual(response.status_code, expected_status)
@@ -491,3 +494,20 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
 
         assert log.user == self.user
         assert log.was_impersonated is True
+
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_activity_log_export_preserves_oauth_authorization(self, _mock_exporter_task) -> None:
+        token = self._create_oauth_token()
+        token.scope = "activity_log:read"
+        token.save(update_fields=["scope"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv"},
+            headers={"authorization": f"Bearer {token.token}"},
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
+        assert exported_asset.source_credential_id == str(token.id)

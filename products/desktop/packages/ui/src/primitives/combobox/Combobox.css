@@ -105,7 +105,7 @@
 .combobox-content [cmdk-list],
 .combobox-content [cmdk-list-sizer] {
   scrollbar-width: thin;
-  scrollbar-color: var(--gray-a5) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .combobox-content [cmdk-list]::-webkit-scrollbar,
@@ -121,13 +121,13 @@
 
 .combobox-content [cmdk-list]::-webkit-scrollbar-thumb,
 .combobox-content [cmdk-list-sizer]::-webkit-scrollbar-thumb {
-  background: var(--gray-a5);
+  background: var(--scrollbar-thumb);
   border-radius: var(--radius-3);
 }
 
 .combobox-content [cmdk-list]::-webkit-scrollbar-thumb:hover,
 .combobox-content [cmdk-list-sizer]::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-a7);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .combobox-content [cmdk-group] {

@@ -48,9 +48,9 @@ describe('composerModes', () => {
         expect(resolveModeForRuntimeAdapter(adapter, mode)).toBe(expected)
     })
 
-    // Claude opens on Plan and Codex on Auto, matching the desktop app.
+    // Both runtimes open on Auto.
     it.each([
-        [RuntimeAdapterEnumApi.Claude, ClaudeMode.Plan],
+        [RuntimeAdapterEnumApi.Claude, ClaudeMode.Auto],
         [RuntimeAdapterEnumApi.Codex, CodexMode.Auto],
     ])('%s defaults to %s', (adapter, expected) => {
         expect(getDefaultModeForRuntimeAdapter(adapter)).toBe(expected)

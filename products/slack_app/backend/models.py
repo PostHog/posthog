@@ -257,3 +257,16 @@ class SlackChannel(UUIDModel):
     @property
     def is_approved(self) -> bool:
         return self.approved_at is not None
+
+    @classmethod
+    def approval_granted(cls, slack_workspace_id: str, slack_channel_id: str) -> bool:
+        """Whether someone in this channel has already granted approval.
+
+        Only answers the persistence question. Whether approval is required at all is the
+        caller's to decide from the ``is_ext_shared_channel`` flag on the Slack event.
+        """
+        return cls.objects.filter(
+            slack_workspace_id=slack_workspace_id,
+            slack_channel_id=slack_channel_id,
+            approved_at__isnull=False,
+        ).exists()

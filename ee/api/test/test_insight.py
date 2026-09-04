@@ -14,13 +14,13 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.test.db_context_capturing import capture_db_queries
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.models import DashboardPrivilege
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):
@@ -47,16 +47,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_add_and_remove_tags(self) -> None:
         with freeze_time("2012-01-14T03:21:34.000Z"):
-            insight_id, response_data = self.dashboard_api.create_insight(
-                {
-                    "name": "a created dashboard",
-                    "filters": {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                        "date_from": "-90d",
-                    },
-                }
-            )
+            insight_id, response_data = self.dashboard_api.create_insight({"name": "a created dashboard"})
         insight_short_id = response_data["short_id"]
         self.assertEqual(response_data["tags"], [])
 
@@ -330,20 +321,12 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
     def test_searching_insights_includes_tags_and_description(self) -> None:
-        insight_one_id, _ = self.dashboard_api.create_insight(
-            {
-                "name": "needle in a haystack",
-                "filters": {"events": [{"id": "$pageview"}]},
-            }
-        )
-        insight_two_id, _ = self.dashboard_api.create_insight(
-            {"name": "not matching", "filters": {"events": [{"id": "$pageview"}]}}
-        )
+        insight_one_id, _ = self.dashboard_api.create_insight({"name": "needle in a haystack"})
+        insight_two_id, _ = self.dashboard_api.create_insight({"name": "not matching"})
 
         insight_three_id, _ = self.dashboard_api.create_insight(
             {
                 "name": "not matching name",
-                "filters": {"events": [{"id": "$pageview"}]},
                 "tags": ["needle"],
             }
         )
@@ -352,7 +335,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             {
                 "name": "not matching name",
                 "description": "another needle",
-                "filters": {"events": [{"id": "$pageview"}]},
                 "tags": ["not matching"],
             }
         )
@@ -606,7 +588,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                     data={
                         "short_id": f"insight{i}",
                         "dashboards": [dashboard.pk],
-                        "filters": {"events": [{"id": "$pageview"}]},
                     }
                 )
 

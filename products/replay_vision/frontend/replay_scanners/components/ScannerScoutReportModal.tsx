@@ -1,3 +1,4 @@
+import './ScannerScoutReportModal.scss'
 import './ScannerSummary.scss'
 
 import { useActions, useValues } from 'kea'
@@ -11,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
 import { ReportChartCard } from 'products/signals/frontend/inbox/components/detail/ReportChart'
+import { resolveChartPlacements } from 'products/signals/frontend/inbox/utils/chartPlacement'
 import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { scannerScoutLogic } from '../scannerScoutLogic'
@@ -32,12 +34,31 @@ export function ScannerScoutReportModal({
         return null
     }
 
+    const charts = (openedReport?.charts ?? []) as ReportChartApi[]
+    const summary = openedReport?.summary || openedReport?.title || ''
+    // The same parse the inbox uses, rather than a regex over the markdown: a reference inside a
+    // code span or a table cell is not a placement, and getting that wrong draws a chart twice or
+    // not at all.
+    const placements = resolveChartPlacements(
+        summary,
+        charts.map((chart) => chart.chart_id)
+    )
+    const byId = new Map(charts.map((chart) => [chart.chart_id, chart]))
+    const renderChartRef = (chartId: string, sourceOffset?: number): JSX.Element | null => {
+        const chart = byId.get(chartId)
+        return sourceOffset !== undefined && placements.inlineByOffset.get(sourceOffset) === chartId && chart ? (
+            <ReportChartCard chart={chart} />
+        ) : null
+    }
+    const trailingCharts = charts.filter((chart) => !placements.inlineIds.has(chart.chart_id))
+
     const loading = openedReportLoading || openedReport?.report_id !== openReportId
 
     return (
         <LemonModal
             isOpen
             onClose={closeReport}
+            className="ScannerScoutReportModal"
             width={720}
             title={loading ? 'Report' : openedReport?.title || 'Untitled report'}
             description={
@@ -68,15 +89,17 @@ export function ScannerScoutReportModal({
                     <div className="rounded bg-surface-secondary px-3 py-2">
                         {/* Agent-written content derived from recordings: render non-PostHog images
                             as links, not auto-fetched <img>s. */}
-                        <LemonMarkdown className="ScannerSummaryMarkdown text-sm" disableImages>
-                            {openedReport?.summary || openedReport?.title || ''}
+                        <LemonMarkdown
+                            className="ScannerSummaryMarkdown text-sm [&_[data-attr=report-chart]]:my-4"
+                            disableImages
+                            renderChartRef={renderChartRef}
+                        >
+                            {summary}
                         </LemonMarkdown>
                     </div>
-                    {/* Rendered after the body rather than placed inline: the summary's
-                        `[label](chart:<id>)` links are what the inbox uses to position them, and
-                        that placement machinery lives with the inbox's own report view. */}
-                    {(openedReport?.charts ?? []).map((chart) => (
-                        <ReportChartCard key={chart.chart_id} chart={chart as ReportChartApi} />
+                    {/* Whatever the prose never referenced. The inbox does the same. */}
+                    {trailingCharts.map((chart) => (
+                        <ReportChartCard key={chart.chart_id} chart={chart} />
                     ))}
                 </div>
             )}

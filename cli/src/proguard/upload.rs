@@ -31,19 +31,11 @@ pub struct Args {
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
 
-    /// How the release is associated with exceptions. `symbol-set`, the default, stamps the
-    /// release id onto the uploaded mapping, and an exception takes the release of the mappings
-    /// its frames resolved against. EXPERIMENTAL `event` leaves the mapping
-    /// release-independent, and each event resolves its own release from the app version and
-    /// namespace the SDK already sends, so the release coordinates have to match the app's. The
-    /// release is created either way. Also settable via `POSTHOG_RELEASE_MODE`.
-    #[arg(
-        long,
-        env = "POSTHOG_RELEASE_MODE",
-        value_enum,
-        default_value = "symbol-set"
-    )]
-    pub release_mode: ReleaseMode,
+    /// Deprecated: the mapping always binds to the release the build creates. The flag stays
+    /// accepted so a gradle plugin that still passes it does not fail to parse, and it no longer
+    /// reads `POSTHOG_RELEASE_MODE`, which keeps steering the sourcemap and hermes commands.
+    #[arg(long, value_enum, hide = true)]
+    pub release_mode: Option<ReleaseMode>,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -56,24 +48,21 @@ pub fn upload(args: &Args) -> Result<()> {
         release_mode,
     } = args;
 
+    if release_mode.is_some() {
+        warn!(
+            "--release-mode is deprecated and does nothing. The mapping is uploaded bound to the \
+             release this build creates. Remove the flag."
+        );
+    }
+
+    let resolved_release = release.resolve_info_plist()?;
     let ReleaseArgs {
         name,
         version,
         build,
+        info_plist: _,
         skip_release_on_fail,
-    } = release;
-
-    // Event mode leaves nothing on the symbol set for the server to fall back to, so an
-    // exception resolves its release only from the app metadata on the event itself. Coordinates
-    // derived from git rather than passed explicitly will not match that metadata, and the
-    // exception then reports no release at all, silently.
-    if *release_mode == ReleaseMode::Event && (name.is_none() || version.is_none()) {
-        warn!(
-            "--release-mode=event resolves each exception's release from the app's namespace and \
-             version. Pass --release-name, --release-version and --build matching the app's \
-             applicationId, versionName and versionCode, or exceptions will report no release."
-        );
-    }
+    } = &resolved_release;
 
     let path = path
         .canonicalize()
@@ -101,20 +90,11 @@ pub fn upload(args: &Args) -> Result<()> {
         .then(|| release_builder.fetch_or_create())
         .transpose()?;
 
-    // The release is created in both modes, so the server has a row to resolve an event's
-    // `$app_namespace` / `$app_version` / `$app_build` onto. Event mode only skips binding it to
-    // the mapping: a map id is derived from the mapping's own content, so the same mapping keeps
-    // one symbol set across releases instead of colliding with the release the first upload
-    // stamped on it.
-    //
-    // Unlike sourcemaps, event mode does not imply `--force` here. The uploaded bytes are the
-    // mapping itself, with no injected release id, so a rebuild of unchanged code produces
-    // identical content under the same id and never conflicts. A conflict means the caller reused
-    // a `--map-id` for a different mapping, which is worth reporting in either mode.
-    file.release_id = match release_mode {
-        ReleaseMode::Event => None,
-        ReleaseMode::SymbolSet => release.map(|r| r.id.to_string()),
-    };
+    // Bind the mapping to the release this build resolved, so an exception symbolicated with this
+    // mapping takes that release. A build with no release name or version resolves none, and the
+    // upload then carries no release id. `--skip-release-on-fail` can also drop the binding when
+    // the server rejects it.
+    file.release_id = release.map(|r| r.id.to_string());
 
     let to_upload: SymbolSetUpload = file.try_into()?;
 
@@ -133,7 +113,7 @@ pub fn upload(args: &Args) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
 
     #[derive(Parser)]
     struct ProguardCli {
@@ -157,17 +137,34 @@ mod tests {
     }
 
     #[test]
-    fn defaults_to_binding_the_release_to_the_mapping() {
-        // Every existing caller omits the flag, and they must keep uploading mappings stamped with
-        // their release.
-        assert_eq!(parse(&[]).release_mode, ReleaseMode::SymbolSet);
+    fn accepts_the_deprecated_release_mode_flag() {
+        // Released gradle plugins pass `--release-mode event`. Rejecting the flag would fail
+        // their builds with a parse error on CLI upgrade.
+        assert_eq!(
+            parse(&["--release-mode", "event"]).release_mode,
+            Some(ReleaseMode::Event)
+        );
+        assert_eq!(
+            parse(&["--release-mode", "symbol-set"]).release_mode,
+            Some(ReleaseMode::SymbolSet)
+        );
+        assert_eq!(parse(&[]).release_mode, None);
     }
 
     #[test]
-    fn accepts_event_release_mode() {
-        assert_eq!(
-            parse(&["--release-mode", "event"]).release_mode,
-            ReleaseMode::Event
-        );
+    fn deprecated_release_mode_is_hidden_and_reads_no_environment() {
+        // A default or an env binding would mark unconfigured runs as deprecated callers, and
+        // POSTHOG_RELEASE_MODE stays a real control for the sourcemap and hermes commands.
+        let cmd = ProguardCli::command();
+        let upload = cmd
+            .find_subcommand("upload")
+            .expect("expected the upload subcommand");
+        let arg = upload
+            .get_arguments()
+            .find(|a| a.get_id() == "release_mode")
+            .expect("expected the release_mode argument");
+
+        assert!(arg.is_hide_set());
+        assert!(arg.get_env().is_none());
     }
 }

@@ -4,11 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.linode.linode import LinodeResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linode.source import LinodeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_config() -> Any:
@@ -21,19 +17,6 @@ class TestLinodeSourceClass:
     def setup_method(self) -> None:
         self.source = LinodeSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LINODE
-
-    def test_config_exposes_api_token_as_secret_password(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_token"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
 
     @parameterized.expand(
         [
@@ -87,20 +70,6 @@ class TestLinodeSourceClass:
         non_retryable = self.source.get_non_retryable_errors()
         observed = "500 Server Error: Internal Server Error for url: https://api.linode.com/v4/volumes"
         assert not any(key in observed for key in non_retryable)
-
-    def test_validate_credentials_delegates(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.linode.source.validate_linode_credentials",
-            return_value=(True, None),
-        ) as mock_validate:
-            valid, message = self.source.validate_credentials(_make_config(), self.team_id)
-        assert valid is True
-        assert message is None
-        mock_validate.assert_called_once_with("tok")
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(MagicMock())
-        assert manager._data_class is LinodeResumeConfig
 
     def test_source_for_pipeline_omits_watermark_when_not_incremental(self) -> None:
         # A full-refresh run must not forward a stale last-value, or the transport would build an

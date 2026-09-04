@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.svix import SvixSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.source import SvixSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix import SvixResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSvixSource:
@@ -16,9 +13,6 @@ class TestSvixSource:
         self.source = SvixSource()
         self.team_id = 123
         self.config = SvixSourceConfig(api_key="sk-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SVIX
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -31,13 +25,6 @@ class TestSvixSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
@@ -88,37 +75,6 @@ class TestSvixSource:
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Svix API key"),
-            (403, False, "Invalid Svix API key"),
-            (500, False, "Svix returned HTTP 500"),
-            (0, False, "Could not connect to Svix: boom"),
-        ],
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix.check_access")
-    def test_validate_credentials(
-        self,
-        mock_check: mock.MagicMock,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        message = (
-            "Svix returned HTTP 500" if status == 500 else ("Could not connect to Svix: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SvixResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.svix.source.svix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

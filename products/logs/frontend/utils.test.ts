@@ -293,6 +293,33 @@ describe('logs utils', () => {
             [{ label: 'Severity', value: 'Error, Fatal' }],
         ],
         ['singular service', { serviceNames: ['api'] }, [{ label: 'Service', value: 'api' }]],
+        // A viewer-written selection lives in the group, so an entry holding it has to summarize the
+        // same way one holding a dedicated field does.
+        [
+            'group-stored level and service selections',
+            {
+                filterGroup: filterGroup(
+                    { key: 'severity_level', value: ['error'], type: 'log' },
+                    { key: 'service_name', value: ['api'], type: 'log' }
+                ),
+            },
+            [
+                { label: 'Severity', value: 'Error' },
+                { label: 'Service', value: 'api' },
+            ],
+        ],
+        [
+            'a group-stored exclusion still shows as a filter',
+            {
+                filterGroup: filterGroup({
+                    key: 'service_name',
+                    value: ['api'],
+                    type: 'log',
+                    operator: 'is_not',
+                }),
+            },
+            [{ label: 'Filter', value: 'service_name=api' }],
+        ],
         [
             'plural services with truncation',
             { serviceNames: ['api', 'worker', 'scheduler', 'cron'] },

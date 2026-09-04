@@ -358,6 +358,15 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
         assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
 
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_honors_limit(self, _embed, _ff) -> None:
+        # The default source chunks into several passages that all match "lorem",
+        # so neighbour expansion would return more than one chunk without the trim.
+        self._ready_safe_source()
+        response = self.client.get(self.url, {"query": "lorem", "limit": "1"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert len(response.json()) == 1
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
     def test_search_requires_query(self, _embed, _ff) -> None:
         self._ready_safe_source()
         response = self.client.get(self.url)

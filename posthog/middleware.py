@@ -53,11 +53,12 @@ from posthog.models.activity_logging.utils import (
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1136,6 +1137,26 @@ class ActivityLoggingMiddleware:
         return response
 
 
+_POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
+
+
+def csp_report_endpoint(**params: str) -> str:
+    """The URL browsers report CSP violations and crashes to, or "" when reporting is turned off."""
+    endpoint = settings.CSP_REPORT_ENDPOINT
+    if endpoint is None:
+        # Only deployments PostHog runs report to PostHog. Violations from an instance we do not
+        # run tell us nothing we can act on, and reporting sends that instance's document URLs to a
+        # destination its operator never chose. The gate is cloud rather than hobby because a
+        # self-hosted install with DEBUG set runs in the local mode, not the hobby one.
+        endpoint = _POSTHOG_CSP_REPORT_ENDPOINT if is_cloud() else ""
+    if not endpoint or not params:
+        return endpoint
+    # The endpoint carries the destination's project token, so it normally already has a query
+    # string; one an operator sets may not.
+    separator = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{separator}{urlencode(params)}"
+
+
 class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1169,16 +1190,16 @@ class CSPMiddleware:
                 # used by the error page
                 "frame-src https://posthog.com",
                 "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
-                "report-to posthog",
             ]
 
-            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-            # `report-to posthog` directive keeps routing violations to `posthog`.
-            admin_report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"
-            response.headers["Reporting-Endpoints"] = (
-                f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
-            )
+            admin_report_endpoint = csp_report_endpoint()
+            if admin_report_endpoint:
+                csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
+                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+                # `report-to posthog` directive keeps routing violations to `posthog`.
+                response.headers["Reporting-Endpoints"] = (
+                    f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
+                )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         else:
             resource_url = "https://*.posthog.com"
@@ -1192,32 +1213,47 @@ class CSPMiddleware:
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # `https:` is here for the OAuth authorize page, which renders an application's icon
+                # from a URL its registrant supplied. There is no allowlist that covers those, so
+                # until we serve them ourselves the directive has to accept any host.
+                #
+                # The named origins below are the set we actually load images from, and `https:`
+                # makes them redundant. They stay so that removing `https:` is a one-line change
+                # rather than an archaeology exercise.
+                #
+                # Do not promote this to an enforced header as-is. An open `img-src` is an
+                # exfiltration channel: an attacker who injects markup but cannot run script still
+                # gets a beacon out through an image URL.
+                f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
-                "report-to posthog",
+                # form-action has no default-src fallback, so leaving it unset lets an injected
+                # form post anywhere. Every form we serve targets a same-origin path.
+                "form-action 'self'",
             ]
 
-            report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"
-            user = getattr(request, "user", None)
-            if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
-                # Crash reports arrive after the tab already died, so the report body is the
-                # only chance to attribute them; carrying the distinct_id in the endpoint URL
-                # ties the event to the person instead of a random per-report id.
-                report_endpoint += "&" + urlencode({"distinct_id": user.distinct_id})
-            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-            # `report-to posthog` directive keeps routing violations to `posthog`.
-            response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
+            report_uri = csp_report_endpoint(sample_rate="0.1")
+            if report_uri:
+                csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
+                report_endpoint = report_uri
+                user = getattr(request, "user", None)
+                if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
+                    # Crash reports arrive after the tab already died, so the report body is the
+                    # only chance to attribute them; carrying the distinct_id in the endpoint URL
+                    # ties the event to the person instead of a random per-report id.
+                    report_endpoint = csp_report_endpoint(sample_rate="0.1", distinct_id=user.distinct_id)
+                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+                # `report-to posthog` directive keeps routing violations to `posthog`.
+                response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
             response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
@@ -1372,6 +1408,31 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: the Logs product sends its queries as POST because the filter payload
+    # is too large for a query string. Action names are enumerated rather than allowing the whole
+    # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,
+    # retention_rules, metric_rules, anomalies).
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/logs/"
+            r"(query|sparkline|facet_values|count-ranges|count|services|patterns_diff|patterns|group-by)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Traces (tracing spans) product
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Metrics product
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize|explain)/?$"),
+    ),
     # Allow upgrading from read-only to read-write impersonation
     ("POST", "/admin/impersonation/upgrade/"),
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),

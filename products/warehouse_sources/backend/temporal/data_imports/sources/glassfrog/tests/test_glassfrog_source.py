@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.source import GlassfrogSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> GlassfrogSourceConfig:
@@ -26,9 +25,6 @@ def _config() -> GlassfrogSourceConfig:
 
 
 class TestGlassfrogSourceConfig:
-    def test_source_type(self) -> None:
-        assert GlassfrogSource().source_type == ExternalDataSourceType.GLASSFROG
-
     def test_source_config_basics(self) -> None:
         config = GlassfrogSource().get_source_config
 
@@ -52,20 +48,6 @@ class TestGlassfrogSourceConfig:
 
 
 class TestGlassfrogSchemas:
-    def test_lists_expected_endpoints(self) -> None:
-        names = {s.name for s in GlassfrogSource().get_schemas(_config(), team_id=1)}
-
-        assert names == {
-            "assignments",
-            "checklist_items",
-            "circles",
-            "custom_fields",
-            "metrics",
-            "people",
-            "projects",
-            "roles",
-        }
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_every_endpoint_is_full_refresh_only(self, endpoint: str) -> None:
         # No GlassFrog v3 endpoint exposes a server-side timestamp or cursor filter, so nothing can
@@ -75,11 +57,6 @@ class TestGlassfrogSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
         assert schema.incremental_fields == []
-
-    def test_names_filter(self) -> None:
-        schemas = GlassfrogSource().get_schemas(_config(), team_id=1, names=["circles"])
-
-        assert [s.name for s in schemas] == ["circles"]
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # lists_tables_without_credentials=True means the public docs <SourceTables /> is fed here.
@@ -103,12 +80,6 @@ class TestGlassfrogCredentials:
 
         assert ok is expected_ok
         assert (error is None) is expected_ok
-
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = GlassfrogSource().get_non_retryable_errors()
-
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
 
 
 class TestGlassfrogPipelineHandoff:

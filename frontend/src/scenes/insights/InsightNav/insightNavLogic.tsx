@@ -10,7 +10,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
-import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actorsOnlyMathTypes, expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -67,8 +67,17 @@ import {
     isStickinessQuery,
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
+    normalizeDisplay,
 } from '~/queries/utils'
-import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    EntityTypes,
+    InsightLogicProps,
+    InsightType,
+    IntervalType,
+    RetentionEntity,
+} from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
@@ -130,7 +139,8 @@ const cleanSeriesEntityMath = (
         }
         return { ...baseEntity, math: BaseMathType.TotalCount }
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
-        if (math != null) {
+        // Stickiness and lifecycle only count actors, so a carried-over count math would be rejected.
+        if (math != null && actorsOnlyMathTypes.includes(math as any)) {
             return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
         }
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
@@ -272,6 +282,64 @@ const filterRetentionBreakdowns = (bf: BreakdownFilter): BreakdownFilter => {
     return { ...bf, breakdowns: bf.breakdowns.filter((b) => b.type === 'person' || b.type === 'event') }
 }
 
+// Retention has no `series`; it carries a single target/returning entity. These helpers map between
+// a series entity and a RetentionEntity so a switch to or from Retention keeps the configured event
+// in the shape each kind accepts (a RetentionEntity takes `id`/`type`, never an EventsNode `event`).
+const seriesEntityToRetentionEntity = (
+    entity: AnyEntityNode<AnyDataWarehouseNode> | GroupNode
+): RetentionEntity | undefined => {
+    if (entity.kind === NodeKind.EventsNode) {
+        return {
+            kind: NodeKind.EventsNode,
+            type: EntityTypes.EVENTS,
+            ...(entity.event != null ? { id: entity.event } : {}),
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    if (entity.kind === NodeKind.ActionsNode) {
+        return {
+            kind: NodeKind.ActionsNode,
+            type: EntityTypes.ACTIONS,
+            id: entity.id,
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    return undefined
+}
+
+const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): EventsNode | ActionsNode | undefined => {
+    if (!entity) {
+        return undefined
+    }
+    if (entity.type === EntityTypes.ACTIONS || entity.kind === NodeKind.ActionsNode) {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: typeof entity.id === 'string' ? parseInt(entity.id, 10) : (entity.id ?? 0),
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    // A data warehouse target carries table_name/timestamp_field that no EventsNode can hold, and a
+    // RetentionEntity lacks the id_field/distinct_id_field a DataWarehouseNode needs, so it can't map to
+    // a series. Drop it rather than fabricate an event named after the table; the retentionFilter cache
+    // still holds the intact entity, so it survives a round trip.
+    if (entity.type === EntityTypes.DATA_WAREHOUSE) {
+        return undefined
+    }
+    return {
+        kind: NodeKind.EventsNode,
+        ...(entity.id != null ? { event: String(entity.id) } : {}),
+        ...(entity.name ? { name: entity.name } : {}),
+        ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+        ...(entity.properties?.length ? { properties: entity.properties } : {}),
+    }
+}
+
 const carryForwardSeriesMath = (newSeries: SeriesArray, cachedSeries: SeriesArray | undefined): SeriesArray => {
     if (!cachedSeries) {
         return newSeries
@@ -309,8 +377,8 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
         aggregationGroupTypeIndex: true,
     },
     [NodeKind.RetentionQuery]: {
-        // TODO: map series to/from retentionFilter.targetEntity/returningEntity so switching
-        // between Retention and other insight types preserves configured events.
+        // Series maps to retentionFilter.targetEntity/returningEntity rather than a `series` field,
+        // so it is handled directly in buildInsightFilter and cachePropertiesFromQuery.
         breakdownFilter: filterRetentionBreakdowns,
     },
     [NodeKind.PathsQuery]: {
@@ -337,6 +405,16 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
         interval: downgradeMinuteInterval,
     },
 }
+
+// Display types Stickiness can render. Trends supports more (pie, world map, number, …), so a
+// display carried over from Trends is only kept when Stickiness also supports it.
+const STICKINESS_DISPLAY_TYPES: ChartDisplayType[] = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsTable,
+]
 
 type TrendsCommonVisualizationProperties = Pick<TrendsFilter, 'showValuesOnSeries' | 'showPercentStackView' | 'display'>
 type StickinessCommonVisualizationProperties = Pick<StickinessFilter, 'showValuesOnSeries' | 'display'>
@@ -377,6 +455,9 @@ function getCommonVisualizationProperties(
     | Partial<FunnelsCommonVisualizationProperties>
     | Partial<LifecycleCommonVisualizationProperties>
     | Partial<EmptyCommonVisualizationProperties> {
+    // ActionsStackedBar is a deprecated alias of ActionsBar the API/MCP still accept, so normalize it
+    // before the allowlist check — otherwise a carried-over alias fails the check and resets the chart.
+    const display = normalizeDisplay(commonFilter.display)
     const sharedProperties = {
         ...((isLifecycleQuery(query) || isStickinessQuery(query) || isTrendsQuery(query) || isFunnelsQuery(query)) &&
         commonFilter.showValuesOnSeries
@@ -385,8 +466,9 @@ function getCommonVisualizationProperties(
         ...(isTrendsQuery(query) && commonFilter.showPercentStackView
             ? { showPercentStackView: commonFilter.showPercentStackView }
             : {}),
-        ...((isTrendsQuery(query) || isStickinessQuery(query)) && commonFilter.display
-            ? { display: commonFilter.display }
+        ...(display &&
+        (isTrendsQuery(query) || (isStickinessQuery(query) && STICKINESS_DISPLAY_TYPES.includes(display)))
+            ? { display }
             : {}),
     }
 
@@ -706,6 +788,23 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
         newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
+    // Retention has no series field, so mirror its target entity into the shared series cache.
+    // This keeps the configured event when switching from Retention to a series-based type.
+    if (isRetentionQuery(query)) {
+        const seriesEntity = retentionEntityToSeriesEntity(query.retentionFilter?.targetEntity)
+        if (seriesEntity) {
+            // Only the first series maps to the target entity, so the rest of a multi-series cache survives.
+            const [firstCached, ...restCached] = newCache.series ?? []
+            // A target that still points at the cached entity keeps it whole, math included; a target
+            // edited on retention replaces it.
+            const targetIsCachedEntity =
+                firstCached?.kind === seriesEntity.kind &&
+                (seriesEntity.kind === NodeKind.ActionsNode
+                    ? (firstCached as ActionsNode).id === seriesEntity.id
+                    : (firstCached as EventsNode).event === seriesEntity.event)
+            newCache.series = [targetIsCachedEntity ? firstCached : seriesEntity, ...restCached]
+        }
+    }
 
     /** store the insight specific filter in commonFilter */
     const insightFilter = filterForQuery(query)
@@ -831,7 +930,21 @@ const buildInsightFilter = (
     }
     if (isRetentionQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
-        return { retentionFilter: { ...query.retentionFilter, ...cache.retentionFilter, ...vizProps } }
+        const seriesEntity = cache.series?.length ? seriesEntityToRetentionEntity(cache.series[0]) : undefined
+        // A data warehouse retention target can't ride the series channel, so an intervening trends/funnels
+        // visit would otherwise overwrite it with an event. Keep the cached warehouse target instead.
+        const cachedTarget = cache.retentionFilter?.targetEntity
+        const targetEntity = cachedTarget?.type === EntityTypes.DATA_WAREHOUSE ? cachedTarget : seriesEntity
+        const retentionEntities = targetEntity
+            ? {
+                  targetEntity,
+                  // Keep a separately configured returning entity; otherwise mirror the target.
+                  returningEntity: cache.retentionFilter?.returningEntity ?? targetEntity,
+              }
+            : {}
+        return {
+            retentionFilter: { ...query.retentionFilter, ...cache.retentionFilter, ...retentionEntities, ...vizProps },
+        }
     }
     if (isPathsQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)

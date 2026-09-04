@@ -17,8 +17,8 @@ const DIFF_STYLE_OPTIONS = [
 ]
 
 /**
- * The diff's +/- line counts, shown in the "Files changed" tab label beside the branch so the size of
- * the change reads at a glance even while the tab is collapsed. Renders nothing until the diff loads
+ * The diff's +/- line counts, shown in the "Files changed" section header beside the branch so the size of
+ * the change reads at a glance even while the section is collapsed. Renders nothing until the diff loads
  * (or if it's empty). Reads the same `reportDiff` the panel body does — no extra fetch.
  */
 export function PullRequestDiffStat({
@@ -33,7 +33,7 @@ export function PullRequestDiffStat({
         () => (reportDiff ? summarizeDiff(reportDiff.diff, commit.commit_sha) : null),
         [reportDiff, commit.commit_sha]
     )
-    // Reserve the stat's space while the patch is still loading, so it doesn't pop into the tab label —
+    // Reserve the stat's space while the patch is still loading, so it doesn't pop into the section header —
     // but on a load error there's no stat to wait for, so drop it (the panel body shows the error).
     if (!reportDiff) {
         return reportDiffError ? null : <PullRequestDiffStatSkeleton />
@@ -49,8 +49,8 @@ export function PullRequestDiffStat({
     )
 }
 
-/** Mini placeholders for the "Files changed" tab label, shown from the moment we know the report has a
- * PR until the commit artefact (branch) and its diff (size) load — so the tab bar appears immediately
+/** Mini placeholders for the "Files changed" section header, shown from the moment we know the report has a
+ * PR until the commit artefact (branch) and its diff (size) load — so the section appears immediately
  * instead of a beat later. */
 export function PullRequestDiffStatSkeleton(): JSX.Element {
     return <LemonSkeleton className="h-3.5 w-9 rounded" />
@@ -61,7 +61,7 @@ export function PullRequestBranchTagSkeleton(): JSX.Element {
 }
 
 /**
- * "Files changed" tab body shown before the commit artefact resolves: a diff skeleton while the branch
+ * "Files changed" section body shown before the commit artefact resolves: a diff skeleton while the branch
  * is still loading, or a fallback to GitHub if the artefacts finished loading without a diffable commit.
  */
 export function PullRequestDiffPending({ artefactsLoaded }: { artefactsLoaded: boolean }): JSX.Element {
@@ -81,9 +81,8 @@ export function PullRequestDiffPending({ artefactsLoaded }: { artefactsLoaded: b
 }
 
 /**
- * The report's branch as a git-branch tag. Rendered in the "Files changed" tab label (so the tab
- * signals there's code behind it, GitHub-style) — inside the LemonTabs active tab it picks up the
- * accent color for free.
+ * The report's branch as a git-branch tag. Rendered in the "Files changed" section header, so the section
+ * signals which branch the diff comes from.
  */
 export function PullRequestBranchTag({ commit }: { commit: CommitContent }): JSX.Element {
     return (
@@ -97,8 +96,8 @@ export function PullRequestBranchTag({ commit }: { commit: CommitContent }): JSX
 }
 
 /**
- * "Files changed" tab body: the report's branch diff against the repository default branch, rendered
- * GitHub-style and read-only. The tab carries the branch tag; this toolbar balances diff stats on the
+ * "Files changed" section body: the report's branch diff against the repository default branch, rendered
+ * GitHub-style and read-only. The section header carries the branch tag; this toolbar balances diff stats on the
  * left with the unified/split toggle on the right. The diff itself is loaded by `inboxReportDetailLogic`
  * (keyed to the report, cascading off the artefact load) — this component just renders the current
  * state, tracking the branch tip as the work moves.
@@ -213,7 +212,7 @@ function DiffToolbarSummary({
         const fileLabel = diffSummary.fileCount === 1 ? '1 file changed' : `${diffSummary.fileCount} files changed`
 
         return (
-            // The +/- line stat lives in the "Files changed" tab label now, so the toolbar carries just
+            // The +/- line stat lives in the "Files changed" section header, so the toolbar carries just
             // the file count and (when present) the inline-thread count.
             <div className="flex min-w-0 items-center gap-2 text-sm">
                 <span className="truncate text-secondary">{fileLabel}</span>
@@ -233,7 +232,6 @@ function DiffToolbarSummary({
             title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}
         >
             {commit.repository}
-            <span className="opacity-70"> · vs default branch</span>
         </span>
     )
 }

@@ -16,8 +16,10 @@ import type {
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
+import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import type { PiEnrichmentConfig } from "./enrichment-extension";
 import { safePiEnvironment } from "./rpc-environment";
+import type { TaskContext } from "./task-system-prompt";
 import type {
   PiExtensionEvent,
   PiQueueSnapshot,
@@ -25,7 +27,10 @@ import type {
 } from "./types";
 
 export type PiRpcEvent = JsonAgentSessionEvent | PiExtensionEvent;
-export type PiRuntimeExtension = "repository-tools" | "auto-publish";
+export type PiRuntimeExtension =
+  | "repository-tools"
+  | "auto-publish"
+  | "context-wiki";
 
 type PiRpcEventListener = (event: PiRpcEvent) => void;
 
@@ -55,8 +60,10 @@ export interface PiRpcBootstrap {
   enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
-  projectTrusted?: boolean;
+  taskContext: TaskContext;
   extensions?: PiRuntimeExtension[];
+  /** Local checkout of the org's context wiki, when one is mounted. */
+  contextWikiPath?: string;
 }
 
 type RpcClientProcessAccess = {
@@ -107,6 +114,9 @@ export function createRuntimeMcpServers(
         lifecycle: "lazy" as const,
         args: [],
         directTools: false,
+        // Lazy servers hold no tool metadata until first use, so this is what the
+        // model's tool search matches on until then.
+        ...(server.description ? { description: server.description } : {}),
       },
     ]),
   );
@@ -131,6 +141,11 @@ export function createRuntimeMcpStdioServers(
       },
     ]),
   );
+}
+
+export function createLocalRuntimeMcpServers(cwd: string): PiRuntimeMcpServers {
+  const server = buildLocalToolsServer({ cwd }, { environment: "local" });
+  return createRuntimeMcpStdioServers(server ? [server] : []);
 }
 
 interface PiHostRequest {
@@ -428,17 +443,15 @@ export function getPiRpcClientProcess(
   return (client as unknown as RpcClientProcessAccess).process ?? null;
 }
 
-export type PiRpcClientOptions = Pick<
-  RpcClientOptions,
-  "cliPath" | "cwd" | "model"
-> & {
+export type PiRpcClientOptions = Pick<RpcClientOptions, "cliPath" | "model"> & {
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
   enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
-  projectTrusted?: boolean;
+  taskContext: TaskContext;
   extensions?: PiRuntimeExtension[];
+  contextWikiPath?: string;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
@@ -448,8 +461,9 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     enrichment,
     runtimeMcpServers,
     mcpToolPolicies,
-    projectTrusted,
+    taskContext,
     extensions,
+    contextWikiPath,
     ...rpcOptions
   } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
@@ -459,6 +473,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
   return new SecurePiRpcClient(
     {
       ...rpcOptions,
+      cwd: taskContext.cwd,
       args,
       cliPath,
       provider: "posthog",
@@ -468,8 +483,9 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       enrichment,
       runtimeMcpServers,
       mcpToolPolicies,
-      projectTrusted: projectTrusted ?? false,
+      taskContext,
       extensions,
+      contextWikiPath,
     } satisfies PiRpcBootstrap,
   );
 }

@@ -25,6 +25,7 @@ class TestPendingUpdateUnionBuilder(BaseTest):
             "issue_name": "MyError",
             "issue_description": "something broke",
             "issue_status": "active",
+            "issue_severity": "high",
             "assigned_user_id": 42,
             "assigned_role_id": VALID_ROLE_ID,
             "first_seen": "2026-01-15 10:30:00.000000",
@@ -39,6 +40,11 @@ class TestPendingUpdateUnionBuilder(BaseTest):
         assert isinstance(select, ast.SelectQuery)
         aliases = [expr.alias for expr in select.select if isinstance(expr, ast.Alias)]
         self.assertEqual(aliases, _ISSUE_STATE_COLUMNS)
+        severity = next(
+            expr for expr in select.select if isinstance(expr, ast.Alias) and expr.alias == "issue_severity"
+        )
+        assert isinstance(severity.expr, ast.Constant)
+        self.assertEqual(severity.expr.value, "high")
 
     def test_build_union_returns_base_plus_branches(self) -> None:
         pending_updates = [self._sanitized_row(fingerprint="fp-1"), self._sanitized_row(fingerprint="fp-2")]

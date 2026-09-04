@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
 from products.tasks.backend.push_dispatcher import (
     notify_task_run_awaiting_input,
@@ -89,6 +91,28 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.json(), [])
         self.assertFalse(Channel.objects.for_team(self.team.id).exists())
 
+    def test_list_pages_when_limit_is_given(self):
+        for name in ("alpha", "bravo", "charlie"):
+            self.client.post(self._channels_url(), {"name": name})
+
+        first = self.client.get(self._channels_url(), {"limit": 2})
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        body = first.json()
+        self.assertEqual(body["count"], 3)
+        self.assertEqual([channel["name"] for channel in body["results"]], ["alpha", "bravo"])
+        self.assertIsNotNone(body["next"])
+
+        second = self.client.get(self._channels_url(), {"limit": 2, "offset": 2})
+        self.assertEqual([channel["name"] for channel in second.json()["results"]], ["charlie"])
+        self.assertIsNone(second.json()["next"])
+
+    def test_list_returns_every_channel_without_a_limit(self):
+        for name in ("alpha", "bravo", "charlie"):
+            self.client.post(self._channels_url(), {"name": name})
+
+        response = self.client.get(self._channels_url())
+        self.assertEqual([channel["name"] for channel in response.json()], ["alpha", "bravo", "charlie"])
+
     def test_personal_channels_are_per_user(self):
         mine = self._provision()["channels"]
         other_client = APIClient()
@@ -134,6 +158,43 @@ class ChannelsAPITestCase(TestCase):
             [c["id"] for c in again["channels"] if c["system_role"] == "general"],
             [general[0]["id"]],
         )
+
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=False)
+    def test_onboarding_test_tools_require_the_feature_flag(self, _enabled):
+        for action in ("onboarding_session_test", "teaching_canvas_test"):
+            response = self.client.post(f"{self._channels_url()}{action}/", {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=True)
+    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled):
+        personal_id = next(
+            channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "personal"
+        )
+        task_id = uuid4()
+        canvas_id = uuid4()
+
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.start_onboarding_test_session", return_value=task_id
+        ) as start:
+            response = self.client.post(
+                f"{self._channels_url()}onboarding_session_test/",
+                {"joining_existing_organization": True, "other_members": ["Max"], "has_events": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"task_id": str(task_id), "channel_id": personal_id})
+        self.assertTrue(start.call_args.kwargs["joining_existing_organization"])
+        self.assertEqual(start.call_args.kwargs["other_members"], ["Max"])
+
+        teaching = TeachingCanvas(channel_id=uuid4(), canvas_id=canvas_id)
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.ensure_teaching_canvas", return_value=teaching
+        ):
+            response = self.client.post(f"{self._channels_url()}teaching_canvas_test/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"canvas_id": str(canvas_id), "channel_id": str(teaching.channel_id)})
 
     @parameterized.expand(
         [
@@ -366,6 +427,60 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
         self.assertEqual(Channel.objects.unscoped().get(id=channel_id).name, "renamed")
 
+    def test_project_admin_can_configure_shared_space_auto_archive(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+
+        configured = other_client.patch(
+            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": 45}, format="json"
+        )
+
+        self.assertEqual(configured.status_code, status.HTTP_200_OK, configured.content)
+        self.assertEqual(configured.json()["auto_archive_after_days"], 45)
+        listed = self.client.get(self._channels_url())
+        self.assertEqual(listed.json()[0]["auto_archive_after_days"], 45)
+
+        for invalid_days in (0, 366):
+            invalid = self.client.patch(
+                f"{self._channels_url()}{channel_id}/",
+                {"auto_archive_after_days": invalid_days},
+                format="json",
+            )
+            self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST, invalid.content)
+        self.assertEqual(Channel.objects.unscoped().get(id=channel_id).auto_archive_after_days, 45)
+
+        disabled = self.client.patch(
+            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": None}, format="json"
+        )
+        self.assertEqual(disabled.status_code, status.HTTP_200_OK, disabled.content)
+        self.assertIsNone(disabled.json()["auto_archive_after_days"])
+
+    def test_project_member_can_only_configure_their_personal_space_auto_archive(self):
+        OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        shared_channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        personal_channel_id = next(
+            channel["id"]
+            for channel in self._provision(other_client)["channels"]
+            if channel["channel_type"] == "personal"
+        )
+
+        shared = other_client.patch(
+            f"{self._channels_url()}{shared_channel_id}/", {"auto_archive_after_days": 1}, format="json"
+        )
+        personal = other_client.patch(
+            f"{self._channels_url()}{personal_channel_id}/", {"auto_archive_after_days": 1}, format="json"
+        )
+
+        self.assertEqual(shared.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(personal.status_code, status.HTTP_200_OK, personal.content)
+        self.assertIsNone(Channel.objects.unscoped().get(id=shared_channel_id).auto_archive_after_days)
+        self.assertEqual(personal.json()["auto_archive_after_days"], 1)
+
     def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
         created = self.client.post(
@@ -501,6 +616,22 @@ class ChannelsAPITestCase(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertFalse(Channel.objects.unscoped().get(id=channel_id).deleted)
+
+    def test_space_holding_only_archived_tasks_can_be_deleted(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "wrapped-up"}).json()["id"]
+        task_id = self.client.post(
+            self._tasks_url(),
+            {"title": "Done with this", "description": "d", "channel": channel_id},
+        ).json()["id"]
+        self.client.patch(f"{self._tasks_url()}{task_id}/", {"archived": True}, format="json")
+
+        response = self.client.delete(f"{self._channels_url()}{channel_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertTrue(Channel.objects.unscoped().get(id=channel_id).deleted)
+        self.assertIsNone(Task.objects.get(id=task_id).channel_id)
+        listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
+        self.assertEqual([task["id"] for task in listed], [task_id])
 
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self._provision()
@@ -805,9 +936,10 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         [
             ("internal", {"internal": True}),
             ("archived", {"archived": True}),
+            ("scout", {"origin_product": Task.OriginProduct.SIGNALS_SCOUT}),
         ]
     )
-    def test_hidden_tasks_are_excluded_from_activity(self, _name, task_updates):
+    def test_tasks_outside_the_feed_are_excluded_from_activity(self, _name, task_updates):
         Task.objects.filter(id=self.task.id).update(**task_updates)
         self._awaiting_input()
 

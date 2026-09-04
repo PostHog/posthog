@@ -4,30 +4,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   channelsLayout: true,
   routeParams: {} as { taskId?: string; channelId?: string },
-  routeId: "/website/$channelId/tasks/$taskId",
+  fullPath: "/spaces/$channelId/tasks/$taskId",
+  /** Activity's picked item, which now rides in the route's search. */
+  search: {} as Record<string, unknown>,
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useParams: () => mocks.routeParams,
+  useParams: (opts?: {
+    select?: (p: {
+      taskId?: string;
+      channelId?: string;
+      feedId?: string;
+    }) => unknown;
+  }) => (opts?.select ? opts.select(mocks.routeParams) : mocks.routeParams),
   useRouterState: ({
     select,
   }: {
-    select: (s: { matches: { routeId: string }[] }) => unknown;
-  }) => select({ matches: [{ routeId: mocks.routeId }] }),
+    select: (s: {
+      matches: { fullPath: string; search: Record<string, unknown> }[];
+    }) => unknown;
+  }) =>
+    select({
+      matches: [{ fullPath: mocks.fullPath, search: mocks.search }],
+    }),
 }));
 
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useReviewInRightPanel } from "./useReviewInRightPanel";
 
 describe("useReviewInRightPanel", () => {
   beforeEach(() => {
     mocks.channelsLayout = true;
     mocks.routeParams = {};
-    mocks.routeId = "/website/$channelId/tasks/$taskId";
-    useActivityDetailStore.setState({ selected: null });
+    mocks.fullPath = "/spaces/$channelId/tasks/$taskId";
+    mocks.search = {};
   });
 
   it("hands the review to the panel for a task opened through a space", () => {
@@ -38,10 +50,8 @@ describe("useReviewInRightPanel", () => {
 
   // The regression: no channel in the URL left both surfaces drawing the diff.
   it("hands it over for a task read from the activity feed too", () => {
-    mocks.routeId = "/website/activity";
-    useActivityDetailStore.setState({
-      selected: { id: "a1", taskId: "task-1", channelId: null },
-    });
+    mocks.fullPath = "/activity";
+    mocks.search = { item: "a1", session: "task-1" };
 
     expect(renderHook(() => useReviewInRightPanel()).result.current).toBe(true);
   });

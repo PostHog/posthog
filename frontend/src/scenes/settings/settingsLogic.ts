@@ -488,6 +488,9 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
                         return false
                     }
+                    if (section.id === 'organization-access-resolution' && !isAdminOrOwner) {
+                        return false
+                    }
 
                     return true
                 })

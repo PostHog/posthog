@@ -31,9 +31,10 @@ import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
+import { LegacySharedFunnelsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
+import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedTrendsMetricForm'
+
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { LegacySharedFunnelsMetricForm } from '../legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
-import { LegacySharedTrendsMetricForm } from '../legacy/sharedMetrics/LegacySharedTrendsMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 

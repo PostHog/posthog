@@ -18,6 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
@@ -30,8 +31,6 @@ from products.slack_app.backend.slack_link_unfurl import (
     parse_posthog_resource_link,
 )
 from products.tasks.backend.models import Task
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestParsePosthogResourceLink:

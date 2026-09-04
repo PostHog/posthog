@@ -30,6 +30,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { PathCleaningToggle } from '../PathCleaningToggle'
 import { LIVE_STREAM_OPERATORS, isLiveStreamFilter, webAnalyticsFilterLogic } from '../webAnalyticsFilterLogic'
 import { WebAnalyticsDomainSelector, WebAnalyticsLiveDeviceToggle } from '../WebAnalyticsFilters'
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
@@ -94,8 +95,9 @@ const LiveDashboardFilterRow = ({
     setEditing: (isEditing: boolean) => void
 }): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
-    const { setDeviceTypeFilter, setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter, isPathCleaningEnabled } =
+        useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter, setWebAnalyticsFilters, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
     const { clearFilters } = useActions(webAnalyticsFilterLogic)
     const { isRefreshing } = useValues(liveWebAnalyticsMetricsLogic)
 
@@ -213,6 +215,7 @@ const LiveDashboardFilterRow = ({
                             Filters
                         </LemonButton>
                     </Popover>
+                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
                 </>
             }
@@ -284,7 +287,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalBotEligibleEvents,
         liveUserCount,
         hasActiveFilters,
+        hasBotQueryError,
         isLoading,
+        isBotLoading,
         recentEvents,
         unstreamableTestAccountFilterCount,
     } = useValues(liveWebAnalyticsMetricsLogic)
@@ -409,8 +414,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
+                        contentClassName="h-64 md:h-80"
                     >
-                        <UsersPerMinuteChart data={chartData} />
+                        <UsersPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
                 )
             case 'top_paths':
@@ -485,10 +491,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         title="Bot requests per minute"
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
-                        isLoading={isLoading}
+                        isLoading={isLoading || isBotLoading}
+                        errorMessage={
+                            hasBotQueryError ? "Couldn't load bot traffic. Refresh the page to try again." : undefined
+                        }
                         contentClassName="h-64 md:h-80"
                     >
-                        <BotEventsPerMinuteChart data={chartData} />
+                        <BotEventsPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
                 )
             case 'bot_traffic':
@@ -500,7 +509,10 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         data={botBreakdown}
                         totalBotEvents={totalBotEvents}
                         totalEvents={totalBotEligibleEvents}
-                        isLoading={isLoading}
+                        isLoading={isLoading || isBotLoading}
+                        errorMessage={
+                            hasBotQueryError ? "Couldn't load bot traffic. Refresh the page to try again." : undefined
+                        }
                     />
                 )
             case 'countries':

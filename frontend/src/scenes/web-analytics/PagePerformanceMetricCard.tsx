@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { IconTrending } from '@posthog/icons'
+import { IconInfo, IconTrending } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { Sparkline } from '@posthog/quill-charts'
 import type { ChartTheme } from '@posthog/quill-charts'
@@ -20,6 +20,8 @@ export interface PagePerformanceMetricCardProps {
     color: string
     theme: ChartTheme
     loading: boolean
+    /** Says why this number can't be trusted at face value, shown as an icon beside the label. */
+    caveat?: string
     'data-attr'?: string
 }
 
@@ -55,6 +57,7 @@ export const PagePerformanceMetricCard = memo(function PagePerformanceMetricCard
     color,
     theme,
     loading,
+    caveat,
     'data-attr': dataAttr,
 }: PagePerformanceMetricCardProps): JSX.Element {
     const hasSparkline = sparkline.some((point) => point > 0)
@@ -63,7 +66,14 @@ export const PagePerformanceMetricCard = memo(function PagePerformanceMetricCard
         <div className="border rounded bg-surface-primary flex flex-col overflow-hidden" data-attr={dataAttr}>
             <div className="flex flex-col gap-1 px-3 pt-3">
                 <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-secondary truncate">{label}</span>
+                    <span className="flex items-center gap-1 text-xs font-medium text-secondary truncate">
+                        {label}
+                        {caveat ? (
+                            <Tooltip title={caveat}>
+                                <IconInfo className="shrink-0 text-base" />
+                            </Tooltip>
+                        ) : null}
+                    </span>
                     {!loading && changeFromPreviousPct !== null && (
                         <DeltaTag changeFromPreviousPct={changeFromPreviousPct} previous={previous} />
                     )}

@@ -82,11 +82,6 @@ export function scoutGroup(config: SignalScoutConfig, rollup: ScoutRollup | unde
     return rollupProducedOutput(rollup) ? 'working' : 'watching'
 }
 
-export interface ScoutGroupBucket {
-    key: ScoutGroupKey
-    configs: SignalScoutConfig[]
-}
-
 /** A roster row: a scout config paired with the lifecycle group it currently sits in. */
 export interface ScoutRosterRow {
     config: SignalScoutConfig
@@ -96,28 +91,6 @@ export interface ScoutRosterRow {
 /** A→Z by display name — the roster's default order and the Scout column's sort. */
 export function compareScoutsByName(a: SignalScoutConfig, b: SignalScoutConfig): number {
     return prettifyScoutSkillName(a.skill_name).localeCompare(prettifyScoutSkillName(b.skill_name))
-}
-
-/** Buckets in display order, empty groups dropped. Input order is preserved inside each bucket. */
-export function groupScouts(
-    configs: SignalScoutConfig[],
-    rollups: Map<string, ScoutRollup>,
-    now: Date
-): ScoutGroupBucket[] {
-    const buckets = new Map<ScoutGroupKey, SignalScoutConfig[]>()
-    for (const config of configs) {
-        const key = scoutGroup(config, rollups.get(config.skill_name), now)
-        const bucket = buckets.get(key)
-        if (bucket) {
-            bucket.push(config)
-        } else {
-            buckets.set(key, [config])
-        }
-    }
-    return SCOUT_GROUP_ORDER.filter((key) => buckets.has(key)).map((key) => ({
-        key,
-        configs: buckets.get(key) ?? [],
-    }))
 }
 
 /** Longest run summary the roster shows before it stops being scannable. */
@@ -198,31 +171,6 @@ export function scoutSubtitle(
     }
     const description = config.description?.trim()
     return description ? { text: truncate(description), tone: 'muted' } : null
-}
-
-/** A scout waiting on a decision, paired with the reason the scheduler recorded. */
-export interface NeedsYouScout {
-    name: string
-    reason: string
-}
-
-/**
- * The scouts behind the roster's "need you" count, so the header can say which ones and why rather
- * than only how many. Alphabetical, and unnarrowed by the roster's search — it backs a stat that
- * counts the whole fleet.
- */
-export function listNeedsYouScouts(
-    configs: SignalScoutConfig[],
-    rollups: Map<string, ScoutRollup>,
-    now: Date
-): NeedsYouScout[] {
-    return [...configs]
-        .filter((config) => scoutGroup(config, rollups.get(config.skill_name), now) === 'needs_you')
-        .sort(compareScoutsByName)
-        .map((config) => ({
-            name: prettifyScoutSkillName(config.skill_name),
-            reason: scoutSubtitle(config, rollups.get(config.skill_name), now)?.text ?? 'Waiting on a decision',
-        }))
 }
 
 /**

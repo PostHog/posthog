@@ -1,5 +1,6 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import {
+  ArchiveBoxIcon,
   ArrowRightIcon,
   CaretDownIcon,
   CaretRightIcon,
@@ -11,6 +12,7 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import type { ChannelPresence } from "@posthog/core/canvas/presence";
 import {
   AlertDialogClose,
   AlertDialogContent,
@@ -19,8 +21,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Autocomplete,
-  AutocompleteClear,
-  AutocompleteInput,
   AutocompleteItem,
   AutocompleteList,
   Button,
@@ -49,12 +49,18 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
+  type AutoArchiveAfterDays,
+  AutoArchiveSettingsDialog,
+} from "@posthog/ui/features/canvas/components/AutoArchiveSettingsDialog";
+import {
   ChannelItemHoverCard,
   SpaceHoverCard,
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
+import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import {
   TaskRowContextMenu,
@@ -74,6 +80,7 @@ import {
   type SpaceTasks,
   usePrefetchSpaceTasks,
   useRecentSpaceTasks,
+  useSpacePresence,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import {
   SpaceTaskActionsProvider,
@@ -96,12 +103,10 @@ import {
   resetCurrentChannel,
   useCurrentChannelStore,
 } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import {
-  formatHotkey,
-  SHORTCUTS,
-} from "@posthog/ui/features/command/keyboard-shortcuts";
+import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
 import {
   TaskBadgeStack,
   TaskStatusDot,
@@ -113,6 +118,7 @@ import {
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
+import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -121,7 +127,6 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
-import { Box, Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   type ComponentProps,
@@ -252,22 +257,6 @@ const PERSONAL_ROW_VALUE = "personal-row";
 
 const ROW_LABEL_TONE =
   "text-muted-foreground group-hover/button:text-foreground group-data-highlighted/button:text-foreground";
-
-/**
- * Hand the pane's keyboard to the search box: focus it, send the highlight back
- * to the top, and select whatever query was left there so it types over.
- */
-function focusSearch(input: HTMLInputElement): void {
-  input.focus();
-  // Autocomplete leaves its highlight where it was and exposes no way to move
-  // it, so the list would open mid-scroll. Home is the key it listens for;
-  // sending it is how the list reopens at the top.
-  input.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
-  );
-  // After Home, so the caret it parks at the start doesn't undo the selection.
-  input.select();
-}
 
 /**
  * Walk Autocomplete's highlight by synthesizing the arrow keys it already
@@ -431,7 +420,7 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
     // asks for the channel pane opens on the right one.
     setCurrentChannel(spaceId);
     void navigate({
-      to: "/website/$channelId/tasks/$taskId",
+      to: "/spaces/$channelId/tasks/$taskId",
       params: { channelId: spaceId, taskId },
     });
   };
@@ -455,12 +444,13 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   spaceId: string;
   asOption: boolean;
 }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isActive = useRouterState({
+    select: (s) => s.location.pathname.endsWith(`/tasks/${item.id}`),
+  });
   const openTask = useOpenSpaceTask();
   // No PR lookup here: that is a host round trip per row, and the tree can show
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
-  const isActive = pathname.endsWith(`/tasks/${item.id}`);
   const actions = useSpaceTaskActionsContext();
   // A boolean rather than the value itself, so a keypress re-renders only the
   // two rows whose answer changed.
@@ -469,6 +459,8 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   );
 
   const [handoffOpen, setHandoffOpen] = useState(false);
+
+  const handoffMounted = useMountedOnceOpened(handoffOpen);
   // Only the owner may hand a task off; the API 404s it for anyone else.
   const currentUser = useCurrentUser();
   const canHandoff =
@@ -489,6 +481,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       id: item.id,
       title: item.title,
       isPinned: item.pinned,
+      task: item.task ?? undefined,
       // Ticks the space the session is already in, inside "File to…".
       channelId: spaceId,
       onAddToCommandCenter: actions.commandCenterAssigner(item.id),
@@ -547,7 +540,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
         >
           {row}
         </ChannelItemHoverCard>
-        {canHandoff && item.task ? (
+        {canHandoff && item.task && handoffMounted ? (
           <HandoffTaskDialog
             task={item.task}
             open={handoffOpen}
@@ -710,11 +703,14 @@ function SpaceTaskRows({
   );
 }
 
-// The channel actions (star, copy link, rename, delete) plus the rename-modal
-// state they drive. Single source of truth so the dropdown and context menus
-// stay in lockstep — add an action here and both surfaces pick it up.
+// The channel actions and their dialogs. Single source of truth so the dropdown
+// and context menus stay in lockstep.
 function useChannelActions(channel: Channel): {
   actions: ChannelActionItem[];
+  autoArchiveOpen: boolean;
+  setAutoArchiveOpen: (open: boolean) => void;
+  saveAutoArchive: (days: AutoArchiveAfterDays | null) => Promise<boolean>;
+  isUpdatingAutoArchive: boolean;
   renameOpen: boolean;
   setRenameOpen: (open: boolean) => void;
   confirmDeleteOpen: boolean;
@@ -725,12 +721,20 @@ function useChannelActions(channel: Channel): {
   const spacesLayout = useChannelsLayout();
   const noun = spacesLayout ? "space" : "channel";
   const [renameOpen, setRenameOpen] = useState(false);
+  const [autoArchiveOpen, setAutoArchiveOpen] = useState(false);
   // "Delete channel" opens a confirmation dialog rather than deleting inline —
   // the action is destructive and irreversible.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { deleteChannel, isDeleting } = useChannelMutations();
+  const insideChannel = useRouterState({
+    select: (s) => s.location.pathname.startsWith(`/spaces/${channel.id}`),
+  });
+  const {
+    deleteChannel,
+    isDeleting,
+    updateAutoArchive,
+    isUpdatingAutoArchive,
+  } = useChannelMutations();
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
 
   // Runs the actual delete once confirmed. Returns whether it succeeded so the
@@ -769,8 +773,8 @@ function useChannelActions(channel: Channel): {
         success: true,
       });
       // If we're inside the channel being deleted, fall back to the index.
-      if (pathname.startsWith(`/website/${channel.id}`)) {
-        void navigate({ to: "/website" });
+      if (insideChannel) {
+        void navigate({ to: "/spaces" });
       }
       return true;
     } catch (error) {
@@ -787,24 +791,85 @@ function useChannelActions(channel: Channel): {
     }
   };
 
+  const saveAutoArchive = async (
+    days: AutoArchiveAfterDays | null,
+  ): Promise<boolean> => {
+    try {
+      await updateAutoArchive(channel.id, days);
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "auto_archive_update",
+        surface: "sidebar",
+        channel_id: channel.id,
+        inactivity_days: days,
+        success: true,
+      });
+      if (days === null) {
+        toast.success("Auto-archive is off");
+      } else {
+        toast.success("Auto-archive is on", {
+          description: `Inactive tasks will be archived after ${days} ${days === 1 ? "day" : "days"}.`,
+        });
+      }
+      return true;
+    } catch (error) {
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "auto_archive_update",
+        surface: "sidebar",
+        channel_id: channel.id,
+        inactivity_days: days,
+        success: false,
+      });
+      toast.error("Couldn't update automatic archiving", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  };
+
   // Memoized because it travels to the shared preview card as the space
   // trigger's payload, which is written to the card's store whenever its
   // identity changes.
-  const actions: ChannelActionItem[] = useMemo(
-    () => [
-      {
-        key: "star",
-        label: isStarred ? `Unstar ${noun}` : `Star ${noun}`,
-        icon: <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />,
-        onSelect: () => {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-            action_type: isStarred ? "unstar" : "star",
-            surface: "sidebar",
-            channel_id: channel.id,
-          });
-          toggleStar();
-        },
-      },
+  const actions: ChannelActionItem[] = useMemo(() => {
+    const sharedSpaceActions: ChannelActionItem[] =
+      channel.channelType === "personal"
+        ? []
+        : [
+            {
+              key: "star",
+              label: isStarred ? `Unstar ${noun}` : `Star ${noun}`,
+              icon: (
+                <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
+              ),
+              onSelect: () => {
+                track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                  action_type: isStarred ? "unstar" : "star",
+                  surface: "sidebar",
+                  channel_id: channel.id,
+                });
+                toggleStar();
+              },
+            },
+          ];
+    const editableSpaceActions: ChannelActionItem[] =
+      channel.channelType === "personal"
+        ? []
+        : [
+            {
+              key: "rename",
+              label: `Rename ${noun}…`,
+              icon: <PencilSimpleIcon size={14} />,
+              onSelect: () => setRenameOpen(true),
+            },
+            {
+              key: "delete",
+              label: `Delete ${noun}…`,
+              icon: <TrashIcon size={14} />,
+              variant: "destructive",
+              onSelect: () => setConfirmDeleteOpen(true),
+            },
+          ];
+    return [
+      ...sharedSpaceActions,
       {
         key: "copy-link",
         label: "Copy link",
@@ -812,25 +877,32 @@ function useChannelActions(channel: Channel): {
         onSelect: () => void copyChannelLink(channel.id, "sidebar"),
       },
       {
-        key: "rename",
-        label: `Rename ${noun}…`,
-        icon: <PencilSimpleIcon size={14} />,
+        key: "auto-archive",
+        label:
+          channel.autoArchiveAfterDays == null
+            ? "Auto-archive: off…"
+            : `Auto-archive: ${channel.autoArchiveAfterDays} ${channel.autoArchiveAfterDays === 1 ? "day" : "days"}…`,
+        icon: <ArchiveBoxIcon size={14} />,
         separatorBefore: true,
-        onSelect: () => setRenameOpen(true),
+        onSelect: () => setAutoArchiveOpen(true),
       },
-      {
-        key: "delete",
-        label: `Delete ${noun}…`,
-        icon: <TrashIcon size={14} />,
-        variant: "destructive",
-        onSelect: () => setConfirmDeleteOpen(true),
-      },
-    ],
-    [channel.id, isStarred, noun, toggleStar],
-  );
+      ...editableSpaceActions,
+    ];
+  }, [
+    channel.autoArchiveAfterDays,
+    channel.channelType,
+    channel.id,
+    isStarred,
+    noun,
+    toggleStar,
+  ]);
 
   return {
     actions,
+    autoArchiveOpen,
+    setAutoArchiveOpen,
+    saveAutoArchive,
+    isUpdatingAutoArchive,
     renameOpen,
     setRenameOpen,
     confirmDeleteOpen,
@@ -943,6 +1015,7 @@ const ChannelSection = memo(
     hotkeySlot,
     expanded = false,
     tasks,
+    presence,
     onToggleExpanded,
   }: {
     channel: Channel;
@@ -957,6 +1030,8 @@ const ChannelSection = memo(
     expanded?: boolean;
     /** The space's recent sessions and its total; only read while expanded. */
     tasks?: SpaceTasks;
+    /** Who's recently active here, shown as faces after the name. */
+    presence?: ChannelPresence;
     /**
      * Absent while searching, where the list is flat. Takes the space id rather
      * than closing over it, so the list can hand every row the same function and
@@ -966,15 +1041,22 @@ const ChannelSection = memo(
   }) {
     const spacesLayout = useChannelsLayout();
     const noun = spacesLayout ? "space" : "channel";
-    const pathname = useRouterState({ select: (s) => s.location.pathname });
-    const openChannel = useOpenChannel();
-    const base = `/website/${channel.id}`;
+    const base = `/spaces/${channel.id}`;
     // Highlight the row whenever any of the channel's routes is open.
-    const isActive = pathname === base || pathname.startsWith(`${base}/`);
+    const isActive = useRouterState({
+      select: (s) =>
+        s.location.pathname === base ||
+        s.location.pathname.startsWith(`${base}/`),
+    });
+    const openChannel = useOpenChannel();
     // Lifted so the hover button group stays visible while the menu is open.
     const [menuOpen, setMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
     const hasAttention = unreadSessions > 0 || blockedSessions > 0;
+    const people = presence?.people ?? [];
+    // Faces and dots share one trailing slot, so the row's hover margin belongs
+    // to whichever the space has rather than to whichever ends the row.
+    const hasMarks = hasAttention || people.length > 0;
     const prefetchSessions = usePrefetchSpaceTasks();
     const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined,
@@ -984,6 +1066,10 @@ const ChannelSection = memo(
     // the same star / edit / rename / delete actions.
     const {
       actions,
+      autoArchiveOpen,
+      setAutoArchiveOpen,
+      saveAutoArchive,
+      isUpdatingAutoArchive,
       renameOpen,
       setRenameOpen,
       confirmDeleteOpen,
@@ -991,6 +1077,7 @@ const ChannelSection = memo(
       confirmDelete,
       isDeleting,
     } = useChannelActions(channel);
+    const renameMounted = useMountedOnceOpened(renameOpen);
 
     const newTask = () => {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -1036,7 +1123,7 @@ const ChannelSection = memo(
 
     return (
       <>
-        <Box
+        <div
           className="group/chan relative"
           {...hoverProps}
           // Warm the sessions while the pointer is on the row, so opening the
@@ -1097,9 +1184,9 @@ const ChannelSection = memo(
                         "text-[13px]",
                         // mr-11 clears the two icon-xs hover buttons pinned at
                         // right-1. It belongs on whatever ends the row's content —
-                        // put it on the name while the dot is there and the gap
-                        // opens between them, carrying the dot off to the buttons.
-                        !hasAttention && "group-hover/chan:mr-11",
+                        // put it on the name while the marks are there and the gap
+                        // opens between them, carrying them off to the buttons.
+                        !hasMarks && "group-hover/chan:mr-11",
                         // Bold is unread's alone; full contrast is shared with the
                         // channel you're in. Either way there's no hover brighten
                         // left to do, so those rows skip it.
@@ -1112,29 +1199,42 @@ const ChannelSection = memo(
                     >
                       {channel.name}
                     </OverflowTickerText>
-                    {/* Both dots in one slot, so the hover margin belongs to the
-                      pair rather than to whichever of them happens to end the
-                      row. */}
-                    {hasAttention && (
+                    {/* Faces and dots in one slot, so the hover margin belongs
+                      to the group rather than to whichever of them happens to
+                      end the row. */}
+                    {hasMarks && (
                       <span
                         className={cn(
-                          "flex shrink-0 items-center gap-1",
+                          "flex shrink-0 items-center gap-1.5",
                           "group-hover/chan:mr-11",
                           menuOpen && "mr-11",
                         )}
                       >
+                        {/* Who's recently active here, faded while the space is
+                          open — the sessions below carry their own faces then. */}
+                        {people.length > 0 && (
+                          <PresenceAvatars
+                            people={people}
+                            liveUuids={presence?.liveUuids}
+                            className={cn(expanded && "opacity-60")}
+                          />
+                        )}
                         {/* Blue first, because the rows below are sorted with
                           what wants you at the top — the pair reads as a
                           summary of that list, in its order. */}
-                        <SpaceAttentionDot
-                          count={blockedSessions}
-                          tone="blocked"
-                          faded={expanded}
-                        />
-                        <SpaceAttentionDot
-                          count={unreadSessions}
-                          faded={expanded}
-                        />
+                        {hasAttention && (
+                          <span className="flex shrink-0 items-center gap-1">
+                            <SpaceAttentionDot
+                              count={blockedSessions}
+                              tone="blocked"
+                              faded={expanded}
+                            />
+                            <SpaceAttentionDot
+                              count={unreadSessions}
+                              faded={expanded}
+                            />
+                          </span>
+                        )}
                       </span>
                     )}
                     {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
@@ -1192,11 +1292,13 @@ const ChannelSection = memo(
             </ButtonGroup>
           </div>
           {/* One modal for both the dropdown and context-menu "Rename" actions. */}
-          <RenameChannelModal
-            channel={channel}
-            open={renameOpen}
-            onOpenChange={setRenameOpen}
-          />
+          {renameMounted && (
+            <RenameChannelModal
+              channel={channel}
+              open={renameOpen}
+              onOpenChange={setRenameOpen}
+            />
+          )}
           {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
           <ConfirmDialog
             open={confirmDeleteOpen}
@@ -1241,7 +1343,14 @@ const ChannelSection = memo(
               </AlertDialogFooter>
             </AlertDialogContent>
           </ConfirmDialog>
-        </Box>
+          <AutoArchiveSettingsDialog
+            channel={channel}
+            open={autoArchiveOpen}
+            onOpenChange={setAutoArchiveOpen}
+            onSave={saveAutoArchive}
+            isSaving={isUpdatingAutoArchive}
+          />
+        </div>
         {expanded && (
           <SpaceTaskRows
             spaceId={channel.id}
@@ -1266,11 +1375,15 @@ const ChannelSection = memo(
     prev.blockedSessions === next.blockedSessions &&
     prev.hotkeySlot === next.hotkeySlot &&
     prev.tasks === next.tasks &&
+    // By reference: useSpacePresence reuses a channel's object until its faces
+    // change, so this stays equal across polls that touched other spaces.
+    prev.presence === next.presence &&
     prev.onToggleExpanded === next.onToggleExpanded &&
     prev.channel.id === next.channel.id &&
     prev.channel.name === next.channel.name &&
     prev.channel.starred === next.channel.starred &&
     prev.channel.channelType === next.channel.channelType &&
+    prev.channel.autoArchiveAfterDays === next.channel.autoArchiveAfterDays &&
     prev.channel.createdBy?.uuid === next.channel.createdBy?.uuid &&
     // By content: the poll hands out a new array even when the repos are the
     // same, and the space's card draws them.
@@ -1318,10 +1431,10 @@ function useOpenPersonalChannel(): {
   const openPersonalChannel = () => {
     const channelId = ensureChannelId();
     if (!channelId) return;
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channelId);
     if (!spacesLayout) {
-      void navigate({ to: "/website/$channelId", params: { channelId } });
+      void navigate({ to: "/spaces/$channelId", params: { channelId } });
     }
   };
 
@@ -1343,11 +1456,11 @@ function useOpenChannel(): (channel: Channel) => void {
       surface: "sidebar",
       channel_id: channel.id,
     });
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channel.id);
     if (!spacesLayout) {
       void navigate({
-        to: "/website/$channelId",
+        to: "/spaces/$channelId",
         params: { channelId: channel.id },
       });
     }
@@ -1367,20 +1480,36 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   onToggleExpanded?: (spaceId: string) => void;
 }) {
   const spacesLayout = useChannelsLayout();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
 
-  // Personal channels are provisioned lazily server-side when the channel list
-  // is fetched; `undefined` just means the list hasn't loaded it yet.
+  // Startup provisions #me, so `undefined` means the list has not loaded yet.
   const meChannel = channels.find((c) => c.channelType === "personal");
+  const channelForActions = meChannel ?? {
+    id: "",
+    name: PERSONAL_CHANNEL_LABEL,
+    channelType: "personal" as const,
+    starred: true,
+    repositories: [],
+    createdBy: null,
+  };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const {
+    actions,
+    autoArchiveOpen,
+    setAutoArchiveOpen,
+    saveAutoArchive,
+    isUpdatingAutoArchive,
+  } = useChannelActions(channelForActions);
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
-  const isActive =
-    !!meChannel &&
-    (pathname === `/website/${meChannel.id}` ||
-      pathname.startsWith(`/website/${meChannel.id}/`));
+  const isActive = useRouterState({
+    select: (s) =>
+      !!meChannel &&
+      (s.location.pathname === `/spaces/${meChannel.id}` ||
+        s.location.pathname.startsWith(`/spaces/${meChannel.id}/`)),
+  });
 
   const newTask = () => {
     const channelId = ensureChannelId();
@@ -1411,7 +1540,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
 
   return (
     <>
-      <Box className="group/chan relative">
+      <div className="group/chan relative">
         <SpaceRowSurface
           asOption={spacesLayout}
           optionValue={meChannel?.id ?? PERSONAL_ROW_VALUE}
@@ -1438,7 +1567,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           >
             {PERSONAL_CHANNEL_LABEL}
           </span>
-          <span className="mt-[2px] flex shrink-0 items-center gap-1">
+          <span className="mt-[2px] flex shrink-0 items-center gap-1 group-hover/chan:mr-11">
             <SpaceAttentionDot
               count={blockedSessions}
               tone="blocked"
@@ -1453,24 +1582,43 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           )}
         </SpaceRowSurface>
         <div className="absolute top-0 right-1">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="outline"
-                  size="icon-xs"
-                  aria-label={`New task in ${PERSONAL_CHANNEL_LABEL}`}
-                  className="gap-1 opacity-0 transition-opacity group-hover:border-border group-hover/chan:opacity-100"
-                  onClick={newTask}
-                >
-                  <PlusIcon size={12} weight="bold" />
-                </Button>
-              }
-            />
-            <TooltipContent side="top">New task</TooltipContent>
-          </Tooltip>
+          <ButtonGroup>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon-xs"
+                    aria-label={`New task in ${PERSONAL_CHANNEL_LABEL}`}
+                    className="gap-1 opacity-0 transition-opacity group-hover:border-border group-hover/chan:opacity-100"
+                    onClick={newTask}
+                  >
+                    <PlusIcon size={12} weight="bold" />
+                  </Button>
+                }
+              />
+              <TooltipContent side="top">New task</TooltipContent>
+            </Tooltip>
+            {meChannel && (
+              <ChannelMenu
+                channelName={PERSONAL_CHANNEL_LABEL}
+                actions={actions}
+                open={menuOpen}
+                onOpenChange={setMenuOpen}
+              />
+            )}
+          </ButtonGroup>
         </div>
-      </Box>
+        {meChannel && (
+          <AutoArchiveSettingsDialog
+            channel={meChannel}
+            open={autoArchiveOpen}
+            onOpenChange={setAutoArchiveOpen}
+            onSave={saveAutoArchive}
+            isSaving={isUpdatingAutoArchive}
+          />
+        )}
+      </div>
       {expanded && meChannel && (
         <SpaceTaskRows
           spaceId={meChannel.id}
@@ -1655,6 +1803,9 @@ export function ChannelsList() {
     [allChannels, expandedSpaceIds, treeOn],
   );
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
+  // Who's recently active in each space, for the faces on every row — one
+  // project-wide query, not one per space.
+  const presenceBySpace = useSpacePresence();
   // Pin / archive / command centre for every session row, built once here
   // rather than once per row.
   const spaceTaskActions = useSpaceTaskActions();
@@ -1745,24 +1896,12 @@ export function ChannelsList() {
   // re-focusing on every render would steal focus from the rows themselves.
   const pane = useChannelPaneStore((s) => s.pane);
   const previousPane = useRef(pane);
-  const searchRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     const cameFromChannel = previousPane.current === "channel";
     previousPane.current = pane;
     if (!channelsLayout || pane !== "list" || !cameFromChannel) return;
-    const input = searchRef.current;
-    if (input) focusSearch(input);
+    requestSidebarSearchFocus();
   }, [pane, channelsLayout]);
-
-  // ⌘⇧S from anywhere in the app ends here. A counter, not a flag: pressing the
-  // key again while the box already has focus has to reach the list again, to
-  // put the highlight back at the top and select the query.
-  const searchFocusRequest = useSpaceTreeStore((s) => s.searchFocusRequest);
-  useEffect(() => {
-    if (!channelsLayout || searchFocusRequest === 0) return;
-    const input = searchRef.current;
-    if (input) focusSearch(input);
-  }, [searchFocusRequest, channelsLayout]);
 
   // Which row the keyboard is on. A ref rather than state: the arrow handlers
   // read it during the event, and re-rendering the whole list on every ↑/↓ is
@@ -1853,6 +1992,7 @@ export function ChannelsList() {
           isUnread={isUnread(channel.id)}
           unreadSessions={unreadSessions(channel.id)}
           blockedSessions={blockedSessions(channel.id)}
+          presence={presenceBySpace.get(channel.id)}
         />
       ))}
       {noMatches && (
@@ -1889,6 +2029,7 @@ export function ChannelsList() {
             hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
+            presence={presenceBySpace.get(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}
@@ -1917,6 +2058,7 @@ export function ChannelsList() {
             blockedSessions={blockedSessions(channel.id)}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
+            presence={presenceBySpace.get(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}
@@ -1933,62 +2075,31 @@ export function ChannelsList() {
   // ordered. Here the list *is* the pane, so the cap has to go and the pane's
   // own padding has to win: `!` is what outranks an unlayered rule.
   const listClass = cn(
-    "flex flex-col gap-px",
+    "sidebar-autocomplete-tree flex flex-col gap-px",
     "!max-h-none !px-2 !pt-2 !pb-16 scroll-py-8",
     scrollClass,
   );
 
   const body = (
-    <Flex direction="column" className="h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col">
       {channelsLayout && (
-        <Box className="shrink-0 px-2 pt-2">
-          <AutocompleteInput
-            ref={searchRef}
-            placeholder="Search spaces…"
-            aria-label="Search spaces"
-            showSearchIcon={false}
-            className="h-7 text-[13px] hover:bg-fill-hover"
-            onKeyDown={(event) => {
-              onTreeKeyDown(event);
-              // Base UI's clear is a tabIndex=-1 decoration, so Escape is the
-              // keyboard way out of a query. With the box already empty there's
-              // nothing to clear, and Escape belongs to whoever is listening
-              // above (closing the sidebar, dismissing a dialog).
-              if (event.key !== "Escape" || query === "") return;
-              event.preventDefault();
-              event.stopPropagation();
-              setQuery("");
-            }}
-          >
-            {/* The key that lands here from anywhere, advertised where it lands.
-                It gives way to the clear button once there's a query — by then
-                you are in the box and clearing is the useful action. */}
-            {query === "" ? (
-              <Kbd className="-mr-0.5 shrink-0">
-                {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
-              </Kbd>
-            ) : (
-              /* Rendered here rather than via `showClear` so it can be given a
-                 tab stop: quill passes no props to the one it renders itself. */
-              <AutocompleteClear
-                tabIndex={0}
-                aria-label="Clear search"
-                onClick={() => setQuery("")}
-              />
-            )}
-          </AutocompleteInput>
-        </Box>
+        <SidebarSearchHeader
+          title="Spaces"
+          query={query}
+          placeholder="Search spaces…"
+          searchLabel="Search spaces"
+          onClear={() => setQuery("")}
+          onKeyDown={onTreeKeyDown}
+        />
       )}
       {channelsLayout ? (
         // Every row is an option, filtered or not, so ↑/↓/⏎ work the moment the
         // pane opens rather than only once you've typed something.
         <AutocompleteList className={listClass}>{rows}</AutocompleteList>
       ) : (
-        <Flex direction="column" gap="px" className={scrollClass}>
-          {rows}
-        </Flex>
+        <div className={cn("flex flex-col gap-px", scrollClass)}>{rows}</div>
       )}
-    </Flex>
+    </div>
   );
 
   return (

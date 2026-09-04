@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 /**
  * Modal/overlay form of the settings UI. Used in pre-router shells (e.g.
- * `AiApprovalScreen`) where the routed `/settings/$category` page isn't
+ * `ConsentScreen`) where the routed `/settings/$category` page isn't
  * available because RouterProvider hasn't mounted yet. Inside the main app,
  * settings is a real route — see `router/routes/settings/$category.tsx`.
  *
@@ -32,12 +32,12 @@ export function openSettingsDialog(
   publish({ isOpen: true, category });
 }
 
-export function closeSettingsDialog(): void {
+function closeSettingsDialog(): void {
   useSettingsPageStore.getState().reset();
   publish({ isOpen: false, category: currentDialogState.category });
 }
 
-export function useSettingsDialogState(): DialogState {
+function useSettingsDialogState(): DialogState {
   const [state, setState] = useState(currentDialogState);
   useEffect(() => {
     dialogStateListeners.push(setState);

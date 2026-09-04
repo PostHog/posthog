@@ -1,0 +1,112 @@
+{
+    "NA1": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to LA17/MA11/LB11/MB19 (cluster 57, KA4/KB8/KC7 precedent) stated at the hook signature: InboxActingReviewerResolver takes and returns one user, the registered resolver checks only the creator-or-first assignee's stamphog_review_inbox_prs, so an opted-in secondary assignee gets no review, contradicting the 'any assigned user opts in' contract; runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    },
+    "NA2": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to LA3/MA3/LB3/MB2 (cluster 35, KA7/KB2/KC5 precedent): _format_self_driving receives only the classification and always emits the 'draft on purpose' sentence, so a synchronize re-review after the PR is ready feeds the model a false trusted draft state; runner-up cluster 5 (trusted provenance rendered solely off the flag) is the broader framing, not the stale-draft claim."
+    },
+    "NA3": {
+        "cluster": 7,
+        "confidence": "medium",
+        "reason": "Core claim matches LB4's match (cluster 7, N4/O3): get_stamphog_connected runs an uncached cross-product-DB read on every GET and PATCH serialization, so an outage delays settings responses until the breaker opens, and the separate-request-or-cached-snapshot remedy is the cluster's own fix. Medium because the trailing claims are other clusters': the 200-with-false hiding the outage is cluster 27 and the Kea loader never revalidating after recovery is cluster 65; both lose because fixing only the UI state would leave the per-request query and the delay in place."
+    },
+    "NA4": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA5/MA4/LB6/MB9 (cluster 58 stated at the facade publish site, KC4 precedent; facade/api.py:149 is already a cluster 58 file): the single .delay() is the only record of a pending initial review, the caller swallows the publish error, and no durable handoff row or sweeper reconciles it; runner-up cluster 54 shares the line but claims the exception escapes into the save path, whereas NA4 says the caller catches it."
+    },
+    "NA5": {
+        "cluster": 75,
+        "confidence": "high",
+        "reason": "Identical to LA14 (cluster 75, E1, KA2 precedent): _is_bot_authored accepts any Bot-type or [bot]-suffixed user (Dependabot, Renovate, third-party apps) instead of the configured PostHog Code App bot login, so an unrelated bot PR can inherit the carve-out bypass; the 'forged or stale task link' aside belongs to runner-up LA15/cluster 73, which NA5's suggestion (exact login compare) does not address."
+    },
+    "NA6": {
+        "cluster": 58,
+        "confidence": "medium",
+        "reason": "Same root gap as LA6/LB5/MB10 (cluster 58's retry-exhaustion angle, M6/L9): early-ack worker loss drops the only initial dispatch or strands a QUEUED run with no durable record or reconciler, and the cluster's durable-record-plus-reconciler fix covers it; medium because the acks_late/reject_on_worker_lost mechanism appears in no member text. Runner-up cluster 32 names the stranded-QUEUED symptom but via the disproven on_commit-ordering mechanism, which NA6 does not claim."
+    },
+    "NA7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA10/MA6/MB14 (cluster 2 in AGENTS.md form, KB5 precedent; cluster 2 already lists AGENTS.md:110): the invariant says both trigger paths verify PR linkage before stamping inbox_review, but process_inbox_pr_review never resolves task_run_id or compares task repository, branch, head repo, or bot author against the caller-writable pr_url; runner-up cluster 48 is the provenance key name in AGENTS.md, not the false linkage assertion."
+    },
+    "NA8": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Cluster 57 stated in README form (KA9/LA10 precedent for doc-located restatements): the README's 'gated by the acting reviewer's toggle' sentence and the implementation both key on the single canonical reviewer, so a secondary opted-in assignee cannot enable the review, contradicting the PR's 'any assigned reviewer opted in' contract, and the suggestion is cluster 57's fix (scan all resolved assignees) plus a doc update. Runner-up cluster 60 (README em dash) is the only other README-line cluster and is a style nit, not this contract claim."
+    },
+    "NA9": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Identical to LA20/MA18/MB1 (cluster 31, KA1/KB10 precedent) stated against the AGENTS.md invariant: the toggle is checked once in the receiver and process_inbox_pr_review never re-reads ReviewUserSettings, so a delayed or retried job can create a run and post an approval after opt-out; runner-up cluster 57 (single acting reviewer) is a different gate defect."
+    },
+    "NA10": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA11/MA7/LB8/MB15 (cluster 2, KA10/KB6/KC6 precedent): TaskRun.output.pr_url is API-writable by any team member on signal-report tasks, process_inbox_pr_review never loads task_run_id or checks task repository, work branch, head repo, or bot identity before stamping inbox_review, so an unrelated human or fork PR gets the relaxed gates and a real approval; the 'server-only PR attestation' clause in the suggestion is LA15's ask, carried separately by NA11."
+    },
+    "NA11": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA15/MA9/MB17 (adjudicated real must_fix, distinct from clusters 2/73/75): find_signal_implementation_run treats a find_task_run match on caller-writable output.pr_url as proof the run produced the PR, so a team member attaches an unrelated same-repo bot PR to a signals run and its next webhook inherits the carve-out, skipping review-mode and author-permission gates. Runner-up cluster 73 covers only accidental branch-fallback mis-binding and cluster 75 only the any-bot identity floor; the 'scope by team_id from the start' clause is a cluster 39 aside."
+    },
+    "NA12": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Identical to KA3/KC1 (cluster 3): review_local.py:321 reads self_driving_review with truthiness instead of a strict `is True` check, so a JSON string like \"false\" would enable the carve-out; runner-up cluster 5 (trusted provenance rendered off the flag) is about what the flag unlocks, not how it is parsed."
+    },
+    "NA13": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to LA17/MA11/LB11/MB19 (cluster 57, KA4/KB8/KC7 precedent): _resolve_assigned_reviewer collapses the assignee set to the creator-or-first user before the Stamphog toggle is read on both the initial dispatch and the webhook resolver, so an opted-in secondary assignee is ignored; the validator refutes it via the dated maintainer decision, matching the cluster's mostly-refuted record. Runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    },
+    "NA14": {
+        "cluster": 1,
+        "confidence": "high",
+        "reason": "Identical to LA18/MA16 (cluster 1, KA9/KB7 precedent): Signals auto-start creates implementation tasks with internal=True, so the `task.internal` rejection at facade/api.py:508-509 (and the receiver's sibling guard) never matches a production self-driving run and neither leg ever reviews; runner-up cluster 22 (identification relies on deprecated signal_report without origin_product corroboration) shares the association-based discriminator but claims a deprecation risk, not a dead leg."
+    },
+    "NA15": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New: no cluster claims that queue_inbox_pr_review's deferred import of products.stamphog.backend.tasks.tasks pulls the GitHub and Temporal clients into the web process on the TaskRun save path, with current_app.send_task by name as the fix. Runner-up cluster 16 is the same deferred import but claims exception-safety relative to the try/except, and cluster 69 is a wasted broker round trip for teams without Stamphog; neither concerns import weight, and fixing either leaves the module load in place."
+    },
+    "NA16": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA1/MA14/LB15/MB3 (cluster 58, KA13/KB3/KC3 precedent): _start_stamphog_review only logs the exhausted producer publish error, the save still succeeds, no pending record exists for a sweeper, and a PR with no later output save loses its initial review permanently; runner-up cluster 54 is the unguarded .delay raising into the caller, which NA16 does not claim."
+    },
+    "NA17": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Identical to KB9 (cluster 9, N19/O20 verdicts both discuss the missing debounce): every TaskRun output save carrying an unchanged pr_url refires the receiver and process_inbox_pr_review must call get_pr before it can dedupe by head, so a burst creates redundant Celery jobs and GitHub requests; the coalesce-before-publish remedy is the debounce the cluster's verdicts already evaluated. Runner-up cluster 69 (unconditional broker round trip for teams with no Stamphog) is a different waste, and cluster 42 is the concurrent-refire correctness race, not the fetch cost."
+    },
+    "NA18": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Identical to LA16/MA12/LB16/MB18 (cluster 39, KA5/KB1/KC2 precedent): find_task_run's .first() runs before the facade applies team, signal_report, and internal filters, so an ineligible row that sorts first returns None and hides an eligible run (the W8/T8 shadowing mode); the unindexed branch-fallback aside belongs to runner-up cluster 23 and the 'pin to the writer' aside to cluster 15, while cluster 73 is the opposite direction (branch fallback mis-binds an unrelated run)."
+    },
+    "NA19": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA8/MB13 (adjudicated new, real consider): the stale recheck rejects only a strictly older updated_at, GitHub timestamps are second-granular, so an old fetch and a new push can tie, the old task supersedes the new-head run, and the head guard then leaves the current head unreviewed. Runner-ups 36 (cross-leg double review of one head) and 42 (concurrent-refire dedupe race) involve one head, not an equal-timestamp tie between different heads."
+    },
+    "NA20": {
+        "cluster": 25,
+        "confidence": "medium",
+        "reason": "The only reachable mechanism is cluster 25 (S7/X19/T4/M13, KA12 precedent): the two on_commit callbacks run serially with robust=False, so an import failure in the earlier ReviewHog callback prevents the Stamphog callback from running, and the fallback remedy (robust callbacks, catch deferred import failures) is the cluster's fix. Medium because the headline 'Stamphog-first' ordering and Temporal-latency framing is in no cluster and the validator refutes it as a non-contract; runner-up cluster 16 (deferred facade import outside _start_stamphog_review's try) is the narrower import-placement aside, not the cancelled-second-hook harm NA20 claims."
+    },
+    "NA21": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Identical to LA20/MA18/MB1 (cluster 31, KA1/KB10 precedent): the receiver reads stamphog_review_inbox_prs before publishing and process_inbox_pr_review never re-resolves the acting reviewer or current setting, so a broker delay or retry lets a run post a real approval after opt-out, unlike ReviewHog's resolve-time recheck; runner-up cluster 57 (single acting reviewer) is a different gate defect."
+    },
+    "NA22": {
+        "cluster": 6,
+        "confidence": "high",
+        "reason": "Same claim as LA19 (cluster 6, X9/T6/V8/N12, KA6 precedent) with only the engine-side remedy: review_local.py sets self_driving from the context flag without binding it to the fetched PR's shape, so the bot-author and draft relaxations are not coupled to pr.author_is_bot, and the proposed guard (apply the flag only when the PR is bot-authored and repo-native) is the cluster's own fix. Runner-up cluster 2 loses because NA22 asks for no server-side verification before the flag is written (the receiver-leg gap MA10/LB10/MB8 carried there); the 'trusted prompt falsely identifies its author' sentence is a cluster 5 aside."
+    }
+}

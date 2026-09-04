@@ -69,7 +69,7 @@ export function ProjectGithubConnectionSection() {
   return (
     <SettingsSection
       label="Project connection"
-      description="GitHub access for this project's Self-driving pipeline and cloud tasks."
+      description="GitHub access for this project's Self-driving pipeline and cloud tasks"
     >
       {projectId != null ? (
         <GithubInstallRequestsBanner
@@ -108,7 +108,7 @@ export function ProjectGithubConnectionSection() {
         ) : isAwaitingApproval ? (
           <SettingsCardRow
             label="No GitHub connection yet"
-            description="A GitHub organization owner still needs to approve the PostHog app."
+            description="A GitHub organization owner still needs to approve the PostHog app"
           />
         ) : isAdmin === false && projectId != null ? (
           <div className="px-3.5 py-3">
@@ -121,7 +121,7 @@ export function ProjectGithubConnectionSection() {
         ) : (
           <SettingsCardRow
             label="No GitHub connection yet"
-            description="Connect GitHub so Self-driving and cloud tasks can work with your repositories."
+            description="Connect GitHub so Self-driving and cloud tasks can work with your repositories"
           >
             <Button
               type="button"
@@ -262,7 +262,7 @@ function ProjectGithubIntegrationRow({
         }
         description={
           status === "unavailable"
-            ? "The PostHog app is no longer installed on GitHub, so this only removes the stale connection from PostHog."
+            ? "The PostHog app is no longer installed on GitHub, so this only removes the stale connection from PostHog"
             : buildGithubDisconnectDescription(
                 accountLabel,
                 integration.installation_shared === true,

@@ -17,11 +17,10 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluation_reports import EvaluationReportRunSerializer
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestEvaluationReportRunSerializer(SimpleTestCase):

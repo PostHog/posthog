@@ -133,7 +133,7 @@ class ErrorTrackingSeverityRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
                 filters=request.validated_data.get("filters"),
                 severity=request.validated_data.get("severity"),
             )
-        except error_tracking_api.InvalidBytecodeError as err:
+        except (error_tracking_api.InvalidBytecodeError, error_tracking_api.SeverityRuleLimitError) as err:
             raise ValidationError(str(err)) from err
         if rule is None:
             raise NotFound()
@@ -174,7 +174,7 @@ class ErrorTrackingSeverityRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
                 severity=request.validated_data["severity"],
                 order_key=request.validated_data["order_key"],
             )
-        except error_tracking_api.InvalidBytecodeError as err:
+        except (error_tracking_api.InvalidBytecodeError, error_tracking_api.SeverityRuleLimitError) as err:
             raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_severity_rule_created",

@@ -18,6 +18,7 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  type AcpMcpServer,
   type Adapter,
   buildPrOutput,
   getErrorMessage,
@@ -29,6 +30,7 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
   sleepWithBackoff,
+  toAcpMcpServers,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -42,11 +44,20 @@ import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
-import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import {
+  POSTHOG_METHODS,
+  POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+} from "../acp-extensions";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
+import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
+import {
+  appendBenjaminGuidance,
+  isBenjaminEnabled,
+} from "../adapters/benjamin-guidance";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
@@ -60,6 +71,7 @@ import {
   classifyAgentError,
   isPromptTooLongError,
 } from "../adapters/error-classification";
+import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { appendRtkGuidanceForCodex } from "../adapters/rtk-guidance";
 import {
@@ -67,9 +79,9 @@ import {
   SIGNED_MERGE_QUALIFIED_TOOL_NAME,
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../adapters/signed-commit-shared";
+import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
-import { HandoffCheckpointTracker } from "../handoff-checkpoint";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
 import { PostHogAPIClient } from "../posthog-api";
@@ -95,12 +107,12 @@ import { SessionLogWriter } from "../session-log-writer";
 import type {
   AgentMode,
   DeviceInfo,
-  GitCheckpointEvent,
-  HandoffLocalGitState,
   LogLevel,
   Task,
   TaskRun,
   TaskRunArtifact,
+  TaskRunState,
+  TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
@@ -109,6 +121,7 @@ import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
+import { AgentBootTracker } from "./boot-phases";
 import {
   normalizeCloudPromptContent,
   promptBlocksToText,
@@ -120,20 +133,19 @@ import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
-import { resolveRtkSavings } from "./rtk-savings";
-import { RunUsageAccumulator } from "./run-usage";
-import {
-  handoffLocalGitStateSchema,
-  jsonRpcRequestSchema,
-  validateCommandParams,
-} from "./schemas";
+import { createRtkSavingsNotification } from "./rtk-savings";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
+import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
+import { waitForFile } from "./wait-for-file";
 
 const agentErrorClassificationSchema = z.enum([
   "upstream_stream_terminated",
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "content_block_rejection",
+  "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -149,6 +161,12 @@ const upstreamProviderFailureClassifications =
     "upstream_timeout",
     "upstream_provider_failure",
   ]);
+
+type TurnFailureDisposition =
+  | "terminal"
+  | "recoverable"
+  | "retryable_delivery"
+  | "retryable_followup";
 
 const errorWithClassificationSchema = z.object({
   data: z.object({ classification: agentErrorClassificationSchema }),
@@ -317,7 +335,6 @@ interface ActiveSession {
   permissionMode: PermissionMode;
   /** Whether a desktop client has ever connected via SSE during this session */
   hasDesktopConnected: boolean;
-  pendingHandoffGitState?: HandoffLocalGitState;
   /** Meta the session was created with, reused when a retry needs a fresh session */
   sessionMeta: Record<string, unknown>;
 }
@@ -334,6 +351,8 @@ interface BuiltPrompt {
   meta?: Record<string, unknown>;
   messageId?: string;
 }
+
+export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -377,17 +396,17 @@ interface LocalSkillPromptContext {
 
 function getTaskRunStateString(
   taskRun: TaskRun | null,
-  key: string,
+  key: TaskRunStateField,
 ): string | null {
-  const state = taskRun?.state;
-
-  if (!state || typeof state !== "object") {
-    return null;
-  }
-
-  const value = (state as Record<string, unknown>)[key];
+  const value = taskRun?.state[key];
   return typeof value === "string" ? value : null;
 }
+
+type SteerDeclineReason =
+  | "startup_turn"
+  | "no_active_turn"
+  | "adapter_rejected"
+  | `adapter_${SteerDeclineCause}`;
 
 /** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
 type SlackArtifactDelivery = "none" | "message" | "canvas_file";
@@ -417,13 +436,7 @@ function readSlackArtifactDelivery(
  * that predates charts, which is the same as off.
  */
 function readSlackChartDelivery(taskRun: TaskRun | null): boolean {
-  const state = taskRun?.state;
-
-  if (!state || typeof state !== "object") {
-    return false;
-  }
-
-  return (state as Record<string, unknown>).slack_chart_delivery === true;
+  return taskRun?.state.slack_chart_delivery === true;
 }
 
 // Prompt block we hand the agent when the user attached files but we could not
@@ -508,7 +521,10 @@ export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
+  private httpReadyBootMs?: number;
+  private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
+  private bootTracker: AgentBootTracker;
   private logger: Logger;
   private server: ServerType | null = null;
   private session: ActiveSession | null = null;
@@ -639,6 +655,11 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
+    this.bootTracker = new AgentBootTracker(
+      config.runId,
+      undefined,
+      config.launcherToProcessMs,
+    );
     this.posthogExecPermissionRegexSource =
       config.posthogExecPermissionRegex ??
       DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE;
@@ -752,11 +773,15 @@ export class AgentServer {
     const app = new Hono();
 
     app.get("/health", (c) => {
+      const boot = this.bootTracker.snapshot();
       return c.json({
         status: "ok",
         hasSession: !!this.session,
+        readiness: boot.state,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot,
+        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
       });
     });
 
@@ -953,9 +978,11 @@ export class AgentServer {
           port: this.config.port,
         },
         () => {
+          this.httpReadyBootMs = Math.round(process.uptime() * 1000);
+          this.bootTracker.markHttpReady(this.httpReadyBootMs);
           this.logger.debug(
             `HTTP server listening on port ${this.config.port}`,
-            { bootMs: Math.round(process.uptime() * 1000) },
+            { bootMs: this.httpReadyBootMs },
           );
           resolve();
         },
@@ -981,9 +1008,6 @@ export class AgentServer {
       });
       this.logger.debug("Resume state loaded", {
         conversationTurns: this.resumeState.conversation.length,
-        hasGitCheckpoint: !!this.resumeState.latestGitCheckpoint,
-        gitCheckpointBranch:
-          this.resumeState.latestGitCheckpoint?.branch ?? null,
         logEntries: this.resumeState.logEntryCount,
       });
     } catch (error) {
@@ -1270,7 +1294,7 @@ export class AgentServer {
             taskId: commandSession.payload.task_id,
             runId: commandSession.payload.run_id,
           });
-          const prompt = builtPrompt.prompt;
+          let prompt = builtPrompt.prompt;
           if (prompt.length === 0) {
             throw new Error("User message cannot be empty");
           }
@@ -1298,16 +1322,17 @@ export class AgentServer {
           ];
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
+            ...(messageId ? { messageId } : {}),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
           };
 
           if (params.steer === true) {
-            if (
-              this.activeOwnedTurnCount > 0 &&
-              this.activeStartupTurnCount === 0
-            ) {
+            let declineReason: SteerDeclineReason = "no_active_turn";
+            if (this.activeStartupTurnCount > 0) {
+              declineReason = "startup_turn";
+            } else if (this.activeOwnedTurnCount > 0) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -1322,20 +1347,39 @@ export class AgentServer {
                 resolveDelivery(outcome);
                 return outcome;
               }
+              const cause = (
+                result._meta as { steerDeclineCause?: unknown } | undefined
+              )?.steerDeclineCause;
+              declineReason =
+                typeof cause === "string"
+                  ? (`adapter_${cause}` as SteerDeclineReason)
+                  : "adapter_rejected";
             }
             const outcome = {
               stopReason: "steer_declined",
               steered: false,
+              reason: declineReason,
             };
             resolveDelivery(outcome);
             return outcome;
           }
 
+          // Read the slash command off what the user actually typed. A deferred summary resume
+          // prepends a hidden history block, and `isManualCompactPrompt` matches on the whole
+          // prompt text, so checking afterwards would stop recognizing `/compact` as the first
+          // message of a resumed session.
+          const manualCompactPrompt = isManualCompactPrompt(prompt);
+
+          const deferredResume = await this.preparePrewarmedResumePrompt(
+            commandSession.payload,
+            prompt,
+          );
+          prompt = deferredResume.prompt;
+
           commandSession.logWriter.resetTurnMessages(
             commandSession.payload.run_id,
           );
 
-          const manualCompactPrompt = isManualCompactPrompt(prompt);
           const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
             this.promptWithUpstreamRetry({
@@ -1358,6 +1402,7 @@ export class AgentServer {
               }
             } else {
               const runPrompt = () => {
+                this.emitFirstCommandDispatched();
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1370,11 +1415,31 @@ export class AgentServer {
                 }
                 return promptResult;
               };
-              if (this.prewarmedStartupTurnPending) {
-                this.prewarmedStartupTurnPending = false;
-                result = await this.runStartupTurn(runPrompt);
-              } else {
-                result = await this.runOwnedTurn(runPrompt);
+              const runTurn = () => {
+                if (this.prewarmedStartupTurnPending) {
+                  this.prewarmedStartupTurnPending = false;
+                  return this.runStartupTurn(runPrompt);
+                }
+                return this.runOwnedTurn(runPrompt);
+              };
+              try {
+                result = await runTurn();
+              } catch (error) {
+                // A deferred native resume replays the whole prior transcript, which can overflow
+                // the context window. Fall back the way `sendResumeContinuation` does — a fresh
+                // session carrying summarized history — instead of failing the run.
+                const retryPrompt =
+                  deferredResume.consumed && isPromptTooLongError(error)
+                    ? await this.retryOversizedDeferredResume(
+                        commandSession.payload,
+                        builtPrompt.prompt,
+                      )
+                    : null;
+                if (!retryPrompt) {
+                  throw error;
+                }
+                prompt = retryPrompt;
+                result = await runTurn();
               }
 
               if (result.stopReason === "end_turn" && manualCompactPrompt) {
@@ -1393,15 +1458,19 @@ export class AgentServer {
             }
           } catch (error) {
             await commandSession.logWriter.flushAll();
-            const { recoverable } = await this.handleTurnFailure(
+            const failureDisposition = await this.handleTurnFailure(
               commandSession.payload,
               "followup",
               error,
             );
-            if (!recoverable) {
+            if (failureDisposition !== "recoverable") {
               throw error;
             }
             commitDelivery();
+            if (deferredResume.consumed) {
+              this.resumeState = null;
+              this.nativeResume = null;
+            }
             const outcome = { stopReason: "error_recoverable" };
             resolveDelivery(outcome);
             return outcome;
@@ -1409,6 +1478,10 @@ export class AgentServer {
             this.suppressAdapterTurnComplete = false;
           }
           commitDelivery();
+          if (deferredResume.consumed) {
+            this.resumeState = null;
+            this.nativeResume = null;
+          }
 
           this.logger.debug("User message completed", {
             stopReason: result.stopReason,
@@ -1483,10 +1556,6 @@ export class AgentServer {
       case POSTHOG_NOTIFICATIONS.CLOSE:
       case "close": {
         this.logger.debug("Close requested");
-        const localGitState = this.extractHandoffLocalGitState(params);
-        if (localGitState && this.session) {
-          this.session.pendingHandoffGitState = localGitState;
-        }
         await this.cleanupSession();
         return { closed: true };
       }
@@ -1557,7 +1626,7 @@ export class AgentServer {
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: refreshedMcpServers },
+          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
         );
       }
 
@@ -1656,6 +1725,11 @@ export class AgentServer {
       return;
     }
 
+    this.bootTracker = new AgentBootTracker(
+      payload.run_id,
+      this.httpReadyBootMs,
+      this.config.launcherToProcessMs,
+    );
     this.initializationPromise = this._doInitializeSession(
       payload,
       sseController,
@@ -1664,6 +1738,7 @@ export class AgentServer {
     try {
       await this.initializationPromise;
     } catch (error) {
+      this.bootTracker.markFailed();
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -1748,26 +1823,30 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
-    const [preTaskRun, preTask] = await Promise.all([
-      this.posthogAPI
-        .getTaskRun(payload.task_id, payload.run_id)
-        .catch((err) => {
-          this.logger.debug("Failed to fetch task run for session context", {
-            taskId: payload.task_id,
-            runId: payload.run_id,
-            error: err,
-          });
-          return null;
-        }),
-      this.fetchTaskForSessionContext(payload.task_id),
-    ]);
+    const [preTaskRun, preTask] = await this.bootTracker.measure(
+      "context_fetch",
+      () =>
+        Promise.all([
+          this.posthogAPI
+            .getTaskRun(payload.task_id, payload.run_id)
+            .catch((err) => {
+              // Without the run the stage is unknown, so routing falls back to the env product.
+              this.logger.warn("Failed to fetch task run for session context", {
+                taskId: payload.task_id,
+                runId: payload.run_id,
+                error: err,
+              });
+              return null;
+            }),
+          this.fetchTaskForSessionContext(payload.task_id),
+        ]),
+    );
     this.taskRepositories =
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
-    this.prewarmedRun =
-      (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
-      true;
+    seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
+    this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const runtimeAdapter = this.getRuntimeAdapter();
@@ -1781,6 +1860,7 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      taskOriginKey: preTask?.origin_key,
       repositories: this.taskRepositories,
       runtimeAdapter,
       sandboxEnvironmentId: getTaskRunStateString(
@@ -1925,15 +2005,19 @@ export class AgentServer {
       clientStream,
     );
 
-    const initializeResult = await clientConnection.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {},
-    });
+    const initializeResult = await this.bootTracker.measure(
+      "acp_initialize",
+      () =>
+        clientConnection.initialize({
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        }),
+    );
     const steering = extractSteeringCapability(initializeResult);
     const conversationClear =
       extractConversationClearCapability(initializeResult);
 
-    const runState = preTaskRun?.state as Record<string, unknown> | undefined;
+    const runState = preTaskRun?.state;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
     // PostHog Desktop has not explicitly selected a mode.
@@ -1971,6 +2055,7 @@ export class AgentServer {
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
       }),
+      ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -1983,7 +2068,9 @@ export class AgentServer {
       ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
     };
 
-    await this.waitForRepoReady();
+    await this.bootTracker.measure("repository_ready", () =>
+      this.waitForRepoReady(),
+    );
     const existingPrCheckoutPromise =
       this.buildExistingPrCheckoutPromise(prUrl);
     // Overlap the best-effort PR checkout with the rest of session setup. The
@@ -1996,87 +2083,96 @@ export class AgentServer {
     // `.posthog/skills/<runId>/...`, which is gitignored (untracked) in target
     // repos, so `git checkout` — which only updates tracked files — cannot
     // conflict with those writes or leave them associated with the wrong branch.
-    let nativeResume: { sessionId: string; warm: boolean } | null;
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    let sessionMcpServers: McpServerConnection[];
-    try {
-      await this.installSkillBundleArtifacts(
-        payload.task_id,
-        payload.run_id,
-        this.getArtifactsById(preTaskRun?.artifacts, pendingUserArtifactIds),
-      );
+    const [nativeResume, sessionMcpServers] = await this.bootTracker.measure(
+      "session_dependencies",
+      async () => {
+        try {
+          await this.installSkillBundleArtifacts(
+            payload.task_id,
+            payload.run_id,
+            this.getArtifactsById(
+              preTaskRun?.artifacts,
+              pendingUserArtifactIds,
+            ),
+          );
+          const preparedNativeResume = await this.prepareNativeResume(
+            payload,
+            posthogAPI,
+            preTaskRun,
+            runtimeAdapter,
+            sessionCwd,
+            initialPermissionMode,
+          );
+          const preparedMcpServers: AcpMcpServer[] = toAcpMcpServers([
+            ...(this.config.mcpServers ?? []),
+            ...(await this.startMcpRelayServer()),
+          ]);
+          return [preparedNativeResume, preparedMcpServers] as const;
+        } finally {
+          if (existingPrCheckoutPromise) {
+            this.logExistingPrCheckoutResult(
+              prUrl,
+              await existingPrCheckoutPromise,
+            );
+          }
+        }
+      },
+    );
 
-      nativeResume = await this.prepareNativeResume(
-        payload,
-        posthogAPI,
-        preTaskRun,
-        runtimeAdapter,
-        sessionCwd,
-        initialPermissionMode,
-      );
-
-      sessionMcpServers = [
-        ...(this.config.mcpServers ?? []),
-        ...(await this.startMcpRelayServer()),
-      ];
-    } finally {
-      // Always consume the checkout result — on the success path this is the
-      // intended await; on a throw it ensures the in-flight checkout settles
-      // (and aborts its children) instead of mutating the tree in the
-      // background. checkoutExistingPullRequest never rejects.
-      if (existingPrCheckoutPromise) {
-        this.logExistingPrCheckoutResult(
-          prUrl,
-          await existingPrCheckoutPromise,
-        );
-      }
-    }
-
-    let acpSessionId: string | null = null;
-    if (nativeResume) {
-      try {
-        await clientConnection.resumeSession({
-          sessionId: nativeResume.sessionId,
-          cwd: sessionCwd,
-          mcpServers: sessionMcpServers,
-          _meta: { ...effectiveSessionMeta, sessionId: nativeResume.sessionId },
-        });
-        acpSessionId = nativeResume.sessionId;
-        this.nativeResume = nativeResume;
-        this.logger.debug("ACP session resumed", {
-          acpSessionId,
-          runId: payload.run_id,
-          warm: nativeResume.warm,
-        });
-      } catch (error) {
-        // resumeState is still loaded, so the summary resume path takes over
-        // on the fresh session below.
-        this.logger.warn("Native resume failed; starting a fresh session", {
-          sessionId: nativeResume.sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    if (!acpSessionId) {
-      const restoredNativeGoal =
-        this.getNativeGoalForFreshSession(runtimeAdapter);
-      effectiveSessionMeta = restoredNativeGoal
-        ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
-        : sessionMeta;
-      const sessionResponse = await clientConnection.newSession({
-        cwd: sessionCwd,
-        mcpServers: sessionMcpServers,
-        _meta: effectiveSessionMeta,
-      });
-      acpSessionId = sessionResponse.sessionId;
-      this.logger.debug("ACP session created", {
-        acpSessionId,
-        runId: payload.run_id,
-      });
-    }
-
+    const acpSessionId = await this.bootTracker.measure(
+      "session_create",
+      async () => {
+        let sessionId: string | null = null;
+        if (nativeResume) {
+          try {
+            await clientConnection.resumeSession({
+              sessionId: nativeResume.sessionId,
+              cwd: sessionCwd,
+              mcpServers: sessionMcpServers,
+              _meta: {
+                ...effectiveSessionMeta,
+                sessionId: nativeResume.sessionId,
+              },
+            });
+            sessionId = nativeResume.sessionId;
+            this.nativeResume = nativeResume;
+            this.logger.debug("ACP session resumed", {
+              acpSessionId: sessionId,
+              runId: payload.run_id,
+              warm: nativeResume.warm,
+            });
+          } catch (error) {
+            // resumeState is still loaded, so the summary resume path takes over
+            // on the fresh session below.
+            this.logger.warn("Native resume failed; starting a fresh session", {
+              sessionId: nativeResume.sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        if (!sessionId) {
+          const restoredNativeGoal =
+            this.getNativeGoalForFreshSession(runtimeAdapter);
+          effectiveSessionMeta = restoredNativeGoal
+            ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
+            : sessionMeta;
+          const sessionResponse = await clientConnection.newSession({
+            cwd: sessionCwd,
+            mcpServers: sessionMcpServers,
+            _meta: effectiveSessionMeta,
+          });
+          sessionId = sessionResponse.sessionId;
+          this.logger.debug("ACP session created", {
+            acpSessionId: sessionId,
+            runId: payload.run_id,
+          });
+        }
+        return sessionId;
+      },
+    );
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
@@ -2091,7 +2187,6 @@ export class AgentServer {
       telemetry,
       permissionMode: initialPermissionMode,
       hasDesktopConnected: sseController !== null,
-      pendingHandoffGitState: undefined,
       sessionMeta: effectiveSessionMeta,
     };
     this.initializingTelemetry = undefined;
@@ -2110,6 +2205,7 @@ export class AgentServer {
       0,
       Date.now() - (this.barrierReleasedAtMs ?? Date.now()),
     );
+    this.bootTracker.markReady();
     this.logger.debug("Session initialized successfully", {
       bootMs: this.sessionReadyBootMs,
       sessionInitMs: this.sessionInitMs,
@@ -2173,6 +2269,9 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
+        ...(isBenjaminEnabled() && {
+          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
+        }),
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -2248,6 +2347,7 @@ export class AgentServer {
       if (!session) {
         throw new Error("Agent session ended before the turn could be sent");
       }
+      this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
         ? {
             sessionId: session.acpSessionId,
@@ -2295,37 +2395,52 @@ export class AgentServer {
     payload: JwtPayload,
     phase: "initial" | "resume" | "followup",
     error: unknown,
-  ): Promise<{ recoverable: boolean }> {
+  ): Promise<TurnFailureDisposition> {
     const { classification, message } = this.extractErrorClassification(error);
     const isUpstreamFailure =
       upstreamProviderFailureClassifications.has(classification);
+    const isTurnWithoutResponse =
+      classification === "turn_ended_without_response";
     const displayMessage = isUpstreamFailure
       ? UPSTREAM_PROVIDER_FAILURE_MESSAGE
       : message || "Agent error";
-    const recoverable =
-      isUpstreamFailure &&
-      phase === "followup" &&
-      this.getEffectiveMode(payload) === "interactive";
+    const isInteractiveFollowup =
+      phase === "followup" && this.getEffectiveMode(payload) === "interactive";
+    const retryableFollowup = isTurnWithoutResponse && isInteractiveFollowup;
+    const retryableDelivery =
+      classification === "content_block_rejection" && phase === "followup";
+    const recoverable = isUpstreamFailure && isInteractiveFollowup;
     const expectedIdleTransportClosure =
       recoverable && /^ACP connection closed$/i.test(message.trim());
+    const suppressClientError =
+      retryableFollowup || expectedIdleTransportClosure;
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
       message,
       recoverable,
+      retryableDelivery,
     });
 
-    if (!expectedIdleTransportClosure) {
+    if (retryableDelivery) {
+      return "retryable_delivery";
+    }
+
+    if (!suppressClientError) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
-      return { recoverable: true };
+      return "recoverable";
+    }
+
+    if (retryableFollowup) {
+      return "retryable_followup";
     }
 
     await this.signalTaskComplete(payload, "error", displayMessage);
-    return { recoverable: false };
+    return "terminal";
   }
 
   private broadcastTurnFailure(
@@ -2379,12 +2494,19 @@ export class AgentServer {
       });
     }
 
-    if (this.nativeResume) {
-      await this.sendResumeContinuation(payload, taskRun);
-      return;
-    }
+    const taskRunState = taskRun?.state as Record<string, unknown> | undefined;
+    const prewarmed = taskRunState?.prewarmed === true;
+    const hasPendingUserPrompt =
+      (typeof taskRunState?.pending_user_message === "string" &&
+        taskRunState.pending_user_message.trim().length > 0) ||
+      (Array.isArray(taskRunState?.pending_user_artifact_ids) &&
+        taskRunState.pending_user_artifact_ids.length > 0);
 
-    if (!this.resumeState) {
+    // Load the summary fallback before deciding to idle. A prewarmed run that idles here reads
+    // this state when its first message arrives, and initialization may have failed to fetch the
+    // run that `prepareNativeResume` needed — leaving both resume fields empty and starting the
+    // resumed task with none of its prior conversation.
+    if (!this.nativeResume && !this.resumeState) {
       const resumeRunId = this.getResumeRunId(taskRun);
       if (resumeRunId) {
         await this.loadResumeState(
@@ -2393,6 +2515,24 @@ export class AgentServer {
           payload.run_id,
         );
       }
+    }
+
+    // `await_user_message` is the marker the backend clears on activation. `prewarmed` is permanent
+    // provenance that outlives it, so idling on that alone would strand a run whose first message
+    // was already delivered — every later reinitialization would wait for a message nobody sends.
+    const awaitsFirstMessage = taskRunState?.await_user_message === true;
+    if (prewarmed && awaitsFirstMessage && !hasPendingUserPrompt) {
+      this.prewarmedRun = true;
+      this.logger.debug(
+        "Prewarmed run awaits its forwarded first message, skipping initial message",
+      );
+      return;
+    }
+
+    if (this.nativeResume) {
+      if (await this.settleIdleResume(payload, taskRun)) return;
+      await this.sendResumeContinuation(payload, taskRun);
+      return;
     }
 
     if (this.resumeState && this.resumeState.conversation.length > 0) {
@@ -2412,9 +2552,6 @@ export class AgentServer {
       // A prewarmed run gets its first message forwarded as a user_message
       // signal on activation; building one from task.description here too
       // would deliver it twice (and without the forwarded artifacts).
-      const prewarmed = !!(
-        taskRun?.state as Record<string, unknown> | undefined
-      )?.prewarmed;
       let initialPrompt: ContentBlock[] = [];
       let initialPromptMeta: Record<string, unknown> | undefined;
       let initialPromptMessageId: string | undefined;
@@ -2518,13 +2655,7 @@ export class AgentServer {
         resumeState.conversation,
       );
 
-      const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
-
       const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-
-      const checkpointContext = checkpointApplied
-        ? `The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint.`
-        : `No additional git checkpoint was applied before resuming. Use the current workspace contents together with the preserved conversation history below.`;
 
       let resumePromptBlocks: ContentBlock[];
       let resumePromptMeta: Record<string, unknown> | undefined;
@@ -2534,7 +2665,7 @@ export class AgentServer {
         resumePromptMessageId = pendingUserPrompt.messageId;
         resumePromptBlocks = [
           hiddenTextBlock(
-            `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
               `Here is the conversation history from the previous session:\n\n` +
               `${conversationSummary}\n\n` +
               `The user has sent a new message:\n\n`,
@@ -2547,7 +2678,7 @@ export class AgentServer {
       } else {
         resumePromptBlocks = [
           hiddenTextBlock(
-            `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
               `Here is the conversation history from the previous session:\n\n` +
               `${conversationSummary}\n\n` +
               `Continue from where you left off. The user is waiting for your response.`,
@@ -2560,9 +2691,6 @@ export class AgentServer {
         conversationTurns: resumeState.conversation.length,
         promptLength: promptBlocksToText(resumePromptBlocks).length,
         hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        checkpointApplied,
-        hasGitCheckpoint: !!resumeState.latestGitCheckpoint,
-        gitCheckpointBranch: resumeState.latestGitCheckpoint?.branch ?? null,
       });
 
       return {
@@ -2571,6 +2699,145 @@ export class AgentServer {
         messageId: resumePromptMessageId,
       };
     });
+  }
+
+  private async settleIdleResume(
+    payload: JwtPayload,
+    taskRun: TaskRun | null,
+  ): Promise<boolean> {
+    if (!this.session || process.env.POSTHOG_RESUME_IDLE !== "1") return false;
+
+    const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+    if (pendingUserPrompt?.prompt.length) return false;
+
+    this.logger.debug("Idle resume settled without a turn", {
+      taskId: payload.task_id,
+      runId: payload.run_id,
+      sessionId: this.nativeResume?.sessionId,
+      warm: this.nativeResume?.warm,
+    });
+
+    this.resumeState = null;
+    this.nativeResume = null;
+
+    this.broadcastTurnComplete("end_turn");
+    await this.session.logWriter.flushAll();
+    return true;
+  }
+
+  private async preparePrewarmedResumePrompt(
+    payload: JwtPayload,
+    prompt: ContentBlock[],
+  ): Promise<{ prompt: ContentBlock[]; consumed: boolean }> {
+    if (!this.prewarmedRun) {
+      return { prompt, consumed: false };
+    }
+
+    if (this.nativeResume) {
+      this.logger.debug("Applying deferred native resume to user message", {
+        taskId: payload.task_id,
+        sessionId: this.nativeResume.sessionId,
+        warm: this.nativeResume.warm,
+      });
+      return { prompt, consumed: true };
+    }
+
+    if (!this.resumeState?.conversation.length) {
+      return { prompt, consumed: false };
+    }
+
+    const resumeState = this.resumeState;
+
+    this.logger.debug("Applying deferred summary resume to user message", {
+      taskId: payload.task_id,
+      conversationTurns: resumeState.conversation.length,
+    });
+
+    return {
+      prompt: this.wrapPromptWithSummaryResume(resumeState, prompt),
+      consumed: true,
+    };
+  }
+
+  /** Wrap the user's message in the previous session's conversation, hidden from the transcript. */
+  private wrapPromptWithSummaryResume(
+    resumeState: ResumeState,
+    prompt: ContentBlock[],
+  ): ContentBlock[] {
+    const conversationSummary = formatConversationForResume(
+      resumeState.conversation,
+    );
+    return [
+      hiddenTextBlock(
+        "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+          `Here is the conversation history from the previous session:\n\n` +
+          `${conversationSummary}\n\n` +
+          "The user has sent a new message:\n\n",
+      ),
+      ...prompt,
+      hiddenTextBlock(
+        "\n\nRespond to the user's new message above. You have full context from the previous session.",
+      ),
+    ];
+  }
+
+  /**
+   * Recover a deferred native resume whose transcript overflowed the context window: open a fresh
+   * session and rebuild the prompt around summarized history instead. Returns the replacement
+   * prompt, or null when there is nothing to fall back to.
+   *
+   * `sendResumeContinuation` gets this through `runResumeTurn`'s `retryOnOversizedPrompt`, but a
+   * prewarmed run defers its resume onto the first forwarded `user_message` and never goes through
+   * that path — without this it would fail the run instead of retrying.
+   */
+  private async retryOversizedDeferredResume(
+    payload: JwtPayload,
+    prompt: ContentBlock[],
+  ): Promise<ContentBlock[] | null> {
+    if (this.oversizedResumeRetried || !this.session) {
+      return null;
+    }
+    this.oversizedResumeRetried = true;
+
+    const taskRun = await this.refreshTaskRunForResume(payload, null);
+    const resumeRunId = this.getResumeRunId(taskRun);
+    if (!resumeRunId) return null;
+    if (!this.resumeState) {
+      try {
+        await this.loadResumeState(
+          payload.task_id,
+          resumeRunId,
+          payload.run_id,
+        );
+      } catch (error) {
+        this.logger.warn("Failed to reload resume state for retry", {
+          error: getErrorMessage(error),
+        });
+        return null;
+      }
+    }
+    const resumeState = this.resumeState;
+    if (!resumeState?.conversation.length) return null;
+
+    try {
+      const response = await this.session.clientConnection.newSession({
+        cwd: this.config.repositoryPath ?? "/tmp/workspace",
+        mcpServers: this.config.mcpServers ?? [],
+        _meta: this.session.sessionMeta,
+      });
+      this.session.acpSessionId = response.sessionId;
+    } catch (error) {
+      this.logger.warn("Failed to start fresh session for oversized resume", {
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+
+    this.logger.warn(
+      "Deferred resume prompt exceeded the context window; retrying on a fresh session with summarized history",
+      { taskId: payload.task_id, runId: payload.run_id },
+    );
+    return this.wrapPromptWithSummaryResume(resumeState, prompt);
   }
 
   private async sendResumeContinuation(
@@ -2585,10 +2852,6 @@ export class AgentServer {
       taskRun,
       "Resume continuation",
       async () => {
-        const checkpointApplied = this.nativeResume?.warm
-          ? false
-          : await this.applyResumeGitCheckpoint(payload);
-
         const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
         const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
           ? pendingUserPrompt.prompt
@@ -2602,7 +2865,6 @@ export class AgentServer {
           taskId: payload.task_id,
           sessionId: this.nativeResume?.sessionId,
           warm: this.nativeResume?.warm,
-          checkpointApplied,
           hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
         });
 
@@ -2673,7 +2935,7 @@ export class AgentServer {
     try {
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
-        mcpServers: this.config.mcpServers ?? [],
+        mcpServers: toAcpMcpServers(this.config.mcpServers ?? []),
         _meta: this.session.sessionMeta,
       });
       this.session.acpSessionId = response.sessionId;
@@ -2769,53 +3031,9 @@ export class AgentServer {
     }
   }
 
-  private async applyResumeGitCheckpoint(
-    payload: JwtPayload,
-  ): Promise<boolean> {
-    if (
-      !this.resumeState?.latestGitCheckpoint ||
-      !this.config.repositoryPath ||
-      !this.posthogAPI
-    ) {
-      return false;
-    }
-    try {
-      const checkpointTracker = new HandoffCheckpointTracker({
-        repositoryPath: this.config.repositoryPath,
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        apiClient: this.posthogAPI,
-        logger: this.logger.child("HandoffCheckpoint"),
-      });
-      const metrics = await checkpointTracker.applyFromHandoff(
-        this.resumeState.latestGitCheckpoint,
-      );
-      this.logger.debug("Git checkpoint applied", {
-        branch: this.resumeState.latestGitCheckpoint.branch,
-        head: this.resumeState.latestGitCheckpoint.head,
-        packBytes: metrics.packBytes,
-        indexBytes: metrics.indexBytes,
-        totalBytes: metrics.totalBytes,
-      });
-      return true;
-    } catch (error) {
-      this.logger.warn("Failed to apply git checkpoint", {
-        error: error instanceof Error ? error.message : String(error),
-        branch: this.resumeState.latestGitCheckpoint.branch,
-      });
-      return false;
-    }
-  }
-
   private getInitialPromptOverride(taskRun: TaskRun): string | null {
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const override = state?.initial_prompt_override;
-    if (typeof override !== "string") {
-      return null;
-    }
-
-    const trimmed = override.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    const override = taskRun.state.initial_prompt_override;
+    return typeof override === "string" ? override.trim() || null : null;
   }
 
   private markMessageDelivered(messageId: string): void {
@@ -2833,14 +3051,14 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<BuiltPrompt | null> {
     if (!taskRun) return null;
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const message = state?.pending_user_message;
+    const state = taskRun.state;
+    const message = state.pending_user_message;
     const pendingMessageId =
-      typeof state?.pending_user_message_id === "string" &&
+      typeof state.pending_user_message_id === "string" &&
       state.pending_user_message_id
         ? state.pending_user_message_id
         : undefined;
-    const artifactIds = Array.isArray(state?.pending_user_artifact_ids)
+    const artifactIds = Array.isArray(state.pending_user_artifact_ids)
       ? state.pending_user_artifact_ids.filter(
           (artifactId): artifactId is string =>
             typeof artifactId === "string" && artifactId.trim().length > 0,
@@ -2985,10 +3203,7 @@ export class AgentServer {
   }
 
   private getClearedPendingUserState(taskRun: TaskRun | null): string[] | null {
-    const state =
-      taskRun?.state && typeof taskRun.state === "object"
-        ? (taskRun.state as Record<string, unknown>)
-        : null;
+    const state = taskRun?.state;
     if (!state) {
       return null;
     }
@@ -3591,40 +3806,28 @@ export class AgentServer {
     }
 
     const REPO_READY_TIMEOUT_MS = 5 * 60_000;
-    const POLL_MS = 100;
-    const startedAt = Date.now();
-    let loggedUnexpectedError = false;
-
-    for (;;) {
-      try {
-        await access(readyFile);
-        this.barrierReleasedAtMs = Date.now();
-        this.logger.debug("Repo-ready barrier released", {
+    const result = await waitForFile(readyFile, {
+      timeoutMs: REPO_READY_TIMEOUT_MS,
+      onError: (error) => {
+        this.logger.debug("Repo-ready barrier check failed", {
           readyFile,
-          waitedMs: Date.now() - startedAt,
+          code: error.code,
+          message: error.message,
         });
-        return;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (code !== "ENOENT" && !loggedUnexpectedError) {
-          loggedUnexpectedError = true;
-          this.logger.debug("Repo-ready barrier access error; still polling", {
-            readyFile,
-            code,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-      if (Date.now() - startedAt > REPO_READY_TIMEOUT_MS) {
-        this.barrierReleasedAtMs = Date.now();
-        this.logger.warn("Repo-ready barrier timed out; proceeding", {
-          readyFile,
-          waitedMs: Date.now() - startedAt,
-        });
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      },
+    });
+    this.barrierReleasedAtMs = Date.now();
+    if (result.timedOut) {
+      this.logger.warn("Repo-ready barrier timed out; proceeding", {
+        readyFile,
+        waitedMs: result.waitedMs,
+      });
+      return;
     }
+    this.logger.debug("Repo-ready barrier released", {
+      readyFile,
+      waitedMs: result.waitedMs,
+    });
   }
 
   private async autoInitializeSession(): Promise<void> {
@@ -3657,11 +3860,8 @@ export class AgentServer {
 
     // Fallback: read from TaskRun state (set by API when creating the run)
     if (!taskRun) return null;
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const stateRunId = state?.resume_from_run_id;
-    return typeof stateRunId === "string" && stateRunId.trim().length > 0
-      ? stateRunId.trim()
-      : null;
+    const stateRunId = taskRun.state.resume_from_run_id;
+    return typeof stateRunId === "string" ? stateRunId.trim() || null : null;
   }
 
   private buildSessionSystemPrompt(
@@ -3676,7 +3876,13 @@ export class AgentServer {
     );
     const userPrompt = this.config.claudeCode?.systemPrompt;
 
-    return buildCloudSessionSystemPrompt(cloudAppend, userPrompt);
+    const sessionPrompt = buildCloudSessionSystemPrompt(
+      cloudAppend,
+      userPrompt,
+    );
+    return this.getCloudInteractionOrigin() === "slack"
+      ? appendSte100Guidance(sessionPrompt)
+      : sessionPrompt;
   }
 
   private buildCodexInstructions(
@@ -3686,7 +3892,7 @@ export class AgentServer {
       typeof systemPrompt === "string" ? systemPrompt : systemPrompt.append;
     // Codex has no command-rewrite hook (see rtk-guidance.ts), so RTK is
     // adopted through the developer instructions instead.
-    return appendRtkGuidanceForCodex(instructions);
+    return appendBenjaminGuidance(appendRtkGuidanceForCodex(instructions));
   }
 
   /**
@@ -3763,13 +3969,13 @@ export class AgentServer {
       return null;
     }
 
-    let state: Record<string, unknown> | undefined;
+    let state: TaskRunState | undefined;
     try {
       const run = await this.posthogAPI.getTaskRun(
         this.session.payload.task_id,
         this.session.payload.run_id,
       );
-      state = run?.state as Record<string, unknown> | undefined;
+      state = run?.state;
     } catch (error) {
       // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
@@ -3784,7 +3990,7 @@ export class AgentServer {
   }
 
   private async resolveWarmReasoningEffort(
-    state: Record<string, unknown> | undefined,
+    state: TaskRunState | undefined,
   ): Promise<void> {
     if (this.warmReasoningEffortResolved || !this.session) {
       return;
@@ -3821,7 +4027,7 @@ export class AgentServer {
    * incomplete launch path omits the CLI flag, before the agent sees its first prompt.
    */
   private resolveAutoPublishFromState(
-    state: Record<string, unknown> | undefined,
+    state: TaskRunState | undefined,
   ): string | null {
     if (this.autoPublishStateResolved) {
       return null;
@@ -3946,7 +4152,7 @@ export class AgentServer {
 ## Delivering to Slack
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
-- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
 
     // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
     // url, so they work wherever the workspace can post at all.
@@ -3979,30 +4185,29 @@ ${unsupportedDeliverable}`;
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 
-  /**
-   * What to do when a cloud run has no way to reach the user's code.
-   *
-   * Repository access on a cloud run comes from the user's own GitHub connection in
-   * PostHog, so a run can legitimately start without one — nothing is checked out and
-   * there are no credentials to push with. The Slack mention path used to refuse those
-   * mentions outright, which walled off every question that only looked like it needed
-   * code; it now starts the run and leaves the judgement here, where the request itself
-   * is visible. The settings link is built from this run's own host and project so it
-   * lands the user in the right region rather than a hardcoded one.
-   *
-   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
-   * public repository clones with no token at all, so a run can hold the code and still
-   * have no way to push it.
-   */
-  private buildSourceControlAccessInstructions(): string {
+  private buildGithubAccessInstructions(hasGithubToken: boolean): string {
+    if (hasGithubToken) {
+      return `
+## GitHub access
+You have GitHub access in this session.`;
+    }
+
     const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
     return `
-## When you cannot reach the code
-You may have no repository checked out, or no credentials to push and open a pull request with.
-- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
-- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
-- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
-- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+## GitHub access
+You do not have GitHub access in this session.
+- You can read repository content that is already in the workspace.
+- You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
+- Codebase analysis and code review require readable repository content.
+- Code changes also require publishing access.
+- If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
+- Tell the user to connect GitHub at ${settingsUrl}.
+- The connection applies to a new task, not this task.
+- Write the access explanation first.
+- Then call \`show_actions\` with one \`compose\` action.
+- Use the label \`Try again in a new task\` and prefill the original repository request.
+- Include the exact \`owner/repo\` in the action when you know it.
+- Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
   private buildCloudSystemPrompt(
@@ -4013,7 +4218,19 @@ You may have no repository checked out, or no credentials to push and open a pul
     const taskId = this.config.taskId;
     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
     const isSlack = this.getCloudInteractionOrigin() === "slack";
-    const identityInstructions = isSlack
+    // Every instruction in this section runs through `gh`, so a sandbox holding no
+    // GitHub token cannot act on any of it. An empty token is an explicit logout.
+    const hasGithubToken = Boolean(resolveGithubToken());
+    const githubIdentityInstructions = hasGithubToken
+      ? `
+# Whose GitHub account you are using
+\`gh\` is authenticated as the person you are working for, so let GitHub resolve who that is. To put them on an issue or pull request, self-assign:
+  \`gh issue create --assignee "@me"\`, \`gh pr create --assignee "@me"\`, \`gh issue edit <number> --add-assignee "@me"\`
+To \`@\`-mention them in a body or a comment, read their handle with \`gh api user --jq .login\`. Read it once per reply rather than reusing one from an earlier reply, because a different person can take over between replies and \`gh\` follows that change.
+If the command fails, or returns a name ending in \`[bot]\`, you are acting as the PostHog app rather than as a person: ask them for their GitHub login instead of assigning or mentioning anyone.
+`
+      : "";
+    const slackIdentityInstructions = isSlack
       ? `
 # Identity
 You are the PostHog Slack app, PostHog's agent for helping users with their product data and coding tasks from Slack. When introducing yourself or referring to yourself in messages to the user, identify as "PostHog Slack app". Do NOT refer to yourself as Claude, an Anthropic assistant, or any underlying model name.
@@ -4040,6 +4257,7 @@ To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears
 You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
 `
       : "";
+    const identityInstructions = `${slackIdentityInstructions}${githubIdentityInstructions}`;
     const signedCommitInstructions = `
 ## Committing (signed commits required)
 Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.
@@ -4087,6 +4305,30 @@ we want:
   Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
+    // A stack is several PRs, so this would contradict the review-first modes.
+    const stackInstructions = shouldAutoCreatePr
+      ? `
+## Stacked pull requests
+Stack only when the layers are independently reviewable (schema, then backend, then UI) or the
+user asked for a stack. Keep stacks shallow — 2 to 4 layers. One PR remains the default.
+Do NOT use the \`gh stack\` CLI: its publishing commands (\`submit\`, \`sync\`, \`push\`, \`link\`)
+all run \`git push\`, which is blocked here. Build the stack this way instead:
+1. Commit the bottom layer with \`git_signed_commit\`, passing \`branch\`, then open its pull
+   request based on the base branch.
+2. For each layer above, commit with \`git_signed_commit\` and a new \`branch\` — your checkout
+   already sits on the layer below, so the branch starts there — then open its pull request
+   based on the branch of the layer below (\`--base <that branch>\`).
+3. Link them with the \`gh_stack\` tool (full name \`${GH_STACK_QUALIFIED_TOOL_NAME}\`),
+   operation "create", passing \`pull_requests\` bottom to top. Every layer must target the
+   branch of the one below it, or the link is refused.
+When a lower layer changes, restack the layers above it bottom-first. For each layer: check
+that layer out, \`git rebase <its parent branch>\`, then republish it with
+\`git_signed_rewrite\` passing \`onto\` = the parent branch. Check the layer out every time —
+\`git_signed_rewrite\` replays whatever your local HEAD points at and uses \`branch\` only to
+pick which remote ref moves, so rewriting from the wrong checkout publishes the wrong history
+to that layer.`
+      : "";
+
     const prLinkInstructions = `
 ## Referencing pull requests
 When you mention a pull request in any reply or summary, always hyperlink it to its full URL
@@ -4106,11 +4348,11 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
-    const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
+    const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread, or one you read from \`gh api user --jq .login\`, which authenticates as the person you are working for. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
     // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
@@ -4207,9 +4449,11 @@ ${prMentionSafetyInstruction.trimStart()}
 You are a helpful assistant with access to PostHog via MCP tools. You can help with both code tasks and data/analytics questions.
 
 When the user asks about analytics, data, metrics, events, funnels, dashboards, feature flags, experiments, or anything PostHog-related:
-- Use your PostHog MCP tools to query data, search insights, and provide real answers
+- Use the canonical \`posthog:exec\` tool to query data, search insights, and provide real answers
+- Follow its built-in instructions to discover and invoke inner tools
 - Do NOT tell the user to check an external analytics platform — you ARE the analytics platform
-- Use tools like insight-query, query-run, event-definitions-list, and others to answer questions directly
+- For a named business or telemetry metric, inspect the complete governed catalog with \`posthog:metric-list\`, inspect a candidate with \`posthog:metric-describe\`, then run an approved match with \`posthog:data-catalog-metric-run\` before a typed domain tool or raw query
+- Inner tools include \`posthog:read-data-schema\`, \`posthog:execute-sql\`, \`posthog:insight-query\`, and the typed query tools
 
 When the user asks for code changes or software engineering tasks:
 - Choose and clone a repository only when the task requires one. For questions and analysis, answer without cloning when possible.
@@ -4431,6 +4675,7 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    taskOriginKey,
     repositories,
     runtimeAdapter,
     sandboxEnvironmentId,
@@ -4446,6 +4691,7 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    taskOriginKey?: string | null;
     repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
@@ -4458,7 +4704,8 @@ ${commonInstructions}
     // Go-gateway runs authenticate with the per-run scoped token minted by the
     // worker (pinned product + on-behalf-of team, per-run spend cap), not the
     // run's per-team OAuth token, whose team has no gateway wallet. A routed
-    // product with no token therefore stays on the Python gateway.
+    // product with no token therefore stays on the Python gateway. The worker's env values
+    // win, because the token is pinned to the product they name.
     const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
     let target = resolveGatewayTarget({
       product,
@@ -4476,7 +4723,12 @@ ${commonInstructions}
         env: { ...process.env, AI_GATEWAY_URL: undefined },
       });
     }
-    const { baseUrl: gatewayUrl, isAiGateway, aiProduct } = target;
+    const {
+      baseUrl: gatewayUrl,
+      isAiGateway,
+      aiProduct,
+      aiStage: resolvedStage,
+    } = target;
     const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
     const openaiBaseUrl = gatewayUrl.endsWith("/v1")
       ? gatewayUrl
@@ -4490,11 +4742,12 @@ ${commonInstructions}
       task_origin_product: originProduct,
       task_internal: isInternal,
       signal_report_id: signalReportId,
-      ai_stage: aiStage,
+      ai_stage: resolvedStage,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_origin_key: taskOriginKey,
       task_repositories: repositories?.length
         ? JSON.stringify(repositories)
         : null,
@@ -4832,29 +5085,6 @@ ${commonInstructions}
         }
 
         this.maybeAttachCreatedPr(payload, params.update);
-
-        // session/update notifications flow through the tapped stream (like local transport)
-        // Capture checkpoints for file-changing tools so cloud resumes restore
-        // from git checkpoints rather than tree snapshots.
-        if (params.update?.sessionUpdate === "tool_call_update") {
-          const meta = (params.update?._meta as Record<string, unknown>)
-            ?.claudeCode as Record<string, unknown> | undefined;
-          const toolName = meta?.toolName as string | undefined;
-          const toolResponse = meta?.toolResponse as
-            | Record<string, unknown>
-            | undefined;
-
-          if (
-            (toolName === "Write" ||
-              toolName === "Edit" ||
-              toolName === "MultiEdit" ||
-              toolName === "Delete" ||
-              toolName === "Move") &&
-            toolResponse?.filePath
-          ) {
-            await this.captureCheckpointState();
-          }
-        }
       },
     };
   }
@@ -5043,8 +5273,9 @@ ${commonInstructions}
       ...(checkout ? [checkout] : []),
       ...ownedBranchesFromOutput(freshOutput),
     ];
-    // GitHub App installation tokens (all cloud runs) can't read `gh api user`, so
-    // ghLogin is null there and the head-branch match is what proves ownership.
+    // Bot-authored runs hold a GitHub App installation token, which can't read
+    // `gh api user`, so ghLogin is null there and the head-branch match is what proves
+    // ownership. User-authored runs carry the actor's own token and do resolve a login.
     const owned = wasCreatedByThisRun({
       createdAt: attribution.createdAt,
       nowMs: Date.now(),
@@ -5188,12 +5419,6 @@ ${commonInstructions}
     this.logger.debug("Cleaning up session");
 
     try {
-      await this.captureCheckpointState(this.session.pendingHandoffGitState);
-    } catch (error) {
-      this.logger.error("Failed to capture final checkpoint state", error);
-    }
-
-    try {
       await this.session.logWriter.flush(this.session.payload.run_id, {
         coalesce: true,
       });
@@ -5254,107 +5479,20 @@ ${commonInstructions}
     this.rtkSavingsAttempted = true;
 
     try {
-      const savings = await (
-        this.config.resolveRtkSavings ?? resolveRtkSavings
-      )();
-      if (!savings) return;
-
-      this.eventStreamSender.enqueue({
-        type: "notification",
-        timestamp: new Date().toISOString(),
-        notification: {
-          jsonrpc: "2.0",
-          method: POSTHOG_NOTIFICATIONS.RTK_SAVINGS,
-          params: {
-            task_id: this.config.taskId,
-            run_id: this.config.runId,
-            team_id: this.config.projectId,
-            counter_id: this.config.taskId,
-            cumulative_commands: savings.totalCommands,
-            cumulative_input_tokens: savings.inputTokens,
-            cumulative_output_tokens: savings.outputTokens,
-            cumulative_tokens_saved: savings.tokensSaved,
-            runtime_adapter: this.config.runtimeAdapter,
-            model: this.config.model,
-          },
-        },
+      const notification = await createRtkSavingsNotification({
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        teamId: this.config.projectId,
+        runtimeAdapter: this.config.runtimeAdapter,
+        model: this.config.model,
+        resolveSavings: this.config.resolveRtkSavings,
       });
+      if (notification) {
+        this.eventStreamSender.enqueue(notification);
+      }
     } catch (error) {
       this.logger.debug("Failed to emit rtk savings", { error });
     }
-  }
-
-  private async captureCheckpointState(
-    localGitState?: HandoffLocalGitState,
-  ): Promise<void> {
-    if (!this.session) {
-      return;
-    }
-    if (!this.posthogAPI) {
-      this.logger.warn(
-        "Skipping checkpoint capture: PostHog API client is not configured",
-      );
-      return;
-    }
-    const session = this.session;
-
-    const repositories =
-      this.taskRepositories.length > 1
-        ? this.taskRepositories.map((repository) => ({
-            repository,
-            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
-          }))
-        : this.config.repositoryPath
-          ? [
-              {
-                repository: this.taskRepositories[0],
-                path: this.config.repositoryPath,
-              },
-            ]
-          : [];
-
-    await Promise.all(
-      repositories.map(async ({ repository, path }) => {
-        const tracker = new HandoffCheckpointTracker({
-          repositoryPath: path,
-          taskId: session.payload.task_id,
-          runId: session.payload.run_id,
-          apiClient: this.posthogAPI,
-          logger: this.logger.child("HandoffCheckpoint"),
-        });
-        const checkpoint = await tracker.captureForHandoff(
-          repositories.length === 1 ? localGitState : undefined,
-        );
-        if (!checkpoint) return;
-
-        const checkpointWithDevice: GitCheckpointEvent = {
-          ...checkpoint,
-          repository,
-          device: session.deviceInfo,
-        };
-        const notification = {
-          jsonrpc: "2.0" as const,
-          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-          params: checkpointWithDevice,
-        };
-        this.broadcastEvent({
-          type: "notification",
-          timestamp: new Date().toISOString(),
-          notification,
-        });
-        session.logWriter.appendRawLine(
-          session.payload.run_id,
-          JSON.stringify(notification),
-        );
-      }),
-    );
-  }
-
-  private extractHandoffLocalGitState(
-    params: Record<string, unknown>,
-  ): HandoffLocalGitState | null {
-    const result = handoffLocalGitStateSchema.safeParse(params.localGitState);
-    return result.success ? result.data : null;
   }
 
   /**
@@ -5366,13 +5504,13 @@ ${commonInstructions}
     if (!this.runUsage.add(usage)) return;
     const payload = this.session?.payload;
     if (!payload) return;
-    void this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        state: { token_usage: this.runUsage.snapshot() },
-      })
-      .catch((error) => {
-        this.logger.warn("Failed to report run token usage", error);
-      });
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      payload.task_id,
+      payload.run_id,
+      this.logger,
+    );
   }
 
   private handleAcpTransportMessage(message: unknown): void {
@@ -5432,6 +5570,24 @@ ${commonInstructions}
       // `this.session` assignment) or before its SSE controller attaches.
       this.pendingEvents.push(event);
     }
+  }
+
+  private emitFirstCommandDispatched(): void {
+    if (!this.session) return;
+    const runId = this.session.payload.run_id;
+    if (this.commandDispatchedRunId === runId) return;
+    this.commandDispatchedRunId = runId;
+    const notification = {
+      jsonrpc: "2.0" as const,
+      method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+      params: {},
+    };
+    this.broadcastEvent({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification,
+    });
+    this.session.logWriter.appendRawLine(runId, JSON.stringify(notification));
   }
 
   private flushPreSessionEvents(): void {

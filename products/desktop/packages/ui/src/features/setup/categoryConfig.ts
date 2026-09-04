@@ -15,7 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import type { DiscoveredTask } from "@posthog/core/setup/types";
 
-export interface CategoryConfig {
+interface CategoryConfig {
   icon: Icon;
   color: string;
   label: string;

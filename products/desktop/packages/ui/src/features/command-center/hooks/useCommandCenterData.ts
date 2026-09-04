@@ -16,7 +16,6 @@ import { useWorkspaces } from "../../workspace/useWorkspace";
 import { useCommandCenterStore } from "../commandCenterStore";
 
 export type { CellStatus, StatusSummary, CommandCenterCellData };
-export { deriveStatus } from "@posthog/core/command-center/status";
 
 export function useCommandCenterData(): {
   cells: CommandCenterCellData[];

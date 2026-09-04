@@ -29,14 +29,15 @@ role "ops" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
 }
 
-# The local LOGS node runs a partial/newer schema than the cloud logs nodes, so it
-# composes a self-contained roles/logs/local (extracted from the live node) rather
-# than the shared cloud layers.
+# Every logs node composes the trace suite and the metrics ingest chain
+# (roles/logs/metrics, created locally by migration 0309); the local node adds a
+# self-contained roles/logs/local (extracted from the live node) for the legacy
+# logs32 family it still runs.
 role "logs" {
-  env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/shared", "roles/logs/prod/tables.hcl", "roles/logs/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
+  env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
@@ -49,21 +50,22 @@ role "logs" {
 # Kafka consumer for dev volume.
 role "ai_events" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod", "roles/ai_events/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod", "roles/ai_events/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
 }
 
 # AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
 # property values, web/marketing preaggregated). roles/auxiliary/shared holds the env-uniform
 # objects; local carries the MSK ingest variant (kafka_error_tracking + its MV, MSK
-# kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
-# ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
+# kafka_hog_invocation_results); prod carries the WarpStream variant. Every cloud env
+# hosts the ingestion_warnings store; prod-us adds the Distributed proxy onto the data
+# cluster. prod goldens are dump-baselined (not live-verifiable here).
 role "aux" {
-  env "local-multi"   { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
+  env "local-multi"   { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/aux_data", "roles/coshared/aux_small", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/aux_data", "roles/coshared/aux_small", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/aux_data", "roles/coshared/aux_small", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
 }
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
@@ -82,21 +84,15 @@ role "sessions" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-eu"] }
 }
 
-# SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
-# raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
-role "sessionsv3" {
-  env "prod-us" { layers = ["roles/shared", "roles/sessionsv3/prod-us"] }
-}
-
 # BATCH_EXPORTS satellite: hosts the sharded_events_recent data table (the recent-events
 # store the export workers read; data/ops reach it via Distributed proxies) plus the
 # query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
 # column. Dump-baselined (no local batch-exports node).
 role "batch_exports" {
   # dev composes the prod-us stack verbatim (verified zero drift via hclexp diff).
-  env "dev"     { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-eu"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-eu"] }
 }
 
 # DATA cluster: the main sharded cluster (events family, persons/groups, sessions,
@@ -119,7 +115,7 @@ role "events" {
 }
 
 role "small" {
-  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/ingestion_small/local"] }
+  env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/aux_small", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/ingestion_small/local"] }
 }
 
 role "medium" {
@@ -131,7 +127,7 @@ role "medium" {
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {

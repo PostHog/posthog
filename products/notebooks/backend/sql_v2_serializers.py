@@ -1,5 +1,11 @@
+from typing import Any
+
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+from products.notebooks.backend.sql_v2_variables import RESERVED_VARIABLE_NAMES
 
 
 @extend_schema_field(serializers.DictField(child=serializers.FloatField()))
@@ -13,12 +19,17 @@ class LenientTimingsField(serializers.JSONField):
     """
 
 
+class NotebookSQLV2RefKind(models.TextChoices):
+    HOGQL = "hogql", "hogql"
+    LOCAL = "local", "local"
+
+
 class NotebookSQLV2RefSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the upstream node this name points at.")
     # Named `kind` on purpose (matches the kernel input spec); avoids the `type`/`format`
     # enum-collision trap.
     kind = serializers.ChoiceField(
-        choices=["hogql", "local"],
+        choices=NotebookSQLV2RefKind.choices,
         required=False,
         default="hogql",
         help_text=(
@@ -28,10 +39,62 @@ class NotebookSQLV2RefSerializer(serializers.Serializer):
     )
 
 
+# A notebook is authored by hand, so these sit just above real use: a person types a handful
+# of named values, not a data set. Keeping them tight also bounds the abuse case — values ride
+# a Temporal payload (~2 MiB hard limit) to the kernel, and one placeholder repeated across a
+# query multiplies its value into the SQL the engine receives.
+MAX_VARIABLES_PER_NOTEBOOK = 10
+MAX_VARIABLE_NAME_CHARS = 200
+MAX_VARIABLE_VALUE_CHARS = 1_000
+
+
+class NotebookVariableSerializer(serializers.Serializer):
+    """One notebook-level variable. Shared by the notebook's own `variables` field and a run body."""
+
+    name = serializers.CharField(
+        max_length=MAX_VARIABLE_NAME_CHARS,
+        help_text="Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+    )
+    # CharField, not ChoiceField: a `type` enum collides with other generated enums under
+    # --fail-on-warn (same precedent as the status fields below).
+    type = serializers.CharField(
+        help_text="How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+    )
+    value = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The variable's current value. A 'date' accepts an absolute date or a relative "
+            "expression ('-7d', 'mStart'), resolved against the project timezone."
+        ),
+    )
+
+    def validate_value(self, value: Any) -> Any:
+        # Only scalars are ever bound, so anything longer than this is not a value someone typed.
+        if isinstance(value, str) and len(value) > MAX_VARIABLE_VALUE_CHARS:
+            raise serializers.ValidationError(f"A variable value can be at most {MAX_VARIABLE_VALUE_CHARS} characters.")
+        return value
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        # A SQL cell reads the name as a `{name}` placeholder and a Python cell as a global, so
+        # only a plain identifier can ever resolve.
+        if not name.isidentifier():
+            raise serializers.ValidationError("Use letters, numbers, and underscores, and don't start with a number.")
+        if name in RESERVED_VARIABLE_NAMES:
+            raise serializers.ValidationError(f"'{name}' is reserved by PostHog. Pick another name.")
+        return name
+
+
+class NotebookSQLV2NodeType(models.TextChoices):
+    HOGQL = "hogql", "hogql"
+    PYTHON = "python", "python"
+
+
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(
-        choices=["hogql", "python"],
+        choices=NotebookSQLV2NodeType.choices,
         required=False,
         default="hogql",
         help_text=(
@@ -60,6 +123,19 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
             "Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql "
             "refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's "
             "DuckDB; a python node materializes the hogql refs its code reads as pandas frames."
+        ),
+    )
+    variables = NotebookVariableSerializer(
+        many=True,
+        required=False,
+        default=list,
+        # DRF forwards this to the ListSerializer (LIST_SERIALIZER_KWARGS); the stubs only
+        # type Serializer.__init__, so mypy cannot see it.
+        max_length=MAX_VARIABLES_PER_NOTEBOOK,  # type: ignore[call-arg]
+        help_text=(
+            "Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to "
+            "its value before dispatch; a Python node gets them as globals in the kernel namespace. "
+            "A SQL node reading a `{name}` that is absent here fails the dispatch."
         ),
     )
     connection_id = serializers.UUIDField(
@@ -250,6 +326,20 @@ class NotebookSQLV2RunResponseSerializer(serializers.Serializer):
     run_id = serializers.UUIDField(
         help_text="Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal."
     )
+    starts_sandbox = serializers.BooleanField(
+        help_text=(
+            "True when this run has to provision a sandbox because none is live for the caller, checked here "
+            "rather than inferred from a client's cached kernel status. Tell the user what that costs."
+        )
+    )
+    sandbox_hourly_price = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the sandbox this run provisions costs per hour in USD. Null when the run needs no new "
+            "sandbox, or when the backend is not charged."
+        ),
+    )
 
 
 class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):
@@ -408,6 +498,49 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
     )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. "
+            "Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the "
+            "kernel config endpoint restarts a live kernel, so this tracks the running sandbox."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Compute preset for the shape hourly_price describes: the running sandbox while a kernel is "
+            "live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset."
+        ),
+    )
+
+
+class NotebookComputePresetSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Stable identifier for the preset, e.g. 'balanced'.")
+    name = serializers.CharField(help_text="Preset name as a person reads it, e.g. 'Balanced'.")
+    description = serializers.CharField(help_text="What this preset suits, in one sentence.")
+    cpu_cores = serializers.FloatField(help_text="CPU cores the preset provisions.")
+    memory_gb = serializers.FloatField(help_text="Memory in GB the preset provisions.")
+    hourly_price = serializers.FloatField(help_text="What this preset costs per hour in USD while it is alive.")
+
+
+class NotebookComputeOptionsResponseSerializer(serializers.Serializer):
+    currency = serializers.CharField(help_text="Currency of every price in this response. Always 'USD'.")
+    cpu_rate_per_core_hour = serializers.FloatField(help_text="Price of one CPU core for one hour, in USD.")
+    memory_rate_per_gb_hour = serializers.FloatField(help_text="Price of one GB of memory for one hour, in USD.")
+    default_preset_key = serializers.CharField(
+        help_text="Preset a sandbox starts with when the notebook sets no compute config."
+    )
+    presets = NotebookComputePresetSerializer(many=True, help_text="Sandbox shapes offered as one-click options.")
+    allowed_cpu_cores = serializers.ListField(
+        child=serializers.FloatField(), help_text="CPU core counts the kernel config endpoint accepts."
+    )
+    allowed_memory_gb = serializers.ListField(
+        child=serializers.FloatField(), help_text="Memory sizes in GB the kernel config endpoint accepts."
+    )
+    allowed_idle_timeout_seconds = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Idle timeouts in seconds the kernel config endpoint accepts."
+    )
 
 
 class NotebookKernelConfigResponseSerializer(serializers.Serializer):
@@ -420,11 +553,30 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Configured idle timeout in seconds; null means the default."
     )
+    restarted = serializers.BooleanField(
+        help_text=(
+            "True when this call restarted a live kernel to apply a new size. Restarting discards every "
+            "materialized dataframe, so cells that referenced one must run again."
+        )
+    )
     restart_required = serializers.BooleanField(
         help_text=(
-            "True when a kernel is currently active: config applies at sandbox provision time, so the "
-            "running kernel keeps its old resources until restarted (restarting loses materialized dataframes)."
+            "True when a kernel is live and this call did not restart it, so the running sandbox may not "
+            "match the saved config. A resize restarts the kernel and reports False on success, or True if "
+            "that restart fails. An idle-timeout change and a no-op on a live kernel also report True."
         )
+    )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It "
+            "tracks the running sandbox while a kernel is live, otherwise the configured shape. After a "
+            "failed resize this stays the running sandbox's rate, not the size that failed to apply."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Compute preset the configured shape matches, or null when it was tuned by hand.",
     )
 
 

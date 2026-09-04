@@ -5,6 +5,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import {
     TraceTreeNode,
     buildFeedbackAttachmentMap,
+    extractTotalCost,
     getEffectiveEventId,
     getHighlightedEventId,
     getInitialFocusEventId,
@@ -47,6 +48,56 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
         ])
     })
 
+    // A span sums what its children reported. A sum over nothing known is not
+    // zero, so a span whose generations all went unpriced has no cost to show.
+    it('leaves a span cost unknown when no child reported one', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'span',
+                event: '$ai_span',
+                properties: { $ai_parent_id: 'trace' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'generation',
+                event: '$ai_generation',
+                properties: { $ai_parent_id: 'span' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+        ]
+
+        const tree = restoreTree(events, 'trace')
+
+        expect(tree[0].aggregation?.totalCost).toBeNull()
+    })
+
+    it('sums only the children that reported a cost', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'span',
+                event: '$ai_span',
+                properties: { $ai_parent_id: 'trace' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'priced',
+                event: '$ai_generation',
+                properties: { $ai_parent_id: 'span', $ai_total_cost_usd: 0.25 },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'unpriced',
+                event: '$ai_generation',
+                properties: { $ai_parent_id: 'span' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+        ]
+
+        const tree = restoreTree(events, 'trace')
+
+        expect(tree[0].aggregation?.totalCost).toBe(0.25)
+    })
+
     it('should build a nested tree', () => {
         const events: LLMTraceEvent[] = [
             {
@@ -80,7 +131,7 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
             {
                 event: events[0],
                 aggregation: expect.objectContaining({
-                    totalCost: 0,
+                    totalCost: null,
                     totalLatency: 0,
                     inputTokens: 0,
                     outputTokens: 0,
@@ -89,7 +140,7 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
                     {
                         event: events[1],
                         aggregation: expect.objectContaining({
-                            totalCost: 0,
+                            totalCost: null,
                             totalLatency: 0,
                             inputTokens: 0,
                             outputTokens: 0,
@@ -202,7 +253,7 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
             {
                 event: events[0],
                 aggregation: expect.objectContaining({
-                    totalCost: 0,
+                    totalCost: null,
                 }),
                 children: [
                     {
@@ -363,6 +414,26 @@ describe('getHighlightedEventId', () => {
         ['null', null, null],
     ])('returns correct id for %s', (_label, event, expected) => {
         expect(getHighlightedEventId(event)).toBe(expected)
+    })
+})
+
+describe('extractTotalCost', () => {
+    // Absent and zero are different facts: zero is a priced call that cost
+    // nothing, absent is a call whose usage was never reported. Coercing absent
+    // to 0 renders $0.00 in the trace tree, which reads as a free call.
+    it.each([
+        { call: 'a priced call', properties: { $ai_total_cost_usd: 0.0042 }, expected: 0.0042 },
+        { call: 'a call that cost nothing', properties: { $ai_total_cost_usd: 0 }, expected: 0 },
+        { call: 'a call with no reported cost', properties: {}, expected: null },
+    ])('returns $expected for $call', ({ properties, expected }) => {
+        const event: LLMTraceEvent = {
+            id: '1',
+            event: '$ai_generation',
+            properties,
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+
+        expect(extractTotalCost(event)).toBe(expected)
     })
 })
 

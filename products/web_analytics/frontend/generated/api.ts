@@ -23,6 +23,8 @@ import type {
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
     HeatmapsResponseApi,
+    LlmsTxtFetchRequestApi,
+    LlmsTxtFetchResponseApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
@@ -292,7 +294,7 @@ export const savedCaptureCreate = async (
     options?: RequestInit
 ): Promise<HeatmapScreenshotResponseApi> => {
     const formData = new FormData()
-    if (savedHeatmapCaptureRequestApi.image !== undefined) {
+    if (savedHeatmapCaptureRequestApi.image !== undefined && savedHeatmapCaptureRequestApi.image !== null) {
         formData.append(`image`, savedHeatmapCaptureRequestApi.image)
     }
     if (savedHeatmapCaptureRequestApi.width !== undefined) {
@@ -354,6 +356,27 @@ export const savedPrewarmCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(heatmapPrewarmRequestApi),
+    })
+}
+
+export const getWebAnalyticsFetchLlmsTxtUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics/llms_txt/`
+}
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxt = async (
+    projectId: string,
+    llmsTxtFetchRequestApi: LlmsTxtFetchRequestApi,
+    options?: RequestInit
+): Promise<LlmsTxtFetchResponseApi> => {
+    return apiMutator<LlmsTxtFetchResponseApi>(getWebAnalyticsFetchLlmsTxtUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(llmsTxtFetchRequestApi),
     })
 }
 

@@ -330,6 +330,7 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "gettext-base" \
+    "git" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \

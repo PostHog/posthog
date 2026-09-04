@@ -5,7 +5,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from './observationsDockLogic'
 import { visionDockPreferenceLogic } from './visionDockPreferenceLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -13,6 +13,10 @@ import { visionScannersListLogic } from './visionScannersListLogic'
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: { success: jest.fn(), info: jest.fn(), warning: jest.fn(), error: jest.fn() },
 }))
+
+function scanner(id: string, scannerType: string): ReplayScannerApi {
+    return { id, name: `Scanner ${id}`, scanner_type: scannerType } as ReplayScannerApi
+}
 
 function summaryObservation(): ReplayObservationApi {
     return {
@@ -34,6 +38,7 @@ describe('observationsDockLogic', () => {
     let releaseScanners: () => void
     let inlineScanOutcome: string
     let observationResults: ReplayObservationApi[]
+    let scannerResults: ReplayScannerApi[]
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -41,13 +46,14 @@ describe('observationsDockLogic', () => {
         inlineScanCalls = 0
         inlineScanOutcome = 'started'
         observationResults = []
+        scannerResults = []
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': async () => {
                     await new Promise<void>((resolve) => {
                         releaseScanners = resolve
                     })
-                    return [200, { results: [] }]
+                    return [200, { results: scannerResults }]
                 },
                 '/api/projects/:team/vision/observations/': () => [200, { results: observationResults }],
             },
@@ -81,6 +87,7 @@ describe('observationsDockLogic', () => {
         preferences = visionDockPreferenceLogic()
         preferences.mount()
         preferences.actions.setSummaryDockAutoExpand(true)
+        preferences.actions.setPreferredSummarizerId(null)
         logic = observationsDockLogic({ sessionId: 'sess-1' })
         logic.mount()
     })
@@ -189,6 +196,44 @@ describe('observationsDockLogic', () => {
         nextRecording.mount()
         await expectLogic(nextRecording).toDispatchActions(['loadObservationsSuccess'])
         await expectLogic(nextRecording).toMatchValues({ dockOpen: false })
+        nextRecording.unmount()
+    })
+
+    const loadScanners = async (scanners: ReplayScannerApi[]): Promise<void> => {
+        scannerResults = scanners
+        // The mock holds the scanner fetch open, and its release hook only exists once the handler runs.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseScanners()
+        await expectLogic(visionScannersListLogic).toDispatchActions(['loadScannersSuccess'])
+    }
+
+    // Which scanner it resolves to is settled by `resolveSummarizer` and tested there. What only this
+    // level shows is that the two answers reach two different endpoints: a scanner runs through
+    // `observe`, and the built-in prompt through `inline_scan`.
+    test.each([
+        { shape: 'a summarizer of their own', scanners: [scanner('s1', 'summarizer')], runsOwnScanner: true },
+        { shape: 'no summarizer', scanners: [scanner('m1', 'monitor')], runsOwnScanner: false },
+    ])('summarize with $shape runs own scanner: $runsOwnScanner', async (routingCase) => {
+        await loadScanners(routingCase.scanners)
+
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(observeCalls).toBe(routingCase.runsOwnScanner ? 1 : 0)
+        expect(inlineScanCalls).toBe(routingCase.runsOwnScanner ? 0 : 1)
+    })
+
+    it('keeps the summarizer picked from the dropdown on the next recording', async () => {
+        // Picking from the dropdown has to outlive the recording it was picked on, or a team with
+        // several summarizers re-picks on every recording and the button never settles on their choice.
+        await loadScanners([scanner('s1', 'summarizer'), scanner('s2', 'summarizer')])
+        await expectLogic(logic).toMatchValues({ defaultSummarizer: null })
+
+        logic.actions.summarizeWith('s2')
+
+        const nextRecording = observationsDockLogic({ sessionId: 'sess-2' })
+        nextRecording.mount()
+        await expectLogic(nextRecording).toMatchValues({ defaultSummarizer: expect.objectContaining({ id: 's2' }) })
         nextRecording.unmount()
     })
 })

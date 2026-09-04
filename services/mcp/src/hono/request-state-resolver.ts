@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -112,6 +112,17 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 
 // ─── Resolver ───
 
+// Task origins whose sandbox mounts every shared gateway server as its own MCP server
+// (`mcp__<server>__<tool>`). Surfacing the same tools through `exec` as `<slug>__<tool>` gives
+// those agents a second, member-scoped name for each tool — one that resolves for a person
+// running the task interactively and comes back empty for the service account the scheduled
+// run uses, so instructions learned on one path silently fail on the other.
+const DIRECT_GATEWAY_MOUNT_ORIGINS: ReadonlySet<string> = new Set(['signals_scout'])
+
+function mountsGatewayServersDirectly(taskOriginProduct: string | undefined): boolean {
+    return taskOriginProduct !== undefined && DIRECT_GATEWAY_MOUNT_ORIGINS.has(taskOriginProduct)
+}
+
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
@@ -149,10 +160,9 @@ export class RequestStateResolver {
         ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
-        // Neither of these gates a catalog tool, so the tool-definition scan can't discover
-        // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
-        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_GATEWAY_FLAG])]
+        // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
+        // resolves — so the tool-definition scan can't discover it; join it in explicitly.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -251,7 +261,11 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
-            gatewayToolsEnabled: useSingleExec && !readOnly && mergedFlags[MCP_GATEWAY_FLAG] === true,
+            gatewayToolsEnabled:
+                useSingleExec &&
+                !readOnly &&
+                mergedFlags[MCP_GATEWAY_FLAG] === true &&
+                !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
             metadata,

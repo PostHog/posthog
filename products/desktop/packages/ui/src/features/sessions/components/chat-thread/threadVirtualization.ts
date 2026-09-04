@@ -261,14 +261,14 @@ export function countFlatRows(rows: TurnRow[]): number {
  */
 export const THREAD_AT_END_THRESHOLD = 100;
 /** Slack for sub-pixel scroll positions when deciding the viewport is hard against the bottom. */
-export const THREAD_AT_EXACT_END_EPSILON = 1;
+const THREAD_AT_EXACT_END_EPSILON = 1;
 /** Movement below this is measurement noise, not a direction the reader chose. */
-export const THREAD_SCROLL_DIRECTION_EPSILON = 1;
+const THREAD_SCROLL_DIRECTION_EPSILON = 1;
 /**
  * A real upward drift, not a 1-frame measure transient: the DOM bottom sits this far below the
  * viewport. Well above any single append's measure gap.
  */
-export const THREAD_FAR_DRIFT_THRESHOLD = 400;
+const THREAD_FAR_DRIFT_THRESHOLD = 400;
 
 /** Keys that move the viewport upward, so pressing them reads as leaving the end. */
 export const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);

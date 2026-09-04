@@ -10,10 +10,17 @@ import type { CommonFilters } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { createSliceYielder } from 'lib/utils/async'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
+import {
+    buildDOMIndex,
+    chainConsistencyProperties,
+    matchEventToElementUsingIndex,
+    matchIsChainConsistent,
+} from '~/toolbar/elements/domElementIndex'
+import type { ElementMatchOptions } from '~/toolbar/elements/domElementIndex'
 import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementsEventType } from '~/toolbar/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -46,6 +53,7 @@ export type RecordingClickmapLogicProps = {
 }
 
 const CLICKMAP_STATS_LIMIT = 500
+const CLICKMAP_STATS_AUTO_LOAD_LIMIT = 10000
 
 function currentUrlProperty(href: string, isPattern: boolean): Record<string, unknown> {
     return isPattern
@@ -72,7 +80,8 @@ export function buildElementStatsParams(
         filter_test_accounts?: boolean
         cohort_ids?: number[]
     },
-    dataAttributes: string[]
+    dataAttributes: string[],
+    limit: number = CLICKMAP_STATS_LIMIT
 ): ElementsStatsRetrieveParams {
     const properties: Record<string, unknown>[] = [currentUrlProperty(href, isPattern)]
     for (const cohortId of commonFilters.cohort_ids ?? []) {
@@ -90,12 +99,14 @@ export function buildElementStatsParams(
         date_from: commonFilters.date_from,
         date_to: commonFilters.date_to,
         filter_test_accounts: commonFilters.filter_test_accounts,
-        limit: CLICKMAP_STATS_LIMIT,
+        limit,
         data_attributes: dataAttributes.join(','),
     } as unknown as ElementsStatsRetrieveParams
 }
 
-function emptyCounts(): Pick<ClickmapBox, 'count' | 'clickCount' | 'rageclickCount' | 'deadclickCount'> {
+type ElementCounts = Pick<ClickmapBox, 'count' | 'clickCount' | 'rageclickCount' | 'deadclickCount'>
+
+function emptyCounts(): ElementCounts {
     return { count: 0, clickCount: 0, rageclickCount: 0, deadclickCount: 0 }
 }
 
@@ -109,37 +120,10 @@ function describeElement(element: HTMLElement): { label: string; displaySelector
     }
 }
 
-export function computeClickmapBoxes(
-    statsRows: ElementStatsResponseApi['results'],
-    snapshotDocument: Document,
-    snapshotWindow: { scrollX: number; scrollY: number } | null,
-    dataAttributes: string[],
-    matchLinksByHref: boolean = false
+function boxesFromCounts(
+    countsByElement: Map<HTMLElement, ElementCounts>,
+    snapshotWindow: { scrollX: number; scrollY: number } | null
 ): ClickmapBox[] {
-    const pageElements = collectAllElementsDeep('*', snapshotDocument) as HTMLElement[]
-    const domIndex = buildDOMIndex(pageElements)
-    const countsByElement = new Map<HTMLElement, ReturnType<typeof emptyCounts>>()
-    for (const row of statsRows) {
-        const match = matchEventToElementUsingIndex(
-            row as unknown as ElementsEventType,
-            dataAttributes,
-            matchLinksByHref,
-            domIndex
-        )
-        if (match) {
-            const counts = countsByElement.get(match.element) ?? emptyCounts()
-            counts.count += row.count
-            if (row.type === '$rageclick') {
-                counts.rageclickCount += row.count
-            } else if (row.type === '$dead_click') {
-                counts.deadclickCount += row.count
-            } else {
-                counts.clickCount += row.count
-            }
-            countsByElement.set(match.element, counts)
-        }
-    }
-
     const scrollX = snapshotWindow?.scrollX ?? 0
     const scrollY = snapshotWindow?.scrollY ?? 0
     const boxes: ClickmapBox[] = []
@@ -157,6 +141,62 @@ export function computeClickmapBoxes(
         }
     })
     return boxes.sort((a, b) => b.count - a.count)
+}
+
+export interface ClickmapComputeOptions extends ElementMatchOptions {
+    dataAttributes: string[]
+    onSlice?: () => void
+}
+
+export interface ClickmapComputeResult {
+    boxes: ClickmapBox[]
+    consistentClicks: number
+    inconsistentClicks: number
+}
+
+export async function computeClickmapBoxes(
+    statsRows: ElementStatsResponseApi['results'],
+    snapshotDocument: Document,
+    snapshotWindow: { scrollX: number; scrollY: number } | null,
+    { dataAttributes, matchLinksByHref, useDiscriminators, onSlice }: ClickmapComputeOptions
+): Promise<ClickmapComputeResult> {
+    const domIndex = buildDOMIndex(collectAllElementsDeep('*', snapshotDocument) as HTMLElement[])
+    const countsByElement = new Map<HTMLElement, ElementCounts>()
+    const maybeYield = createSliceYielder()
+    let consistentClicks = 0
+    let inconsistentClicks = 0
+
+    for (const row of statsRows) {
+        const match = matchEventToElementUsingIndex(row as unknown as ElementsEventType, domIndex, {
+            dataAttributes,
+            matchLinksByHref,
+            useDiscriminators,
+        })
+        if (match) {
+            const chain = row.elements as unknown as ElementsEventType['elements']
+            if (matchIsChainConsistent(match.element, chain, domIndex)) {
+                consistentClicks += row.count
+            } else {
+                inconsistentClicks += row.count
+            }
+            const counts = countsByElement.get(match.element) ?? emptyCounts()
+            counts.count += row.count
+            if (row.type === '$rageclick') {
+                counts.rageclickCount += row.count
+            } else if (row.type === '$dead_click') {
+                counts.deadclickCount += row.count
+            } else {
+                counts.clickCount += row.count
+            }
+            countsByElement.set(match.element, counts)
+        }
+
+        if (await maybeYield()) {
+            onSlice?.()
+        }
+    }
+
+    return { boxes: boxesFromCounts(countsByElement, snapshotWindow), consistentClicks, inconsistentClicks }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -201,8 +241,8 @@ export interface recordingClickmapLogicActions {
     setReplayIframeDataURL: (url: string | null) => {
         url: string | null
     } // heatmapsBrowserLogic
-    loadElementStats: () => {
-        value: true
+    loadElementStats: (limit?: number) => {
+        limit: number | undefined
     }
     loadElementStatsFailure: (
         error: string,
@@ -214,12 +254,12 @@ export interface recordingClickmapLogicActions {
     loadElementStatsSuccess: (
         elementStats: ElementStatsResponseApi | null,
         payload?: {
-            value: true
+            limit: number | undefined
         }
     ) => {
         elementStats: ElementStatsResponseApi | null
         payload?: {
-            value: true
+            limit: number | undefined
         }
     }
     maybeLoadElementStats: () => {
@@ -292,7 +332,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         selectClickmapBox: (key: string | null) => ({ key }),
         setHoveredBoxKey: (key: string | null) => ({ key }),
-        loadElementStats: true,
+        loadElementStats: (limit?: number) => ({ limit }),
         maybeLoadElementStats: true,
         recomputeClickmap: true,
         setClickmapBoxes: (boxes: ClickmapBox[]) => ({ boxes }),
@@ -350,9 +390,9 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         elementStats: [
             null as ElementStatsResponseApi | null,
             {
-                loadElementStats: async (_, breakpoint) => {
+                loadElementStats: async ({ limit }, breakpoint) => {
                     await breakpoint(150)
-                    // heatmapDataLogic's href gets clobbered to '' by onIframeLoad in this scene,
+                    // heatmapDataLogic's href is shared and driven by the browser data-URL flow,
                     // so the replay payload's URL is the stable source of truth here
                     const url = values.replayIframeData?.url?.trim()
                     if (!url) {
@@ -362,7 +402,8 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                         url,
                         isUrlPattern(url),
                         values.commonFilters,
-                        values.wantedDataAttributes
+                        values.wantedDataAttributes,
+                        limit
                     )
                     const response = await elementsStatsRetrieve(String(values.currentProjectId), params)
                     breakpoint()
@@ -436,7 +477,16 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 actions.maybeLoadElementStats()
             }
         },
-        loadElementStatsSuccess: () => actions.recomputeClickmap(),
+        loadElementStatsSuccess: ({ elementStats, payload }) => {
+            actions.recomputeClickmap()
+            if (
+                !payload?.limit &&
+                elementStats?.next &&
+                values.featureFlags[FEATURE_FLAGS.HEATMAPS_CLICKMAP_PAGINATION]
+            ) {
+                actions.loadElementStats(CLICKMAP_STATS_AUTO_LOAD_LIMIT)
+            }
+        },
         recomputeClickmap: async (_, breakpoint) => {
             if (!values.clickmapActive || !values.replayIframeData?.url?.trim()) {
                 return
@@ -450,17 +500,29 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 return
             }
 
-            const boxes = computeClickmapBoxes(
+            const useDiscriminators = !!values.featureFlags[FEATURE_FLAGS.HEATMAPS_CLICKMAP_DISCRIMINATORS]
+            const { boxes, consistentClicks, inconsistentClicks } = await computeClickmapBoxes(
                 statsRows,
                 snapshotDocument,
                 iframe?.contentWindow ?? null,
-                values.wantedDataAttributes,
-                values.matchLinksByHref
+                {
+                    dataAttributes: values.wantedDataAttributes,
+                    matchLinksByHref: values.matchLinksByHref,
+                    useDiscriminators,
+                    onSlice: breakpoint,
+                }
             )
             posthog.capture('in-app heatmap clickmap rendered', {
                 stats_rows: statsRows.length,
                 matched_elements: boxes.length,
                 has_more: !!values.elementStats?.next,
+                ...chainConsistencyProperties({
+                    useDiscriminators,
+                    consistentClicks,
+                    inconsistentClicks,
+                    matchedClicks: boxes.reduce((total, box) => total + box.count, 0),
+                    totalClicks: statsRows.reduce((total, row) => total + row.count, 0),
+                }),
             })
             actions.setClickmapBoxes(boxes)
         },

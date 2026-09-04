@@ -38,6 +38,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
     'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
+    'loadFeatureFlagStatus', // The flag page just hides its stale banner when the verdict can't be loaded
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
@@ -55,6 +56,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
+    'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
 ]
 
 /*
@@ -132,19 +135,13 @@ export function initKea({
                 if (error?.name === 'AbortError') {
                     return
                 }
-                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
-                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
-                // condition already suppresses the toast for load actions, and write actions
-                // get a toast with the read-only `detail` as the message. The
-                // `posthog.captureException` event is dropped by the central
-                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 // Access-denied 403s (code `permission_denied`) are suppressed only where the
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
-                // most write flows have no failure handling of their own. Read-only mode uses
-                // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
+                // most write flows have no failure handling of their own. Read-only impersonation
+                // uses the distinct `impersonation_read_only` code and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (

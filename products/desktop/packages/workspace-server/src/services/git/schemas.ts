@@ -10,8 +10,6 @@ export const diffStatsSchema = z.object({
   linesRemoved: z.number().int().nonnegative(),
 });
 
-export type DiffStats = z.infer<typeof diffStatsSchema>;
-
 export const gitFileStatusSchema = z.enum([
   "modified",
   "added",
@@ -96,7 +94,7 @@ export const gitSyncStatusSchema = z.object({
 
 export type GitSyncStatus = z.infer<typeof gitSyncStatusSchema>;
 
-export const gitBusyOperationSchema = z.enum([
+const gitBusyOperationSchema = z.enum([
   "rebase",
   "merge",
   "cherry-pick",
@@ -211,8 +209,6 @@ export const commitInput = z.object({
   // resolved in the host process where AgentService runs and passed through.
   env: z.record(z.string(), z.string()).optional(),
 });
-
-export type CommitInput = z.infer<typeof commitInput>;
 
 export const commitOutput = z.object({
   success: z.boolean(),
@@ -360,7 +356,7 @@ export const getLocalBranchChangedFilesInput = z.object({
   branch: z.string(),
 });
 
-export const prReviewCommentUserSchema = z.object({
+const prReviewCommentUserSchema = z.object({
   login: z.string(),
   avatar_url: z.string(),
   isBot: z.boolean().optional(),
@@ -466,10 +462,7 @@ export {
   getPrInfoByUrlOutput,
   mergePrInput,
   mergePrOutput,
-  prCheckBucketSchema,
-  prCheckSchema,
   prConversationCommentSchema,
-  prMergeMethodSchema,
 } from "@posthog/shared";
 
 export const getPrTemplateInput = directoryPathInput;
@@ -499,7 +492,7 @@ export type GetCommitConventionsOutput = z.infer<
 export const githubRefKindSchema = z.enum(["issue", "pr"]);
 export type GithubRefKind = z.infer<typeof githubRefKindSchema>;
 
-export const githubRefStateSchema = z.enum(["OPEN", "CLOSED", "MERGED"]);
+const githubRefStateSchema = z.enum(["OPEN", "CLOSED", "MERGED"]);
 
 export const githubRefSchema = z.object({
   kind: githubRefKindSchema,
@@ -533,31 +526,6 @@ export const getGithubIssueOutput = githubRefSchema.nullable();
 
 export const getGithubPullRequestInput = getGithubIssueInput;
 export const getGithubPullRequestOutput = getGithubIssueOutput;
-
-export const handoffLocalGitStateSchema = z.object({
-  head: z.string().nullable(),
-  branch: z.string().nullable(),
-  upstreamHead: z.string().nullable(),
-  upstreamRemote: z.string().nullable(),
-  upstreamMergeRef: z.string().nullable(),
-});
-
-export type HandoffLocalGitState = z.infer<typeof handoffLocalGitStateSchema>;
-
-export const readHandoffLocalGitStateInput = z.object({
-  directoryPath: z.string(),
-});
-export const readHandoffLocalGitStateOutput = handoffLocalGitStateSchema;
-
-export const cleanupAfterCloudHandoffInput = z.object({
-  directoryPath: z.string(),
-  branchName: z.string().nullable(),
-});
-export const cleanupAfterCloudHandoffOutput = z.object({
-  stashed: z.boolean(),
-  switched: z.boolean(),
-  defaultBranch: z.string().nullable(),
-});
 
 export const gitStatusOutput = z.object({
   installed: z.boolean(),

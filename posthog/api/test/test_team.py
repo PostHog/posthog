@@ -24,6 +24,7 @@ from posthog.api.team import (
     _reset_default_data_color_theme_id_cache,
 )
 from posthog.constants import AvailableFeature
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
@@ -41,9 +42,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
@@ -236,6 +236,40 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{team.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
+
+        def test_event_ingestion_restrictions_are_scoped_to_own_team(self):
+            other_org = Organization.objects.create(name="New Org")
+            other_team = Team.objects.create(organization=other_org, name="Default project")
+            EventIngestionRestrictionConfig.objects.create(
+                token=self.team.api_token,
+                restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+                distinct_ids=["own-user"],
+                note="internal note",
+            )
+            EventIngestionRestrictionConfig.objects.create(
+                token=other_team.api_token,
+                restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                distinct_ids=["other-user"],
+            )
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "restriction_type": RestrictionType.SKIP_PERSON_PROCESSING,
+                        "distinct_ids": ["own-user"],
+                        "session_ids": [],
+                        "event_names": [],
+                        "event_uuids": [],
+                        "pipelines": ["analytics"],
+                    }
+                ],
+            )
+
+            response = self.client.get(f"/api/environments/{other_team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
@@ -1179,6 +1213,45 @@ def team_api_test_factory():
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+        @parameterized.expand(
+            [
+                ("substring", {"key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}, True),
+                ("regex", {"key": "$raw_user_agent", "pattern": "AcmeBot/[0-9]+", "matcher": "regex"}, True),
+                ("ip range", {"key": "$ip", "pattern": "192.0.2.0/24", "matcher": "cidr"}, True),
+                ("another property", {"key": "$lib", "pattern": "posthog-python", "matcher": "contains"}, True),
+                ("empty pattern", {"key": "$raw_user_agent", "pattern": "", "matcher": "contains"}, False),
+                ("lookahead", {"key": "$raw_user_agent", "pattern": "Acme(?=Bot)", "matcher": "regex"}, False),
+                ("unparsable regex", {"key": "$raw_user_agent", "pattern": "Acme(", "matcher": "regex"}, False),
+                ("unusable ip range", {"key": "$ip", "pattern": "not-an-ip", "matcher": "cidr"}, False),
+                # A range can only ever match an IP, so pairing it with a user agent is a mistake.
+                (
+                    "range on a user agent",
+                    {"key": "$raw_user_agent", "pattern": "192.0.2.0/24", "matcher": "cidr"},
+                    False,
+                ),
+                ("unsupported property", {"key": "$referrer", "pattern": "acme", "matcher": "contains"}, False),
+            ]
+        )
+        def test_modifiers_customBotDefinitions_validation(
+            self, _name: str, definition: dict, should_succeed: bool
+        ) -> None:
+            # A rule that cannot run would break every query that reads $virt_is_bot for this
+            # project, so it has to be rejected on save rather than dropped at query time.
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "modifiers": {
+                        "customBotDefinitions": [{"id": "1", "name": "Acme scraper", **definition}],
+                    }
+                },
+            )
+
+            if should_succeed:
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["modifiers"]["customBotDefinitions"][0]["pattern"] == definition["pattern"]
+            else:
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
@@ -1317,7 +1390,7 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models.rbac.access_control import AccessControl
+            from products.access_control.backend.models.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()

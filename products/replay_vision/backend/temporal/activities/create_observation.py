@@ -1,7 +1,8 @@
-import time
 from typing import Any
+from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
+from django.db.models import F
 from django.utils import timezone
 
 import psycopg.errors
@@ -15,12 +16,20 @@ from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
-from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds, quota_state
+from products.replay_vision.backend.quota import (
+    BillingPeriod,
+    ScannerBudget,
+    compute_scanner_budget,
+    current_period_bounds,
+    quota_state,
+)
+from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import SCANNER_ADMISSION_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.metrics import (
     record_consent_skip,
     record_quota_exhausted_skip,
-    record_scanner_admission_lock_wait,
+    record_scanner_admission_busy,
     record_scanner_limit_reached,
 )
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
@@ -35,16 +44,85 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
 @track_activity()
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
     """Snapshot the full scanner state and INSERT the row in `pending`; UNIQUE conflicts return `was_created=False` unless the row is this workflow's own lost-result insert, which is reclaimed."""
+    release_claim = True
     try:
         return _create_observation(inputs)
+    except BaseException as e:
+        # A busy admission keeps its claim: the retry lands in seconds, and decaying the claim here
+        # would let dispatchers admit more applies into the very contention being backed off from.
+        release_claim = not (isinstance(e, ApplicationError) and e.type == SCANNER_ADMISSION_BUSY_ERROR_TYPE)
+        raise
     finally:
-        # Every exit resolves the row's existence, so the enqueue claim is done; TTL covers a crash.
-        release_enqueue_claim(
-            team_id=inputs.team_id,
-            scanner_id=inputs.scanner_id,
-            workflow_id=inputs.workflow_id,
-            backfill_id=inputs.backfill_id,
-        )
+        # Every non-busy exit resolves the row's existence, so the claim is done; TTL covers a crash.
+        if release_claim:
+            release_enqueue_claim(
+                team_id=inputs.team_id,
+                scanner_id=inputs.scanner_id,
+                workflow_id=inputs.workflow_id,
+                backfill_id=inputs.backfill_id,
+            )
+
+
+def _try_cached_admission(scanner_pk: UUID, cost: int, period: BillingPeriod) -> bool:
+    """One conditional UPDATE admits `cost` against the cached budget; no aggregates, no explicit lock.
+
+    Concurrent UPDATEs serialize on the row for one statement each, and Postgres re-evaluates the
+    WHERE against the latest committed row after a lock wait, so two racing admissions cannot both
+    spend the last headroom. False means the cache is stale, the period rolled, the headroom ran
+    out, or the cap was lifted; the locked refresh resolves which.
+    """
+    fresh_after = timezone.now() - ADMISSION_BUDGET_TTL
+    return bool(
+        ReplayScanner.all_origins.filter(
+            pk=scanner_pk,
+            credit_limit__isnull=False,
+            admission_budget_period_start=period.start,
+            admission_budget_refreshed_at__gte=fresh_after,
+            credit_limit__gte=F("admission_budget_used") + F("admission_credits_since_refresh") + cost,
+        ).update(admission_credits_since_refresh=F("admission_credits_since_refresh") + cost)
+    )
+
+
+def _admit_within_cap(scanner: ReplayScanner, cost: int, period: BillingPeriod) -> ScannerBudget | None:
+    """Admit `cost` against the scanner's cap; None on admission, the refusing budget otherwise.
+
+    A cache miss recomputes the spend aggregates under the row lock, rewrites the cache, and
+    decides from the fresh figure, so the aggregates run once per TTL instead of once per admission.
+    The admitting UPDATE and the observation INSERT share the caller's transaction, so a failed
+    insert rolls its admission back.
+    """
+    # SET LOCAL covers the whole admission transaction: the fast-path UPDATE and the refresh lock
+    # both give up after 2s and defer to the activity's backoff instead of camping in Postgres's
+    # lock queue. The 2s grace absorbs the row's brief blocking holders (scanner save(),
+    # prompt-suggestion apply), which NOWAIT would turn into instant admission failures.
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL lock_timeout = '2s'")
+    if _try_cached_admission(scanner.pk, cost, period):
+        return None
+    locked = (
+        # A contended refresh times out into the OperationalError handler below and retries on the
+        # activity's backoff, and the retry usually lands on the winner's warm cache. By-pk via
+        # all_origins, so a capped inline scanner locks its row rather than skipping enforcement.
+        ReplayScanner.all_origins.select_for_update(of=("self",))
+        .filter(pk=scanner.pk)
+        .only("pk", "credit_limit")
+        .first()
+    )
+    if locked is None or locked.credit_limit is None:
+        # Uncapped (or deleted) by the time the lock resolved; nothing to enforce.
+        return None
+    budget = compute_scanner_budget(scanner, period)
+    admitted = not budget.would_exceed(cost)
+    ReplayScanner.all_origins.filter(pk=scanner.pk).update(
+        admission_budget_used=budget.credits_used,
+        admission_budget_refreshed_at=timezone.now(),
+        admission_budget_period_start=period.start,
+        # The reset supersedes every earlier increment: a fast-path admission holds its row lock to
+        # commit, so this refresh either saw its committed in-flight row in the aggregates or timed
+        # out against it — no admission can be uncommitted here with its increment surviving.
+        admission_credits_since_refresh=cost if admitted else 0,
+    )
+    return None if admitted else budget
 
 
 def _reclaim_own_pending_insert(inputs: CreateObservationInputs) -> CreateObservationOutput | None:
@@ -166,55 +244,50 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         "backfill": backfill,
     }
 
-    # Resolved before the lock to shrink the in-lock window; the period is stable for the admission decision.
+    # Resolved before the transaction to shrink the in-transaction window; the period is stable for
+    # the admission decision.
     period = current_period_bounds(scanner.team.organization_id) if scanner.credit_limit is not None else None
+    # Priced from `priced_model` (the frozen snapshot model for backfills), matching what the
+    # observation will actually charge, not the scanner's current model.
+    cost = observation_credits_for_model(priced_model)
     try:
         with transaction.atomic():
-            # Capped scanners serialize admissions on the row lock so concurrent applies cannot overshoot
-            # the cap; uncapped scanners keep the lock-free path. The limit is re-read under the lock.
+            # Capped scanners admit against the cached admission budget so concurrent applies cannot
+            # overshoot the cap; uncapped scanners keep the lock-free path.
             if scanner.credit_limit is not None:
-                lock_started = time.monotonic()
-                locked = (
-                    ReplayScanner.objects.select_for_update().filter(pk=scanner.pk).only("pk", "credit_limit").first()
-                )
-                # Admissions on a busy capped scanner serialize here; the wait is visible, not guessed at.
-                record_scanner_admission_lock_wait(time.monotonic() - lock_started)
-                if locked is not None and locked.credit_limit is not None:
-                    scanner_budget = compute_scanner_budget(scanner, period)
-                    # Priced from `priced_model` (the frozen snapshot model for backfills), matching
-                    # what the observation will actually charge, not the scanner's current model.
-                    if scanner_budget.would_exceed(observation_credits_for_model(priced_model)):
-                        # A retry's own first insert counts as in-flight spend, so reclaim it instead of
-                        # stranding it PENDING. Only the own-reclaim case returns here; any other existing
-                        # row (including a retakeable FAILED one, which would spend fresh budget) falls
-                        # through to the capped skip.
-                        reclaimed_output = _reclaim_own_pending_insert(inputs)
-                        if reclaimed_output is not None:
-                            return reclaimed_output
-                        record_scanner_limit_reached("admission")
-                        activity.logger.info(
-                            "Skipping observation: scanner credit limit reached",
-                            extra={
-                                "scanner_id": str(inputs.scanner_id),
-                                "team_id": inputs.team_id,
-                                "session_id": inputs.session_id,
-                                "credit_limit": scanner_budget.credit_limit,
-                                "credits_used": scanner_budget.credits_used,
-                            },
-                        )
-                        return CreateObservationOutput(
-                            observation_id=None,
-                            was_created=False,
-                            scanner_type=scanner.scanner_type,
-                        )
-                    # A retake spends fresh budget, so on a capped scanner it must commit under this
-                    # lock. It cannot wait for the IntegrityError handler: the conflict aborts the
-                    # transaction, so the handler's retake would run unlocked and a concurrent
-                    # sibling's budget read could miss its in-flight spend, overshooting the cap.
-                    if backfill is not None:
-                        retaken_output = _retake_failed_row(inputs, row_fields)
-                        if retaken_output is not None:
-                            return retaken_output
+                assert period is not None
+                refused_budget = _admit_within_cap(scanner, cost, period)
+                if refused_budget is not None:
+                    # A retry's own first insert counts as in-flight spend, so reclaim it instead of
+                    # stranding it PENDING. Only the own-reclaim case returns here; any other existing
+                    # row (including a retakeable FAILED one, which would spend fresh budget) falls
+                    # through to the capped skip.
+                    reclaimed_output = _reclaim_own_pending_insert(inputs)
+                    if reclaimed_output is not None:
+                        return reclaimed_output
+                    record_scanner_limit_reached("admission")
+                    activity.logger.info(
+                        "Skipping observation: scanner credit limit reached",
+                        extra={
+                            "scanner_id": str(inputs.scanner_id),
+                            "team_id": inputs.team_id,
+                            "session_id": inputs.session_id,
+                            "credit_limit": refused_budget.credit_limit,
+                            "credits_used": refused_budget.credits_used,
+                        },
+                    )
+                    return CreateObservationOutput(
+                        observation_id=None,
+                        was_created=False,
+                        scanner_type=scanner.scanner_type,
+                    )
+                # A retake spends fresh budget, so on a capped scanner it must commit in the same
+                # transaction as its admission: a rolled-back retake then gives the credits back. It
+                # cannot wait for the IntegrityError handler, which runs after the transaction aborted.
+                if backfill is not None:
+                    retaken_output = _retake_failed_row(inputs, row_fields)
+                    if retaken_output is not None:
+                        return retaken_output
 
             observation = ReplayObservation.objects.create(
                 scanner=scanner,
@@ -222,6 +295,22 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
                 session_id=inputs.session_id,
                 **row_fields,
             )
+    except OperationalError as e:
+        if not isinstance(e.__cause__, psycopg.errors.LockNotAvailable):
+            raise
+        record_scanner_admission_busy(scanner.scanner_type)
+        activity.logger.info(
+            "Scanner admission lock busy; deferring to activity retry",
+            extra={
+                "scanner_id": str(inputs.scanner_id),
+                "team_id": inputs.team_id,
+                "session_id": inputs.session_id,
+            },
+        )
+        raise ApplicationError(
+            "Scanner admission lock busy; retried with backoff",
+            type=SCANNER_ADMISSION_BUSY_ERROR_TYPE,
+        ) from e
     except IntegrityError as e:
         # Only swallow the dedup case; FK / CHECK violations should fail the activity.
         if not isinstance(e.__cause__, psycopg.errors.UniqueViolation):

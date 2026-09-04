@@ -2,11 +2,15 @@ import os
 import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
 
 
 class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
@@ -114,6 +118,39 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("de", result["name"].lower(), f"Value '{result['name']}' should contain 'de'")
 
         self.assertGreater(len(results), 0, "Should return at least one result")
+
+    @parameterized.expand(
+        [
+            ("the service the values live under", "argo-rollouts", True),
+            ("another service", "cdp-api", False),
+        ]
+    )
+    def test_log_values_query_scoped_by_service_in_group(self, _name, service, expects_results):
+        # The viewer keeps its service selection in filterGroup, so these suggestions have to read it
+        # from there: otherwise a scoped viewer offers values that exist only in other services.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "level",
+            "attribute_type": "log",
+            "value": "DE",
+            "filterGroup": json.dumps(
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "service_name", "type": "log", "operator": "exact", "value": [service]}],
+                        }
+                    ],
+                }
+            ),
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results) > 0, expects_results)
 
     def test_log_values_query_with_value_filter_no_matches(self):
         query_params = {
@@ -304,6 +341,33 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
             trace_id_index, brokers_id_index, "trace_id should appear before brokers.0.id when searching for 'id'"
         )
         self.assertLess(brokers_id_index, pid_index, "brokers.0.id should appear before pid when searching for 'id'")
+
+
+class TestLogValuesAttributesQueryErrors(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "values",
+                "products.logs.backend.presentation.views.api.LogValuesQueryRunner.calculate",
+                {"key": "service.name", "attribute_type": "resource"},
+            ),
+            (
+                "attributes",
+                "products.logs.backend.presentation.views.api.LogAttributesQueryRunner.calculate",
+                {"attribute_type": "resource"},
+            ),
+        ]
+    )
+    def test_query_error_returns_400_with_message(self, endpoint, runner_path, params):
+        # HogQL and ClickHouse failures are disjoint exception hierarchies; both must reach the
+        # service filter as a clean 400, not an opaque 500.
+        for error in (QueryError("bad log query"), ExposedCHQueryError("bad clickhouse query", code=43)):
+            with self.subTest(error=type(error).__name__):
+                with patch(runner_path, side_effect=error):
+                    response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.json()["error"], str(error))
 
 
 class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):

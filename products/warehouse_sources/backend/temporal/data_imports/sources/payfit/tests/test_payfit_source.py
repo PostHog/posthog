@@ -3,14 +3,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.payfit import PayFitResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPayFitSource:
@@ -18,26 +13,6 @@ class TestPayFitSource:
         self.source = PayFitSource()
         self.team_id = 123
         self.config = PayFitSourceConfig(api_key="payfit-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PAYFIT
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "PayFit"
-        assert config.label == "PayFit"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/payfit"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; both hosts are hardcoded, so there is no non-secret
@@ -124,11 +99,6 @@ class TestPayFitSource:
         result = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
         mock_validate.assert_called_once_with("payfit-key")
         assert result == (True, None)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PayFitResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source.payfit_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

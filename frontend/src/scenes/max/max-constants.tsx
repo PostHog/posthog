@@ -771,20 +771,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing experiment results...'
         },
     },
-    experiment_session_replays_summary: {
-        name: 'Summarize experiment session replays',
-        description:
-            'Summarize experiment session replays to analyze user behavior patterns across experiment variants using session recordings',
-        product: Scene.Experiment,
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.Flags],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Analyzed session replay patterns'
-            }
-            return 'Analyzing session replays...'
-        },
-    },
     summarize_replay_vision_summaries: {
         name: 'Summarize session summaries',
         description: 'Summarize session summaries across a Replay Vision summarizer scanner',
@@ -881,18 +867,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Updating the scanner...'
         },
     },
-    create_replay_vision_action: {
-        name: 'Summarize a scanner',
-        description: 'Summarize a scanner on a recurring schedule',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Set up the summary'
-            }
-            return 'Setting up the summary...'
-        },
-    },
     list_replay_vision_scanners: {
         name: 'List scanners',
         description: 'List scanners in this project, with their ids, status and sampling',
@@ -963,54 +937,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Suggest categories'
             }
             return 'Suggest categories...'
-        },
-    },
-    read_replay_vision_actions: {
-        name: 'Read summaries',
-        description: 'Read summaries and alerts, and the reports they have produced',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Read summaries'
-            }
-            return 'Read summaries...'
-        },
-    },
-    update_replay_vision_action: {
-        name: 'Update a summary',
-        description: 'Update a summary: pause it, resume it, rename it, or change its cadence',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Update a summary'
-            }
-            return 'Update a summary...'
-        },
-    },
-    delete_replay_vision_action: {
-        name: 'Delete a summary',
-        description: 'Delete a summary and every report it has produced',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Delete a summary'
-            }
-            return 'Delete a summary...'
-        },
-    },
-    run_replay_vision_action: {
-        name: 'Run a summary now',
-        description: 'Run a summary now instead of waiting for its schedule',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Run a summary now'
-            }
-            return 'Run a summary now...'
         },
     },
     create_survey: {
@@ -1627,7 +1553,7 @@ export const MODE_DEFINITIONS: Record<
         description:
             'Works with your customer accounts — assign owners, review notes and usage, and dig into account data.',
         icon: iconForType('cohort'),
-        scenes: new Set([Scene.CustomerAnalytics]),
+        scenes: new Set([Scene.CustomerAnalytics, Scene.CustomerAnalyticsAccount]),
         flag: 'CUSTOMER_ANALYTICS_CSP',
     },
 }

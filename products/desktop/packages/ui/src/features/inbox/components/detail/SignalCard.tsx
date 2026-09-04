@@ -41,7 +41,7 @@ function prettifyScoutName(skillName: string): string {
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
-function signalCardSourceLine(signal: {
+export function signalCardSourceLine(signal: {
   source_product: string;
   source_type: string;
   extra?: Record<string, unknown>;
@@ -70,6 +70,9 @@ function signalCardSourceLine(signal: {
     source_type === "session_analysis_cluster"
   ) {
     return "Session replay · Session analysis cluster";
+  }
+  if (source_product === "replay_vision" && source_type === "scanner_finding") {
+    return "Replay Vision · Scanner finding";
   }
   if (source_product === "llm_analytics" && source_type === "evaluation") {
     return "AI observability · Evaluation";
@@ -259,7 +262,7 @@ function VerificationBadge() {
     <Flex
       align="center"
       gap="1"
-      className="shrink-0 text-(--green-9) text-[11px]"
+      className="shrink-0 text-(--green-9) text-[12px]"
       title="Verified by code or data evidence"
     >
       <CheckCircleIcon size={12} weight="fill" />
@@ -289,7 +292,7 @@ function SignalCardHeader({
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-(--gray-9)" />
         )}
       </span>
-      <Text className="font-medium text-[13px] text-gray-10">
+      <Text className="font-medium text-[14px] text-gray-10">
         {signalCardSourceLine({ ...signal, extra: parseExtra(signal.extra) })}
       </Text>
       <span className="flex-1" />
@@ -312,7 +315,7 @@ function CollapsibleBody({ body }: { body: string }) {
 
   return (
     <Box>
-      <Box className="text-pretty break-words text-[13px] text-gray-11 leading-relaxed [&_code]:text-[11px] [&_p:last-child]:mb-0 [&_p]:mb-1 [&_pre]:text-[11px]">
+      <Box className="text-pretty break-words text-[14px] text-gray-11 leading-relaxed [&_code]:text-[12px] [&_p:last-child]:mb-0 [&_p]:mb-1 [&_pre]:text-[12px]">
         <MarkdownRenderer content={displayBody} />
       </Box>
       {isLong && (
@@ -327,7 +330,7 @@ function CollapsibleBody({ body }: { body: string }) {
               return next;
             });
           }}
-          className="mt-1.5 flex items-center gap-1 rounded px-1 py-0.5 font-medium text-[12px] text-accent-11 hover:bg-accent-3 hover:text-accent-12"
+          className="mt-1.5 flex items-center gap-1 rounded px-1 py-0.5 font-medium text-[13px] text-accent-11 hover:bg-accent-3 hover:text-accent-12"
         >
           {expanded ? (
             <CaretDownIcon size={12} />
@@ -368,13 +371,13 @@ function GitHubIssueSignalCard({
         gap="2"
         wrap="wrap"
         mt="2"
-        className="text-[11px] text-gray-10"
+        className="text-[12px] text-gray-10"
       >
-        <Text className="font-medium text-[11px]">#{extra.number}</Text>
+        <Text className="font-medium text-[12px]">#{extra.number}</Text>
         {labels.map((label) => (
           <span
             key={label.name}
-            className="inline-flex items-center rounded-full px-1.5 py-0.5 font-medium text-[11px]"
+            className="inline-flex items-center rounded-full px-1.5 py-0.5 font-medium text-[12px]"
             style={
               label.color
                 ? {
@@ -399,7 +402,7 @@ function GitHubIssueSignalCard({
             href={issueUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] text-gray-10 hover:text-gray-12"
+            className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
           >
             View on GitHub
             <ArrowSquareOutIcon size={12} />
@@ -407,7 +410,7 @@ function GitHubIssueSignalCard({
         )}
       </Flex>
       {extra.created_at && (
-        <Text className="mt-1 block text-[11px] text-gray-10">
+        <Text className="mt-1 block text-[12px] text-gray-10">
           Opened: {new Date(extra.created_at).toLocaleString()}
         </Text>
       )}
@@ -439,15 +442,15 @@ function ZendeskTicketSignalCard({
         gap="2"
         wrap="wrap"
         mt="2"
-        className="text-[11px] text-gray-10"
+        className="text-[12px] text-gray-10"
       >
         {extra.priority && (
-          <Badge variant="soft" color="gray" size="1" className="text-[11px]">
+          <Badge variant="soft" color="gray" size="1" className="text-[12px]">
             Priority: {extra.priority}
           </Badge>
         )}
         {extra.status && (
-          <Badge variant="soft" color="gray" size="1" className="text-[11px]">
+          <Badge variant="soft" color="gray" size="1" className="text-[12px]">
             Status: {extra.status}
           </Badge>
         )}
@@ -457,7 +460,7 @@ function ZendeskTicketSignalCard({
             variant="soft"
             color="gray"
             size="1"
-            className="text-[11px]"
+            className="text-[12px]"
           >
             {tag}
           </Badge>
@@ -468,7 +471,7 @@ function ZendeskTicketSignalCard({
             href={zendeskWebUrl(extra.url)}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] text-gray-10 hover:text-gray-12"
+            className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
           >
             Open
             <ArrowSquareOutIcon size={12} />
@@ -498,13 +501,13 @@ function LlmEvalSignalCard({
     <Box className="min-w-0 overflow-hidden rounded-(--radius-2) border border-(--gray-6) bg-gray-1 p-3">
       <SignalCardHeader signal={signal} verified={verified} />
       <CollapsibleBody body={signal.content} />
-      <Flex align="center" gap="2" mt="2" className="text-[11px] text-gray-10">
+      <Flex align="center" gap="2" mt="2" className="text-[12px] text-gray-10">
         {extra.model && <span>Model: {extra.model}</span>}
         {extra.model && extra.provider && <span>·</span>}
         {extra.provider && <span>Provider: {extra.provider}</span>}
       </Flex>
       {extra.trace_id && (
-        <Text className="mt-1 block text-[11px] text-gray-10">
+        <Text className="mt-1 block text-[12px] text-gray-10">
           Trace:{" "}
           <span className="font-mono">{extra.trace_id.slice(0, 12)}...</span>
         </Text>
@@ -560,7 +563,7 @@ function SessionProblemSignalCard({
     <Box className="min-w-0 overflow-hidden rounded-(--radius-2) border border-(--gray-6) bg-gray-1 p-3">
       <SignalCardHeader signal={signal} verified={verified} />
       {extra.segment_title && (
-        <Text mt="1" className="font-medium text-[13px] text-gray-11" as="p">
+        <Text mt="1" className="font-medium text-[14px] text-gray-11" as="p">
           {extra.segment_title}
         </Text>
       )}
@@ -578,20 +581,20 @@ function SessionProblemSignalCard({
         gap="2"
         wrap="wrap"
         mt="2"
-        className="text-[11px] text-gray-10"
+        className="text-[12px] text-gray-10"
       >
         {problemInfo && (
           <Badge
             variant="soft"
             color={problemInfo.color}
             size="1"
-            className="text-[11px]"
+            className="text-[12px]"
           >
             {problemInfo.label}
           </Badge>
         )}
         {extra.distinct_id && (
-          <Text className="font-mono text-[11px]">
+          <Text className="font-mono text-[12px]">
             {extra.distinct_id.slice(0, 10)}…
           </Text>
         )}
@@ -663,7 +666,7 @@ function SessionRecordingVideo({
     return (
       <Box
         mt="2"
-        className="flex h-24 items-center justify-center rounded bg-gray-3 text-[11px] text-gray-9"
+        className="flex h-24 items-center justify-center rounded bg-gray-3 text-[12px] text-gray-9"
       >
         Loading recording…
       </Box>
@@ -721,13 +724,13 @@ function ErrorTrackingSignalCard({
           align="center"
           justify="end"
           mt="2"
-          className="text-[11px] text-gray-10"
+          className="text-[12px] text-gray-10"
         >
           <a
             href={issueUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] text-gray-10 hover:text-gray-12"
+            className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
           >
             View issue
             <ArrowSquareOutIcon size={12} />
@@ -783,7 +786,7 @@ function CodePathsCollapsible({ paths }: { paths: string[] }) {
             return next;
           });
         }}
-        className="flex items-center gap-1 rounded px-1 py-0.5 font-medium text-[12px] text-gray-10 hover:bg-gray-3 hover:text-gray-12"
+        className="flex items-center gap-1 rounded px-1 py-0.5 font-medium text-[13px] text-gray-10 hover:bg-gray-3 hover:text-gray-12"
       >
         {expanded ? <CaretDownIcon size={12} /> : <CaretRightIcon size={12} />}
         Relevant code ({paths.length})
@@ -797,7 +800,7 @@ function CodePathsCollapsible({ paths }: { paths: string[] }) {
               parenIdx >= 0 ? trimmed.slice(0, parenIdx) : trimmed;
             const comment = parenIdx >= 0 ? trimmed.slice(parenIdx + 1) : null;
             return (
-              <Text key={raw} className="text-[11px]">
+              <Text key={raw} className="text-[12px]">
                 <span className="font-mono text-gray-12">{filePath}</span>
                 {comment && (
                   <span className="ml-1 text-(--gray-9)">{comment}</span>
@@ -833,7 +836,7 @@ function DataQueriedCollapsible({ text }: { text: string }) {
             return next;
           });
         }}
-        className="flex items-center gap-1 rounded px-1 py-0.5 font-medium text-[12px] text-gray-10 hover:bg-gray-3 hover:text-gray-12"
+        className="flex items-center gap-1 rounded px-1 py-0.5 font-medium text-[13px] text-gray-10 hover:bg-gray-3 hover:text-gray-12"
       >
         {expanded ? <CaretDownIcon size={12} /> : <CaretRightIcon size={12} />}
         Data queried
@@ -841,7 +844,7 @@ function DataQueriedCollapsible({ text }: { text: string }) {
       {expanded && (
         <Text
           color="gray"
-          className="mt-1 block whitespace-pre-wrap text-pretty pl-[18px] text-[11px] leading-relaxed"
+          className="mt-1 block whitespace-pre-wrap text-pretty pl-[18px] text-[12px] leading-relaxed"
         >
           {text}
         </Text>

@@ -415,7 +415,9 @@ def _breakdown_filter(_filter: dict):
     if breakdownFilter["breakdown_type"] == "events":
         breakdownFilter["breakdown_type"] = "event"
 
-    if _filter.get("breakdowns") is not None:
+    # An empty `breakdowns` carries no breakdown at all. The trends branch below already ignores it,
+    # and the single-breakdown branch would otherwise read it as a multi-breakdown and refuse to convert.
+    if _filter.get("breakdowns"):
         if _insight_type(_filter) == "TRENDS":
             # Trends support multiple breakdowns
             breakdowns = []

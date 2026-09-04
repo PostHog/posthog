@@ -28,22 +28,26 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_object
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
     ReplayVisionEstimateBurstRateThrottle,
     ReplayVisionEstimateSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -59,8 +63,11 @@ from products.replay_vision.backend.api.trigger import (
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
-from products.replay_vision.backend.digest import provision_scanner_digest
+from products.replay_vision.backend.billing import (
+    observation_credits_case,
+    observation_credits_for_model,
+    projected_monthly_credits,
+)
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -104,7 +111,7 @@ from products.replay_vision.backend.scanner_config import (
     acting_user,
     scanner_config_error,
 )
-from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
+from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
@@ -114,6 +121,24 @@ from products.signals.backend.facade.api import get_outcomes_for_signal_source_s
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
+
+# The goal-based creation flow's flag. Multivariate so it can graduate to an experiment without a
+# rename; server-side so a client/rollout skew cannot half-apply the new flow.
+GOAL_FLOW_FLAG = "vision-goal-based-creation-flow"
+
+
+def _goal_flow_enabled(user: User, team: Team) -> bool:
+    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
+    it returns True for EVERY variant, control included, which would ship the new flow to the
+    experiment's control group."""
+    variant = get_feature_flag_or_none(
+        GOAL_FLOW_FLAG,
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+    return isinstance(variant, str) and variant != "control"
 
 
 def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
@@ -179,6 +204,22 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
         refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+
+
+def _scanner_copy_name(team_id: int, source_name: str) -> str:
+    """First free "<name> (copy)" / "<name> (copy N)" variant, truncated to the name column limit.
+    One query for the team's names, since suffix-dependent truncation defeats a startswith filter;
+    scanner counts per team are small. The unique constraint stays the backstop for a concurrent
+    create racing this check."""
+    taken = set(ReplayScanner.objects.filter(team_id=team_id).values_list("name", flat=True))
+    for n in range(1, len(taken) + 2):
+        suffix = " (copy)" if n == 1 else f" (copy {n})"
+        candidate = f"{source_name[: 255 - len(suffix)]}{suffix}"
+        if candidate not in taken:
+            return candidate
+    # Unreachable given the range spans more than the collisions, but stay well-defined; the DB
+    # uniqueness constraint is the final backstop.
+    return source_name
 
 
 class FeedbackThemeSessionSerializer(serializers.Serializer):
@@ -352,11 +393,22 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         help_text="Latest projected observations/month for this scanner. Null until first computed.",
     )
+    estimated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed "
+            "after a config change or has never run, so the stored number may be stale."
+        ),
+    )
     credits_per_observation = serializers.SerializerMethodField(
         help_text="Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`.",
     )
     estimated_monthly_credits = serializers.SerializerMethodField(
-        help_text="`estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.",
+        help_text=(
+            "`estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one "
+            "is set. Null until the estimate is first computed."
+        ),
     )
     credits_this_month = serializers.SerializerMethodField(
         help_text=(
@@ -429,6 +481,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "experiment_targeting",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -446,6 +499,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "id",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -466,9 +520,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
-        if scanner.estimated_monthly_observations is None:
-            return None
-        return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
+        return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
     def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
         root = self.root
@@ -646,7 +698,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         user = acting_user(self.context)
         if not team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
-                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
+                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner.",
+                code="ai_data_processing_not_approved",
             )
         # Tags become TaggedItem rows below, not a scanner column.
         tags = validated_data.pop("tags", None)
@@ -659,8 +712,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 self._reraise_unique_name_violation(e)
             self._attempt_set_tags(tags, scanner)
         _refresh_estimate_fail_soft(scanner)
-        # Every scanner starts with a built-in featured digest so the overview has a summary to show.
-        provision_scanner_digest(scanner, user)
         report_user_action(
             user,
             "replay_vision_scanner_created",
@@ -1053,8 +1104,8 @@ class EstimateRequestSerializer(serializers.Serializer):
             required=False,
             help_text=(
                 "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
-                "against all recordings."
+                "ignored — the estimate scans a recent window (`window_days` in the response) and "
+                "scales it to 30 days. Omit to estimate against all recordings."
             ),
         )
     )
@@ -1151,18 +1202,20 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
-            "filter but before random sampling."
+            "Distinct sessions matching the query within the scanned window (`window_days`), after the "
+            "sampling_mode quality filter but before random sampling."
         ),
     )
     window_days = serializers.IntegerField(
         help_text=(
-            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
+            "Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's "
+            "operand rules out sampling); smaller when the team has fewer days of recordings."
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
         help_text=(
-            "Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate."
+            "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, "
+            "times sampling_rate."
         ),
     )
     credits_per_observation = serializers.IntegerField(
@@ -1256,6 +1309,17 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         max_length=2000,
         help_text="What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
     )
+    monthly_credit_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100_000_000,
+        help_text=(
+            "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the "
+            "`model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on "
+            "this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and "
+            "ignored while the goal-based flow's flag is off for the caller."
+        ),
+    )
 
 
 class DraftScannerResponseSerializer(serializers.Serializer):
@@ -1280,6 +1344,46 @@ class DraftScannerResponseSerializer(serializers.Serializer):
                 "`RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session."
             ),
         )
+    )
+    sampling_mode = serializers.ChoiceField(
+        choices=SamplingMode.choices,
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the "
+            "legacy flow, and null when the costing estimate failed — the wizard keeps its defaults."
+        ),
+    )
+    sampling_rate = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. "
+            "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
+            "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
+        ),
+    )
+    model = serializers.ChoiceField(
+        choices=ScannerModel.choices,
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the observation model the draft chose for the goal, by how much "
+            "judgment it needs. Null on the legacy flow, where the wizard keeps its default model."
+        ),
+    )
+    credit_limit = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a "
+            "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
+        ),
+    )
+    estimated_monthly_observations = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: recordings a month the drafted scanner is projected to watch under "
+            "the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when "
+            "the budget is below what the minimum sampling rate can reach, where this is the floor and "
+            "exceeds the budget. Null whenever `sampling_mode` is."
+        ),
     )
 
 
@@ -1422,6 +1526,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         "update",
         "partial_update",
         "destroy",
+        "duplicate",
         "observe",
         "bulk_observe",
         "inline_scan",
@@ -1433,7 +1538,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     # Same authorization as /observe/: configuring a scanner indirectly exposes recording contents.
-    _CONFIG_ACTIONS = {"create", "update", "partial_update"}
+    _CONFIG_ACTIONS = {"create", "update", "partial_update", "duplicate"}
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action in self._CONFIG_ACTIONS:
@@ -1490,6 +1595,72 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             team=self.team,
             request=self.request,
         )
+
+    @extend_schema(request=None, responses={201: ReplayScannerSerializer})
+    @action(detail=True, methods=["post"])
+    def duplicate(self, request: Request, **kwargs: Any) -> Response:
+        """Copy a scanner into a new disabled scanner named "<name> (copy)".
+
+        Copies the stored model row rather than the serializer's read representation, so a query
+        that no longer validates survives the copy; duplicating through the create endpoint would
+        silently drop it. Experiment targeting is the exception and follows the read path instead.
+        Unlike create, no digest is provisioned: the copy starts disabled and unreviewed."""
+        # An object-level editor grant on one scanner is enough to get past the permission
+        # class, but this action creates a new scanner, so it must clear the same
+        # resource-level bar the create action enforces.
+        if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            raise PermissionDenied("Duplicating a scanner requires editor access to Replay Vision scanners.")
+        source = self.get_object()
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError(
+                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
+            )
+        user = cast(User, request.user)
+        # A scanner is viewable at a coarser grain than its targeted experiment, so the read path
+        # nulls an experiment the caller cannot view. Drop it from the copy for the same reason:
+        # create rejects targeting such an experiment, and duplicate must not be the way around it.
+        experiment_targeting = source.experiment_targeting
+        if experiment_targeting:
+            experiment_id = experiment_targeting.get("experiment_id")
+            if experiment_id is None or not is_experiment_accessible(
+                self.user_access_control, self.team_id, experiment_id
+            ):
+                experiment_targeting = None
+        # One transaction so a failed tag write can't leave an untagged copy behind. Side effects stay outside.
+        with transaction.atomic():
+            try:
+                scanner = ReplayScanner.objects.create(
+                    team=self.team,
+                    created_by=user,
+                    name=_scanner_copy_name(self.team_id, source.name),
+                    description=source.description,
+                    scanner_type=source.scanner_type,
+                    scanner_config=source.scanner_config,
+                    query=source.query,
+                    sampling_rate=source.sampling_rate,
+                    sampling_mode=source.sampling_mode,
+                    credit_limit=source.credit_limit,
+                    provider=source.provider,
+                    model=source.model,
+                    emits_signals=source.emits_signals,
+                    experiment_targeting=experiment_targeting,
+                    enabled=False,
+                )
+            except IntegrityError as e:
+                ReplayScannerSerializer._reraise_unique_name_violation(e)
+            tags = list(source.tagged_items.values_list("tag__name", flat=True))
+            if tags:
+                set_tags_on_object(tags, scanner)
+        _refresh_estimate_fail_soft(scanner)
+        # Distinct from replay_vision_scanner_created so duplicates don't inflate wizard-completion counts.
+        report_user_action(
+            user,
+            "replay_vision_scanner_duplicated",
+            {**_scanner_lifecycle_properties(scanner), "source_scanner_id": str(source.id)},
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(scanner).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: ScannerCreatorsResponseSerializer})
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -2046,19 +2217,42 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body.is_valid(raise_exception=True)
 
         goal = body.validated_data["goal"]
+        monthly_credit_budget = body.validated_data.get("monthly_credit_budget")
+        # A budget only means the goal-based flow when the flag says so: on a client/rollout skew
+        # the request degrades to a legacy draft instead of half-applying the new flow.
+        goal_flow = monthly_credit_budget is not None and _goal_flow_enabled(cast(User, request.user), self.team)
         # The goal is customer text, so only its length goes into telemetry.
-        draft_properties: dict[str, Any] = {"goal_length": len(goal), "team_id": self.team_id}
+        draft_properties: dict[str, Any] = {
+            "goal_length": len(goal),
+            "team_id": self.team_id,
+            "goal_flow": goal_flow,
+            "monthly_credit_budget": monthly_credit_budget,
+        }
+        # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
+        # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
+        # actions) is gated per resource against these scopes inside the drafter.
+        allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
+        include_business_context = allowed_scopes is None
 
         try:
-            drafted = draft_scanner_from_goal(
-                team=self.team,
-                user=cast(User, request.user),
-                goal=goal,
-                user_access_control=self.user_access_control,
-                # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
-                # receive its content through the draft either.
-                include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
-            )
+            if goal_flow:
+                drafted = draft_scanner_from_goal_v2(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    goal=goal,
+                    monthly_credit_budget=cast(int, monthly_credit_budget),
+                    user_access_control=self.user_access_control,
+                    include_business_context=include_business_context,
+                    allowed_scopes=allowed_scopes,
+                )
+            else:
+                drafted = draft_scanner_from_goal(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    goal=goal,
+                    user_access_control=self.user_access_control,
+                    include_business_context=include_business_context,
+                )
         except DraftError:
             # Report failures too, so model errors don't read as user abandonment.
             report_user_action(
@@ -2080,8 +2274,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 **draft_properties,
                 "success": True,
                 "scanner_type": drafted.scanner_type,
-                # Whether the goal mapped to a real event filter or fell back to no targeting.
+                # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
+                "sampling_mode": drafted.sampling_mode,
+                "sampling_rate": drafted.sampling_rate,
+                "model": drafted.model,
+                "credit_limit": drafted.credit_limit,
+                "estimated_monthly_observations": drafted.estimated_monthly_observations,
             },
             team=self.team,
             request=request,
@@ -2096,6 +2295,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "scanner_config": drafted.scanner_config,
                     "rationale": drafted.rationale,
                     "query": drafted.query,
+                    "sampling_mode": drafted.sampling_mode,
+                    "sampling_rate": drafted.sampling_rate,
+                    "model": drafted.model,
+                    "credit_limit": drafted.credit_limit,
+                    "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data
         )

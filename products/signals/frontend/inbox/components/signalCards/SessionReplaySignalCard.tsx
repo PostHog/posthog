@@ -2,12 +2,12 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconBug, IconCursorClick, IconGlobe, IconKeyboard } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import type { LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
 
@@ -16,19 +16,12 @@ import type {
     SessionProblemSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { RecordingPreview } from './RecordingPreview'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
 /** How many timeline events to show before collapsing the rest behind a toggle. */
 const TIMELINE_PREVIEW_COUNT = 4
-
-const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtraApi['problem_type'], { label: string; type: LemonTagType }> = {
-    blocking_exception: { label: 'Blocking exception', type: 'danger' },
-    failure: { label: 'Failure', type: 'danger' },
-    non_blocking_exception: { label: 'Exception', type: 'warning' },
-    abandonment: { label: 'Abandonment', type: 'warning' },
-    confusion: { label: 'Confusion', type: 'caution' },
-}
 
 /** Narrows a raw `extra` payload to the live session-problem shape. */
 export function isSessionProblemExtra(value: unknown): value is Record<string, unknown> & SessionProblemSignalExtraApi {
@@ -104,10 +97,10 @@ function TimelineRow({
 
 /** Live card for a session-replay problem segment: a replay link-out and an event timeline. */
 export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const [showAllEvents, setShowAllEvents] = useState(false)
 
     const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtraApi
-    const problemTag = PROBLEM_TYPE_TAG[extra.problem_type]
 
     const segmentSeekTime = recordingSeekTime(extra.session_start_time ?? undefined, extra.start_time)
 
@@ -124,37 +117,40 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         extra.session_duration !== undefined ? humanFriendlyDuration(extra.session_duration) : undefined
 
     return (
-        <SignalCardShell
-            signal={signal}
-            label={extra.segment_title}
-            rightSlot={
-                problemTag ? (
-                    <LemonTag type={problemTag.type} size="small" className="shrink-0">
-                        {problemTag.label}
-                    </LemonTag>
-                ) : undefined
-            }
-        >
+        <SignalCardShell signal={signal} label={extra.segment_title}>
             {signal.content && (
                 <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
                     {signal.content}
                 </LemonMarkdown>
             )}
 
-            {/* Opens the recording at the segment in the player modal; disables when it wasn't captured. */}
-            <ViewRecordingButton
-                sessionId={extra.session_id}
-                timestamp={segmentSeekTime}
-                openPlayerIn={RecordingPlayerType.Modal}
-                checkRecordingExists
-                label="View replay"
-                type="secondary"
-                size="small"
-                className="mb-2"
-                loading={recordingExistsLoading}
-            />
-            {recordingExists === false && (
-                <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+            {/* Both open the recording at the segment in the player modal and disable when it wasn't
+                captured. Under the redesign the screenshot frame is used when the emitter exported
+                one, since it shows what the user saw without opening the player. */}
+            {redesign && typeof extra.exported_asset_id === 'number' ? (
+                <RecordingPreview
+                    sessionId={extra.session_id}
+                    seekTime={segmentSeekTime}
+                    exportedAssetId={extra.exported_asset_id}
+                    alt={`Recording preview for ${extra.segment_title}`}
+                />
+            ) : (
+                <>
+                    <ViewRecordingButton
+                        sessionId={extra.session_id}
+                        timestamp={segmentSeekTime}
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        checkRecordingExists
+                        label="View replay"
+                        type="secondary"
+                        size="small"
+                        className="mb-2"
+                        loading={recordingExistsLoading}
+                    />
+                    {recordingExists === false && (
+                        <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+                    )}
+                </>
             )}
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}

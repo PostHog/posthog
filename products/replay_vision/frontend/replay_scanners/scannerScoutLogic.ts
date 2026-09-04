@@ -125,6 +125,7 @@ export interface scannerScoutLogicValues {
     scoutDelivery: ScoutDelivery | null
     scoutDeliveryLoading: boolean
     scoutReports: ScoutReportApi[]
+    scoutReportsFailed: boolean
     scoutReportsLoading: boolean
     settingsSaving: boolean
     settingsSkillName: string | null
@@ -147,9 +148,9 @@ export interface scannerScoutLogicActions {
         configId: string
         surface: import('products/signals/frontend/inbox/inboxAnalytics').ScoutSurface
     } // scoutFleetLogic
-    loadScoutConfigs: () => any // scoutFleetLogic
+    loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadScoutMetadata: () => any // scoutFleetLogic
-    loadScoutRuns: () => any // scoutFleetLogic
+    loadScoutRuns: (_?: void | undefined) => void // scoutFleetLogic
     runScoutNow: (configId: string) => {
         configId: string
     } // scoutFleetLogic
@@ -476,6 +477,17 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 setScoutConfigsFailed: (_, { failed }) => failed,
             },
         ],
+        // A failed load leaves `scoutReports` empty, which is the same shape as a scout that has
+        // filed nothing. Reading one as the other offers Run now for reports that may already
+        // exist, and that click spends credits.
+        scoutReportsFailed: [
+            false,
+            {
+                loadScoutReports: () => false,
+                loadScoutReportsSuccess: () => false,
+                loadScoutReportsFailure: () => true,
+            },
+        ],
         // Which report the reader opened, if any.
         openReportId: [
             null as string | null,
@@ -739,15 +751,23 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     actions.createScoutFinished()
                     return
                 }
-                const skillName = scoutNameToSkillName(
-                    form.name,
-                    (values.scoutConfigs ?? []).map((config) => config.skill_name)
-                )
-                try {
-                    // Through Replay Vision rather than the Signals scout endpoint: this route
-                    // checks the caller may edit this scanner and records the scout as belonging to
-                    // it. The Signals endpoint cannot make that check, so it cannot record an owner.
-                    const created = await visionScannersScoutsCreate(
+                // Through Replay Vision rather than the Signals scout endpoint: this route checks
+                // the caller may edit this scanner and records the scout as belonging to it. The
+                // Signals endpoint cannot make that check, so it cannot record an owner.
+                //
+                // Names a previous attempt burned count as taken alongside the loaded roster: a
+                // 409 means the name exists on the team even though this tab's roster doesn't show
+                // it, either because another tab just created it or because a deleted scout still
+                // holds it. Feeding it back lets the next attempt pick the following suffix instead
+                // of asking the person to refresh.
+                const burnedNames: string[] = []
+                const create = async (): Promise<SignalScoutConfigApi> => {
+                    const skillName = scoutNameToSkillName(form.name, props.scannerName, [
+                        ...(values.scoutConfigs ?? []).map((config) => config.skill_name),
+                        ...burnedNames,
+                    ])
+                    burnedNames.push(skillName)
+                    const result = await visionScannersScoutsCreate(
                         String(teamLogic.values.currentProjectId),
                         props.scannerId,
                         scannerScoutCreatePayload(props.scannerName, {
@@ -757,6 +777,20 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             outputDestinations: form.outputDestinations,
                         })
                     )
+                    return result.config
+                }
+                try {
+                    let config: SignalScoutConfigApi | null = null
+                    for (let attempt = 0; attempt < 3 && !config; attempt++) {
+                        try {
+                            config = await create()
+                        } catch (error: any) {
+                            if (error?.status !== 409 || attempt === 2) {
+                                throw error
+                            }
+                        }
+                    }
+                    const created = { config: config! }
                     const delivered = await reconcileDelivery(created.config, form)
                     lemonToast.success(
                         delivered
@@ -765,8 +799,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     )
                     actions.loadScoutConfigs()
                 } catch (error: any) {
-                    // Deleting a scout archives its skill, and an archived skill still holds its
-                    // name, so a rebuilt name can collide with one no live config shows.
+                    // Three names in a row were taken, which no longer happens by accident.
                     const conflict = error?.status === 409 || String(error?.detail ?? '').includes('name')
                     lemonToast.error(
                         conflict

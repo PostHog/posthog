@@ -5,7 +5,7 @@ import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -228,7 +228,11 @@ def _time_to_seconds(value: datetime.time) -> float:
     return value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000
 
 
-def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
+def evolve_pyarrow_schema(
+    incoming_table: pa.Table,
+    delta_schema: deltalake.Schema | None,
+    merge_key_columns: Sequence[str] | None = None,
+) -> pa.Table:
     # First pass: normalize types that Delta write path does not handle well.
     for column_name in incoming_table.column_names:
         incoming_column = incoming_table.column(column_name)
@@ -285,6 +289,7 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
 
     # Second pass: align with existing Delta table schema.
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    merge_keys = {_fold_column_name_for_match(name) for name in merge_key_columns or []}
     for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
@@ -356,6 +361,28 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     incoming_table = incoming_table.set_column(
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
                     )
+            elif (
+                _fold_column_name_for_match(delta_field.name) in merge_keys
+                and (pa.types.is_binary(delta_field.type) or pa.types.is_large_binary(delta_field.type))
+                and (pa.types.is_string(incoming_column.type) or pa.types.is_large_string(incoming_column.type))
+            ):
+                # A table written before `hex_encode_id_binary_columns` stores this key as raw
+                # bytes while the batch now carries hex text. pyarrow casts string to binary
+                # without complaint, which would store the hex text as bytes: the merge predicate
+                # would then match no stored row and re-insert every incoming row. Fail instead,
+                # so the table is reset and re-synced onto the hex representation.
+                #
+                # Only merge keys (primary keys and the partition-key source columns) take this
+                # path. Every other column casts as before, so a source that legitimately turns a
+                # non-key binary column into a string column keeps syncing.
+                raise SchemaColumnTypeChangedException(
+                    f"Source column type changed: merge key '{delta_field.name}' is stored as {delta_field.type} "
+                    f"but now arrives as text ({incoming_column.type}). Reset and fully re-sync this table to "
+                    f"adopt the new type.",
+                    column_name=delta_field.name,
+                    stored_type=delta_field.type,
+                    incoming_type=incoming_column.type,
+                )
             else:
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
@@ -597,6 +624,38 @@ def _is_id_like_column(column_name: str, primary_keys: Sequence[str] | None) -> 
     return any(lowered == key.lower() for key in (primary_keys or []))
 
 
+def _hex_arrays_or_report(
+    value_chunks: Iterable[Sequence[bytes | None]],
+    column_name: str,
+    binary_reporter: Optional[BinaryColumnReporter],
+    hex_type: pa.DataType,
+) -> Optional[list[pa.Array]]:
+    """Lowercase-hex strings for one binary column, or None when the values can't be converted.
+
+    Takes the column one chunk at a time so the Python `bytes` and `str` objects of a whole
+    column are never live at once — an Arrow-native source hands over batches far larger than
+    the row path's, and this is the only step that leaves Arrow.
+
+    Callers decide what None means: the row path drops the column, the Arrow path leaves it
+    binary. Both report the same way.
+    """
+    try:
+        hex_arrays: list[pa.Array] = [
+            pa.array([None if value is None else value.hex() for value in chunk], type=hex_type)
+            for chunk in value_chunks
+        ]
+    # pa.ArrowException also catches the 32-bit offset overflow of a chunk whose hex crosses
+    # 2 GB, which is an ArrowCapacityError and so sits outside ValueError.
+    except (AttributeError, TypeError, ValueError, pa.ArrowException) as e:
+        if binary_reporter:
+            binary_reporter.conversion_failed(column_name, e)
+        return None
+
+    if binary_reporter:
+        binary_reporter.converted(column_name)
+    return hex_arrays
+
+
 class BinaryColumnReporter:
     """Logs each binary column's outcome once per instance lifetime (one sync), because
     `_process_batch` runs per batch and logging there directly would repeat the same line
@@ -627,6 +686,42 @@ class BinaryColumnReporter:
             self._logger.warning(
                 f"Column '{column_name}' was not synced because its binary values could not be converted to hex strings: {error}"
             )
+
+
+def hex_encode_id_binary_columns(
+    table: pa.Table,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
+    """Convert id-like binary columns of an Arrow-native batch to lowercase hex strings.
+
+    Sources that hand the pipeline Arrow tables (BigQuery, Snowflake, Databricks, MotherDuck)
+    never reach `_process_batch`, so their binary keys land in Delta as raw bytes, which cannot
+    be read or joined in HogQL. Same name/primary-key gate as the row path.
+
+    Non-key binary columns stay untouched: this path has always synced them, so dropping them
+    the way the row path does would delete data these tables already carry.
+    """
+    for index, field in enumerate(table.schema):
+        if not (pa.types.is_binary(field.type) or pa.types.is_large_binary(field.type)):
+            continue
+        if not _is_id_like_column(field.name, primary_keys):
+            continue
+
+        # Indexed, not by name: a batch carrying the same column name twice makes the name
+        # lookup raise instead of converting.
+        column = table.column(index)
+        # Keep 64-bit offsets where the source column has them: hex doubles the byte length.
+        hex_type = pa.large_string() if pa.types.is_large_binary(field.type) else pa.string()
+        hex_arrays = _hex_arrays_or_report(
+            (chunk.to_pylist() for chunk in column.chunks), field.name, binary_reporter, hex_type
+        )
+        if hex_arrays is None:
+            continue
+
+        table = table.set_column(index, field.with_type(hex_type), pa.chunked_array(hex_arrays, type=hex_type))
+
+    return table
 
 
 def _convert_uuid_to_string(row: dict) -> dict:
@@ -690,6 +785,224 @@ def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -
     if all(name in present for name in schema.names):
         return schema
     return pa.schema([field for field in schema if field.name in present])
+
+
+def _stringify_column(column: pa.ChunkedArray | pa.Array) -> pa.ChunkedArray | pa.Array:
+    """Render a column as text.
+
+    Prefer Arrow's own cast: it is vectorized and renders values the same way as sibling
+    batches that were cast (rather than stringified) into the same string column. Only what
+    Arrow can't cast takes the per-value pass — nested values as JSON, bytes decoded.
+    """
+    casted = _cast_column_to(column, pa.string())
+    if casted is not None:
+        return casted
+
+    def _render(value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, dict | list):
+            return _json_dumps(value)
+        if isinstance(value, bytes | bytearray):
+            return bytes(value).decode("utf-8", errors="replace")
+        return str(value)
+
+    return pa.array([_render(value) for value in _to_list_array(column)], type=pa.string())
+
+
+def _cast_column_to(column: pa.ChunkedArray | pa.Array, target: pa.DataType) -> pa.ChunkedArray | pa.Array | None:
+    """Safe-cast a column, returning None when the values don't fit the target type."""
+    try:
+        return pc.cast(column, target)
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError):
+        return None
+
+
+def _common_type(left: pa.DataType, right: pa.DataType) -> pa.DataType | None:
+    """The type Arrow will promote `left` and `right` to, or None if it won't promote them."""
+    try:
+        unified = pa.unify_schemas(
+            [pa.schema([pa.field("f", left)]), pa.schema([pa.field("f", right)])], promote_options="permissive"
+        )
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+        return None
+    return unified.field("f").type
+
+
+def _cast_is_faithful(source: pa.DataType, target: pa.DataType) -> bool:
+    """Whether a successful `pc.cast(source → target)` converts values rather than reinterpreting them.
+
+    Arrow "casts" int64 → timestamp by reading the ints as the target's epoch unit, numeric → bool
+    by truthiness, and struct → struct by dropping unmatched fields and null-filling the rest —
+    silent corruption, not conversion, so those pairs must fall through to the text fallback
+    instead. String targets render faithfully, string sources parse (raising on values that don't
+    fit), and pairs Arrow itself promotes (numeric widening, decimal rescaling, temporal unit
+    changes) convert.
+    """
+    if pa.types.is_nested(source) or pa.types.is_nested(target):
+        return False
+    if pa.types.is_string(target) or pa.types.is_large_string(target):
+        return True
+    if pa.types.is_string(source) or pa.types.is_large_string(source):
+        return True
+    return _common_type(source, target) is not None
+
+
+def reconcile_batch_to_accumulated_schema(
+    pa_table: pa.Table,
+    accumulated_schema: pa.Schema | None,
+    logger: FilteringBoundLogger | None = None,
+    protected_columns: Collection[str] = (),
+) -> tuple[pa.Table, pa.Schema]:
+    """Make a batch's schema consistent with the batches already written in this run.
+
+    Extraction infers each batch's Arrow types independently, so a source that returns the same
+    field as an int on some rows and a string on others produces parquet parts that disagree —
+    which then fails when the parts' schemas are merged, with the whole sync landing in error.
+    That is not fixable per-field per-source: a workspace can put arbitrary values in a custom
+    attribute, so the set of flip-prone fields is unbounded.
+
+    Reconciling here converges every batch onto one type for the run, preferring in order:
+    the type earlier batches already wrote (nothing to rewrite), Arrow's own promotion (e.g.
+    int64 + double → double), and finally text, which holds anything. Casts are only taken when
+    they convert values; pairs Arrow would reinterpret (int ↔ timestamp, numeric → bool, nested
+    shapes) go straight to text.
+
+    Also backfills columns that earlier batches had and this one doesn't, so a column that only
+    appears in some batches still lands with a stable type.
+
+    Convergence is per run: parts written before a mid-run flip keep their original type, and a
+    new Delta table adopts the first part's type at load. A column whose values genuinely cannot
+    cast between the flipped types therefore still fails the run — at the load stage, classified
+    as a column type change — rather than being silently rewritten. What this removes is the
+    extract-time merge crash and the per-source field allowlists.
+
+    `protected_columns` (the incremental cursor) must never converge to text: a lexicographic
+    watermark silently corrupts incremental progress, so an unresolvable flip there raises
+    instead.
+    """
+    if accumulated_schema is None:
+        return pa_table, pa_table.schema
+
+    protected = frozenset(protected_columns)
+
+    for accumulated_field in accumulated_schema:
+        name = accumulated_field.name
+        index = pa_table.schema.get_field_index(name)
+        if index == -1:
+            pa_table = pa_table.append_column(
+                accumulated_field, pa.nulls(pa_table.num_rows, type=accumulated_field.type)
+            )
+            continue
+
+        incoming_type = pa_table.field(index).type
+        if incoming_type == accumulated_field.type:
+            continue
+
+        column = pa_table.column(name)
+
+        if name in protected:
+            # The cursor may widen numerically or parse numeric text back toward the accumulated
+            # type, but must never become text: `max()` over a string cursor orders
+            # lexicographically and silently corrupts the persisted watermark.
+            casted = None
+            resolved_type = accumulated_field.type
+            resolution = "cast_to_accumulated"
+            if not pa.types.is_string(accumulated_field.type) and not pa.types.is_large_string(accumulated_field.type):
+                casted = (
+                    _cast_column_to(column, accumulated_field.type)
+                    if _cast_is_faithful(incoming_type, accumulated_field.type)
+                    else None
+                )
+            if casted is None:
+                promoted = _common_type(accumulated_field.type, incoming_type)
+                if promoted is not None and _cast_is_faithful(incoming_type, promoted):
+                    casted = _cast_column_to(column, promoted)
+                    resolved_type = promoted
+                    resolution = "promoted"
+            if casted is None:
+                raise ValueError(
+                    f"Incremental cursor column '{name}' changed type across batches "
+                    f"({accumulated_field.type} vs {incoming_type}) and cannot be safely converged"
+                )
+        else:
+            casted = (
+                _cast_column_to(column, accumulated_field.type)
+                if _cast_is_faithful(incoming_type, accumulated_field.type)
+                else None
+            )
+            resolved_type = accumulated_field.type
+            resolution = "cast_to_accumulated"
+
+            if casted is None:
+                promoted = _common_type(accumulated_field.type, incoming_type)
+                if promoted is not None and _cast_is_faithful(incoming_type, promoted):
+                    casted = _cast_column_to(column, promoted)
+                if casted is not None:
+                    resolved_type = promoted
+                    resolution = "promoted"
+                else:
+                    casted = _stringify_column(column)
+                    resolved_type = pa.string()
+                    resolution = "stringified"
+
+        if logger is not None:
+            logger.warning(
+                "Reconciled a batch column type against the run's accumulated schema",
+                column=name,
+                incoming_type=str(incoming_type),
+                accumulated_type=str(accumulated_field.type),
+                resolved_type=str(resolved_type),
+                resolution=resolution,
+            )
+
+        resolved_field = accumulated_field.with_type(resolved_type).with_nullable(True)
+        pa_table = pa_table.set_column(index, resolved_field, casted)
+        if resolved_type != accumulated_field.type:
+            accumulated_schema = accumulated_schema.set(accumulated_schema.get_field_index(name), resolved_field)
+
+    for field in pa_table.schema:
+        if field.name not in accumulated_schema.names:
+            accumulated_schema = accumulated_schema.append(field)
+
+    return pa_table, accumulated_schema
+
+
+def unify_schemas_with_text_fallback(schemas: list[pa.Schema], logger: FilteringBoundLogger | None = None) -> pa.Schema:
+    """Merge batch schemas, resolving any field Arrow refuses to merge to text.
+
+    `reconcile_batch_to_accumulated_schema` converges a run onto one type per column, but batches
+    written before the conflicting one keep the type they were written with, so the merged view of
+    a run can still hold two types for a field. The merged schema is descriptive metadata — the
+    load stage casts each part toward the Delta table on its own — so it's better to describe such
+    a column as text than to fail the extraction over it.
+    """
+    try:
+        return pa.unify_schemas(schemas, promote_options="permissive")
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+        pass
+
+    merged: dict[str, pa.Field] = {}
+    for schema in schemas:
+        for field in schema:
+            existing = merged.get(field.name)
+            if existing is None:
+                merged[field.name] = field
+                continue
+            if existing.type == field.type:
+                continue
+            resolved = _common_type(existing.type, field.type) or pa.string()
+            if logger is not None:
+                logger.warning(
+                    "Batch schemas disagree on a column type; describing it in the merged schema",
+                    column=field.name,
+                    first_type=str(existing.type),
+                    second_type=str(field.type),
+                    resolved_type=str(resolved),
+                )
+            merged[field.name] = existing.with_type(resolved).with_nullable(True)
+
+    return pa.schema(list(merged.values()))
 
 
 def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
@@ -854,6 +1167,37 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 
     return pa_table
+
+
+def relax_batch_nullability(pa_table: pa.Table) -> pa.Table:
+    """Mark every batch column that actually holds nulls as nullable in the batch's own schema.
+
+    SQL sources build the batch schema from the source database's own `is_nullable` metadata, so a
+    column the source declares NOT NULL can still arrive holding nulls: the value was dropped by a
+    projection or a join, or its conversion failed. pyarrow does not check the claim when it builds
+    the table in Python, so the batch reaches the writers with a schema that contradicts its data.
+
+    Every delta path checks it and refuses the batch: `write_deltalake` raises a DeltaError,
+    `DeltaTable.merge` panics in Rust before it can plan the merge, and deltalite's
+    `RecordBatch::try_new` rejects it, which sends the write to the MERGE that then panics. All
+    three report "declared as non-nullable but contains null values". Correcting the claim before
+    the write also lets deltalite relax a stored column that a past batch already poisoned.
+
+    The cast rewrites field metadata only, so the column buffers are shared and not copied.
+    """
+    relaxed: list[pa.Field] = []
+    changed = False
+    for index, field in enumerate(pa_table.schema):
+        if not field.nullable and pa_table.column(index).null_count > 0:
+            relaxed.append(field.with_nullable(True))
+            changed = True
+        else:
+            relaxed.append(field)
+
+    if not changed:
+        return pa_table
+
+    return pa_table.cast(pa.schema(relaxed).with_metadata(pa_table.schema.metadata or {}))
 
 
 def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
@@ -1116,23 +1460,21 @@ def _process_batch(
             # and incremental merges on the synced table.
             if pa.types.is_binary(field.type):
                 if _is_id_like_column(str(field_name), primary_keys):
-                    try:
-                        hex_array = pa.array(
-                            [None if s is None else s.hex() for s in _to_list_array(columnar_table_data[field_name])]
-                        )
-                    except (AttributeError, TypeError, ValueError) as e:
-                        if binary_reporter:
-                            binary_reporter.conversion_failed(str(field_name), e)
+                    hex_arrays = _hex_arrays_or_report(
+                        [_to_list_array(columnar_table_data[field_name])],
+                        str(field_name),
+                        binary_reporter,
+                        pa.string(),
+                    )
+                    if hex_arrays is None:
                         drop_column_names.add(field_name)
                     else:
-                        columnar_table_data[field_name] = hex_array
+                        columnar_table_data[field_name] = hex_arrays[0]
                         py_type = str
                         unique_types_in_column = {str}
                         arrow_schema = arrow_schema.set(
                             field_index, arrow_schema.field(field_index).with_type(pa.string())
                         )
-                        if binary_reporter:
-                            binary_reporter.converted(str(field_name))
                 else:
                     if binary_reporter:
                         binary_reporter.dropped(str(field_name))
@@ -1374,23 +1716,18 @@ def _process_batch(
         # schemas, or a declared type the values don't match).
         if issubclass(py_type, bytes):
             if _is_id_like_column(str(field_name), primary_keys):
-                try:
-                    hex_array = pa.array(
-                        [None if s is None else s.hex() for s in _to_list_array(columnar_table_data[field_name])]
-                    )
-                except (AttributeError, TypeError, ValueError) as e:
-                    if binary_reporter:
-                        binary_reporter.conversion_failed(str(field_name), e)
+                hex_arrays = _hex_arrays_or_report(
+                    [_to_list_array(columnar_table_data[field_name])], str(field_name), binary_reporter, pa.string()
+                )
+                if hex_arrays is None:
                     drop_column_names.add(field_name)
                 else:
-                    columnar_table_data[field_name] = hex_array
+                    columnar_table_data[field_name] = hex_arrays[0]
                     py_type = str
                     if arrow_schema:
                         arrow_schema = arrow_schema.set(
                             field_index, arrow_schema.field(field_index).with_type(pa.string())
                         )
-                    if binary_reporter:
-                        binary_reporter.converted(str(field_name))
             else:
                 if binary_reporter:
                     binary_reporter.dropped(str(field_name))

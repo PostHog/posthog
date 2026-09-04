@@ -168,6 +168,9 @@ tools:
     web-analytics-achievements-update-preferences:
         operation: web_analytics_achievements_update_preferences
         enabled: false
+    web-analytics-fetch-llms-txt:
+        operation: web_analytics_fetch_llms_txt
+        enabled: false
     web-analytics-filter-presets-create:
         operation: web_analytics_filter_presets_create
         enabled: false

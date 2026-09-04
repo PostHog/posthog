@@ -3,14 +3,16 @@ import './Dashboard.scss'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
 import { NotFound } from 'lib/components/NotFound'
+import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -29,6 +31,7 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -49,7 +52,14 @@ interface DashboardProps {
     showCreateAnomalyAlertButton?: boolean
 }
 
-const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+export const parseDashboardId = (id: string | undefined): number => {
+    if (!id || !/^\d+$/.test(id)) {
+        return NaN
+    }
+    // Reject "0" and all-zero variants: id 0 is the reserved internal sentinel, never a real dashboard.
+    const dashboardId = Number(id)
+    return dashboardId > 0 ? dashboardId : NaN
+}
 
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
@@ -94,14 +104,16 @@ function DashboardScene({
         canEditDashboard,
         tiles,
         itemsLoading,
+        dashboardLoading,
         layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         error404,
+        hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
@@ -128,7 +140,9 @@ function DashboardScene({
                 object="dashboard"
                 caption={
                     <>
-                        It may have been deleted, or the link is out of date.{' '}
+                        {hasInvalidDashboardId
+                            ? 'This dashboard link is not valid.'
+                            : 'It may have been deleted, or the link is out of date.'}{' '}
                         <Link to={urls.dashboards()}>Go to your dashboards</Link>.
                     </>
                 }
@@ -149,10 +163,23 @@ function DashboardScene({
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
+            {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
+            {placement !== DashboardPlacement.Export && (
+                <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
+            )}
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" supportOnly />
+                <InsightErrorState
+                    title="There was an error loading this dashboard"
+                    onRetry={
+                        placement === DashboardPlacement.Export
+                            ? undefined
+                            : () => loadDashboard({ action: DashboardLoadAction.Update })
+                    }
+                    retryLoading={dashboardLoading}
+                    placement={placement}
+                />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
@@ -162,6 +189,7 @@ function DashboardScene({
                     })}
                 >
                     <DashboardOverridesBanner />
+                    <DashboardRetentionBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

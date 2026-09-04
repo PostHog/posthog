@@ -3,12 +3,13 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
 from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from celery import Task, chain, current_task, shared_task
+from celery import Task, chain, shared_task
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -17,7 +18,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -25,11 +26,13 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
+from products.cohorts.backend.backfill.observe import publish_backfill_run_gauges
 from products.cohorts.backend.backfill.runs import (
+    BackfillRefusalReason,
+    attempt_backfill_run_for_cohort,
+    attempt_person_backfill_run_for_cohort,
     check_person_run_preconditions,
     check_run_preconditions,
-    create_backfill_run_for_cohort,
-    create_person_backfill_run_for_cohort,
 )
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
@@ -39,9 +42,23 @@ from products.cohorts.backend.models.util import (
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
+    save_recovery_bookkeeping,
     sort_cohorts_topologically,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
+
+COHORT_RECALCULATION_MAX_RETRIES = 6
+
+# CH_TRANSIENT_ERRORS plus the Postgres errors calculate_cohort_ch's own ORM reads can hit
+# (e.g. a connection-pooler blip before the ClickHouse recalculation even starts). Recalculation is
+# a background job nobody cancels by hand, so a cancelled query here means a deploy, not an operator
+# shedding load - which is why this task opts into 394 where the shared tuple leaves it out.
+COHORT_RECALCULATION_TRANSIENT_ERRORS = (
+    *CH_TRANSIENT_ERRORS,
+    CHQueryErrorQueryWasCancelled,
+    OperationalError,
+    InterfaceError,
+)
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -457,56 +474,97 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
-    # Auto-retry for transient ClickHouse errors with exponential backoff
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    # Auto-retry for transient ClickHouse and Postgres errors with exponential backoff
+    autoretry_for=COHORT_RECALCULATION_TRANSIENT_ERRORS,
     retry_backoff=60,
     retry_backoff_max=1800,
-    max_retries=6,
+    max_retries=COHORT_RECALCULATION_MAX_RETRIES,
 )
 @skip_team_scope_audit
-def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
+def calculate_cohort_ch(
+    self: Task, cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None
+) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
 
-        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+        try:
+            cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-        # Skip calculation if this version is now obsolete (superseded by newer save)
-        if cohort.pending_version and pending_version < cohort.pending_version:
-            logger.info(
-                "cohort_calculation_skipped_obsolete",
-                cohort_id=cohort_id,
-                task_version=pending_version,
-                current_pending_version=cohort.pending_version,
-            )
-            return
+            # Skip calculation if this version is now obsolete (superseded by newer save)
+            if cohort.pending_version and pending_version < cohort.pending_version:
+                logger.info(
+                    "cohort_calculation_skipped_obsolete",
+                    cohort_id=cohort_id,
+                    task_version=pending_version,
+                    current_pending_version=cohort.pending_version,
+                )
+                return
 
-        posthoganalytics.tag("team_id", cohort.team.id)
+            posthoganalytics.tag("team_id", cohort.team_id)
 
-        staleness_hours = 0.0
-        if cohort.last_calculation is not None:
-            staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
-        COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+            staleness_hours = 0.0
+            if cohort.last_calculation is not None:
+                staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
+            COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
 
-        tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
-        if initiating_user_id:
-            tags.user_id = initiating_user_id
-        if current_task and current_task.request and current_task.request.id:
-            tags.celery_task_id = current_task.request.id
-        update_tags(tags)
+            tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
+            if initiating_user_id:
+                tags.user_id = initiating_user_id
+            if self.request.id:
+                tags.celery_task_id = self.request.id
+            update_tags(tags)
+        except Exception as err:
+            # Recalculation never started - calculate_people_ch's own bookkeeping (which handles
+            # is_calculating/errors_calculating for failures during recalculation) never ran either.
+            # When nothing will retry, clear is_calculating here rather than leaving the cohort
+            # stranded "in flight" until the hourly reset_stuck_cohorts job, which would then charge
+            # it an errors_calculating increment for a recalculation that never actually ran.
+            if _is_final_attempt(self, err, COHORT_RECALCULATION_TRANSIENT_ERRORS):
+                # pending_version guard extends _safe_reset_calculating_state with a null leg: never
+                # clear the flag out from under a newer calculation that superseded this one. A null
+                # pending_version means nothing newer is queued, so it clears too.
+                #
+                # errors_calculating and last_error_at are stamped alongside because they are the
+                # only brakes on re-enqueueing: last_error_at drives the exponential backoff and
+                # errors_calculating drives the MAX_ERRORS_CALCULATING cutoff. Clearing
+                # is_calculating without them would make a cohort failing here eligible again every
+                # cycle, forever. A later successful run resets both in calculate_people_ch.
+                save_recovery_bookkeeping(
+                    lambda: Cohort.objects.filter(
+                        Q(pending_version__lte=pending_version) | Q(pending_version__isnull=True),
+                        pk=cohort_id,
+                        is_calculating=True,
+                    ).update(
+                        is_calculating=False,
+                        errors_calculating=F("errors_calculating") + 1,
+                        last_error_at=timezone.now(),
+                    ),
+                    cohort_id=cohort_id,
+                )
+            raise
 
-        cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+        cohort.calculate_people_ch(
+            pending_version,
+            initiating_user_id=initiating_user_id,
+            # calculate_people_ch charges errors_calculating in its own except block and cannot see
+            # the retry machinery above it. Without this it would charge one increment per attempt,
+            # so a single fully-failed run would push a cohort most of the way to the
+            # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
+            will_retry=lambda err: not _is_final_attempt(self, err, COHORT_RECALCULATION_TRANSIENT_ERRORS),
+        )
 
 
-def _is_final_attempt(task: Task, err: Exception) -> bool:
+def _is_final_attempt(task: Task, err: Exception, retryable_errors: tuple[type[BaseException], ...]) -> bool:
     """Whether a failure is permanent, so the task must finalize terminal state now.
 
-    Nothing retries an error outside CH_TRANSIENT_ERRORS, a direct (synchronous) call, which has no
-    Celery retry machinery behind it, or the last autoretry attempt.
+    Nothing retries an error outside the task's retryable set, a direct (synchronous) call, which
+    has no Celery retry machinery behind it, or the last autoretry attempt.
     """
-    if not isinstance(err, CH_TRANSIENT_ERRORS):
+    if not isinstance(err, retryable_errors):
         return True
     if task.request.called_directly:
         return True
@@ -583,7 +641,7 @@ def calculate_cohort_from_list(
         # raise_on_error also hands terminal-state finalization to us, so record the failure, but
         # only when nothing will retry. Recording it while attempts remain would leave a cohort
         # that is still being retried looking errored and no longer calculating.
-        if _is_final_attempt(self, err):
+        if _is_final_attempt(self, err, CH_TRANSIENT_ERRORS):
             cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         raise
     logger.warn(
@@ -919,6 +977,31 @@ COHORT_BACKFILL_TRIGGER_TASK_COUNTER = Counter(
     labelnames=["backfill_kind", "outcome"],
 )
 
+# Refusals grouped by the operator response they call for, not one label per reason: a budget
+# refusal means raise the budget or wait for in-flight runs, an occupied slot means an active run
+# already covers the cohort, and the rest are the cohort not being a candidate for this trigger.
+# Collapsing them into a single `refused`, as this used to, made the first two indistinguishable.
+# The full reason stays on the log line, so cardinality does not have to carry it.
+#
+# An occupied slot is the expected outcome of an ordinary backfill, not a wedge: a team-enablement
+# run covers every cohort on the team, and each cohort saved during one refuses this way. Read
+# `posthog_cohort_backfill_oldest_active_run_age_seconds` to tell a stuck run from normal progress.
+COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
+    BackfillRefusalReason.OVER_BUDGET: "refused_over_budget",
+    BackfillRefusalReason.RUN_SLOT_OCCUPIED: "refused_slot_occupied",
+    BackfillRefusalReason.PARTICIPATION_ACTIVE: "refused_slot_occupied",
+    BackfillRefusalReason.SLOT_RACE: "refused_slot_occupied",
+    BackfillRefusalReason.TEAM_NOT_REALTIME: "refused_ineligible",
+    BackfillRefusalReason.COHORT_MISSING: "refused_ineligible",
+    BackfillRefusalReason.COHORT_INELIGIBLE: "refused_ineligible",
+    BackfillRefusalReason.INVALID_HORIZON: "refused_ineligible",
+    BackfillRefusalReason.PINNING_CAP_EXCEEDED: "refused_ineligible",
+    # Not transient: the sizing scan's read cap is deterministic, so a cohort that trips it trips it
+    # again on every later trigger until someone raises the limit. Nothing clears on its own.
+    BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
+    BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
+}
+
 
 # acks_late: a countdown message acked on receipt sits in one worker's memory for the whole window
 # and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
@@ -972,19 +1055,24 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
                 missing=missing,
             )
             return
-        run = (
-            create_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        attempt = (
+            attempt_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
             if person
-            else create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+            else attempt_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
         )
+        run = attempt.run
         if run is None:
-            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="refused").inc()
+            # An unmapped reason falls back to the old flat `refused` rather than vanishing, so
+            # adding an enum member can never silently drop refusals out of the metric.
+            outcome = COHORT_BACKFILL_REFUSAL_OUTCOMES.get(attempt.reason, "refused") if attempt.reason else "refused"
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome=outcome).inc()
             logger.info(
                 "skipping_cohort_backfill_run_task",
                 cohort_id=cohort_id,
                 team_id=team_id,
                 trigger_kind=trigger_kind,
                 backfill_kind=backfill_kind,
+                refusal_reason=attempt.reason,
             )
             return
         COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="created").inc()
@@ -1008,6 +1096,17 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
             error=str(error),
         )
         raise
+
+
+@shared_task(ignore_result=True)
+def publish_cohort_backfill_run_gauges() -> None:
+    """Publish backfill run/chunk state for alerting.
+
+    Ungated on purpose, unlike ``finalize_cohort_backfill_runs``: a stalled run has to be alertable
+    while the finalizer is still dark, and the seeder's own metrics cannot see the transitions
+    Django owns.
+    """
+    publish_backfill_run_gauges()
 
 
 @shared_task(ignore_result=True)

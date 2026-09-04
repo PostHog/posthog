@@ -60,6 +60,37 @@ export const dayOptions = [
 /** Run or backfill workflow status (same union on both types). */
 export type BatchExportStatus = BatchExportRun['status']
 
+/** Statuses a person can filter runs by, collapsing the Temporal states they don't distinguish. */
+export type BatchExportRunStatusGroup = 'running' | 'completed' | 'failed' | 'cancelled'
+
+// Typed as a full Record so a new status fails the build until someone puts it in a group.
+const STATUS_TO_GROUP: Record<BatchExportStatus, BatchExportRunStatusGroup> = {
+    Starting: 'running',
+    Running: 'running',
+    ContinuedAsNew: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    FailedRetryable: 'failed',
+    FailedBilling: 'failed',
+    Cancelled: 'cancelled',
+    Terminated: 'cancelled',
+    TimedOut: 'cancelled',
+}
+
+export const BATCH_EXPORT_RUN_STATUS_FILTER_OPTIONS: { value: BatchExportRunStatusGroup; label: string }[] = [
+    { value: 'running', label: 'Running' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'cancelled', label: 'Cancelled' },
+]
+
+export function batchExportRunStatusesForGroups(groups: BatchExportRunStatusGroup[]): BatchExportStatus[] {
+    const selected = new Set(groups)
+    return (Object.keys(STATUS_TO_GROUP) as BatchExportStatus[]).filter((status) =>
+        selected.has(STATUS_TO_GROUP[status])
+    )
+}
+
 export function statusToLemonTagType(status: BatchExportStatus, options?: { recordsFailed?: number }): LemonTagType {
     if (status === 'Completed' && options?.recordsFailed != null && options.recordsFailed > 0) {
         return 'warning'
@@ -77,6 +108,7 @@ export function statusToLemonTagType(status: BatchExportStatus, options?: { reco
             return 'warning'
         case 'Failed':
         case 'FailedRetryable':
+        case 'FailedBilling':
             return 'danger'
         default:
             return 'default'
@@ -97,6 +129,7 @@ export function statusToProgressStrokeColor(status: BatchExportStatus): string {
             return 'var(--warning)'
         case 'Failed':
         case 'FailedRetryable':
+        case 'FailedBilling':
             return 'var(--danger)'
         default:
             return 'var(--color-border-primary)'

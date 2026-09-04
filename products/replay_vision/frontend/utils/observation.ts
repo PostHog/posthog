@@ -1,7 +1,26 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import { type ReplayObservationApi, ScannerOriginEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { citedTextToPlainText, parseCitedSegments } from './citations'
+
+/** The dock's built-in prompt and the observations it produces have to answer to one name. */
+export const BUILT_IN_SUMMARY_LABEL = 'Quick summary'
+
+/** Only a confirmed saved scanner has a page, so an origin a later release adds fails safe to no link. */
+export function hasScannerPage(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
+    return obs.scanner_origin === ScannerOriginEnumApi.Configured
+}
+
+/** What to call the scan behind an observation, anywhere one is named next to its result. */
+export function scannerLabel(obs: Pick<ReplayObservationApi, 'scanner_origin' | 'scanner_snapshot'>): string {
+    if (obs.scanner_origin !== ScannerOriginEnumApi.Inline) {
+        return obs.scanner_snapshot?.name || 'Scanner'
+    }
+    // A one-off scan has no name to borrow, so its result answers to whatever the dock called the prompt.
+    return obs.scanner_snapshot?.scanner_type === ScannerTypeEnumApi.Summarizer
+        ? BUILT_IN_SUMMARY_LABEL
+        : 'One-off scan'
+}
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {
     const out = obs.scanner_result?.model_output
@@ -30,9 +49,30 @@ export function readReasoning(obs: ReplayObservationApi): string | null {
     return typeof raw === 'string' && raw ? raw : null
 }
 
-/** The dock shows summaries only; observations from the team's own scanners live in the sidebar tab. */
+/** Summarizer output, which is the dock's primary content. */
 export function isSummaryObservation(obs: ReplayObservationApi): boolean {
     return obs.scanner_snapshot?.scanner_type === 'summarizer'
+}
+
+/** A scan that settled without a result: the scanner failed, or the recording did not qualify. */
+export function isUnsuccessfulScan(obs: ReplayObservationApi): boolean {
+    return obs.status === 'failed' || obs.status === 'ineligible'
+}
+
+/**
+ * What the dock shows below the player: every summary, plus any other scanner that left no result.
+ *
+ * A succeeded scanner observation stays in the sidebar tab, which is where the team reads its own
+ * scanners. One that failed or was ineligible is different: nothing below the player would otherwise
+ * say why no result arrived, so the run is only discoverable by opening the sidebar and looking.
+ */
+export function dockObservations(observations: ReplayObservationApi[]): ReplayObservationApi[] {
+    // A summarizer that failed is already carried by the first filter, so the second skips summaries
+    // rather than listing them twice.
+    return [
+        ...observations.filter(isSummaryObservation),
+        ...observations.filter((obs) => !isSummaryObservation(obs) && isUnsuccessfulScan(obs)),
+    ]
 }
 
 /** Summarizer output: the one-line headline. */
@@ -78,7 +118,7 @@ export function readTags(obs: ReplayObservationApi): string[] {
 }
 
 export interface ObservationSeekbarMarkEntry {
-    scannerName: string | null
+    scannerName: string
     headline: string | null
     snippet: string | null
 }
@@ -159,7 +199,7 @@ function observationHeadline(obs: ReplayObservationApi): string | null {
 export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
     const entriesByTimestamp = new Map<number, Map<string, ObservationSeekbarMarkEntry>>()
     for (const obs of observations) {
-        const scannerName = obs.scanner_snapshot?.name ?? null
+        const scannerName = scannerLabel(obs)
         const headline = observationHeadline(obs)
         for (const { timestampMs, snippet } of readCitations(obs)) {
             const entries = entriesByTimestamp.get(timestampMs) ?? new Map<string, ObservationSeekbarMarkEntry>()

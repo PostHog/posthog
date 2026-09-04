@@ -2,7 +2,9 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 
-import { getEffectiveDateOverride, InsightMetaContent } from './InsightMeta'
+import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
+
+import { InsightMetaContent } from './InsightMeta'
 
 describe('InsightMeta', () => {
     describe('getEffectiveDateOverride', () => {

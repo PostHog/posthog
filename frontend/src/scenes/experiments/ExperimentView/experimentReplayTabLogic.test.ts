@@ -15,6 +15,7 @@ import {
     experimentsSessionContextsCreate,
     experimentsSessionEventDeltasCreate,
 } from 'products/experiments/frontend/generated/api'
+import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 
 import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
 import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
@@ -28,6 +29,10 @@ jest.mock('products/experiments/frontend/generated/api', () => ({
     experimentsSessionContextsCreate: jest.fn().mockResolvedValue({ results: [] }),
     experimentsSessionBucketsCreate: jest.fn(),
     experimentsSessionEventDeltasCreate: jest.fn(),
+}))
+
+jest.mock('products/replay_vision/frontend/generated/api', () => ({
+    visionScannersList: jest.fn().mockResolvedValue({ results: [] }),
 }))
 
 const BUCKET_RESPONSE = {
@@ -56,7 +61,7 @@ const DELTA_RESPONSE = {
             highlights: [{ session_id: 'card-session-2', reason: '3 rage clicks' }],
         },
     ],
-    arms: [
+    variants: [
         { key: 'control', persons: 100, sessions: 140 },
         { key: 'test', persons: 100, sessions: 138 },
     ],
@@ -69,10 +74,11 @@ const DELTA_RESPONSE = {
     used_exposure_fallback: false,
     sessions_truncated: false,
     events_truncated: false,
-    min_arm_persons: 50,
+    min_variant_persons: 50,
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
     too_early: false,
+    empty_reason: null,
 }
 
 const PURCHASE_METRIC = {
@@ -141,6 +147,8 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue(BUCKET_RESPONSE)
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockClear()
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockResolvedValue(DELTA_RESPONSE)
+        ;(visionScannersList as jest.Mock).mockClear()
+        ;(visionScannersList as jest.Mock).mockResolvedValue({ results: [] })
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -336,7 +344,7 @@ describe('experimentReplayTabLogic', () => {
         partiallyLinkable.actions.setMetricSelected('metric-funnel', true)
         await expectLogic(partiallyLinkable).toFinishAllListeners()
         // A multi-source metric resolves server-side, where the unmatchable step is simply one
-        // OR arm that never matches a session — so it drops out without narrowing anything.
+        // OR variant that never matches a session — so it drops out without narrowing anything.
         expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 45, {
             bucket: 'fired_any',
             metric_uuids: ['metric-funnel'],
@@ -499,8 +507,7 @@ describe('experimentReplayTabLogic', () => {
         failed.unmount()
     })
 
-    it('prefetches session contexts for a loaded recordings page when the flag is on', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+    it('prefetches session contexts for a loaded recordings page', async () => {
         logic.actions.recordingsLoaded(loadedPage(['s1', 's2']))
         await expectLogic(logic).toFinishAllListeners()
 
@@ -510,8 +517,6 @@ describe('experimentReplayTabLogic', () => {
     })
 
     it('re-warms the rest of the page when a recording is opened', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
-
         // Opening before any page has loaded must not fire an empty batch (the backend 400s it).
         logic.actions.recordingOpened('s1')
         await expectLogic(logic).toFinishAllListeners()
@@ -530,15 +535,8 @@ describe('experimentReplayTabLogic', () => {
         expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[1][1].session_ids).toEqual(['s1', 's3'])
     })
 
-    it('never prefetches for flag-disabled viewers, and caps a batch at the backend limit', async () => {
-        // Ungated, every experiment-tab visit would fire the expensive ClickHouse scans for
-        // viewers who can't even see the experiments box.
-        logic.actions.recordingsLoaded(loadedPage(['s1']))
-        await expectLogic(logic).toFinishAllListeners()
-        expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
-
+    it('caps a batch at the backend limit', async () => {
         // Over-cap ids must be sliced, not sent — the backend 400s the whole batch above its cap.
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
         logic.actions.recordingsLoaded(loadedPage(Array.from({ length: 25 }, (_, index) => `session-${index}`)))
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(1)
@@ -924,5 +922,73 @@ describe('experimentReplayTabLogic', () => {
                 session_ids: undefined,
             })
         }).toMatchValues({ selectedWatchCard: null })
+    })
+
+    it('loads the scanners watching this experiment, scoped by experiment_id', async () => {
+        // Guards the back-link on the Recordings tab: it must query the scanners endpoint with this
+        // experiment's id (dropping the filter would list every scanner in the project) and surface
+        // the name, type, and monthly observation count each row shows.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        ;(visionScannersList as jest.Mock).mockResolvedValue({
+            results: [
+                { id: 's1', name: 'Checkout confusion', scanner_type: 'classifier', observations_this_month: 50 },
+                { id: 's2', name: 'Rage clicks', scanner_type: 'summarizer', observations_this_month: 3 },
+            ],
+        })
+        const withScanners = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        withScanners.mount()
+
+        await expectLogic(withScanners)
+            .toFinishAllListeners()
+            .toMatchValues({
+                linkedScanners: [
+                    { id: 's1', name: 'Checkout confusion', scannerType: 'classifier', observationsThisMonth: 50 },
+                    { id: 's2', name: 'Rage clicks', scannerType: 'summarizer', observationsThisMonth: 3 },
+                ],
+            })
+        expect(visionScannersList).toHaveBeenCalledWith(expect.any(String), { experiment_id: '42' })
+        withScanners.unmount()
+    })
+
+    it('does not query scanners when the vision entry-point flag is off', async () => {
+        // The card only renders behind the flag, so the lookup must not fire for the many users who
+        // open the Recordings tab without it. The default test flags leave the flag off.
+        logic.unmount()
+        ;(visionScannersList as jest.Mock).mockClear()
+        const withoutFlag = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        withoutFlag.mount()
+
+        await expectLogic(withoutFlag).toFinishAllListeners()
+        expect(visionScannersList).not.toHaveBeenCalled()
+        withoutFlag.unmount()
+    })
+
+    it('marks the scanners lookup loading while in flight, so the tab shows a skeleton not the banner', async () => {
+        // The skeleton branch keys off linkedScannersLoading. Without the loading flag, the tab would
+        // flash the cross-sell banner (linkedScanners is [] until the fetch resolves) before the card.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        let resolve: (value: unknown) => void = () => {}
+        ;(visionScannersList as jest.Mock).mockReturnValue(new Promise((r) => (resolve = r)))
+        const loadingLogic = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        loadingLogic.mount()
+
+        await expectLogic(loadingLogic).toMatchValues({ linkedScannersLoading: true })
+        resolve({ results: [] })
+        await expectLogic(loadingLogic).toFinishAllListeners().toMatchValues({ linkedScannersLoading: false })
+        loadingLogic.unmount()
+    })
+
+    it('degrades to no back-link when the scanner lookup fails', async () => {
+        // The tab must render even if the lookup errors, so the loader swallows to an empty list.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        ;(visionScannersList as jest.Mock).mockRejectedValue(new Error('boom'))
+        const withError = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        withError.mount()
+
+        await expectLogic(withError).toFinishAllListeners().toMatchValues({ linkedScanners: [] })
+        withError.unmount()
     })
 })

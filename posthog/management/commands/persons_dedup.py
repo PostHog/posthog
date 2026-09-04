@@ -74,6 +74,26 @@ ClickHouse stores only person.uuid, never the bigint, so a dedup needs no ClickH
 That holds only because the survivor keeps the uuid: delete the last row for a uuid and
 ClickHouse is left visible but unbacked. GATE_NO_SURVIVOR_SQL prevents that. Do not weaken it.
 
+THE SURVIVOR'S VERSION
+
+Keeping the uuid backed is not the same as keeping it current. The ClickHouse `person` table is
+ReplacingMergeTree(version) keyed on (team_id, uuid), and every read path resolves a person with
+argMax(..., version), so the highest version ever written under that uuid wins. Both members of
+a duplicate group wrote under the same key with independent counters, and the survivor rule
+ranks reachability above version, so the row we keep is routinely the lower-versioned one. Its
+later property updates then lose to a row we just deleted, and ClickHouse serves stale
+properties for as long as the gap takes to close -- which for a large gap is never.
+
+The raise lifts a lone survivor above the victims removed with it so its next update outranks
+them. It is not a ClickHouse write: nothing here produces to Kafka, so ClickHouse converges on
+the survivor's next ordinary property update rather than immediately. A group with more than one
+survivor is merge-required and is left alone, because giving both the same version makes their
+ClickHouse rows tie instead of resolve.
+
+It is on by default, because a run that omits it leaves the divergence in place silently.
+--no-raise-survivor-version opts out, which also drops the UPDATE and the wider lock this takes
+on rows live ingestion writes, and gives up the correction for that run.
+
 Outside the persons DB the bigint survives in places this command cannot repair, all of which
 fail safe. Drain these before a large run rather than reasoning about them mid-flight:
 
@@ -107,6 +127,7 @@ import os
 import json
 import time
 import logging
+import argparse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -498,6 +519,27 @@ WHERE p.team_id = %(team)s
 FOR UPDATE
 """
 
+# --raise-survivor-version only. Takes every lock the batch will need -- victims and the
+# survivors the raise updates -- in one ordered statement, before the gates and the backup.
+#
+# Without it the transaction locks victims, spends the gates and an fsync'd backup, and only
+# then reaches for the survivor. Ingestion's updatePersonsBatch matches on (team_id, uuid)
+# (nodejs postgres-person-repository.ts), so one of its statements needs both rows: if it takes
+# the survivor and blocks on our victim while we are still writing the backup, the two deadlock.
+# Postgres would abort one and the batch would retry, but it can bounce an ingestion write too.
+#
+# Collapsing both acquisitions into one statement leaves no window between them. ORDER BY id
+# makes our order deterministic; ingestion's order inside its own statement is the planner's, so
+# this narrows the race rather than removing it, and DeadlockDetected stays the backstop.
+LOCK_BATCH_GROUPS_SQL = f"""
+SELECT p.id FROM posthog_person p
+WHERE p.team_id = %(team)s
+  AND EXISTS (SELECT 1 FROM {VICTIMS_TABLE}_batch b
+               WHERE b.team_id = p.team_id AND b.uuid = p.uuid)
+ORDER BY p.id
+FOR UPDATE
+"""
+
 FETCH_PERSONS_SQL = f"""
 SELECT {", ".join("p." + c for c in PERSON_COLUMNS)}
 FROM posthog_person p
@@ -549,6 +591,67 @@ USING {VICTIMS_TABLE}_batch b
 WHERE p.team_id = b.team_id AND p.id = b.id AND p.team_id = %(team)s
 """
 
+# Headroom above the ceiling we can see. ClickHouse's ceiling for a uuid can exceed every
+# version currently in Postgres, because a member deleted before this command existed also
+# wrote under the same key. Matches the margin the delete paths already use for the same
+# reason (posthog/models/person/deletion.py and the nodejs person repository).
+SURVIVOR_VERSION_MARGIN = 100
+
+# The batch's duplicate groups, the highest version among the victims we are about to remove,
+# and each group's survivors. Shared by the dry-run count and the update so both describe the
+# same rows. Victims are locked by the time this runs, so their versions cannot move under it.
+_SURVIVOR_VERSION_CTE = f"""
+WITH victim_ceiling AS (
+    SELECT b.team_id, b.uuid, max(COALESCE(p.version, 0)) AS ceiling
+    FROM {VICTIMS_TABLE}_batch b
+    JOIN posthog_person p ON p.team_id = b.team_id AND p.id = b.id
+    GROUP BY b.team_id, b.uuid
+),
+survivor AS (
+    SELECT c.ceiling, s.id AS survivor_id, s.team_id, COALESCE(s.version, 0) AS survivor_version,
+           count(*) OVER (PARTITION BY c.team_id, c.uuid) AS survivors_in_group
+    FROM victim_ceiling c
+    JOIN posthog_person s ON s.team_id = c.team_id AND s.uuid = c.uuid
+    WHERE NOT EXISTS (SELECT 1 FROM {VICTIMS_TABLE}_batch b2
+                       WHERE b2.team_id = s.team_id AND b2.id = s.id)
+)
+"""
+
+# Only a lone survivor can be raised: a group with two survivors is merge-required, and giving
+# both the same version would make their ClickHouse rows tie rather than resolve. Those go to
+# the merge pass untouched.
+_LONE_SURVIVOR_PREDICATE = """
+  AND v.survivors_in_group = 1
+"""
+
+# The version guard reads p.version, the live row, not the CTE's survivor_version.
+#
+# LOCK_BATCH_GROUPS_SQL already holds FOR UPDATE on this row, so nothing can move it under us
+# and the two are equal in practice. The distinction still matters: read committed re-checks an
+# UPDATE's qual against the latest tuple after taking the row lock, and that re-check sees a new
+# p.version but not a new CTE, which is evaluated once. Guarding on the CTE would make this
+# statement correct only because of a lock three statements earlier, and silently wrong if
+# anyone reordered the transaction. Guarding on p.version makes it safe on its own, and a
+# survivor a writer pushed above the ceiling is skipped rather than lowered.
+RAISE_SURVIVOR_VERSION_SQL = f"""
+{_SURVIVOR_VERSION_CTE}
+UPDATE posthog_person p
+SET version = v.ceiling + {SURVIVOR_VERSION_MARGIN}
+FROM survivor v
+WHERE p.team_id = %(team)s AND p.id = v.survivor_id
+{_LONE_SURVIVOR_PREDICATE}
+  AND COALESCE(p.version, 0) <= v.ceiling
+"""
+
+# The dry-run count has no row to re-check, so it reads the same snapshot the CTE took.
+COUNT_SURVIVOR_VERSION_SQL = f"""
+{_SURVIVOR_VERSION_CTE}
+SELECT count(*) FROM survivor v
+WHERE v.team_id = %(team)s
+{_LONE_SURVIVOR_PREDICATE}
+  AND v.survivor_version <= v.ceiling
+"""
+
 VERIFY_ORPHANS_SQL = """
 SELECT count(*) FROM posthog_persondistinctid pdi
 WHERE pdi.team_id = %(team)s
@@ -572,6 +675,11 @@ WRITE_PRIVILEGES = (
     *READ_PRIVILEGES,
     ("posthog_person", "DELETE"),
     ("posthog_cohortpeople", "DELETE"),
+)
+# Only --raise-survivor-version writes to a person row, so the grant is only required then.
+SURVIVOR_VERSION_PRIVILEGES = (
+    *WRITE_PRIVILEGES,
+    ("posthog_person", "UPDATE"),
 )
 
 # Aurora cancels a long read-only query on a reader with 40001, or drops the session with
@@ -787,6 +895,18 @@ class Command(BaseCommand):
             help="give up after this many batches lost to lock contention",
         )
         parser.add_argument(
+            "--raise-survivor-version",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help=(
+                "raise a lone survivor's version above the versions of the victims removed with "
+                "it, so its later property updates outrank their ClickHouse rows instead of "
+                "being ignored. On by default: leaving it off silently leaves the survivor's "
+                "ClickHouse row stale. --no-raise-survivor-version opts out, which also drops "
+                "the UPDATE and the wider lock on rows live ingestion writes"
+            ),
+        )
+        parser.add_argument(
             "--resume-from",
             help="skip staging and load the victims still to delete from a checkpoint file",
         )
@@ -906,7 +1026,14 @@ class Command(BaseCommand):
             backend_pid = _scalar(conn, "SELECT pg_backend_pid()")
             on_replica = _is_replica(conn)
 
-            missing = _check_privileges(conn, READ_PRIVILEGES if mode in READ_MODES else WRITE_PRIVILEGES)
+            required_privileges: tuple[tuple[str, str], ...]
+            if mode in READ_MODES:
+                required_privileges = READ_PRIVILEGES
+            elif options["raise_survivor_version"]:
+                required_privileges = SURVIVOR_VERSION_PRIVILEGES
+            else:
+                required_privileges = WRITE_PRIVILEGES
+            missing = _check_privileges(conn, required_privileges)
             if missing:
                 raise CommandError(
                     "operator role lacks required grants: " + ", ".join(missing) + ". "
@@ -1144,6 +1271,7 @@ class Command(BaseCommand):
         batches = 0
         pruned_total = 0
         lock_retries = 0
+        raised = 0
         # A live-leak team can make a staged victim reachable mid-run, which is expected and
         # is handled per batch below. A large share going that way is not expected and means
         # the staging query and the gate disagree, so stop rather than grind through the set.
@@ -1199,10 +1327,13 @@ class Command(BaseCommand):
                 # still reports success, which on the large teams is a fraction of a percent.
                 checked += in_batch
                 with conn.cursor() as cur:
+                    if options["raise_survivor_version"]:
+                        raised += _scalar(conn, COUNT_SURVIVOR_VERSION_SQL, {"team": team})
                     cur.execute(RETIRE_BATCH_SQL)
                 continue
 
             batch_started = time.monotonic()
+            raised_in_batch = 0
             try:
                 with conn.cursor() as cur:
                     cur.execute("BEGIN")
@@ -1217,6 +1348,12 @@ class Command(BaseCommand):
                         "SELECT set_config('statement_timeout', %s, true)",
                         (f"{options['txn_statement_timeout_ms']}ms",),
                     )
+                    # Takes the survivors' locks too, so the raise later in this transaction
+                    # adds no second acquisition point. Runs first, and LOCK_VICTIMS_SQL below
+                    # then re-locks rows already held, which costs nothing and keeps its
+                    # rowcount check meaning exactly what it did before.
+                    if options["raise_survivor_version"]:
+                        cur.execute(LOCK_BATCH_GROUPS_SQL, {"team": team})
                     cur.execute(LOCK_VICTIMS_SQL, {"team": team})
                     locked = cur.rowcount
                     # Re-check inside the transaction: these teams still receive writes, and a
@@ -1266,6 +1403,11 @@ class Command(BaseCommand):
                         cur.execute("ROLLBACK")
                         raise CommandError(f"backed up {backed_up} row(s) but staged {in_batch}; rolled back")
 
+                    # Before the delete, while the victims' versions are still readable, and
+                    # inside it, so a rollback takes the raise with it.
+                    if options["raise_survivor_version"]:
+                        cur.execute(RAISE_SURVIVOR_VERSION_SQL, {"team": team})
+                        raised_in_batch = cur.rowcount
                     cur.execute(DELETE_COHORT_SQL)
                     cur.execute(DELETE_PERSONS_SQL, {"team": team})
                     removed = cur.rowcount
@@ -1320,6 +1462,9 @@ class Command(BaseCommand):
             with conn.cursor() as cur:
                 cur.execute(RETIRE_BATCH_SQL)
             deleted += removed
+            # Only after the commit: a batch lost to lock contention is retried, and counting
+            # the rolled-back raise here would double it.
+            raised += raised_in_batch
             if options["checkpoint_every"] and batches % options["checkpoint_every"] == 0:
                 self._write_checkpoint(conn, checkpoint_path, team=team, staged=staged - deleted)
             if options["sleep_ms"] > 0:
@@ -1330,12 +1475,19 @@ class Command(BaseCommand):
                 batch=batches,
                 deleted=removed,
                 total=deleted,
+                survivors_raised=raised_in_batch if options["raise_survivor_version"] else None,
                 elapsed_s=round(time.monotonic() - batch_started, 2),
             )
 
         if not apply_changes:
             logger.info(
-                "persons_dedup.dry_run_ok", team_id=team, mode=mode, batches=batches, checked=checked, staged=staged
+                "persons_dedup.dry_run_ok",
+                team_id=team,
+                mode=mode,
+                batches=batches,
+                checked=checked,
+                staged=staged,
+                survivors_to_raise=raised if options["raise_survivor_version"] else None,
             )
             return
 
@@ -1347,6 +1499,7 @@ class Command(BaseCommand):
             deleted=deleted,
             pruned=pruned_total,
             lock_retries=lock_retries,
+            survivors_raised=raised if options["raise_survivor_version"] else None,
             backup=str(backup_path),
         )
 

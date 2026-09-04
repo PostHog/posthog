@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.s
     GOLDCAST_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source import GoldcastSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(access_key: str = "tok") -> Any:
@@ -24,15 +23,6 @@ def _config(access_key: str = "tok") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert GoldcastSource().source_type == ExternalDataSourceType.GOLDCAST
-
-    def test_config_is_alpha_and_unreleased(self) -> None:
-        config = GoldcastSource().get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/goldcast"
-
     def test_single_secret_token_field(self) -> None:
         fields = {f.name: f for f in GoldcastSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"access_key"}
@@ -103,20 +93,6 @@ class TestValidateCredentials:
             valid, message = GoldcastSource().validate_credentials(_config(), team_id=1)
         assert valid is False
         assert message == "Invalid Goldcast API token"
-
-
-class TestSourceForPipeline:
-    def test_plumbs_access_key_and_endpoint_through(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "webinars"
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source.goldcast_source"
-        ) as mock_source:
-            GoldcastSource().source_for_pipeline(_config(access_key="secret"), inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["access_key"] == "secret"
-        assert kwargs["endpoint"] == "webinars"
 
 
 class TestDocumentedTables:

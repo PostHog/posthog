@@ -7,7 +7,7 @@ from collections import OrderedDict
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
+from typing import Any, NoReturn, Optional, Protocol
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
@@ -30,13 +30,13 @@ from posthog.api.services.query import process_query_dict
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions import ClickHouseQuerySizeExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
@@ -399,15 +399,51 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
+def _raise_invalid_export_authorization(exported_asset: ExportedAsset, reason: str) -> NoReturn:
+    logger.error(
+        "csv_exporter.invalid_authentication_source",
+        exported_asset_id=exported_asset.id,
+        reason=reason,
+    )
+    raise ValueError("This export could not verify its original authorization. Create a new export and try again.")
+
+
 def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any]:
     path: str = resource["path"]
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
+    if method.upper() != "GET" or body is not None:
+        logger.error(
+            "csv_exporter.unsupported_api_request",
+            exported_asset_id=exported_asset.id,
+            method=method,
+            has_body=body is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
+    source_authentication = exported_asset.source_authentication
+    if source_authentication is None:
+        _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
     next_url = None
+    token_payload: dict[str, int | str | None] = {"id": exported_asset.created_by_id}
+    if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
+        if not exported_asset.source_credential_id:
+            _raise_invalid_export_authorization(exported_asset, "missing_personal_api_key")
+        token_payload["personal_api_key_id"] = exported_asset.source_credential_id
+    elif source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
+        if not exported_asset.source_credential_id:
+            _raise_invalid_export_authorization(exported_asset, "missing_oauth_access_token")
+        token_payload["oauth_access_token_id"] = exported_asset.source_credential_id
+    elif source_authentication != ExportedAsset.SourceAuthentication.SESSION:
+        _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
+    token_audience = (
+        PosthogJwtAudience.IMPERSONATED_USER
+        if source_authentication == ExportedAsset.SourceAuthentication.SESSION
+        else PosthogJwtAudience.DELEGATED_USER
+    )
     access_token = encode_jwt(
-        {"id": exported_asset.created_by_id},
+        token_payload,
         datetime.timedelta(minutes=15),
-        PosthogJwtAudience.IMPERSONATED_USER,
+        token_audience,
     )
     total = 0
     while total < CSV_EXPORT_LIMIT:

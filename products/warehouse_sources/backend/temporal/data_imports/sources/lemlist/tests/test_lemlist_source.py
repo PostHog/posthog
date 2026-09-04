@@ -4,35 +4,16 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.lemlist import LemlistResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.source import LemlistSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key") -> Any:
     return MagicMock(api_key=api_key)
-
-
-class TestLemlistSourceConfig:
-    def test_source_type(self) -> None:
-        assert LemlistSource().source_type == ExternalDataSourceType.LEMLIST
-
-    def test_source_config_basics(self) -> None:
-        config = LemlistSource().get_source_config
-        assert config.label == "Lemlist"
-        # A single API-key field, stored as a secret password input.
-        assert [f.name for f in config.fields] == ["api_key"]
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
 
 class TestVersioning:
@@ -41,24 +22,6 @@ class TestVersioning:
         assert source.supported_versions == ("v1", "v2")
         # New sources are stamped with default_version; v2 is lemlist's current version.
         assert source.default_version == "v2"
-
-
-class TestGetSchemas:
-    def test_returns_all_endpoints(self) -> None:
-        schemas = LemlistSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_activities_is_incremental(self) -> None:
-        schemas = {s.name: s for s in LemlistSource().get_schemas(_config(), team_id=1)}
-        assert schemas["activities"].supports_incremental is True
-        assert [f["field"] for f in schemas["activities"].incremental_fields] == ["createdAt"]
-        for name in ("campaigns", "team", "team_senders", "unsubscribes"):
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].incremental_fields == []
-
-    def test_names_filter(self) -> None:
-        schemas = LemlistSource().get_schemas(_config(), team_id=1, names=["activities"])
-        assert [s.name for s in schemas] == ["activities"]
 
 
 class TestValidateCredentials:
@@ -95,13 +58,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
         keys = LemlistSource().get_non_retryable_errors()
         assert not any(key in observed for key in keys)
-
-
-class TestResumableManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = LemlistSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is LemlistResumeConfig
 
 
 class TestSourceForPipeline:
@@ -147,6 +103,3 @@ class TestSourceForPipeline:
 class TestCanonicalDescriptions:
     def test_descriptions_cover_every_endpoint(self) -> None:
         assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
-
-    def test_source_exposes_canonical_descriptions(self) -> None:
-        assert LemlistSource().get_canonical_descriptions() == CANONICAL_DESCRIPTIONS

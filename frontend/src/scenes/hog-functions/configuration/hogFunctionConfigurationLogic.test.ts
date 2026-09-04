@@ -319,4 +319,34 @@ describe('hogFunctionConfigurationLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionFailure'])
         })
     })
+
+    describe('internal destination without a trigger', () => {
+        const INTERNAL_DESTINATION: HogFunctionType = {
+            ...HOG_FUNCTION,
+            type: 'internal_destination',
+            filters: {},
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.get.mockReturnValue(Promise.resolve(INTERNAL_DESTINATION))
+            mockApi.update.mockReturnValue(Promise.resolve(INTERNAL_DESTINATION))
+            logic = hogFunctionConfigurationLogic({ id: INTERNAL_DESTINATION.id })
+            logic.mount()
+        })
+
+        it('blocks the save client-side, since the backend requires an explicit event', async () => {
+            // A legacy internal destination stores no events at all, so the rule has to catch an
+            // absent list and not just an empty one — otherwise the form posts a payload the
+            // backend rejects, and the user gets no feedback.
+            await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationFailure'])
+
+            expect(logic.values.configurationErrors.filters).toBe('You must choose a filter')
+            expect(mockApi.update).not.toHaveBeenCalled()
+        })
+    })
 })

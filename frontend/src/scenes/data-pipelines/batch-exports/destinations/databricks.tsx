@@ -25,6 +25,12 @@ export const databricksDefinition: DestinationDefinition = {
             schema_valid: true,
         },
         ...PERSON_PROPERTIES_EVENT_FIELD,
+        created_at: {
+            name: 'created_at',
+            hogql_value: 'created_at',
+            type: 'datetime',
+            schema_valid: true,
+        },
         databricks_ingested_timestamp: {
             name: 'databricks_ingested_timestamp',
             hogql_value: 'NOW64()',

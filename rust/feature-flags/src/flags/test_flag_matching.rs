@@ -3971,6 +3971,120 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_behavioral_cohort_non_match_surfaces_cohort_not_evaluated_reason() {
+        // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
+        // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Behavioral Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "behavioral_non_member".to_string();
+        // Person does NOT satisfy the cohort filters, so dynamic evaluation is a non-match.
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_realtime_cohort_evaluation(false);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(!result.matches);
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
+        );
+        // Serializes as the backward-compatible code; the enriched signal rides the description.
+        assert_eq!(result.reason.to_string(), "no_condition_match");
+    }
+
+    #[tokio::test]
+    async fn test_person_property_cohort_non_match_keeps_plain_no_condition_match_reason() {
+        // A cohort without a behavioral condition is fully evaluable from person properties,
+        // so a genuine non-match must stay NoConditionMatch and not be over-labeled.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Person Property Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "person_property_non_member".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(!result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    #[tokio::test]
     async fn test_disambiguated_policy_person_stamp_only_falls_back_to_dynamic() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(

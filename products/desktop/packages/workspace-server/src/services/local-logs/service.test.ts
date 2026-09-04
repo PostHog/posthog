@@ -2,11 +2,10 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockMkdir, mockWriteFile, mockReadFile, mockRm } = vi.hoisted(() => ({
+const { mockMkdir, mockWriteFile, mockReadFile } = vi.hoisted(() => ({
   mockMkdir: vi.fn(),
   mockWriteFile: vi.fn(),
   mockReadFile: vi.fn(),
-  mockRm: vi.fn(),
 }));
 
 vi.mock("node:fs", () => ({
@@ -15,7 +14,6 @@ vi.mock("node:fs", () => ({
       mkdir: mockMkdir,
       writeFile: mockWriteFile,
       readFile: mockReadFile,
-      rm: mockRm,
     },
   },
 }));
@@ -54,7 +52,6 @@ describe("LocalLogsService", () => {
     mockMkdir.mockReset().mockResolvedValue(undefined);
     mockWriteFile.mockReset().mockResolvedValue(undefined);
     mockReadFile.mockReset();
-    mockRm.mockReset().mockResolvedValue(undefined);
   });
 
   describe("readLocalLogs", () => {
@@ -221,62 +218,6 @@ describe("LocalLogsService", () => {
 
       expect(mockWriteFile).toHaveBeenCalledTimes(2);
       expect(mockMkdir).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("seedLocalLogs", () => {
-    it("appends a seed boundary marker and writes the NDJSON", async () => {
-      const service = new LocalLogsService();
-      await service.seedLocalLogs(RUN_ID, "a\nb\n");
-      expect(mockMkdir).toHaveBeenCalledWith(path.dirname(expectedPath), {
-        recursive: true,
-      });
-      expect(mockWriteFile).toHaveBeenCalledWith(
-        expectedPath,
-        `a\nb\n${JSON.stringify({ type: "seed_boundary" })}\n`,
-        "utf-8",
-      );
-    });
-
-    it("adds a trailing newline before the marker when missing", async () => {
-      const service = new LocalLogsService();
-      await service.seedLocalLogs(RUN_ID, "no-newline");
-      expect(mockWriteFile).toHaveBeenCalledWith(
-        expectedPath,
-        `no-newline\n${JSON.stringify({ type: "seed_boundary" })}\n`,
-        "utf-8",
-      );
-    });
-
-    it("skips empty content", async () => {
-      const service = new LocalLogsService();
-      await service.seedLocalLogs(RUN_ID, "   ");
-      expect(mockWriteFile).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("countLocalLogEntries", () => {
-    it("counts non-blank lines", async () => {
-      mockReadFile.mockResolvedValue("a\n\nb\n c \n\n");
-      const service = new LocalLogsService();
-      await expect(service.countLocalLogEntries(RUN_ID)).resolves.toBe(3);
-      expect(mockReadFile).toHaveBeenCalledWith(expectedPath, "utf-8");
-    });
-
-    it("returns 0 when the log is missing", async () => {
-      mockReadFile.mockRejectedValue(
-        Object.assign(new Error("nope"), { code: "ENOENT" }),
-      );
-      const service = new LocalLogsService();
-      await expect(service.countLocalLogEntries(RUN_ID)).resolves.toBe(0);
-    });
-  });
-
-  describe("deleteLocalLogCache", () => {
-    it("force-removes the run's NDJSON path", async () => {
-      const service = new LocalLogsService();
-      await service.deleteLocalLogCache(RUN_ID);
-      expect(mockRm).toHaveBeenCalledWith(expectedPath, { force: true });
     });
   });
 });

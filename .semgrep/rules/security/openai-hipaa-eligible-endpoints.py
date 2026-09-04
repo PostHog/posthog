@@ -99,7 +99,7 @@ def test_legacy_completions_create() -> None:
 
 def test_legacy_completions_create_async() -> None:
     # ruleid: openai-non-hipaa-legacy-completions
-    async_client.completions.create(model="text-davinci-003", prompt="hi")
+    async_client.completions.create(model="text-davinci-003", prompt="hi")  # ty: ignore[unused-awaitable]
 
 
 # ============================================================
@@ -114,7 +114,9 @@ def test_chat_completions_create() -> None:
 
 def test_chat_completions_create_async() -> None:
     # ok: openai-non-hipaa-legacy-completions
-    async_client.chat.completions.create(model="gpt-4", messages=[{"role": "user", "content": "hi"}])
+    async_client.chat.completions.create(  # ty: ignore[unused-awaitable]
+        model="gpt-4", messages=[{"role": "user", "content": "hi"}]
+    )
 
 
 # ============================================================

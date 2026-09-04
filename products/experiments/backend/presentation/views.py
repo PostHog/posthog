@@ -29,7 +29,12 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +44,8 @@ from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
     SessionBucketsBurstRateThrottle,
     SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
@@ -46,13 +53,13 @@ from posthog.rate_limit import (
     SessionEventDeltasBurstRateThrottle,
     SessionEventDeltasSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
@@ -250,6 +257,34 @@ def _accessible_session_ids(
     return [session_id for session_id in session_ids if session_id not in denied_ids]
 
 
+class ExperimentBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Same scope and rate as the default BurstRateThrottle so personal-key and session
+    # behavior is unchanged; the subclass only adds per-key throttling for PSAK requests,
+    # which the default throttles silently bypass (no personal key, no throttling).
+    scope = "burst"
+    rate = "480/minute"
+
+
+class ExperimentSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "sustained"
+    rate = "4800/hour"
+
+
+class ExperimentProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's PSAKs — same size as the
+    per-key budget, so minting extra keys never multiplies a project's total burst capacity."""
+
+    scope = "experiment_psak_team_burst"
+    rate = "480/minute"
+
+
+class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's PSAKs."""
+
+    scope = "experiment_psak_team_sustained"
+    rate = "4800/hour"
+
+
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
@@ -366,6 +401,18 @@ class EnterpriseExperimentsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
+    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A project secret API key with experiment:read can export experiment definitions
+    # (list/retrieve) — a service credential not tied to one person's account. Everything
+    # else (writes, lifecycle actions, results) stays session/PAT/OAuth-only.
+    psak_allowed_actions = ["list", "retrieve"]
+    throttle_classes = [
+        ExperimentBurstRateThrottle,
+        ExperimentSustainedRateThrottle,
+        ExperimentProjectSecretApiKeyTeamBurstThrottle,
+        ExperimentProjectSecretApiKeyTeamSustainedThrottle,
+    ]
     serializer_class = ExperimentSerializer
     queryset = (
         Experiment.objects.select_related(
@@ -728,9 +775,9 @@ class EnterpriseExperimentsViewSet(
         """
         Change history for this experiment.
 
-        Returns a paginated audit trail of changes to the experiment and its holdouts
-        and shared metrics: who made each change, what changed (field-level before/after
-        values), and when. Ordered newest first.
+        Returns a paginated audit trail of changes to the experiment, its holdouts and
+        shared metrics, and its linked feature flag: who made each change, what changed
+        (field-level before/after values), and when. Ordered newest first.
         """
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
@@ -741,16 +788,26 @@ class EnterpriseExperimentsViewSet(
         # object's own id, so they need their own type-matched clauses. The experiment's own
         # clause must exclude those detail types in turn: an unrelated holdout or shared
         # metric whose pk collides with this experiment's id would otherwise leak in.
-        activity_filter = Q(item_id=str(experiment.id)) & ~Q(detail__type__in=["holdout", "shared_metric"])
+        # The linked flag's changes log under the FeatureFlag scope, so each clause carries
+        # its own scope instead of a single outer scope filter.
+        activity_filter = Q(scope="Experiment", item_id=str(experiment.id)) & ~Q(
+            detail__type__in=["holdout", "shared_metric"]
+        )
         if experiment.holdout_id is not None:
-            activity_filter |= Q(item_id=str(experiment.holdout_id), detail__type="holdout")
+            activity_filter |= Q(scope="Experiment", item_id=str(experiment.holdout_id), detail__type="holdout")
         saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]
         if saved_metric_ids:
-            activity_filter |= Q(item_id__in=saved_metric_ids, detail__type="shared_metric")
+            activity_filter |= Q(scope="Experiment", item_id__in=saved_metric_ids, detail__type="shared_metric")
+        # The flag's history stays behind the flag's own access controls: a viewer of the
+        # experiment may have "none" access to the linked flag.
+        if experiment.feature_flag_id is not None and self.user_access_control.check_access_level_for_object(
+            experiment.feature_flag, required_level="viewer"
+        ):
+            activity_filter |= Q(scope="FeatureFlag", item_id=str(experiment.feature_flag_id))
 
         activity_query = (
             ActivityLog.objects.select_related("user")
-            .filter(activity_filter, team_id=self.team_id, scope="Experiment")
+            .filter(activity_filter, team_id=self.team_id)
             .order_by("-created_at")
         )
         activity_page = get_activity_page(activity_query, limit, page)

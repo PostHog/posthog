@@ -62,7 +62,7 @@ export function PersonalGithubInstallationsSection() {
   return (
     <SettingsSection
       label="Your GitHub account"
-      description="Personal GitHub installations linked to your PostHog account. Agents use these to act as you."
+      description="Personal GitHub installations linked to your PostHog account; agents use these to act as you"
       action={
         <Button
           type="button"
@@ -100,10 +100,10 @@ export function PersonalGithubInstallationsSection() {
               <GithubLogoIcon size={20} />
             </div>
             <div className="flex flex-col gap-0.5">
-              <span className="font-medium text-[13px] text-gray-12 leading-5">
+              <span className="font-medium text-[13px] text-foreground leading-snug">
                 No GitHub account linked yet
               </span>
-              <span className="text-[12px] text-gray-10 leading-snug">
+              <span className="text-[12px] text-muted-foreground leading-snug">
                 Connect one so agents can open pull requests as you.
               </span>
             </div>
@@ -223,7 +223,7 @@ function PersonalGithubInstallationRow({
         }
         description={
           status === "unavailable"
-            ? "The PostHog app is no longer installed on GitHub, so this only removes the stale link from your account."
+            ? "The PostHog app is no longer installed on GitHub, so this only removes the stale link from your account"
             : buildGithubDisconnectDescription(
                 accountLabel,
                 integration.installation_shared === true,

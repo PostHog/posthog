@@ -471,7 +471,11 @@ export function mockBranchDiff(): { diff: string; truncated: boolean } {
 index 1a2b3c4..5d6e7f8 100644
 --- a/frontend/src/scenes/invites/inviteLogic.ts
 +++ b/frontend/src/scenes/invites/inviteLogic.ts
-@@ -42,9 +42,13 @@ export const inviteLogic = kea<inviteLogicType>([
+@@ -3,2 +3,3 @@ import { actions, kea, listeners, path, reducers } from 'kea'
+ import api from 'lib/api'
++import { lemonToast } from 'lib/lemon-ui/LemonToast'
+ import type { inviteLogicType } from './inviteLogicType'
+@@ -42,7 +43,11 @@ export const inviteLogic = kea<inviteLogicType>([
      listeners(({ values, actions }) => ({
          submitInvites: async () => {
 -            const recipients = values.invites
@@ -488,19 +492,97 @@ diff --git a/frontend/src/scenes/invites/InviteRow.tsx b/frontend/src/scenes/inv
 index 9c8b7a6..2f3e4d5 100644
 --- a/frontend/src/scenes/invites/InviteRow.tsx
 +++ b/frontend/src/scenes/invites/InviteRow.tsx
-@@ -10,7 +10,7 @@ export function InviteRow({ invite, onChange }: InviteRowProps): JSX.Element {
+@@ -10,8 +10,9 @@ export function InviteRow({ invite, onChange }: InviteRowProps): JSX.Element {
      return (
          <div className="flex items-center gap-2">
              <LemonInput
--                value={invite.email}
-+                value={invite.email}
+                 value={invite.email}
 +                status={invite.email.trim() ? undefined : 'danger'}
                  onChange={(email) => onChange({ ...invite, email })}
                  placeholder="email@example.com"
              />
          </div>
-     )
- }
+diff --git a/frontend/src/scenes/invites/inviteLogic.test.ts b/frontend/src/scenes/invites/inviteLogic.test.ts
+new file mode 100644
+index 0000000..3b1f0c2
+--- /dev/null
++++ b/frontend/src/scenes/invites/inviteLogic.test.ts
+@@ -0,0 +1,22 @@
++import { expectLogic } from 'kea-test-utils'
++
++import api from 'lib/api'
++
++import { initKeaTests } from '~/test/init'
++
++import { inviteLogic } from './inviteLogic'
++
++describe('inviteLogic', () => {
++    beforeEach(() => {
++        initKeaTests()
++        jest.spyOn(api.invites, 'bulkCreate').mockResolvedValue([])
++    })
++
++    it('skips the request when every recipient is blank', async () => {
++        const logic = inviteLogic()
++        logic.mount()
++        logic.actions.setInvites([{ email: '   ' }])
++        await expectLogic(logic, () => logic.actions.submitInvites()).toFinishAllListeners()
++        expect(api.invites.bulkCreate).not.toHaveBeenCalled()
++    })
++})
+diff --git a/frontend/src/scenes/invites/InviteFormLegacy.tsx b/frontend/src/scenes/invites/InviteFormLegacy.tsx
+deleted file mode 100644
+index 6e5d4c3..0000000
+--- a/frontend/src/scenes/invites/InviteFormLegacy.tsx
++++ /dev/null
+@@ -1,15 +0,0 @@
+-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+-import { useState } from 'react'
+-
+-/** Single-recipient invite form. Replaced by the multi-row InviteRow list. */
+-export function InviteFormLegacy({ onSubmit }: { onSubmit: (email: string) => void }): JSX.Element {
+-    const [email, setEmail] = useState('')
+-    return (
+-        <form onSubmit={() => onSubmit(email)} className="flex gap-2">
+-            <LemonInput value={email} onChange={setEmail} placeholder="email@example.com" />
+-            <LemonButton type="primary" htmlType="submit">
+-                Invite
+-            </LemonButton>
+-        </form>
+-    )
+-}
+diff --git a/posthog/api/organization_invite.py b/posthog/api/organization_invite.py
+index 7d1e2f3..a9b8c7d 100644
+--- a/posthog/api/organization_invite.py
++++ b/posthog/api/organization_invite.py
+@@ -118,6 +118,10 @@ class OrganizationInviteViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+     @action(methods=["POST"], detail=False)
+     def bulk(self, request: Request, **kwargs: Any) -> Response:
+         data = request.data if isinstance(request.data, list) else []
++        if not data:
++            raise ValidationError(
++                {"target_email": "Add at least one recipient before sending invites."}, code="required"
++            )
+         serializer = OrganizationInviteSerializer(data=data, many=True, context=self.get_serializer_context())
+         serializer.is_valid(raise_exception=True)
+         serializer.save()
+diff --git a/posthog/api/test/test_organization_invite.py b/posthog/api/test/test_organization_invite.py
+index 4c5d6e7..8f9a0b1 100644
+--- a/posthog/api/test/test_organization_invite.py
++++ b/posthog/api/test/test_organization_invite.py
+@@ -241,6 +241,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
+         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+         self.assertEqual(OrganizationInvite.objects.count(), 3)
+ 
++    def test_bulk_create_rejects_an_empty_payload(self):
++        response = self.client.post("/api/organizations/@current/invites/bulk/", [], format="json")
++        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
++        self.assertEqual(response.json()["attr"], "target_email")
++        self.assertEqual(OrganizationInvite.objects.count(), 0)
++
+     def test_bulk_create_reports_invalid_emails(self):
+         response = self.client.post(
+             "/api/organizations/@current/invites/bulk/",
 `
     return { diff, truncated: false }
 }

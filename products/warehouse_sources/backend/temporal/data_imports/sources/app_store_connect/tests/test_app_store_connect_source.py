@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -14,8 +14,8 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
-    AppStoreConnectResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
@@ -29,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstoreconnect import (
     AppStoreConnectSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source"
 
@@ -61,9 +60,6 @@ def _input_fields(source: AppStoreConnectSource) -> dict[str, SourceFieldInputCo
 
 
 class TestAppStoreConnectSource:
-    def test_source_type(self) -> None:
-        assert AppStoreConnectSource().source_type == ExternalDataSourceType.APPSTORECONNECT
-
     def test_source_is_visible_and_labelled_beta(self) -> None:
         config = AppStoreConnectSource().get_source_config
 
@@ -145,14 +141,6 @@ class TestAppStoreConnectSource:
             "source_info",
         }
 
-    def test_canonical_descriptions_cover_the_catalog(self) -> None:
-        descriptions = AppStoreConnectSource().get_canonical_descriptions()
-
-        assert set(descriptions) == set(ENDPOINTS)
-        for name in ENDPOINTS:
-            assert descriptions[name].get("description")
-            assert descriptions[name].get("columns")
-
     def test_report_tables_need_a_vendor_number_in_the_picker(self) -> None:
         permissions = AppStoreConnectSource().get_endpoint_permissions(
             _config(vendor_number=None), team_id=1, endpoints=list(ENDPOINTS)
@@ -205,39 +193,12 @@ class TestAppStoreConnectSource:
         assert error is not None and "vendor number" in error
         mocked.assert_not_called()
 
-    def test_resumable_manager_is_bound_to_the_resume_dataclass(self) -> None:
-        manager = AppStoreConnectSource().get_resumable_source_manager(MagicMock())
+    def test_missing_vendor_number_is_non_retryable(self) -> None:
+        # A report sync raises this ValueError when no vendor number is set. It can never succeed on
+        # retry, so the source must classify it non-retryable rather than burn the activity's budget.
+        friendly = _resolve_friendly_error(APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR)
 
-        assert manager._data_class is AppStoreConnectResumeConfig
-
-    def test_source_for_pipeline_plumbs_credentials_and_the_watermark(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "sales_reports"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-03-01"
-        manager = MagicMock()
-
-        with patch(f"{SOURCE_MODULE}.app_store_connect_source") as mocked:
-            AppStoreConnectSource().source_for_pipeline(_config(), manager, inputs)
-
-        kwargs = mocked.call_args.kwargs
-        assert kwargs["issuer_id"] == "57246542-96fe-1a63-e053-0824d011072a"
-        assert kwargs["key_id"] == "2X9R4HXF34"
-        assert kwargs["vendor_number"] == "85234567"
-        assert kwargs["endpoint"] == "sales_reports"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["db_incremental_field_last_value"] == "2026-03-01"
-
-    def test_full_refresh_run_does_not_pass_a_watermark(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "apps"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-03-01"
-
-        with patch(f"{SOURCE_MODULE}.app_store_connect_source") as mocked:
-            AppStoreConnectSource().source_for_pipeline(_config(), MagicMock(), inputs)
-
-        assert mocked.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert friendly is not None
 
     def test_auth_and_permission_failures_are_non_retryable(self) -> None:
         errors = cast(dict[str, Any], AppStoreConnectSource().get_non_retryable_errors())

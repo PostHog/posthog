@@ -5,7 +5,7 @@ import datetime as dt
 import dataclasses
 from typing import Any, NoReturn, Optional
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 from django.db.models import Prefetch
 
 from jsonpath_ng.exceptions import JSONPathError
@@ -15,6 +15,9 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
+from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -22,6 +25,7 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -54,10 +58,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FAST_RETURN_PROBE_TIMEOUT,
     AnySource,
     ResumableSource,
     SimpleSource,
     error_message_matches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
+    is_byte_bounded_extraction_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
@@ -84,13 +92,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class ImportDataActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
     reset_pipeline: Optional[bool] = None
+    # From `create_external_data_job_model_activity` (`_fast_return_eligible`): the schema tracks
+    # a cursor, is past its initial sync, and owes no repair work, so a negative probe may
+    # complete this run without extracting. Defaults False so old payloads keep the full path.
+    fast_return_eligible: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -100,6 +112,7 @@ class ImportDataActivityInputs:
             "source_id": self.source_id,
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
+            "fast_return_eligible": self.fast_return_eligible,
         }
 
 
@@ -119,17 +132,26 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+# An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
+# streams the table with no dedupe state. Append keeps a row per sync and CDC keeps change
+# history, so either would fan the child out once per duplicate. Webhook qualifies because its
+# drains merge on the primary key — the pipeline maps it to `sync_type = "incremental"`.
+WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.FULL_REFRESH,
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+    }
+)
+
+
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
     """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
     if parent is None:
         return "missing"
     if not parent.should_sync:
         return "disabled"
-    if not (parent.is_incremental or parent.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH):
-        # An allow-list, not a deny-list: only merge and full-refresh parents hold one row per
-        # key. Append accumulates a row per sync, and CDC keeps change history, so the reader —
-        # which streams the table as-is, with no dedupe state — would fan the child out once
-        # per duplicate. New sync types have to opt in here deliberately.
+    if parent.sync_type not in WAREHOUSE_READABLE_PARENT_SYNC_TYPES:
         return "unsupported_sync_type"
     if not parent.initial_sync_complete:
         return "no_initial_sync"
@@ -178,12 +200,43 @@ async def _warehouse_parent_reuse_available(
 def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
     """Whether an in-flight repartition should pause this schema's import for one run.
 
-    Both conditions have to hold: the schema opted into the hold, and a rewrite checkpoint is fresh
-    enough to be worth waiting for. The flag is checked second so a schema without it never pays for
-    the evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    Two situations hold the import. A staged swap holds it unconditionally, because the table's
+    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
+    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
+    be worth waiting for; the flag is checked second so a schema without it never pays for the
+    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
     ingestion is the more expensive way to be wrong.
     """
-    if schema is None or not schema.repartition_holds_import:
+    if schema is None:
+        return False
+
+    swap = schema.repartition_swap
+    if swap and swap.get("state") == "ready":
+        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
+        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
+        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
+        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
+        # lookback window duplicated, with the job still reporting Completed. The repartition activity
+        # runs ahead of this one on every sync and resolves the marker, so waiting costs one run's
+        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
+        # can finish, and this trades it for not corrupting the table.
+        logger.warning(
+            "Holding import: a repartition swap is staged, so the table's partition layout is mid-change",
+            schema_id=str(schema.id),
+            temp_uri=swap.get("temp_uri"),
+        )
+        capture_repartition_event(
+            "warehouse_repartition_import_held",
+            {
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "resource_name": schema.name,
+                "reason": "swap_staged",
+            },
+        )
+        return True
+
+    if not schema.repartition_holds_import:
         return False
     try:
         if not is_repartition_hold_enabled(schema):
@@ -205,10 +258,42 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
             "team_id": schema.team_id,
             "schema_id": str(schema.id),
             "resource_name": schema.name,
+            "reason": "rewrite_converging",
             "rows_written": rewrite.get("rows_written"),
             "held_at": rewrite.get("held_at"),
         },
     )
+    return True
+
+
+async def _probe_found_new_data(
+    source: AnySource,
+    config: Any,
+    source_inputs: SourceInputs,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """False only when the source proves it has nothing past the watermark; True on any doubt.
+
+    The timeout bounds how long the run waits, but cannot interrupt the probe's thread: a probe
+    stuck on a remote call keeps running until the source's own bound fires (implementations cap
+    their query server-side, see `probe_new_data`). Either way this run continues into the full
+    sync, so a slow or broken probe costs time, never data.
+    """
+    try:
+        has_new_data = await asyncio.wait_for(
+            database_sync_to_async_pool(source.probe_new_data)(config, source_inputs),
+            timeout=FAST_RETURN_PROBE_TIMEOUT.total_seconds(),
+        )
+    except TimeoutError:
+        await logger.ainfo("Fast-return probe timed out, running the full sync")
+        return True
+    except Exception as e:
+        await logger.ainfo(f"Fast-return probe failed, running the full sync: {e}")
+        return True
+
+    if has_new_data is False:
+        await logger.ainfo("Fast-return probe: source has no new data")
+        return False
     return True
 
 
@@ -233,18 +318,25 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
     ):
         try:
             return await _import_data_with_reporting(inputs, logger)
-        except (OperationalError, InterfaceError, PostHogInternalDatabaseError) as e:
+        except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
             # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
             # own app DB through the Django ORM before the source's error handling takes over. A
-            # transient connection-pool blip there — a PgBouncer server_login_retry cooldown, the
-            # primary briefly in recovery — raises this exception type, which can only mean our own
-            # infra, never the customer's source (every source talks to a customer database over a
-            # raw driver connection, not the ORM). Re-raise as NonReportableError so Temporal
-            # retries the whole activity and it self-heals, rather than failing the sync with the
-            # raw driver string as latest_error. _handle_import_error already classifies these types
-            # this way once the run is under way; this covers the setup calls that run before it.
+            # transient blip there — a PgBouncer server_login_retry cooldown, or a pooled connection
+            # left on a demoted standby by a failover, which rejects our writes as InternalError —
+            # raises these exception types, which can only mean our own infra, never the customer's
+            # source (every source talks to a customer database over a raw driver connection, not
+            # the ORM). Re-raise as NonReportableError so Temporal retries the whole activity and it
+            # self-heals. The raw driver string stays in the log but must not become the message
+            # that escapes: see POSTHOG_DATABASE_UNAVAILABLE_MESSAGE. _handle_import_error already
+            # classifies these types this way once the run is under way; this covers the setup calls
+            # that run before it.
+            if isinstance(e, InternalError) and not is_stale_connection_read_only_error(e):
+                # InternalError also covers corrupted data/indexes and failed-transaction states.
+                # Those are deterministic defects, so retrying burns the budget, and NonReportableError
+                # would keep them out of error tracking behind a message saying nothing is wrong.
+                raise
             await logger.awarning(str(e))
-            raise NonReportableError(str(e)) from e
+            raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
 
 async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
@@ -325,7 +417,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
 
-        if reset_pipeline is not True:
+        # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
+        # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
+        # extraction has to re-pull every row to match that overwrite. Keeping the incremental cursor
+        # would extract only the rows after the stored watermark and collapse the table to that slice.
+        delta_rebuild_pending = schema.delta_revive_required is not None
+        if delta_rebuild_pending:
+            await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
+
+        if reset_pipeline is not True and not delta_rebuild_pending:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -374,6 +474,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
                 new_source, schema, inputs.source_id, inputs.team_id, logger
             )
+            byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
+                inputs.team_id, str(source_type)
+            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -411,10 +514,17 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
+                byte_bounded_extraction=byte_bounded_extraction,
             )
 
             try:
                 config = new_source.parse_config(model.pipeline.job_inputs)
+            except IntegrationSecretsFailure as e:
+                # A source whose config carries a PostHog-owned credential resolves it here, so a
+                # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
+                # shared policy: the branch below would read it as an unparseable config and disable
+                # the customer's schema over a rotation they can't see and didn't cause.
+                await _handle_import_error(job_inputs, logger, e)
             except Exception as e:
                 # A stored config that can't be parsed (corrupt or double-encoded `job_inputs`)
                 # fails identically on every attempt — there is nothing to retry. Treat it as
@@ -423,6 +533,26 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 await handle_non_retryable_error(
                     job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
                 )
+
+            # Probing before source setup is what makes the fast return cheap: everything past
+            # this point (connections, metadata queries, the delta log read) is spent whether or
+            # not the sync has anything to move. The probe reads the same `source_inputs` the
+            # extraction below would, so watermark processing and row filters cannot drift.
+            # `reset_pipeline` is re-checked here because a reset asked for through the workflow
+            # input never reaches `sync_type_config`, which is all eligibility can see.
+            if inputs.fast_return_eligible and not reset_pipeline:
+                if not await _probe_found_new_data(new_source, config, source_inputs, logger):
+                    # The run checked the source, so the schema must not read as stale. Mirrors
+                    # `update_last_synced_at` on the extracting path (which also stamps
+                    # `last_full_run_at`; a fast return deliberately does not).
+                    await database_sync_to_async_pool(
+                        ExternalDataSchema.objects.filter(id=schema.id, team_id=inputs.team_id).update
+                    )(last_synced_at=model.created_at, updated_at=dt.datetime.now(dt.UTC))
+                    return PipelineResult(
+                        should_trigger_cdp_producer=False,
+                        skip_post_import_activities=True,
+                        fast_returned=True,
+                    )
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:
@@ -513,6 +643,28 @@ def _get_models(
     return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
+# What a customer reads when a PostHog-managed credential is unavailable. Deliberately says
+# nothing about which credential: the name is ours (`HUBSPOT_APP_CLIENT_SECRET`), it means nothing
+# to them, and naming it invites them to go looking for a setting they do not have. The full
+# detail goes to the logs and, when a person needs to act, to error tracking.
+INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "A PostHog-managed credential for this source is temporarily unavailable. This sync will "
+    "retry automatically — no action is needed on your side."
+)
+
+
+# What a customer reads when a lookup against PostHog's own app DB fails. It deliberately repeats
+# none of the driver wording: the workflow hands whatever message escapes an activity to the
+# finalization activity, which substring-matches it against every source's non-retryable patterns,
+# and the Postgres map carries the same "in a read-only transaction" and "server login has been
+# failing" strings our own pooler and failovers produce. A raw message there disables a working
+# sync and tells the customer to go fix their database. The raw text stays in the logs.
+POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
+    "This sync stopped because of a temporary problem on PostHog's side. Your source is fine, "
+    "and the sync will run again automatically."
+)
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
@@ -569,6 +721,35 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # Every credential the integration service holds is PostHog's own — the OAuth app secrets and
+    # API keys we own, not anything the customer configured. So none of its failure states are
+    # theirs to fix, and none are permanent: a key in recovery is re-provisioned, a missing key is
+    # added, an unreachable service comes back. Retry, and if the budget runs out let the run fail
+    # and the next scheduled sync pick it up.
+    #
+    # What must not happen is `handle_non_retryable_error`, which disables the schema and makes a
+    # customer re-enable a sync they never broke. That is the whole reason this is classified here
+    # by type rather than left to fall through: one credential going into recovery would otherwise
+    # disable every sync of that source type, across every customer, until each was re-enabled by
+    # hand — turning a reversible platform action into a wide manual recovery.
+    #
+    # Checked before the bare-404 rule below on purpose. That rule reads a 404 as "the customer's
+    # endpoint is gone", and a misrouted INTEGRATION_SERVICE_URL answers 404 as well; the client
+    # wraps its transport failures so the two can't be confused, and this ordering keeps that true
+    # even if something later leaks a raw HTTPError.
+    if isinstance(error, IntegrationSecretsFailure):
+        if error.reportable:
+            # A gap only PostHog can close (a key never added for this environment, a
+            # half-configured deployment). Capture explicitly rather than letting it escape raw:
+            # the message the customer ends up reading must not carry an internal credential name,
+            # and error tracking still needs the real exception to group and route it.
+            capture_exception(error)
+            await logger.aexception(error_msg)
+        else:
+            await logger.awarning(error_msg)
+        await logger.adebug("Integration service credential unavailable - re-raising for Temporal retry")
+        raise NonReportableError(INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE) from error
+
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
     # endpoint/resource doesn't exist — every retry replays the identical request against the same
     # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
@@ -618,19 +799,27 @@ async def _handle_import_error(
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
-    # A Django OperationalError/InterfaceError here comes from a lookup against PostHog's own app
-    # DB (e.g. resolving a team or CustomPropertySource for the person-property staging hook) —
-    # every source that talks to a customer's own database (Postgres, MySQL, Redshift) does so over
-    # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
-    # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
-    # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError is the same
-    # condition already reclassified by shared pipeline code (e.g. cdp_producer's should_run check)
-    # specifically so it wouldn't be mistaken for a customer-side failure here — honor that by type.
-    if isinstance(error, OperationalError | InterfaceError | PostHogInternalDatabaseError):
+    # A Django OperationalError/InterfaceError/InternalError here comes from a lookup against
+    # PostHog's own app DB (e.g. resolving a team or CustomPropertySource for the person-property
+    # staging hook) — every source that talks to a customer's own database (Postgres, MySQL,
+    # Redshift) does so over a raw driver connection, never Django's ORM, so these exception types
+    # can only mean a transient blip on our side, not a customer data or config problem. The blip is
+    # a connection-pool one for OperationalError/InterfaceError (e.g. a PgBouncer query_wait_timeout
+    # under load) and a failover for InternalError: a pooled connection that outlived a primary
+    # switchover now points at a demoted standby, so our writes come back as psycopg's
+    # ReadOnlySqlTransaction. InternalError alone is too broad for that — it also covers corrupted
+    # data/indexes and failed-transaction states, which are deterministic defects that must stay
+    # reportable — so it is matched through the shared read-only predicate. Same classification already used
+    # for app-DB blips in delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError
+    # is the same condition already reclassified by shared pipeline code (e.g. cdp_producer's
+    # should_run check) specifically so it wouldn't be mistaken for a customer-side failure here —
+    # honor that by type.
+    if isinstance(
+        error, OperationalError | InterfaceError | PostHogInternalDatabaseError
+    ) or is_stale_connection_read_only_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
-        raise NonReportableError(error_msg) from error
+        raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from error
 
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
     # auth, a widened column type) are raised from shared pipeline code, not any one source. The

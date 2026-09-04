@@ -10,8 +10,8 @@ import type { CloudRegion } from "@posthog/shared";
 export interface IAuthSideEffects {
   onAuthSuccess(region: CloudRegion, projectId: number | null): void;
   beforeProjectSwitch(): void;
-  onProjectSelected(): void;
-  onLogout(previousRegion: CloudRegion | null): void;
+  onProjectSelected(): Promise<void>;
+  onLogout(previousRegion: CloudRegion | null): Promise<void>;
 }
 
 export const AUTH_SIDE_EFFECTS = Symbol.for("posthog.ui.auth.sideEffects");

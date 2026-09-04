@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Organization, Team, User
 from posthog.models.github_integration_base import GitHubCommitAuthor
 from posthog.models.integration import Integration
@@ -29,6 +30,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     rank_assignee_candidates,
     resolve_org_github_login_to_users,
     resolve_suggested_reviewers,
+    resolve_suggested_reviewers_with_diagnostics,
 )
 
 
@@ -576,3 +578,107 @@ class TestResolveSuggestedReviewersEndToEnd:
         logins = [r.login for r in reviewers]
         assert "fresh-owner" in logins
         assert logins.index("fresh-owner") < logins.index("aged-author")
+
+
+@pytest.mark.django_db
+class TestResolveSuggestedReviewersDiagnostics:
+    @pytest.mark.parametrize(
+        "name,repository,commit_hashes,author,expected_outcome,expected_counts",
+        [
+            ("no_repository", "", {"d" * 7: "bug"}, None, "no_repository", {"commit_hash_count": 1}),
+            ("no_commit_hashes", "acme/app", {}, None, "no_commit_hashes", {"commit_hash_count": 0}),
+            (
+                "unattributed_commits",
+                "acme/app",
+                {"d" * 7: "bug", "e" * 7: "bug"},
+                None,
+                "no_commit_authors",
+                {"lookups_attempted": 2, "lookups_resolved": 0, "lookups_missing": 2},
+            ),
+            (
+                "bot_only_no_activity",
+                "acme/app",
+                {"d" * 7: "bug"},
+                GitHubCommitAuthor(
+                    login="dependabot[bot]",
+                    name="dependabot",
+                    commit_url="https://github.com/acme/app/commit/ddddddd",
+                    file_paths=("products/signals/backend/models.py",),
+                    is_bot=True,
+                ),
+                "only_bot_authors",
+                {"lookups_resolved": 1, "bot_author_count": 1, "blame_login_count": 0, "touched_path_count": 1},
+            ),
+        ],
+    )
+    def test_empty_result_names_its_cause(
+        self, team, name, repository, commit_hashes, author, expected_outcome, expected_counts
+    ):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return author
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value={},
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            resolution = resolve_suggested_reviewers_with_diagnostics(team.id, repository, commit_hashes)
+
+        assert resolution.reviewers == []
+        assert resolution.diagnostics.outcome == expected_outcome
+        for field, value in expected_counts.items():
+            assert getattr(resolution.diagnostics, field) == value, field
+
+    def test_a_throttled_lookup_outweighs_what_the_others_returned(self, team):
+        # One lookup throttled, the other unattributed. The throttled commit is the one that could
+        # have carried the human author, so the rate limit is the cause worth reporting — reading
+        # this as `no_commit_authors` would send someone hunting a GitHub attribution problem.
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                if sha.startswith("d"):
+                    raise GitHubRateLimitError("rate limited")
+                return None
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value={},
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            resolution = resolve_suggested_reviewers_with_diagnostics(
+                team.id, "acme/app", {"d" * 7: "bug", "e" * 7: "bug"}
+            )
+
+        assert resolution.reviewers == []
+        assert resolution.diagnostics.outcome == "github_rate_limited"
+        assert resolution.diagnostics.lookups_rate_limited == 1
+        assert resolution.diagnostics.lookups_attempted == 2
+
+    def test_no_integration_is_reported_before_any_lookup(self, team):
+        with patch(
+            "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+            return_value=None,
+        ):
+            resolution = resolve_suggested_reviewers_with_diagnostics(team.id, "acme/app", {"d" * 7: "bug"})
+
+        assert resolution.reviewers == []
+        assert resolution.diagnostics.outcome == "no_github_integration"
+        assert resolution.diagnostics.lookups_attempted == 0

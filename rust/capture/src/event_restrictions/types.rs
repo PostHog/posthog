@@ -61,10 +61,17 @@ impl Pipeline {
                 vec![Self::Analytics, Self::ErrorTracking, Self::Ai]
             }
             CaptureMode::Recordings => vec![Self::SessionRecordings],
-            // capture-ai registers only the AI routes, and `process_events`
-            // rejects a batch carrying anything off the AI lane, so no event
-            // there ever resolves to another pipeline. Loading the analytics
-            // and error-tracking slices would only cost memory.
+            // capture-ai registers only the AI routes, and both pipelines
+            // refuse an event off the AI lane before restrictions are applied,
+            // so no event there ever resolves to another pipeline. Loading the
+            // analytics and error-tracking slices would only cost memory.
+            //
+            // The two refuse differently, each fitting its own response
+            // contract: v0's `process_events` rejects the whole request
+            // (`CaptureError::NonAiEventOnAiLane`, 400), while v1's
+            // `drop_non_ai_events` drops only the offenders, because it can
+            // report per-event outcomes. The guarantee relied on here is the
+            // same either way.
             CaptureMode::Ai => vec![Self::Ai],
         }
     }

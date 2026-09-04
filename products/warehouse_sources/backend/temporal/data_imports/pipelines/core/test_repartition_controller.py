@@ -29,10 +29,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
-from products.warehouse_sources.backend.temporal.data_imports import workload_report
+from products.warehouse_sources.backend.temporal.data_imports import schema_flags, workload_report
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    RepartitionAttemptsExhausted,
     RepartitionSupersededError,
     RepartitionUnpartitionableError,
 )
@@ -303,7 +304,7 @@ class TestIsAutoRepartitionEnabled:
 
         with (
             patch("posthog.models.Team.objects.only", return_value=mock_queryset),
-            patch.object(ctrl, "capture_exception") as mock_capture_exception,
+            patch.object(schema_flags, "capture_exception") as mock_capture_exception,
         ):
             assert ctrl.is_auto_repartition_enabled(schema) is False
 
@@ -867,6 +868,60 @@ class TestRepartitionActivity:
         # The claim check must be the mutate callback, evaluated against the row read under the lock.
         assert locked_update.call_args.kwargs["mutate"] is not None
 
+    def test_finalizing_a_swap_saves_the_scheme_and_retires_every_marker_at_once(self, team):
+        # The swap has already re-bucketed the data in S3, so what is left is one write that has to be
+        # all-or-nothing. Landing the settings but keeping the swap marker holds the schema's imports
+        # forever; clearing the markers without the cooldown re-flags the table on the very next sync;
+        # keeping the operator pin re-applies it on a later reset.
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4, "partition_count_override": 4})
+        schema.set_repartition_claim({"token": "live-claim", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_count": 8, "partition_keys": ["id"], "trigger_reason": "t"}
+        )
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t", "live_uri": "s3://l"})
+        schema.set_repartition_rewrite({"temp_uri": "s3://t", "rows_written": 5})
+
+        wrote = external_data_schema.finalize_repartition_scheme(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="live-claim",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is True
+        assert schema.partitioning_enabled is True
+        assert schema.partition_count == 8
+        assert schema.partition_count_override is None
+        assert schema.repartition_swap is None
+        assert schema.repartition_pending is None
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
+
+    def test_finalizing_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
+        # A zombie writing here would describe a layout the new claimant is in the middle of replacing.
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "newer-claim", "job_id": "j2", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t", "live_uri": "s3://l"})
+
+        wrote = external_data_schema.finalize_repartition_scheme(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="stale-claim",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count == 4
+        assert schema.repartition_swap is not None
+
     def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
         # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving
         # up clears the marker that points at it, so the next sync would bootstrap an empty table.
@@ -952,6 +1007,46 @@ class TestRepartitionActivity:
             }
         )
         self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+
+    @pytest.mark.parametrize("trigger_reason", ["coarsening", "admin"])
+    def test_give_up_reports_to_error_tracking(self, team, trigger_reason):
+        # The give-up path fires when the cap is already spent by attempts that were hard-killed before
+        # they could record an outcome. It is the only terminal repartition path that never ran
+        # `_handle_failure` (which captures), so without an explicit capture here the most severe
+        # outcome — a table the controller has abandoned — is invisible in error tracking.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": trigger_reason,
+                "attempts": ctrl.MAX_REPARTITION_ATTEMPTS,
+            }
+        )
+        rewrite = AsyncMock()
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=rewrite),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(repartition_table, "capture_exception") as capture_exception,
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
+            # A coarsening trigger answers to the coarsen flag, not the repartition one; without this the
+            # activity releases the queued rewrite before reaching the give-up.
+            patch.object(repartition_table, "is_auto_coarsen_enabled", return_value=True),
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+
+        # The cap was already spent, so no rewrite is attempted — this is the pre-run give-up.
+        rewrite.assert_not_called()
+        capture_exception.assert_called_once()
+        assert isinstance(capture_exception.call_args.args[0], RepartitionAttemptsExhausted)
+        failed = [c.args[1] for c in capture.call_args_list if c.args[0] == "warehouse_repartition_failed"]
+        assert len(failed) == 1
+        assert failed[0]["final"] is True
+        assert failed[0]["error_type"] == "RepartitionAttemptsExhausted"
         schema.refresh_from_db()
         assert schema.repartition_pending is None
 

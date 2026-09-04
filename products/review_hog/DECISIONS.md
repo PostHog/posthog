@@ -198,6 +198,56 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-08-27 — reviewer tier by PR origin and Signals priority (agent PRs review cheaper; branch-only inbox reviews retired; resolver on Opus 5)
+
+- **What.** The reviewer's effort is no longer one fleet-wide pin. Each `ReviewReport` is placed in a **review
+  tier** when it is created (`select_review_tier`, `REVIEW_ARMS_BY_TIER` in `reviewer/constants.py`): a person's
+  PR → `human` (Sol @ xhigh); an **agent PR** (a report created with a Signals link, which only the inbox trigger
+  passes) → by the report's latest priority judgment, P0/P1 → xhigh, P2 → medium, P3/P4 → low, no readable
+  judgment → `agent_unprioritized` at xhigh with a warning. The priority is the one the report carried when the
+  implementation task was created: the inbox receiver reads it with a `created_at < task.created_at` cut-off
+  (`persisted_report_priority`) and passes it into the workflow inputs, so the implementation agent — which holds
+  the `task:write` artefact tool that appends judgments — cannot lower the effort of its own review (ReviewHog
+  finding on the PR). The tier and the priority used are persisted
+  beside the arm (`review_tier`, `review_signal_priority`; migration 0031) and labeled on the review events
+  (`review_tier`, `signal_priority`, `signal_report_id`, plus `turn_trigger_source`, the trigger of THIS turn —
+  the row only remembers the trigger that created it). The validator stays Opus 5 @ xhigh for every tier.
+- **Why.** The 2026-08 validator/reviewer experiment (`eval/experiments/2026-08-validator-model-sol/`) showed the
+  reviewer's effort is the one knob that trades findings for cost predictably: medium keeps about half of xhigh's
+  real findings, low about a third, and only xhigh surfaces issues nobody reported before. Most reviews are agent
+  PRs and most of those sit at P2 or below, where a cheaper review is an acceptable trade; a person's PR, and the
+  agent PRs a person asks about, keep the full review. Start simple, then iterate on the tier telemetry.
+- **Rules that were grilled (2026-08-27; the record with the options that lost is in the maintainer's playground
+  notes, the outcomes here):** the agent-PR predicate is the Signals link at creation, so label/UI-triggered
+  agent PRs route as human in v1 (the branch-name lookup through the tasks facade is the first iteration). The
+  tier is decided **once** at creation (a per-turn re-decision would feed a cheap turn's findings into a stronger
+  turn's "already covered" injection), with one exception: a person's trigger (`HUMAN_TRIGGER_SOURCES`: label,
+  UI, CLI) that starts a review of a cheaper tier **lifts** it to `human` for that and every later turn, never
+  the reverse — the accepted cost is that the lifted turn treats the cheap findings as already covered. The lift
+  is the review fetch's opt-in (`lift_tier_on_human_trigger`), because the resolution stage upserts the same row
+  under the person's trigger and a resolve-only request reviews nothing (found in review). A person's trigger
+  that lands while the review is still running joins it (`USE_EXISTING`) and never reaches that fetch, so the
+  trigger endpoints write the lift themselves and answer `joined_running_review` (ReviewHog finding on the PR:
+  stamphog's refusal hand-off adds the label minutes in, inside that window). A missing priority fails
+  expensive under its own label. The table lives in code, not in per-user or per-team settings (the "single
+  existing threshold knob, no separate inbox threshold" precedent from Stage 6 applies to model choice too), and
+  the cheaper arms roll out per team through the existing `REVIEWHOG_TEAM_IDS` dogfood gate (other teams record
+  their tier but run the default arm). No A/B: the weighted arm draw (`REVIEW_EXPERIMENT_ARMS`) is gone, model
+  selection is deterministic.
+- **Also in this change.** The inbox trigger no longer reviews a pushed branch before its PR opens: a review of a
+  branch whose PR never opens is spend with no reader, and the PR save re-fires the receiver, so waiting costs
+  only the head start (the workflow/client keep their branch-target support; the receiver just never uses it).
+  The resolution stage moves from Opus 4.8 to **Opus 5** @ xhigh (validated outside this repo; a plain pin
+  change, not tiered).
+- **Watch.** Dashboard 1922705 splits reviews, cost per review, and valid findings by `review_tier`, and an
+  executed-effort tile reads the gateway's `$ai_effort` on the review generations — the pinned effort and the
+  executed effort are two different facts (the 2026-08 Tasks effort bug ran every Sol review at `low` for weeks
+  while the pin said xhigh), so a silent regression shows on day one.
+- **Backlog, in order.** (1) Route label/UI-triggered agent PRs by priority too (branch-name lookup through the
+  tasks facade). (2) Skip the blind-spot sweep on P3/P4. (3) A daily budget guard that drops new agent PRs one
+  tier. (4) Only with an experiment: validator at `high` on P3/P4. Parked: a PR-size axis, dollar-value bumps.
+  Excluded: resolver tiering.
+
 ### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
 
 - **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
@@ -2794,7 +2844,10 @@ trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonica
 > fetch, empty-diff skip, branch-keyed rows + PR upgrade) for callers that know a real head branch;
 > the receiver rejoins once tasks records the pushed head branch. **→ It rejoined 2026-07-03:
 > `output.head_branch` (agent-server-synced pushed head) is that trustworthy carrier — see the
-> 🔁 trigger-redesign note above. The `TaskRun.branch` FIELD stays banned.**
+> 🔁 trigger-redesign note above. The `TaskRun.branch` FIELD stays banned.** **→ Retired again
+> 2026-08-27: the receiver fires on `output.pr_url` only (a review of a branch whose PR never opens
+> is spend with no reader); the client/workflow branch-target support stays. See the reviewer-tier
+> decision near the top.**
 >
 > **2026-07-03 adversarial review (7 finder dimensions × 3-skeptic refutation panels, findings in
 > `/tmp/reviewhog-signals-combination-adversarial-review.md`) — 4 fixes applied:** (1) the confirmed
@@ -2972,10 +3025,12 @@ fleet-level control during alpha).
 3. ✅ **The trigger** — the `TaskRun` receiver behind the settings gate. REDESIGNED 2026-07-03
    (see the 🔁 note above): fires on the `output`-recording save — `output.pr_url` (PR leg) else
    `output.head_branch` (branch leg) — never on completion (successful runs stay `in_progress`
-   forever) and never on the `TaskRun.branch` field.
+   forever) and never on the `TaskRun.branch` field. **→ Since 2026-08-27 the receiver fires on
+   `output.pr_url` only; the branch leg is retired (reviewer-tier decision near the top).**
 4. ✅ **Branch targets** — PR-by-branch resolve in fetch, the compare fallback (empty diff →
-   self-skip), nullable `pr_number` identity + the branch workflow id. Receiver-reachable again
-   via `output.head_branch` since the 2026-07-03 trigger redesign.
+   self-skip), nullable `pr_number` identity + the branch workflow id. Receiver-reachable via
+   `output.head_branch` from the 2026-07-03 trigger redesign until 2026-08-27; client/workflow
+   support only since then.
 5. ✅ **Dogfood e2e — RAN 2026-07-03** — synthetic report + real Inbox "Create PR" click + real
    PR #68141: receiver fired on the `pr_url` save, inbox workflow with creation-time provenance,
    single-chunk pipeline, zero findings on the clean typo PR → publish self-skipped → receipt
@@ -3163,9 +3218,13 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
    PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
    ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
-   `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
-   are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
-   scope with that feature.
+   `REVIEW_MCP_SCOPES = ["llm_skill:read", "user:read"]` at both context constructions (internal sandbox-plumbing
+   scopes are re-added by the resolver). `user:read` is the MCP handshake, not a data grant: the MCP server
+   resolves the calling user (`/api/users/@me/`) when a session opens and refuses the connection without it.
+   The pin shipped on 2026-08-13 with only `llm_skill:read`, so until 2026-08-25 every ReviewHog session
+   (perspectives, blind-spot, validation, resolution) had its MCP connection refused and reviewed without its
+   skill — the agents carry on without MCP instead of failing, so nothing flagged it. A future skill that
+   legitimately needs product data adds its specific read scope with that feature.
    _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
    branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
    steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
@@ -3904,3 +3963,18 @@ resolution died silently at sandbox checkout. Decisions, in one PR:
 Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
 (kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
 versioning outweigh the manual seam).
+
+## Sandbox checkout ref: head branch by name (2026-08-25, maintainer decision)
+
+Review sandboxes check out the PR's **head branch by name** again. The 2026-07-15 switch to `pull/N/head` (meant to
+survive a mid-review merge, which deletes the head branch) never worked: the Tasks checkout resolves only
+`refs/heads/<name>`, so the pull ref fell through to a fresh local branch on the base tip and every review
+sandbox investigated the base branch instead of the PR. Invisible while base ≈ PR; loud once the base carried
+later fixes — validators dismissed real findings as "already fixed" because the tree they examined was master.
+The reviewer's findings still came from the diff pasted into its prompt, so review volume never dropped.
+Residual gap (not a loud failure): if a mid-review merge deletes the head branch, the Tasks checkout does not
+raise — `git ls-remote --exit-code --heads origin refs/heads/<name>` returns exit 2 and `checkout_branch_in_sandbox`
+falls back to a fresh branch on the base tip. A later checkout can then still land on the base tree, but only for
+checkouts after the branch is gone, not the whole review as the 2026-07-15 regression did. Closing that window —
+a strict checkout that fails on a missing head branch, or a proper `refs/pull/N/head` fetch — belongs in the Tasks
+checkout, out of scope here.

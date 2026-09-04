@@ -572,32 +572,6 @@ SELECT_PERSON_DISTINCT_ID2S_OF_TEAM = """SELECT * FROM {table_name} WHERE team_i
 # Other queries
 #
 
-# `relevant_events_filter`` in the form of "AND event IN (...)" allows us to cut down memory usage by a lot at scale
-GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT distinct_id, argMax(person_id, version) as person_id
-FROM person_distinct_id2
-WHERE team_id = %(team_id)s
-{relevant_events_filter}
-GROUP BY distinct_id
-HAVING argMax(is_deleted, version) = 0
-"""
-
-GET_PERSON_IDS_BY_FILTER = """
-SELECT DISTINCT p.id
-FROM ({latest_person_sql}) AS p
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
-WHERE team_id = %(team_id)s
-  {distinct_query}
-{limit}
-{offset}
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL,
-    distinct_query="{distinct_query}",
-    limit="{limit}",
-    offset="{offset}",
-    GET_TEAM_PERSON_DISTINCT_IDS="{GET_TEAM_PERSON_DISTINCT_IDS}",
-)
-
 INSERT_PERSON_SQL = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s, %(last_seen_at)s
 """
@@ -625,112 +599,11 @@ WHERE actor_id NOT IN (
 )
 """
 
-INSERT_COHORT_ALL_PEOPLE_SQL = """
-INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT id FROM (
-        {latest_person_sql}
-    ) as person INNER JOIN (
-        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE person_id IN ({content_sql})
-    ) as pdi ON person.id = pdi.person_id
-    WHERE team_id = %(team_id)s
-    GROUP BY id
-)
-"""
-
-GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id
-FROM (
-    {GET_TEAM_PERSON_DISTINCT_IDS}
-)
-WHERE person_id IN
-(
-    SELECT id
-    FROM (
-        SELECT id, argMax(properties, person._timestamp) as properties, max(is_deleted) as is_deleted
-        FROM person
-        WHERE team_id = %(team_id)s
-        GROUP BY id
-        HAVING is_deleted = 0
-    )
-    WHERE {filters}
-)
-"""
-
-GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
-SELECT distinct_id
-FROM ({GET_TEAM_PERSON_DISTINCT_IDS})
-WHERE {filters}
-"""
-
-GET_ACTORS_FROM_EVENT_QUERY = """
-SELECT
-    {id_field} AS actor_id,
-    {actor_value_expression} AS actor_value
-    {matching_events_select_statement}
-FROM ({events_query})
-GROUP BY actor_id
-ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism */
-{limit}
-{offset}
-"""
 
 COMMENT_DISTINCT_ID_COLUMN_SQL = lambda: (
     "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
 
-
-# Tricky: the person table uses a ReplacingMergeTree, but it is not guaranteed by Clickhouse that the replacement has
-# actually happened. This means we can have multiple rows for a particular person ID. This can happen if a property has
-# changed, or if the user was deleted.
-# The following query will make an attempt to hide values that come from deleted users, however it will only hide the
-# values that are set at the time of deletion (or after). This is to avoid needing to GROUP BY id on the persons table,
-# which would make this query take ~20x as long and be unacceptable in the UI.
-SELECT_PERSON_PROP_VALUES_SQL = """
-SELECT
-    value,
-    uniq(id) - uniqIf(id, is_deleted != 0)  as c
-FROM (
-    SELECT
-        {property_field} as value,
-        is_deleted,
-        id
-    FROM
-        person
-    WHERE
-        team_id = %(team_id)s AND
-        value IS NOT NULL AND
-        value != ''
-    ORDER BY id DESC
-    LIMIT 100000
-)
-GROUP BY value
-HAVING c > 0
-ORDER BY c DESC
-LIMIT 20
-"""
-
-SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT
-    value,
-    uniq(id) - uniqIf(id, is_deleted != 0)  as c
-FROM (
-    SELECT
-        {property_field} as value,
-        is_deleted,
-        id
-    FROM
-        person
-    WHERE
-        team_id = %(team_id)s AND
-        value ILIKE %(value)s
-    ORDER BY id DESC
-    LIMIT 100000
-)
-GROUP BY value
-HAVING c > 0
-ORDER BY c DESC
-LIMIT 20
-"""
 
 GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"

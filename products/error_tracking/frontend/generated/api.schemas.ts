@@ -312,6 +312,61 @@ export interface WorkflowVariablePropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
+
+export const BehavioralEventSourceApi = {
+    Events: 'events',
+    Actions: 'actions',
+} as const
+
+export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
+
+export const TimeUnitTypeApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
+
+export const InlineBehavioralTypeApi = {
+    PerformedEvent: 'performed_event',
+    PerformedEventMultiple: 'performed_event_multiple',
+} as const
+
+export interface BehavioralPropertyFilterApi {
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | HogQLPropertyFilterApi
+          )[]
+        | null
+    event_type: BehavioralEventSourceApi
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    label?: string | null
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean | null
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperatorApi | null
+    /** Count threshold for performed_event_multiple */
+    operator_value?: number | null
+    time_interval?: TimeUnitTypeApi | null
+    /** Relative time window size, paired with time_interval */
+    time_value?: number | null
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    type?: 'behavioral'
+    value: InlineBehavioralTypeApi
+}
+
 export interface PropertyGroupFilterValueApi {
     type: FilterLogicalOperatorApi
     values: (
@@ -339,6 +394,7 @@ export interface PropertyGroupFilterValueApi {
         | RevenueAnalyticsPropertyFilterApi
         | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
+        | BehavioralPropertyFilterApi
     )[]
 }
 
@@ -780,23 +836,26 @@ export interface PatchedErrorTrackingIssueWriteApi {
     description?: string | null
 }
 
-/**
- * Read-only serializer for issue contract types returned by the facade.
- */
-export interface PatchedErrorTrackingIssueReadApi {
-    id?: string
-    status?: string
-    /** Issue severity, or null when no severity is assigned. */
-    severity?: ErrorTrackingIssueSeverityApi | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    first_seen?: string | null
-    assignee?: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
-    cohort?: ErrorTrackingIssueCohortReadApi | null
+export type ErrorTrackingIssueAssigneeIdApi = number | string
+
+export interface ErrorTrackingIssueAssigneeWriteApi {
+    /** User ID or role UUID to assign the issue to. */
+    id: ErrorTrackingIssueAssigneeIdApi
+    /** Assignment target type: user or role.
+     *
+     * * `user` - user
+     * * `role` - role */
+    type: AssigneeTypeEnumApi
+}
+
+export interface PatchedErrorTrackingIssueAssignRequestApi {
+    /** Assignment target. Set to null or omit to remove the current assignment. */
+    assignee?: ErrorTrackingIssueAssigneeWriteApi | null
+}
+
+export interface ErrorTrackingIssueAssignResponseApi {
+    /** Whether the assignment update completed successfully. */
+    success: boolean
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {
@@ -942,6 +1001,8 @@ export interface ErrorTrackingIssueDetailApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -1234,7 +1295,7 @@ export const ErrorTrackingIssueStatusEnumApi = {
 
 export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
-    id: string | number | null
+    id: string | number
     /** Assignee target type: user or role.
      *
      * * `user` - user
@@ -1356,6 +1417,8 @@ export interface ErrorTrackingIssueListItemApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -2019,10 +2082,9 @@ export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
      */
     repository?: string
     /**
-     * Text to match against existing issue titles / keys in the provider.
-     * @minLength 1
+     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
      */
-    search: string
+    search?: string
 }
 
 export type ErrorTrackingFingerprintsListParams = {

@@ -162,6 +162,20 @@
       "when": 1784804000000,
       "tag": "0022_archive_task_details",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785600000000,
+      "tag": "0023_browser_tab_href",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1788187751331,
+      "tag": "0024_exotic_hammerhead",
+      "breakpoints": true
     }
   ]
 }

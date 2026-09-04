@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Characterize a metric anomaly: compare an anomaly window against a
  * baseline, find the onset, and rank which label values moved.
  */
-export const MetricsCharacterizeCreateParams = /* @__PURE__ */ zod.object({
+export const MetricsCharacterizeCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -33,7 +33,7 @@ export const metricsCharacterizeCreateBodyQueryOneFiltersItemValueMax = 1024
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemScopeDefault = `auto`
 export const metricsCharacterizeCreateBodyQueryOneCandidateKeysItemMax = 255
 
-export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
+export const MetricsCharacterizeCreateBody = () => zod.object({
     query: zod
         .object({
             metricName: zod
@@ -64,15 +64,15 @@ export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
             aggregation: zod
                 .union([
                     zod
-                        .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                        .enum(['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase', 'histogram_quantile'])
                         .describe(
-                            '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                            '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
                 ),
             quantile: zod
                 .number()
@@ -121,7 +121,7 @@ export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
         .describe('The anomaly characterization to run.'),
 })
 
-export const MetricsQueryCreateParams = /* @__PURE__ */ zod.object({
+export const MetricsQueryCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -163,7 +163,7 @@ export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
-export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
+export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
             metricName: zod
@@ -187,13 +187,13 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                     "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary"
                 ),
             aggregation: zod
-                .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                .enum(['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase', 'histogram_quantile'])
                 .describe(
-                    '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                    '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                 )
                 .default(metricsQueryCreateBodyQueryOneAggregationDefault)
                 .describe(
-                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
                 ),
             quantile: zod
                 .number()
@@ -290,13 +290,23 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                                 "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary"
                             ),
                         aggregation: zod
-                            .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                            .enum([
+                                'sum',
+                                'avg',
+                                'count',
+                                'min',
+                                'max',
+                                'p95',
+                                'rate',
+                                'increase',
+                                'histogram_quantile',
+                            ])
                             .describe(
-                                '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                             )
                             .default(metricsQueryCreateBodyQueryOneClausesItemAggregationDefault)
                             .describe(
-                                'Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                'Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                             ),
                         quantile: zod
                             .number()
@@ -386,7 +396,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Distinct metric names for the team. Backs the picker UI.
  */
-export const MetricsValuesRetrieveParams = /* @__PURE__ */ zod.object({
+export const MetricsValuesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -397,16 +407,25 @@ export const MetricsValuesRetrieveParams = /* @__PURE__ */ zod.object({
 export const metricsValuesRetrieveQueryLimitDefault = 100
 export const metricsValuesRetrieveQueryLimitMax = 1000
 
+export const metricsValuesRetrieveQueryServiceMax = 1024
+
 export const metricsValuesRetrieveQueryValueDefault = ``
 export const metricsValuesRetrieveQueryValueMax = 255
 
-export const MetricsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MetricsValuesRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
         .max(metricsValuesRetrieveQueryLimitMax)
         .default(metricsValuesRetrieveQueryLimitDefault)
         .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    service: zod
+        .string()
+        .max(metricsValuesRetrieveQueryServiceMax)
+        .optional()
+        .describe(
+            'Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.'
+        ),
     value: zod
         .string()
         .max(metricsValuesRetrieveQueryValueMax)

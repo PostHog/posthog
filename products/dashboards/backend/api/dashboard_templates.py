@@ -29,10 +29,10 @@ from posthog.helpers.full_text_search import build_rank
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)

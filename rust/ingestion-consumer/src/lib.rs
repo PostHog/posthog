@@ -1,12 +1,15 @@
 pub mod aperture;
+pub mod batcher;
 pub mod config;
 pub mod consumer;
 pub mod debug_recorder;
 pub mod discovery;
 pub mod dispatcher;
-pub mod kafka_config;
+pub mod grpc_transport;
 pub mod kafka_stats;
+pub mod ledger_shadow;
 pub mod order_sentinel;
+pub mod readiness;
 pub mod routing;
 pub mod stash;
 pub mod transport;

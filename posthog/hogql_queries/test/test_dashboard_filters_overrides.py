@@ -4,69 +4,35 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DashboardFilter,
-    DataWarehouseNode,
-    EventsNode,
-    FunnelsQuery,
-    IntervalType,
-    LifecycleQuery,
-    PathsFilter,
-    PathsQuery,
-    RetentionFilter,
-    RetentionQuery,
-    StickinessQuery,
-    TrendsQuery,
-)
+from posthog.schema import DashboardFilter, DataWarehouseNode, EventsNode, IntervalType, TracesQuery, TrendsQuery
 
+from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     resolve_effective_dashboard_filters,
 )
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 
-from products.product_analytics.backend.facade.queries import PathsQueryRunner, StickinessQueryRunner
-
 _TIME_SERIES = [EventsNode(event="$pageview")]
 
+# Only core-owned runners belong here. Product-owned runners (funnels, lifecycle, paths, retention,
+# stickiness) cover the same dashboard-filter behavior in their own product tests.
 # Runners whose query model carries an `interval` field.
 INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
         "trends",
         lambda team: TrendsQueryRunner(query=TrendsQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team),
     ),
-    (
-        "funnels",
-        lambda team: FunnelsQueryRunner(query=FunnelsQuery(series=_TIME_SERIES), team=team),
-    ),
-    (
-        "stickiness",
-        lambda team: StickinessQueryRunner(
-            query=StickinessQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team
-        ),
-    ),
-    (
-        "lifecycle",
-        lambda team: LifecycleQueryRunner(
-            query=LifecycleQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team
-        ),
-    ),
 ]
 
-# Runners whose query model has no `interval` field.
+# Runners whose query model has no `interval` field. Traces is the only core-owned query that
+# takes dashboard filters without one, so it holds this slot on behalf of the shape.
 NON_INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
-        "retention",
-        lambda team: RetentionQueryRunner(query=RetentionQuery(retentionFilter=RetentionFilter()), team=team),
-    ),
-    (
-        "paths",
-        lambda team: PathsQueryRunner(query=PathsQuery(pathsFilter=PathsFilter()), team=team),
+        "traces",
+        lambda team: TracesQueryRunner(query=TracesQuery(), team=team),
     ),
 ]
 

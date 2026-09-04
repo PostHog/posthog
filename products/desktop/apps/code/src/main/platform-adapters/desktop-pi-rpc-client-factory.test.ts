@@ -1,5 +1,6 @@
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
+import type { RootLogger } from "@posthog/di/logger";
 import { getCloudUrlFromRegion } from "@posthog/shared";
 import type { AgentAuth } from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
@@ -7,6 +8,19 @@ import { describe, expect, it, vi } from "vitest";
 import { DesktopPiRpcClientFactory } from "./desktop-pi-rpc-client-factory";
 
 const createPiRpcClient = vi.hoisted(() => vi.fn());
+const createLocalRuntimeMcpServers = vi.hoisted(() =>
+  vi.fn(() => ({
+    "posthog-code-tools": {
+      args: ["local-tools-mcp-server.js"],
+      command: process.execPath,
+      directTools: true,
+      env: { POSTHOG_LOCAL_TOOLS_ENABLED: "show_actions" },
+      lifecycle: "eager",
+      requestTimeoutMs: 300_000,
+      transport: "stdio",
+    },
+  })),
+);
 const createRuntimeMcpServers = vi.hoisted(() =>
   vi.fn(() => ({
     posthog: {
@@ -21,6 +35,7 @@ const createRuntimeMcpServers = vi.hoisted(() =>
 );
 
 vi.mock("@posthog/agent/pi/rpc-client", () => ({
+  createLocalRuntimeMcpServers,
   createPiRpcClient,
   createRuntimeMcpServers,
 }));
@@ -70,26 +85,43 @@ describe("DesktopPiRpcClientFactory", () => {
     };
     const client = {} as PiRpcClient;
     createPiRpcClient.mockReturnValue(client);
+    const rootLogger = {
+      scope: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      }),
+    } as unknown as RootLogger;
     const factory = new DesktopPiRpcClientFactory(
       auth,
       authProxy,
       mcpServerSource,
+      rootLogger,
     );
 
     await expect(
       factory.create({
-        taskId: "task-1",
-        cwd: "/workspace",
-        projectTrusted: true,
+        taskContext: {
+          taskId: "task-1",
+          cwd: "/workspace",
+          customInstructions: "Keep the patch small.",
+          additionalDirectories: ["/tmp/shared"],
+          channelMode: true,
+        },
       }),
     ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
       getLlmGatewayUrl(getCloudUrlFromRegion("eu")),
-      { "X-PostHog-Project-Id": "1" },
+      {
+        "x-posthog-property-task_id": "task-1",
+        "x-posthog-property-$ai_session_id": "task-1",
+        "X-PostHog-Project-Id": "1",
+      },
     );
     expect(authProxy.start).toHaveBeenCalledWith("https://eu.posthog.com");
+    expect(createLocalRuntimeMcpServers).toHaveBeenCalledWith("/workspace");
     expect(createPiRpcClient).toHaveBeenCalledWith({
-      cwd: "/workspace",
       enrichment: {
         apiUrl: "http://127.0.0.1:5678",
         publicApiUrl: "https://eu.posthog.com",
@@ -98,6 +130,15 @@ describe("DesktopPiRpcClientFactory", () => {
       },
       mcpToolPolicies: policies,
       runtimeMcpServers: {
+        "posthog-code-tools": {
+          args: ["local-tools-mcp-server.js"],
+          command: process.execPath,
+          directTools: true,
+          env: { POSTHOG_LOCAL_TOOLS_ENABLED: "show_actions" },
+          lifecycle: "eager",
+          requestTimeoutMs: 300_000,
+          transport: "stdio",
+        },
         posthog: {
           args: [],
           directTools: false,
@@ -107,12 +148,22 @@ describe("DesktopPiRpcClientFactory", () => {
           url: "http://127.0.0.1:4321/posthog",
         },
       },
-      projectTrusted: true,
+      taskContext: {
+        projectId: 1,
+        apiHost: "https://eu.posthog.com",
+        taskId: "task-1",
+        cwd: "/workspace",
+        environment: "local",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
       providerOptions: {
         region: "eu",
         baseUrl: "http://127.0.0.1:1234",
         apiKey: "posthog-code-auth-proxy",
       },
+      extensions: ["context-wiki"],
     });
   });
 });

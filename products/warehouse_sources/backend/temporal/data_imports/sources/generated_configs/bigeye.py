@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class BigeyeSourceConfig(config.Config):
-    pass
+    api_key: str
+    workspace_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    host: str | None = None

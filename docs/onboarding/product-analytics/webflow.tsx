@@ -4,10 +4,8 @@ import { StepDefinition } from '../steps'
 import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from './_snippets/js-snippet-builder'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getWebflowSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getWebflowInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
 
     return [
         {
@@ -54,11 +52,23 @@ export const getWebflowSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getWebflowEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getWebflowSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getWebflowInstallSteps(ctx),
+    getWebflowEventStep(ctx),
+]
 
 export const WebflowInstallation = createInstallation(getWebflowSteps)

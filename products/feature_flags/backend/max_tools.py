@@ -9,10 +9,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import FeatureFlagGroupType
 
 from posthog.exceptions_capture import capture_exception
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -49,7 +49,8 @@ class FeatureFlagCreationSchema(BaseModel):
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Tags for organizing and categorizing the flag",
+        description="Tags for organizing and categorizing the flag. Some projects require at least one "
+        "tag on every new flag, and reject a create that carries none.",
     )
     variants: list[MultivariateVariant] | None = Field(
         default=None,

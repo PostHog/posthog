@@ -31,7 +31,7 @@ from posthog.admin.inlines.scim_provisioned_user_inline import SCIMProvisionedUs
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
 from posthog.admin.inlines.user_social_auth_inline import UserSocialAuthInline
 from posthog.api.authentication import password_reset_token_generator
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import get_impersonated_user, is_impersonated
@@ -243,7 +243,7 @@ class UserAdmin(DjangoUserAdmin):
         if request.POST.get("send_verification") == "1":
             try:
                 if user and not user.is_email_verified:
-                    EmailVerifier.create_token_and_send_email_verification(user)
+                    email_verification_code_verifier.send_code(user)
                     self.log_change(request, user, "Sent verification email.")
                     messages.success(request, f"Verification email sent to {user.email}")
                 else:

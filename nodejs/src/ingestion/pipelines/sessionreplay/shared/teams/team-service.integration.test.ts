@@ -1,7 +1,7 @@
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { TeamService } from './team-service'
 
@@ -11,9 +11,8 @@ describe('TeamService (integration)', () => {
     let apiToken: string
 
     beforeEach(async () => {
-        await resetTestDatabase()
         postgres = new PostgresRouter(defaultConfig)
-        const team = await getFirstTeam(postgres)
+        const { team } = await createTestTeamFixture(postgres)
         teamId = team.id
         apiToken = team.api_token
     })

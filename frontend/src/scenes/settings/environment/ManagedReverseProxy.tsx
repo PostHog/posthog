@@ -22,6 +22,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -31,7 +32,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
+import {
+    DiagnosticCheckResult,
+    DiagnosticCheckStatus,
+    DiagnosticReport,
+    ProxyRecord,
+    canConfigureRootRedirect,
+    proxyLogic,
+} from './proxyLogic'
 import { ProxySDKSetup } from './ProxySDKSetup'
 
 const statusText = {
@@ -40,6 +48,7 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
+    const rootRedirectEnabled = useFeatureFlag('MANAGED_REVERSE_PROXY_ROOT_REDIRECT')
     const {
         shouldShowCloudflareOptIn,
         formState,
@@ -216,7 +225,9 @@ export function ManagedReverseProxy(): JSX.Element {
                 columns={columns}
                 dataSource={proxyRecords}
                 expandable={{
-                    expandedRowRender: (record) => <ExpandedRow record={record} />,
+                    expandedRowRender: (record) => (
+                        <ExpandedRow record={record} rootRedirectEnabled={rootRedirectEnabled} />
+                    ),
                     isRowExpanded: (record) => (expandedRecordIds.includes(record.id) ? true : -1),
                     onRowExpand: (record) => setRecordExpanded(record.id, true),
                     onRowCollapse: (record) => setRecordExpanded(record.id, false),
@@ -339,12 +350,19 @@ function CloudflareOptInBanner({
     )
 }
 
-const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
-    const { diagnosticReports, recordActiveTabs } = useValues(proxyLogic)
-    const { setRecordActiveTab } = useActions(proxyLogic)
+const ExpandedRow = ({
+    record,
+    rootRedirectEnabled,
+}: {
+    record: ProxyRecord
+    rootRedirectEnabled: boolean
+}): JSX.Element => {
+    const { diagnosticReports, recordActiveTabs, rootRedirectDrafts, proxyRecordsLoading } = useValues(proxyLogic)
+    const { setRecordActiveTab, setRootRedirectDraft, updateRootRedirect } = useActions(proxyLogic)
 
     const report = diagnosticReports[record.id]
     const activeKey = recordActiveTabs[record.id] ?? 'cname'
+    const rootRedirectDraft = rootRedirectDrafts[record.id] ?? record.root_redirect_url ?? ''
 
     const tabs = [
         {
@@ -356,6 +374,45 @@ const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
                 </CodeSnippet>
             ),
         },
+        ...(canConfigureRootRedirect(record, rootRedirectEnabled)
+            ? [
+                  {
+                      label: 'Root redirect',
+                      key: 'root-redirect',
+                      content: (
+                          <div className="flex flex-col gap-2 max-w-160">
+                              <p className="text-secondary">
+                                  Redirect visits to <code>https://{record.domain}/</code> to another HTTPS URL. This
+                                  does not affect event ingestion or other proxy paths.
+                              </p>
+                              <LemonInput
+                                  type="url"
+                                  value={rootRedirectDraft}
+                                  onChange={(value) => setRootRedirectDraft(record.id, value)}
+                                  placeholder="https://www.example.com/"
+                              />
+                              <div>
+                                  <LemonButton
+                                      type="primary"
+                                      size="small"
+                                      onClick={() =>
+                                          updateRootRedirect({ id: record.id, rootRedirectUrl: rootRedirectDraft })
+                                      }
+                                      loading={proxyRecordsLoading}
+                                      disabledReason={
+                                          rootRedirectDraft === (record.root_redirect_url ?? '')
+                                              ? 'No changes to save'
+                                              : undefined
+                                      }
+                                  >
+                                      Save redirect
+                                  </LemonButton>
+                              </div>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
         ...(report
             ? [
                   {

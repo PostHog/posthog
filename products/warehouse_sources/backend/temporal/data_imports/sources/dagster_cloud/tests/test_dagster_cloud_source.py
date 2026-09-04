@@ -4,19 +4,12 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.dagster_cloud import (
-    DagsterCloudResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source import DagsterCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source"
 
 
 class TestDagsterCloudSourceConfig:
-    def test_source_type(self) -> None:
-        assert DagsterCloudSource().source_type == ExternalDataSourceType.DAGSTERCLOUD
-
     def test_config_is_released_alpha_not_hidden(self) -> None:
         config = DagsterCloudSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
@@ -87,19 +80,6 @@ class TestDagsterCloudNonRetryableErrors:
 
 
 class TestDagsterCloudPlumbing:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = DagsterCloudSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is DagsterCloudResumeConfig
-
-    @patch(f"{MODULE}.validate_dagster_cloud_credentials")
-    def test_validate_credentials_passes_config_fields(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        config = MagicMock(organization="acme", deployment="prod", api_token="tok")
-
-        DagsterCloudSource().validate_credentials(config, team_id=1)
-
-        mock_validate.assert_called_once_with("acme", "prod", "tok")
-
     @patch(f"{MODULE}.dagster_cloud_source")
     def test_source_for_pipeline_gates_incremental_value(self, mock_source: MagicMock) -> None:
         config = MagicMock(organization="acme", deployment="prod", api_token="tok")

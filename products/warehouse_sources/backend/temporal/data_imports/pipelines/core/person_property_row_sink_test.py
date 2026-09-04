@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.db import OperationalError
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -51,6 +52,22 @@ async def test_should_run_reflects_projection():
     other = _sink()
     with patch(f"{_MODULE}.person_property_projection_for", return_value=[_projection("distinct_id", "plan")]):
         assert await other.should_run() is True
+
+
+@pytest.mark.asyncio
+async def test_should_run_retries_once_on_a_transient_db_connection_drop():
+    # A long-lived Temporal worker's pooled app-DB connection can go stale (pooler recycle,
+    # failover, deploy) between syncs. Without a retry, that one-off OperationalError would
+    # propagate and get treated as "no person-property mapping to sync" for the whole run instead
+    # of the transient blip it is.
+    sink = _sink()
+    projection = [_projection("distinct_id", "plan")]
+    resolver = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), projection])
+
+    with patch(f"{_MODULE}.person_property_projection_for", resolver):
+        assert await sink.should_run() is True
+
+    assert resolver.call_count == 2
 
 
 @pytest.mark.asyncio

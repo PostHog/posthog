@@ -1,12 +1,12 @@
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
 
-from drf_spectacular.utils import extend_schema
-from rest_framework import response, serializers, status, viewsets
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
+from rest_framework import pagination, response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -15,7 +15,8 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
-from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -46,6 +47,30 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
 def cleanup_orphan_tags(team_id: int) -> None:
     """Remove tags that are no longer referenced by any TaggedItem."""
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
+
+
+def normalize_tag_names(tags: Iterable[str]) -> set[str]:
+    """The tag names a request's raw strings resolve to, minus the blanks.
+
+    ``tagify`` strips whitespace, so a payload of ``[""]`` or ``["  "]`` would otherwise reach
+    ``Tag.objects.get_or_create`` and leave an empty tag that renders as nothing.
+    """
+    return {name for name in (tagify(tag) for tag in tags) if name}
+
+
+def current_tag_names(obj: Any) -> set[str]:
+    """The object's tags, preferring a ``prefetched_tags`` attribute over a fresh query."""
+    tagged_items = obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag")
+    return {tagged_item.tag.name for tagged_item in tagged_items}
+
+
+def resolve_bulk_tags(current_tags: set[str], tag_action: str, normalized_tags: set[str]) -> set[str]:
+    """The tags an object ends up with after an add/remove/set bulk mutation."""
+    if tag_action == "add":
+        return current_tags | normalized_tags
+    if tag_action == "remove":
+        return current_tags - normalized_tags
+    return set(normalized_tags)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -83,26 +108,15 @@ def apply_bulk_tag_changes(
     recorded for every object whose tags actually change, mirroring the single-object update path
     so the bulk endpoint leaves the same audit trail.
     """
-    normalized_tags = {tagify(t) for t in tags}
+    normalized_tags = normalize_tag_names(tags)
     updated: list[dict[str, Any]] = []
     team_ids: set[int] = set()
     activity_entries: list[LogActivityEntry] = []
 
     for obj in objects:
         team_ids.add(obj.team_id)
-        current_tags = {
-            ti.tag.name
-            for ti in (
-                obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag").all()
-            )
-        }
-
-        if tag_action == "add":
-            new_tags = current_tags | normalized_tags
-        elif tag_action == "remove":
-            new_tags = current_tags - normalized_tags
-        else:  # set
-            new_tags = set(normalized_tags)
+        current_tags = current_tag_names(obj)
+        new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
 
         set_tags_on_object(list(new_tags), obj)
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
@@ -186,6 +200,12 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 BULK_UPDATE_TAGS_MAX_IDS = 500
 
 
+class BulkUpdateTagsAction(models.TextChoices):
+    ADD = "add", "add"
+    REMOVE = "remove", "remove"
+    SET = "set", "set"
+
+
 class BulkUpdateTagsRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.IntegerField(),
@@ -194,7 +214,7 @@ class BulkUpdateTagsRequestSerializer(serializers.Serializer):
         help_text="List of object IDs to update tags on.",
     )
     action = serializers.ChoiceField(
-        choices=["add", "remove", "set"],
+        choices=BulkUpdateTagsAction.choices,
         help_text="'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.",
     )
     tags = serializers.ListField(
@@ -293,6 +313,17 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             activity="updated",
         )
 
+    def validate_bulk_tag_changes(self, objects: Sequence, tag_action: str, tags: list[str]) -> None:
+        """Hook for resources whose tags carry a rule the bulk path must honor.
+
+        Raise ``serializers.ValidationError`` to reject the whole request. Rejecting beats skipping
+        here: the bulk-tag form reports skipped objects as permission failures, so a rule-based skip
+        would reach the user as the wrong reason.
+
+        A viewset that reimplements ``bulk_update_tags`` must call this itself before
+        ``apply_bulk_tag_changes``, or its resource silently opts out of its own rule.
+        """
+
     def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
         if isinstance(queryset, models.query.RawQuerySet):
             return queryset  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
@@ -379,6 +410,8 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if obj_id not in found_ids:
                 errors.append({"id": obj_id, "reason": "Not found"})
 
+        self.validate_bulk_tag_changes(editable_objects, tag_action, tags)
+
         updated = apply_bulk_tag_changes(
             editable_objects, tag_action, tags, activity_context=self._bulk_tag_activity_context()
         )
@@ -397,7 +430,25 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     serializer_class = TaggedItemSerializer
     queryset = Tag.objects.none()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("search", OpenApiTypes.STR, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, required=False),
+        ]
+    )
     def list(self, request, *args, **kwargs) -> response.Response:
-        return response.Response(
-            Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
-        )
+        tags = Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
+        search = request.query_params.get("search")
+
+        if search is None:
+            return response.Response(tags)
+
+        if search:
+            tags = tags.filter(name__icontains=search)
+
+        paginator = pagination.LimitOffsetPagination()
+        paginator.default_limit = 100
+        paginator.max_limit = 100
+        page = paginator.paginate_queryset(tags, request, view=self)
+        return paginator.get_paginated_response(page)

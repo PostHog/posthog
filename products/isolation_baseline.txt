@@ -31,6 +31,7 @@ business_knowledge
 canvas
 cdp
 cohorts
+context_layer
 conversations
 dashboards
 data_catalog

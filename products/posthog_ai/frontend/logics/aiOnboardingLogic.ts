@@ -6,6 +6,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import type { IntegrationType, TeamPublicType, TeamType, UserType } from '~/types'
 
 import {
@@ -16,11 +17,8 @@ import {
 } from '../components/onboarding/onboardingSteps'
 import { type ComposerSeed, composerSeedLogic } from './composerSeedLogic'
 
-/**
- * Key into `user.has_seen_product_intro_for`. That map is a plain `Record<string, boolean>` end to end, so a
- * non-`ProductKey` key is fine — web analytics already stores its own composed key there the same way.
- */
-export const POSTHOG_AI_ONBOARDING_SEEN_KEY = 'posthog_ai_onboarding'
+/** Key into `user.has_seen_product_intro_for`. Named here because it reads better at the call sites. */
+export const POSTHOG_AI_ONBOARDING_SEEN_KEY = ProductKey.POSTHOG_AI_ONBOARDING
 
 export interface AiOnboardingLogicProps {
     /** The embedded composer's panel key, so a chosen starter prompt reaches the right composer. */
@@ -44,11 +42,13 @@ export interface aiOnboardingLogicValues {
     currentStep: OnboardingStep | null
     githubConnected: boolean
     hasSeenOnboarding: boolean
+    hasSeenOnboardingPersisted: boolean
     isOpen: boolean
     isReplay: boolean
     projectHasData: boolean
     reportProperties: OnboardingReportProperties
     repositoryCount: number
+    seenThisSession: boolean
     starterPrompts: readonly string[]
     stepIndex: number
     viewedStepKeys: Record<string, true>
@@ -59,12 +59,12 @@ export interface aiOnboardingLogicActions {
     setSeed: (seed: ComposerSeed) => {
         seed: ComposerSeed
     } // composerSeedLogic
-    updateUser: (
-        user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+    updateHasSeenProductIntroFor: (
+        productKey: ProductKey,
+        value?: boolean | undefined
     ) => {
-        successCallback: (() => void) | undefined
-        user: Partial<UserType>
+        productKey: ProductKey
+        value: boolean
     } // userLogic
     clickGithubCta: () => {
         value: true
@@ -100,7 +100,8 @@ export interface aiOnboardingLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         currentStep: (stepIndex: number) => OnboardingStep | null
-        hasSeenOnboarding: (user: UserType | null) => boolean
+        hasSeenOnboardingPersisted: (user: UserType | null) => boolean
+        hasSeenOnboarding: (hasSeenOnboardingPersisted: boolean, seenThisSession: boolean) => boolean
         projectHasData: (currentTeam: TeamPublicType | TeamType | null) => boolean
         starterPrompts: (projectHasData: boolean) => readonly string[]
         githubConnected: (githubIntegrations: IntegrationType[]) => boolean
@@ -145,7 +146,12 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             aiConsentLogic,
             ['dataProcessingAccepted'],
         ],
-        actions: [userLogic, ['updateUser'], composerSeedLogic({ panelId: props.panelId }), ['setSeed']],
+        actions: [
+            userLogic,
+            ['updateHasSeenProductIntroFor'],
+            composerSeedLogic({ panelId: props.panelId }),
+            ['setSeed'],
+        ],
     })),
 
     actions({
@@ -183,6 +189,14 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
                 setStepIndex: (_, { stepIndex }) => stepIndex,
             },
         ],
+        // The seen flag normally round-trips the server, but an impersonated session can never persist
+        // it, so hold it here as well to keep the takeover closed for the rest of the session.
+        seenThisSession: [
+            false,
+            {
+                markOnboardingSeen: () => true,
+            },
+        ],
         // Fire-once guard so re-entering a step (via Back, or the dot row) doesn't re-report it.
         viewedStepKeys: [
             {} as Record<string, true>,
@@ -198,9 +212,14 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             (s) => [s.stepIndex],
             (stepIndex: number): OnboardingStep | null => DEFAULT_ONBOARDING_STEPS[stepIndex] ?? null,
         ],
-        hasSeenOnboarding: [
+        hasSeenOnboardingPersisted: [
             (s) => [s.user],
             (user: UserType | null): boolean => !!user?.has_seen_product_intro_for?.[POSTHOG_AI_ONBOARDING_SEEN_KEY],
+        ],
+        hasSeenOnboarding: [
+            (s) => [s.hasSeenOnboardingPersisted, s.seenThisSession],
+            (hasSeenOnboardingPersisted: boolean, seenThisSession: boolean): boolean =>
+                hasSeenOnboardingPersisted || seenThisSession,
         ],
         // `TeamPublicType` has no `ingested_event`, so read it defensively rather than casting.
         projectHasData: [
@@ -233,10 +252,17 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        openOnboarding: () => {
+        openOnboarding: ({ isReplay }) => {
             posthog.capture('posthog ai onboarding shown', values.reportProperties)
             if (values.currentStep) {
                 actions.markStepViewed(values.currentStep.key)
+            }
+            // Persisted on open rather than only on the way out. A user who reads a step and then closes
+            // the tab, follows a link, or reloads never reaches a dismissal, so the takeover greeted them
+            // again on their next visit. A replay writes nothing: it re-opens the takeover on surfaces that
+            // never showed it by themselves, and marking it seen there would swallow the one real showing.
+            if (!isReplay) {
+                actions.markOnboardingSeen()
             }
         },
         setStepIndex: () => {
@@ -252,11 +278,18 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             // skip event carries the step it happened on rather than only reporting that a dismissal occurred.
             posthog.capture('posthog ai onboarding step skipped', values.reportProperties)
             posthog.capture('posthog ai onboarding dismissed', values.reportProperties)
-            actions.markOnboardingSeen()
+            // A replay writes nothing on the way out either, matching the open carve-out above, because it
+            // re-opened the takeover on a surface that never showed it and persisting here would swallow the
+            // one real showing.
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         finishOnboarding: () => {
             posthog.capture('posthog ai onboarding completed', values.reportProperties)
-            actions.markOnboardingSeen()
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         selectStarterPrompt: ({ prompt }) => {
             posthog.capture('posthog ai onboarding starter prompt clicked', {
@@ -267,7 +300,9 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             // prompt only prefills, so the consent popover never fires on top of the onboarding. The user's
             // own send then goes through the composer's normal consent flow.
             actions.setSeed({ prompt, autoSubmit: values.dataProcessingAccepted })
-            actions.markOnboardingSeen()
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         clickGithubCta: () => {
             posthog.capture('posthog ai onboarding github cta clicked', {
@@ -279,15 +314,17 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             posthog.capture('posthog ai onboarding media replayed', values.reportProperties)
         },
         markOnboardingSeen: () => {
-            if (values.hasSeenOnboarding) {
+            // Reads the persisted value, not `hasSeenOnboarding`: the session reducer above already
+            // flipped on this action, so the combined selector would skip every write.
+            if (values.hasSeenOnboardingPersisted) {
                 return
             }
-            actions.updateUser({
-                has_seen_product_intro_for: {
-                    ...values.user?.has_seen_product_intro_for,
-                    [POSTHOG_AI_ONBOARDING_SEEN_KEY]: true,
-                },
-            })
+            // `/api/users/` rejects writes from an impersonated session (ImpersonationBlockedPathsMiddleware),
+            // and the only outcome of trying is a failure toast on top of the takeover.
+            if (values.user?.is_impersonated) {
+                return
+            }
+            actions.updateHasSeenProductIntroFor(POSTHOG_AI_ONBOARDING_SEEN_KEY)
         },
     })),
 ])

@@ -35,6 +35,26 @@ if not consume_github_installation_sync(installation_id, priority=Priority.BATCH
 They are **non-blocking** — the caller decides what to do on `False`.
 The GitHub helpers wrap the key construction; other domains expose their own thin gate the same way.
 
+### Pacing (for callers that can wait)
+
+Getting denied is recoverable but wasteful: the caller learns nothing about _when_ the budget frees, so it backs off blind, and the budget it already spent stays spent.
+A caller that can wait — a bulk import walking pages, not a request serving a person — should instead ask how long to wait and not get denied at all:
+
+```python
+pace = get_outbound_rate_limiter().pace_seconds(key, priority=Priority.BATCH)
+if pace > 0:
+    ...  # the caller owns the wait; the limiter never sleeps
+```
+
+`pace_seconds` returns **0 while a window still holds more than half of that priority's allowance**, so a short run is never slowed for a budget it cannot dent.
+Below that it spreads the allowance that is left over the time left in the window, which is the interval that keeps the caller admitted instead of shed.
+It reads the same reserved floors admission does, so a `BATCH` caller paces off the share it may actually take, not the whole window.
+
+Two things it is not.
+It is **advisory** — `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.
+And it is not a wait-for-reset: these are sliding windows, which free continuously, so waiting for a reset would idle for a whole window to get budget that was arriving all along.
+A store failure answers 0 rather than raising, because pacing sits in front of every gated call and the in-memory fallback's headroom is one process's, not the shared budget's.
+
 ### Budgets (policies)
 
 A budget is a `RatePolicy`: one or more `(count, period_seconds)` limits enforced _together_, so you can cap the hour and smooth per-minute bursts on the same key.
@@ -68,6 +88,12 @@ All priorities draw from the _same_ per-key counter — the lane only changes ho
 Admission tests `n + reserve` but only consumes `n`, so an empty reserve is bit-identical to pre-priority behavior.
 GitHub's reserve ladder is active: `BATCH` calls are denied once 70% of a window is consumed and `NORMAL` at 90%, while `CRITICAL` may use the full budget.
 Deferrable background callers construct their client on the `BATCH` lane (`GitHubIntegration(integration, source=..., priority=Priority.BATCH)`; `api_request` also takes a per-call override) — a shed sweep stops for the cycle and resumes on the next scheduled run.
+
+The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
+An installation whose only consumer is a bulk one — a warehouse backfill of a repository nothing else touches — would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.
+So a non-`BATCH` `core` call writes a short-lived per-installation marker (`note_interactive_demand`), and the policy holds the full 70% floor only while that marker is present; without it `BATCH` falls back to a 10% floor — the same floor `NORMAL` keeps.
+Three details make that safe: the marker is written on the attempt rather than the outcome, so a _denied_ interactive call still counts; the floor matches `NORMAL`'s rather than dropping toward zero, so an unopposed backfill can never saturate the window past the point where the first interactive call would itself be denied, regardless of the marker it just wrote; and an unreachable cache reports demand as present, so a cache outage cannot hand the whole budget to bulk traffic.
+The two search resources keep the flat ladder — they are metered on their own counters, so core demand says nothing about them.
 
 ### Backend
 
@@ -132,7 +158,7 @@ It is **never** a PostHog DB row id (`Integration.id`).
 Several PostHog integration rows can point at the same installation (multiple projects, one org), and GitHub gives that installation one shared budget: key a gauge by the row and one real budget splits into N flip-flopping series; key by the installation and you get one true series.
 Per-caller attribution is the `source` label's job, not the identity's.
 
-> The cache-hit counter in `github_integration_base` is a separate concern (cache efficiency per connection) and legitimately keys by the integration row — it is not egress-budget telemetry.
+> The cache-hit counter in `github_integration_base` is a separate concern (which rows are reading a warm cache) and legitimately keys by the integration row, not by the installation — it is not egress-budget telemetry. The caches it counts are installation-scoped, so a row can record a hit on an entry another row on the same installation filled.
 
 ## Identity-blind callers and the PAT scope decision
 

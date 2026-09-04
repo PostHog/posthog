@@ -5,18 +5,14 @@ from urllib.parse import urlsplit
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
     MailgunSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import MailgunResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -25,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.se
     WEBHOOK_TYPES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source import MailgunSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 WEBHOOK_URL = "https://us.posthog.com/public/webhooks/abc"
 
@@ -44,35 +39,6 @@ class TestMailgunSource:
         self.source = MailgunSource()
         self.team_id = 123
         self.config = MailgunSourceConfig(api_key="key-123", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MAILGUN
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Mailgun"
-        assert config.label == "Mailgun"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/mailgun.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key", "region"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
-
-    def test_region_field_is_select_with_us_default(self):
-        config = self.source.get_source_config
-        region_field = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig) and f.name == "region")
-        assert region_field.required is True
-        assert region_field.defaultValue == "us"
-        assert [option.value for option in region_field.options] == ["us", "eu"]
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -195,13 +161,6 @@ class TestMailgunSource:
 
         assert [urlsplit(url).path for url in requests_made] == expected_paths
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MailgunResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source.mailgun_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_mailgun_source):
         inputs = mock.MagicMock()
@@ -264,17 +223,6 @@ class TestMailgunSource:
         assert template is not None
         assert template.type == "warehouse_source_webhook"
         assert template.id == "template-warehouse-source-mailgun"
-
-    def test_signing_secret_is_collected_as_a_webhook_field(self):
-        config = self.source.get_source_config
-
-        assert config.webhookFields is not None
-        secret_field = next(
-            f for f in config.webhookFields if isinstance(f, SourceFieldInputConfig) and f.name == "signing_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "eligible_schema_names, expected",

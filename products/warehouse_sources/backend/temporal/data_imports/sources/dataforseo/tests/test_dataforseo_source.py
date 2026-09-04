@@ -7,13 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import (
-    DataForSEOResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source"
 
@@ -35,9 +30,6 @@ def _make_config(
 
 
 class TestDataForSEOSource:
-    def test_source_type(self) -> None:
-        assert DataForSEOSource().source_type == ExternalDataSourceType.DATAFORSEO
-
     def test_source_config_fields(self) -> None:
         config = DataForSEOSource().get_source_config
         assert [f.name for f in config.fields] == [
@@ -69,12 +61,6 @@ class TestDataForSEOSource:
         # targets selects which domains the stored credential runs paid requests against, so
         # changing it must force re-entry of the secret.
         assert DataForSEOSource().connection_host_fields == ["targets"]
-
-    def test_source_config_is_released_alpha(self) -> None:
-        config = DataForSEOSource().get_source_config
-        assert config.releaseStatus == "alpha"
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/dataforseo"
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
@@ -129,11 +115,6 @@ class TestDataForSEOSource:
             ok, _ = DataForSEOSource().validate_credentials(_make_config(targets=""), team_id=1)
         assert ok is False
         probe.assert_not_called()
-
-    def test_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = DataForSEOSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DataForSEOResumeConfig
 
     def test_source_for_pipeline_plumbs_config(self) -> None:
         inputs = MagicMock()

@@ -119,6 +119,12 @@ pub struct ProcessingConfig {
     pub max_assignment_rule_cache_size: u64,
 
     #[envconfig(default = "300")]
+    pub severity_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    pub max_severity_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
     pub grouping_rule_cache_ttl_secs: u64,
 
     #[envconfig(default = "100000")]

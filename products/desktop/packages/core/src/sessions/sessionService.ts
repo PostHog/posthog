@@ -38,7 +38,9 @@ import {
   isPersistedOptionSupported,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   leadingSlashCommand,
+  type ModelAccess,
   mergeConfigOptions,
   type OptimisticItem,
   type PermissionRequest,
@@ -60,6 +62,7 @@ import {
   type EffortLevel,
   effortLevelSchema,
   isTerminalStatus,
+  readPendingFollowupMessages,
   type Task,
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
@@ -117,9 +120,12 @@ import {
   getUserShellExecutesSinceLastPrompt,
   hasSessionPromptEvent,
   hasSessionPromptEventForTaskRun,
+  isSteerPromptParams,
   isTurnCompleteEvent,
   normalizePromptToBlocks,
   promptReferencesAbsoluteFolder,
+  selectEchoedOptimisticItemIds,
+  selectUnseededPendingFollowups,
   shellExecutesToContextBlocks,
 } from "./sessionEvents";
 import { selectSessionsToEvict } from "./sessionEviction";
@@ -148,7 +154,6 @@ const LOCAL_SESSION_RECOVERY_MESSAGE =
   "Lost connection to the agent. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_FAILED_MESSAGE =
   "Connecting to to the agent has been lost. Retry, or start a new session.";
-const GITHUB_AUTHORIZATION_REQUIRED_CODE = "github_authorization_required";
 const AUTO_RETRY_MAX_ATTEMPTS = 2;
 const AUTO_RETRY_DELAY_MS = 10_000;
 const AUTH_RESTORE_MAX_RETRY_WAITS = 6;
@@ -245,15 +250,6 @@ function endsAtConversationClearedBoundary(events: AcpMessage[]): boolean {
     );
 }
 
-class GitHubAuthorizationRequiredForCloudHandoffError extends Error {
-  constructor(
-    message = "Connect GitHub before continuing this task in cloud.",
-  ) {
-    super(message);
-    this.name = "GitHubAuthorizationRequiredForCloudHandoffError";
-  }
-}
-
 type TrpcMutation = { mutate: (input?: any) => Promise<any> };
 type TrpcQuery = { query: (input?: any) => Promise<any> };
 type TrpcSubscription = {
@@ -341,12 +337,6 @@ export interface SessionTrpc {
     designateRelayedMcpServers: TrpcMutation;
     onUpdate: TrpcSubscription;
   };
-  handoff: {
-    execute: TrpcMutation;
-    executeToCloud: TrpcMutation;
-    preflight: TrpcQuery;
-    preflightToCloud: TrpcQuery;
-  };
   logs: {
     readLocalLogs: TrpcQuery;
     /** Optional: merges superseded tool_call_update snapshots server-side so
@@ -361,12 +351,13 @@ export interface SessionTrpc {
     fetchS3Logs: TrpcQuery;
     writeLocalLogs: TrpcMutation;
   };
-  os: { openExternal: TrpcMutation };
 }
 
 export interface ISessionStore {
   setSession(session: AgentSession): void;
   removeSession(taskRunId: string): void;
+  setTaskStarting?(taskId: string): void;
+  clearTaskStarting?(taskId: string): void;
   updateSession(taskRunId: string, updates: Partial<AgentSession>): void;
   appendEvents(
     taskRunId: string,
@@ -426,6 +417,7 @@ export interface ISessionStore {
   ): void;
   clearOptimisticItems(taskRunId: string): void;
   clearTailOptimisticItems(taskRunId: string): void;
+  removeOptimisticItems(taskRunId: string, ids: string[]): void;
   replaceOptimisticWithEvent(taskRunId: string, event: AcpMessage): void;
   getSessionByTaskId(taskId: string): AgentSession | undefined;
   getSessions(): Record<string, AgentSession>;
@@ -508,6 +500,8 @@ export interface SessionServiceDeps {
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
+    codexModelAccess?: ModelAccess;
+    claudeModelAccess?: ModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -540,12 +534,19 @@ type AuthCredentialsStatus =
   | { kind: "restoring" }
   | { kind: "missing" };
 
+export interface AdapterModelAccess {
+  codex?: ModelAccess;
+  claude?: ModelAccess;
+}
+
 export interface ConnectParams {
   task: Task;
   repoPath: string;
   initialPrompt?: ContentBlock[];
   executionMode?: ExecutionMode;
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
@@ -1911,8 +1912,12 @@ export class SessionService {
     // Check for existing connected session
     const existingSession = this.d.store.getSessionByTaskId(taskId);
     if (existingSession?.status === "connected") {
+      this.d.store.clearTaskStarting?.(taskId);
       this.d.log.info("Already connected to task", { taskId });
       return;
+    }
+    if (task.latest_run?.environment !== "cloud") {
+      this.d.store.setTaskStarting?.(taskId);
     }
     if (existingSession?.status === "connecting") {
       this.d.log.info("Session already in connecting state", { taskId });
@@ -1930,6 +1935,8 @@ export class SessionService {
 
   private stampRunConfig(session: AgentSession, params: ConnectParams): void {
     session.adapter = params.adapter;
+    session.codexModelAccess = params.codexModelAccess;
+    session.claudeModelAccess = params.claudeModelAccess;
     session.model = params.model;
     session.executionMode = params.executionMode;
     session.reasoningLevel = params.reasoningLevel;
@@ -1947,6 +1954,8 @@ export class SessionService {
       initialPrompt,
       executionMode,
       adapter,
+      codexModelAccess,
+      claudeModelAccess,
       model,
       reasoningLevel,
       contextWindow,
@@ -2066,11 +2075,16 @@ export class SessionService {
           importedSessionId,
           contextWindow,
           fastMode,
+          { codex: codexModelAccess, claude: claudeModelAccess },
         );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.d.log.error("Failed to connect to task", { message });
+      this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+        task_id: taskId,
+        error_type: "connect_failed",
+      });
 
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
       const session = createBaseSession(taskRunId, taskId, taskTitle);
@@ -2281,12 +2295,16 @@ export class SessionService {
         rtkEnabledLocal,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
+        codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
       } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
+        codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2622,6 +2640,7 @@ export class SessionService {
     importedSessionId?: string,
     contextWindow?: "200k" | "1m",
     fastMode?: boolean,
+    modelAccess?: AdapterModelAccess,
   ): Promise<void> {
     const { client } = auth;
     if (!client) {
@@ -2638,7 +2657,13 @@ export class SessionService {
       rtkEnabledLocal,
       spokenNarrationEnabled,
       bedrockGatewayVariant,
+      codexModelAccess: settingsCodexModelAccess,
+      claudeModelAccess: settingsClaudeModelAccess,
     } = this.d.settings;
+    const resolvedModelAccess: AdapterModelAccess = {
+      codex: modelAccess?.codex ?? settingsCodexModelAccess,
+      claude: modelAccess?.claude ?? settingsClaudeModelAccess,
+    };
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
       taskId,
@@ -2648,6 +2673,8 @@ export class SessionService {
       projectId: auth.projectId,
       permissionMode: executionMode,
       adapter,
+      codexModelAccess: resolvedModelAccess.codex,
+      claudeModelAccess: resolvedModelAccess.claude,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
@@ -2665,6 +2692,8 @@ export class SessionService {
     session.channel = result.channel;
     session.status = "connected";
     session.adapter = adapter;
+    session.codexModelAccess = resolvedModelAccess.codex;
+    session.claudeModelAccess = resolvedModelAccess.claude;
     session.model = model;
     session.executionMode = executionMode;
     session.reasoningLevel = reasoningLevel;
@@ -3013,7 +3042,7 @@ export class SessionService {
   ): session is AgentSession {
     if (!session || session.isPromptPending) return false;
     // A cloud run's `status` can read "disconnected" while the run is still
-    // alive (cloud handoff and SSE-retry both write it), so a cloud transcript
+    // alive because SSE retries write it, so a cloud transcript
     // is only safe to release once its `cloudStatus` is terminal, mirroring
     // isSessionIdle. Local runs still key off `status`.
     return session.isCloud
@@ -3082,6 +3111,12 @@ export class SessionService {
             error: err,
           });
           const session = this.getSessionByRunId(taskRunId);
+          if (session) {
+            this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+              task_id: session.taskId,
+              error_type: "subscription_error",
+            });
+          }
           if (!session || session.isCloud) {
             this.d.store.updateSession(taskRunId, {
               status: "error",
@@ -3245,11 +3280,11 @@ export class SessionService {
    * guard ignores it without needing a marker here.
    */
   private isSteerMessage(msg: AcpMessage["message"]): boolean {
-    if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
-      const params = msg.params as { _meta?: { steer?: boolean } } | undefined;
-      return params?._meta?.steer === true;
-    }
-    return false;
+    return (
+      isJsonRpcRequest(msg) &&
+      msg.method === "session/prompt" &&
+      isSteerPromptParams(msg.params)
+    );
   }
 
   private finalizeTurnContent(
@@ -4320,35 +4355,39 @@ export class SessionService {
    * Called internally when a turn completes and there are queued messages.
    * Only the head message is dequeued (`max: 1`) so a queue drains one turn at
    * a time — when this turn completes, the drain fires again for the next one.
-   * The message is removed from the queue before sending; if sending fails it
-   * is lost (acceptable since the user can re-type; avoids complex retry logic).
+   * The message is removed before sending and restored if the send fails.
    */
   private async sendQueuedMessages(
     taskId: string,
   ): Promise<{ stopReason: string }> {
-    const combinedText = this.d.store.dequeueMessagesAsText(taskId, {
+    const drained = this.d.store.dequeueMessages(taskId, {
       stopAtEdited: true,
       max: 1,
     });
-    if (!combinedText) {
+    const message = drained[0];
+    if (!message) {
       return { stopReason: "skipped" };
     }
 
+    const prompt = message.rawPrompt ?? message.content;
+    const promptText = extractPromptText(prompt);
+
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) {
-      this.d.log.warn("No session found for queued messages, messages lost", {
+      this.d.store.prependQueuedMessages(taskId, drained);
+      this.d.log.warn("No session found for queued messages; re-enqueued", {
         taskId,
-        lostMessageLength: combinedText.length,
+        promptLength: promptText.length,
       });
       return { stopReason: "no_session" };
     }
 
     this.d.log.info("Sending next queued message as prompt", {
       taskId,
-      promptLength: combinedText.length,
+      promptLength: promptText.length,
     });
 
-    let blocks = normalizePromptToBlocks(combinedText);
+    let blocks = normalizePromptToBlocks(prompt);
 
     const shellExecutes = getUserShellExecutesSinceLastPrompt(session.events);
     if (shellExecutes.length > 0) {
@@ -4360,17 +4399,28 @@ export class SessionService {
       task_id: taskId,
       is_initial: false,
       execution_type: "local",
-      prompt_length_chars: combinedText.length,
+      prompt_length_chars: promptText.length,
     });
 
     try {
-      return await this.sendLocalPrompt(session, blocks, combinedText);
+      const result = await this.sendLocalPrompt(session, blocks, promptText);
+      if (result.stopReason === "rate_limited") {
+        this.d.store.prependQueuedMessages(taskId, drained);
+        this.d.log.warn("Queued message hit a gateway limit; re-enqueued", {
+          taskId,
+          promptLength: promptText.length,
+        });
+      }
+      return result;
     } catch (error) {
-      // Log that queued messages were lost due to send failure
-      this.d.log.error("Failed to send queued messages, messages lost", {
+      this.d.store.prependQueuedMessages(taskId, drained);
+      this.d.log.error("Failed to send queued messages; re-enqueued", {
         taskId,
-        lostMessageLength: combinedText.length,
+        promptLength: promptText.length,
         error,
+      });
+      this.d.toast.error("Couldn't send the queued message", {
+        description: "Your message is still queued. Use Steer to try again.",
       });
       throw error;
     }
@@ -4488,9 +4538,21 @@ export class SessionService {
         });
       }
 
-      // A provider request that timed out or dropped leaves the session
-      // healthy — no recovery ran above — so tell the user to just re-send
-      // instead of surfacing the raw "Internal error: API Error: …" text.
+      if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) {
+        this.d.log.warn("Turn ended without an assistant response", {
+          taskRunId: session.taskRunId,
+          errorMessage,
+          errorDetails,
+        });
+        throw new Error(
+          "The model ended this turn without a response. Your session is unaffected — please send the message again.",
+          { cause: error },
+        );
+      }
+
+      // A provider request that timed out, dropped, or was refused leaves the
+      // session healthy — no recovery ran above — so tell the user to just
+      // re-send instead of surfacing the raw "Internal error: API Error: …" text.
       if (isTransientUpstreamError(errorMessage, errorDetails)) {
         this.d.log.warn("Transient upstream provider failure during prompt", {
           taskRunId: session.taskRunId,
@@ -4498,7 +4560,7 @@ export class SessionService {
           errorDetails,
         });
         throw new Error(
-          "The AI provider timed out or dropped the connection. Your session is unaffected — please send the message again.",
+          "The AI provider could not complete the request. Your session is unaffected, so please send the message again.",
           { cause: error },
         );
       }
@@ -4956,11 +5018,15 @@ export class SessionService {
       });
 
       if (!result.success) {
+        if (result.status === 409 && !options?.steer) {
+          this.d.store.clearTailOptimisticItems(session.taskRunId);
+          return this.resumeCloudRun(session, normalizedPrompt);
+        }
         throw new Error(result.error ?? "Failed to send cloud command");
       }
 
       const commandResult = result.result as
-        | { queued?: boolean; steered?: boolean; stopReason?: string }
+        | { queued?: boolean; stopReason?: string }
         | undefined;
       const stopReason = commandResult?.queued
         ? "queued"
@@ -5222,6 +5288,7 @@ export class SessionService {
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
 
       try {
+        this.markTaskCreationInFlight(session.taskId);
         // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
         updatedTask = await authCredentials.client.runTaskInCloud(
           session.taskId,
@@ -5261,11 +5328,13 @@ export class SessionService {
         throw error;
       }
     } catch (error) {
+      this.clearTaskCreationInFlight(session.taskId);
       rollbackOptimisticPrompt();
       throw error;
     }
     const newRun = updatedTask.latest_run;
     if (!newRun?.id) {
+      this.clearTaskCreationInFlight(session.taskId);
       rollbackOptimisticPrompt();
       throw new Error("Failed to create resume run");
     }
@@ -5850,27 +5919,35 @@ export class SessionService {
    * Set a session configuration option with optimistic update and rollback.
    * This is the unified method for model, mode, thought level, etc.
    */
+  /**
+   * Returns whether the change reached the agent: `true` once the backend
+   * accepted it (or it was already set), `false` when the session is missing,
+   * the option is unknown, the change was skipped because the local session is
+   * offline, or the backend call failed and rolled back. Callers that gate a
+   * user action on the switch (the mid-session model switch) rely on this to
+   * tell success from a swallowed failure.
+   */
   async setSessionConfigOption(
     taskId: string,
     configId: string,
     value: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) return;
+    if (!session) return false;
 
     // Find the config option and save previous value for rollback
     const configOptions = session.configOptions ?? [];
     const optionIndex = configOptions.findIndex((opt) => opt.id === configId);
     if (optionIndex === -1) {
       this.d.log.warn("Config option not found", { taskId, configId });
-      return;
+      return false;
     }
 
     const previousValue = configOptions[optionIndex].currentValue;
 
     // Skip if value is already set — avoids expensive IPC round-trip (e.g. setModel ~2s)
     if (previousValue === value) {
-      return;
+      return true;
     }
 
     // Optimistic update
@@ -5884,13 +5961,35 @@ export class SessionService {
     });
     this.d.setPersistedConfigOptions(session.taskRunId, updatedOptions);
 
+    const rollbackConfigOption = (): void => {
+      const latestConfigOptions =
+        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
+      const latestOption = latestConfigOptions.find(
+        (option) => option.id === configId,
+      );
+      if (latestOption?.currentValue !== value) return;
+      const rolledBackOptions = latestConfigOptions.map((option) =>
+        option.id === configId
+          ? ({
+              ...option,
+              currentValue: previousValue,
+            } as SessionConfigOption)
+          : option,
+      );
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: rolledBackOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
+    };
+
     if (
       !session.isCloud &&
       (session.idleKilled ||
         session.status === "disconnected" ||
         session.status === "connecting")
     ) {
-      return;
+      rollbackConfigOption();
+      return false;
     }
 
     try {
@@ -5906,26 +6005,9 @@ export class SessionService {
           value,
         });
       }
+      return true;
     } catch (error) {
-      const latestConfigOptions =
-        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
-      const latestOption = latestConfigOptions.find(
-        (option) => option.id === configId,
-      );
-      if (latestOption?.currentValue === value) {
-        const rolledBackOptions = latestConfigOptions.map((option) =>
-          option.id === configId
-            ? ({
-                ...option,
-                currentValue: previousValue,
-              } as SessionConfigOption)
-            : option,
-        );
-        this.d.store.updateSession(session.taskRunId, {
-          configOptions: rolledBackOptions,
-        });
-        this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
-      }
+      rollbackConfigOption();
       this.d.log.error("Failed to set session config option", {
         taskId,
         configId,
@@ -5933,6 +6015,7 @@ export class SessionService {
         error,
       });
       this.d.toast.error("Failed to change setting. Please try again.");
+      return false;
     }
   }
 
@@ -6043,6 +6126,8 @@ export class SessionService {
         reasoningLevel,
         contextWindow,
         fastMode,
+        codexModelAccess,
+        claudeModelAccess,
       } = session;
       await this.teardownSession(session.taskRunId);
       const authStatus = await this.getAuthCredentialsStatus();
@@ -6067,6 +6152,7 @@ export class SessionService {
         undefined,
         contextWindow,
         fastMode,
+        { codex: codexModelAccess, claude: claudeModelAccess },
       );
       return;
     }
@@ -7329,6 +7415,19 @@ export class SessionService {
       this.initialCloudOptimisticPrompt.delete(taskId);
       this.d.store.clearTailOptimisticItems(taskRunId);
     }
+    const unseededFollowups = selectUnseededPendingFollowups(
+      isTerminalRun ? [] : readPendingFollowupMessages(runState),
+      events,
+      this.getSessionByRunId(taskRunId)?.optimisticItems ?? [],
+    );
+    for (const message of unseededFollowups) {
+      this.d.store.appendOptimisticItem(taskRunId, {
+        type: "user_message",
+        content: message.content,
+        timestamp: Date.now(),
+        pinToTop: false,
+      });
+    }
 
     if (rawEntries.length === 0) {
       this.pendingPermissionHydratedRuns.add(taskRunId);
@@ -7677,304 +7776,6 @@ export class SessionService {
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }
 
-  async preflightToLocal(taskId: string, repoPath: string) {
-    const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session)
-      return {
-        canHandoff: false as const,
-        localTreeDirty: false as const,
-        reason: "No session found",
-      };
-
-    const auth = await this.getHandoffAuth();
-    if (!auth)
-      return {
-        canHandoff: false as const,
-        localTreeDirty: false as const,
-        reason: "Authentication required",
-      };
-
-    const preflight = await this.d.trpc.handoff.preflight.query({
-      taskId,
-      runId: session.taskRunId,
-      repoPath,
-      apiHost: auth.apiHost,
-      teamId: auth.projectId,
-    });
-
-    return {
-      canHandoff: preflight.canHandoff,
-      localTreeDirty: preflight.localTreeDirty,
-      localGitState: preflight.localGitState,
-      changedFiles: preflight.changedFiles,
-      reason: preflight.reason,
-    };
-  }
-
-  async handoffToLocal(
-    taskId: string,
-    repoPath: string,
-    repositoryPaths?: Record<string, string>,
-  ): Promise<void> {
-    const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) {
-      this.d.log.warn("No session found for handoff", { taskId });
-      return;
-    }
-
-    const runId = session.taskRunId;
-    const auth = await this.getHandoffAuth();
-    if (!auth) return;
-
-    this.d.store.updateSession(runId, { handoffInProgress: true });
-
-    try {
-      const paths = [...new Set(Object.values(repositoryPaths ?? {}))];
-      if (!paths.includes(repoPath)) paths.unshift(repoPath);
-      let localGitState:
-        | Awaited<
-            ReturnType<typeof this.d.trpc.handoff.preflight.query>
-          >["localGitState"]
-        | undefined;
-      for (const path of paths) {
-        const preflight = await this.runHandoffPreflight(
-          taskId,
-          runId,
-          path,
-          auth,
-        );
-        if (path === repoPath) localGitState = preflight.localGitState;
-      }
-      this.stopCloudTaskWatch(taskId);
-      this.d.store.updateSession(runId, { status: "connecting" });
-      await this.executeHandoff(
-        taskId,
-        runId,
-        repoPath,
-        repositoryPaths,
-        auth,
-        localGitState,
-      );
-      this.transitionToLocalSession(runId);
-      this.subscribeToChannel(runId);
-      await Promise.all([
-        this.d.queryClient.refetchQueries({ queryKey: ["tasks"] }),
-        this.d.queryClient.refetchQueries({
-          queryKey: this.d.WORKSPACE_QUERY_KEY,
-        }),
-      ]);
-      this.d.store.updateSession(runId, { handoffInProgress: false });
-      this.d.log.info("Cloud-to-local handoff complete", { taskId, runId });
-    } catch (err) {
-      this.d.log.error("Handoff failed", { taskId, err });
-      this.d.toast.error(
-        err instanceof Error ? err.message : "Handoff to local failed",
-      );
-      this.watchCloudTask(taskId, runId, auth.apiHost, auth.projectId);
-      this.d.store.updateSession(runId, {
-        handoffInProgress: false,
-        status: "disconnected",
-      });
-    }
-  }
-
-  async handoffToCloud(taskId: string, repoPath: string): Promise<void> {
-    const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) {
-      this.d.log.warn("No session found for cloud handoff", { taskId });
-      return;
-    }
-
-    const runId = session.taskRunId;
-    const auth = await this.getHandoffAuth();
-    if (!auth) return;
-
-    this.d.store.updateSession(runId, { handoffInProgress: true });
-
-    try {
-      const preflight = await this.d.trpc.handoff.preflightToCloud.query({
-        taskId,
-        runId,
-        repoPath,
-      });
-      if (!preflight.canHandoff) {
-        this.d.store.updateSession(runId, {
-          handoffInProgress: false,
-        });
-        throw new Error(preflight.reason ?? "Cannot hand off to cloud");
-      }
-
-      this.unsubscribeFromChannel(runId);
-      this.d.store.updateSession(runId, { status: "connecting" });
-
-      const result = await this.d.trpc.handoff.executeToCloud.mutate({
-        taskId,
-        runId,
-        repoPath,
-        apiHost: auth.apiHost,
-        teamId: auth.projectId,
-        localGitState: preflight.localGitState,
-      });
-      if (!result.success) {
-        if (result.code === GITHUB_AUTHORIZATION_REQUIRED_CODE) {
-          throw new GitHubAuthorizationRequiredForCloudHandoffError(
-            result.error,
-          );
-        }
-        throw new Error(result.error ?? "Handoff to cloud failed");
-      }
-
-      this.d.store.updateSession(runId, {
-        isCloud: true,
-        cloudStatus: undefined,
-        cloudStage: undefined,
-        cloudOutput: undefined,
-        cloudErrorMessage: undefined,
-        cloudBranch: undefined,
-        status: "disconnected",
-        processedLineCount: result.logEntryCount ?? 0,
-      });
-
-      this.watchCloudTask(taskId, runId, auth.apiHost, auth.projectId);
-      await Promise.all([
-        this.d.queryClient.refetchQueries({ queryKey: ["tasks"] }),
-        this.d.queryClient.refetchQueries({
-          queryKey: this.d.WORKSPACE_QUERY_KEY,
-        }),
-      ]);
-      this.d.store.updateSession(runId, { handoffInProgress: false });
-      this.d.log.info("Local-to-cloud handoff complete", { taskId, runId });
-    } catch (err) {
-      this.d.log.error("Handoff to cloud failed", { taskId, err });
-      if (err instanceof GitHubAuthorizationRequiredForCloudHandoffError) {
-        await this.startGithubReauthForCloudHandoff(auth.projectId);
-      } else {
-        this.d.toast.error(
-          err instanceof Error ? err.message : "Handoff to cloud failed",
-        );
-      }
-      this.subscribeToChannel(runId);
-      this.d.store.updateSession(runId, {
-        handoffInProgress: false,
-        status: "disconnected",
-      });
-    }
-  }
-
-  private async startGithubReauthForCloudHandoff(
-    projectId: number,
-  ): Promise<void> {
-    const client = await this.d.getAuthenticatedClient();
-    if (!client) {
-      this.d.toast.error("Sign in before connecting GitHub.");
-      return;
-    }
-
-    try {
-      const { install_url: installUrl } =
-        await client.startGithubUserIntegrationConnect(projectId);
-      const url = installUrl?.trim();
-      if (!url) {
-        this.d.toast.error(
-          "GitHub connection did not return a URL. Please try again.",
-        );
-        return;
-      }
-
-      await this.d.trpc.os.openExternal.mutate({ url });
-      this.d.toast.info(
-        "Connect GitHub to continue in cloud",
-        "Complete the authorization in your browser, then click Continue again.",
-      );
-    } catch (error) {
-      this.d.toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to start GitHub connection",
-      );
-    }
-  }
-
-  private async getHandoffAuth(): Promise<{
-    apiHost: string;
-    projectId: number;
-  } | null> {
-    let auth: Awaited<ReturnType<SessionServiceDeps["fetchAuthState"]>>;
-    try {
-      auth = await this.d.fetchAuthState();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      this.d.toast.error(`Authentication required for handoff: ${message}`);
-      return null;
-    }
-    if (!auth.currentProjectId || !auth.cloudRegion) {
-      this.d.toast.error("Missing project configuration for handoff");
-      return null;
-    }
-    return {
-      apiHost: getCloudUrlFromRegion(auth.cloudRegion),
-      projectId: auth.currentProjectId,
-    };
-  }
-
-  private async runHandoffPreflight(
-    taskId: string,
-    runId: string,
-    repoPath: string,
-    auth: { apiHost: string; projectId: number },
-  ): Promise<Awaited<ReturnType<typeof this.d.trpc.handoff.preflight.query>>> {
-    const preflight = await this.d.trpc.handoff.preflight.query({
-      taskId,
-      runId,
-      repoPath,
-      apiHost: auth.apiHost,
-      teamId: auth.projectId,
-    });
-    if (!preflight.canHandoff) {
-      this.d.store.updateSession(runId, {
-        handoffInProgress: false,
-      });
-      throw new Error(preflight.reason ?? "Cannot hand off to local");
-    }
-    return preflight;
-  }
-
-  private async executeHandoff(
-    taskId: string,
-    runId: string,
-    repoPath: string,
-    repositoryPaths: Record<string, string> | undefined,
-    auth: { apiHost: string; projectId: number },
-    localGitState?: Awaited<
-      ReturnType<typeof this.d.trpc.handoff.preflight.query>
-    >["localGitState"],
-  ): Promise<void> {
-    const result = await this.d.trpc.handoff.execute.mutate({
-      taskId,
-      runId,
-      repoPath,
-      repositoryPaths,
-      apiHost: auth.apiHost,
-      teamId: auth.projectId,
-      localGitState,
-    });
-    if (!result.success) {
-      throw new Error(result.error ?? "Handoff failed");
-    }
-  }
-
-  private transitionToLocalSession(runId: string): void {
-    this.d.store.updateSession(runId, {
-      isCloud: false,
-      cloudStatus: undefined,
-      cloudStage: undefined,
-      cloudOutput: undefined,
-      cloudErrorMessage: undefined,
-      cloudBranch: undefined,
-      status: "connected",
-    });
-  }
-
   async retryCloudTaskWatch(taskId: string): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session?.isCloud) {
@@ -8209,6 +8010,12 @@ export class SessionService {
 
   public markTaskCreationInFlight(taskId: string): void {
     this.taskCreationMarks.set(taskId, Date.now());
+    this.d.store.setTaskStarting?.(taskId);
+  }
+
+  private clearTaskCreationInFlight(taskId: string): void {
+    this.taskCreationMarks.delete(taskId);
+    this.d.store.clearTaskStarting?.(taskId);
   }
 
   private isTaskCreationInFlight(taskId: string): boolean {
@@ -8217,7 +8024,7 @@ export class SessionService {
     const expired =
       Date.now() - markedAt > SessionService.TASK_CREATION_IN_FLIGHT_TTL_MS;
     if (expired) {
-      this.taskCreationMarks.delete(taskId);
+      this.clearTaskCreationInFlight(taskId);
       return false;
     }
     return true;
@@ -8559,6 +8366,13 @@ export class SessionService {
     update: CloudTaskUpdatePayload,
   ): void {
     if (update.kind === "error") {
+      const session = this.d.store.getSessions()[taskRunId];
+      if (session) {
+        this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+          task_id: session.taskId,
+          error_type: "cloud_task_error",
+        });
+      }
       this.d.store.updateSession(taskRunId, {
         status: "error",
         errorTitle: update.errorTitle,
@@ -9102,6 +8916,22 @@ export class SessionService {
     }
   }
 
+  private clearEchoedTailOptimisticItems(
+    taskRunId: string,
+    events: AcpMessage[],
+  ): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session?.optimisticItems.length) return;
+    const echoed = selectEchoedOptimisticItemIds(
+      session.optimisticItems,
+      events,
+      session.processedLineCount ?? 0,
+    );
+    if (echoed.length > 0) {
+      this.d.store.removeOptimisticItems(taskRunId, echoed);
+    }
+  }
+
   private appendCloudTailEvents(
     taskRunId: string,
     entries: StoredLogEntry[],
@@ -9114,9 +8944,7 @@ export class SessionService {
       startEntryIndex,
     });
     if (events.length === 0) return;
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
-    }
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     const existingEvents = this.getSessionByRunId(taskRunId)?.events;
     const keptEvents = existingEvents
       ? dropEventsCoveredByTail(existingEvents, taskRunId, startEntryIndex)
@@ -9162,9 +8990,7 @@ export class SessionService {
         ? reconcileLiveEventsWithHydratedEvents(liveRunEvents, events)
         : []),
     ];
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
-    }
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     this.cloudRunIdleTracker.delete(taskRunId);
     // The reconciled log is the complete chain, so any hydration window is
     // gone; resetting the window start also trips loadOlderCloudTranscript's
@@ -9189,9 +9015,7 @@ export class SessionService {
       taskRunId,
       startEntryIndex: windowStart,
     });
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
-    }
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     this.cloudRunIdleTracker.delete(taskRunId);
     // Moving the window start also trips loadOlderCloudTranscript's
     // stale-window guard if a prepend was in flight, instead of duplicating

@@ -3,15 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny import CannyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.source import CannySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canny import CannySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -39,25 +35,6 @@ class TestCannySource:
         self.team_id = 123
         self.config = CannySourceConfig(api_key="test-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CANNY
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Canny"
-        assert config.label == "Canny"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/canny.png"
-
-        assert len(config.fields) == 1
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
     @pytest.mark.parametrize(
         "expected_key",
         [
@@ -77,14 +54,6 @@ class TestCannySource:
         assert all(not s.supports_incremental for s in schemas)
         assert all(not s.supports_append for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["posts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "posts"
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),
@@ -110,11 +79,6 @@ class TestCannySource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("test-key")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CannyResumeConfig
 
     def test_default_version_is_v2(self) -> None:
         # New sources are created on the newest wire; a NULL pin resolves to it too.

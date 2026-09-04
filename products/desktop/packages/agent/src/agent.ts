@@ -1,12 +1,20 @@
-import { buildPrOutput, mergePrUrls, readPrUrls } from "@posthog/shared";
+import {
+  buildPrOutput,
+  isAnthropicModelId,
+  mergePrUrls,
+  readPrUrls,
+} from "@posthog/shared";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
+  buildPosthogUserHeaderLines,
+  buildPosthogUserHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "./adapters/acp-connection";
+import { machineClaudeAuth } from "./adapters/claude/machine-auth";
 import type { GatewayEnv } from "./adapters/claude/session/options";
 import {
   DEFAULT_CODEX_MODEL,
@@ -80,16 +88,30 @@ export class Agent {
     taskRunId: string,
     options: TaskExecutionOptions = {},
   ): Promise<InProcessAcpConnection> {
-    const gatewayConfig = await this._resolveGatewayConfig(options.gatewayUrl);
+    const claudeSubscription =
+      options.adapter === "claude" &&
+      options.claudeModelAccess === "own-subscription";
+    const gatewayConfig = claudeSubscription
+      ? null
+      : await this._resolveGatewayConfig(options.gatewayUrl);
     this.taskRunId = taskRunId;
 
-    const task =
-      this.posthogAPI && taskId !== "__preview__"
-        ? await this.posthogAPI.getTask(taskId).catch((error) => {
+    const needsAttribution = !claudeSubscription && gatewayConfig !== null;
+    const taskPromise =
+      needsAttribution && this.posthogAPI && taskId !== "__preview__"
+        ? this.posthogAPI.getTask(taskId).catch((error) => {
             this.logger.debug("Failed to fetch task attribution", error);
             return null;
           })
-        : null;
+        : Promise.resolve(null);
+    // The node the gateway holds a person's spend limit against. Null (a
+    // task-scoped credential) simply carries no user node, so the limit does
+    // not apply rather than applying to the wrong person.
+    const userNodePromise = needsAttribution
+      ? (this.posthogAPI?.getUserNode() ?? Promise.resolve(null))
+      : Promise.resolve(null);
+    const [task, userNode] = await Promise.all([taskPromise, userNodePromise]);
+
     const attribution =
       taskId === "__preview__"
         ? {}
@@ -106,12 +128,44 @@ export class Agent {
             task_execution_environment: "local" as const,
           };
 
+    const codexSubscription =
+      options.adapter === "codex" &&
+      options.codexModelAccess === "own-subscription";
+
+    if (options.adapter === "codex" && !codexSubscription && !gatewayConfig) {
+      throw new Error(
+        "Codex authentication is not ready. In Settings, select PostHog credits or connect your ChatGPT subscription, then try again.",
+      );
+    }
+
+    const codexGatewayAuth =
+      !codexSubscription && gatewayConfig
+        ? {
+            apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
+            apiKey: gatewayConfig.apiKey,
+            httpHeaders: {
+              ...buildPosthogPropertyHeaderRecord(
+                taskId ? { ...attribution, $ai_session_id: taskId } : {},
+              ),
+              ...buildPosthogUserHeaderRecord(userNode),
+            },
+          }
+        : undefined;
+
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
       options.model && !isBlockedModelId(options.model)
         ? options.model
         : undefined;
-    if (options.adapter === "codex" && gatewayConfig) {
+    if (codexSubscription) {
+      const looksOpenAi =
+        sanitizedModel?.startsWith("gpt-") ||
+        sanitizedModel?.startsWith("openai/") ||
+        sanitizedModel?.includes("codex");
+      if (!looksOpenAi) {
+        sanitizedModel = DEFAULT_CODEX_MODEL;
+      }
+    } else if (options.adapter === "codex" && gatewayConfig) {
       const models = await fetchModelsList({
         gatewayUrl: gatewayConfig.gatewayUrl,
         authToken: gatewayConfig.apiKey,
@@ -138,12 +192,23 @@ export class Agent {
           : (allowedModelIds[0] ?? sanitizedModel);
       }
     }
-    if (!sanitizedModel && options.adapter !== "codex") {
+    if (!sanitizedModel && options.adapter !== "codex" && !claudeSubscription) {
+      sanitizedModel = DEFAULT_GATEWAY_MODEL;
+    }
+    if (
+      claudeSubscription &&
+      sanitizedModel &&
+      !isAnthropicModelId(sanitizedModel)
+    ) {
+      this.logger.warn(
+        "Saved model is not available on the Claude subscription; using default",
+        { savedModel: sanitizedModel, fallback: DEFAULT_GATEWAY_MODEL },
+      );
       sanitizedModel = DEFAULT_GATEWAY_MODEL;
     }
 
     const claudeGatewayEnv: GatewayEnv | undefined =
-      options.adapter !== "codex" && gatewayConfig
+      options.adapter !== "codex" && !claudeSubscription && gatewayConfig
         ? {
             anthropicBaseUrl: gatewayConfig.gatewayUrl,
             anthropicAuthToken: gatewayConfig.apiKey,
@@ -156,8 +221,12 @@ export class Agent {
               this.posthogApiConfig?.projectId != null
                 ? String(this.posthogApiConfig.projectId)
                 : undefined,
-            anthropicCustomHeaders:
+            anthropicCustomHeaders: [
               buildPosthogPropertyHeaderLines(attribution),
+              buildPosthogUserHeaderLines(userNode),
+            ]
+              .filter(Boolean)
+              .join("\n"),
           }
         : undefined;
 
@@ -174,23 +243,19 @@ export class Agent {
       posthogApiConfig: this.posthogApiConfig,
       enricherEnabled: this.enricherEnabled,
       claudeGatewayEnv,
+      claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
+      contextWiki: options.contextWiki,
       codexOptions:
-        options.adapter === "codex" && gatewayConfig
+        options.adapter === "codex" && (codexSubscription || gatewayConfig)
           ? {
               cwd: options.repositoryPath,
-              apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
-              apiKey: gatewayConfig.apiKey,
+              ...codexGatewayAuth,
               binaryPath: options.codexBinaryPath,
               codexHome: options.codexHome,
+              useMachineAuth: codexSubscription,
               model: sanitizedModel,
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,
-              httpHeaders: taskId
-                ? buildPosthogPropertyHeaderRecord({
-                    ...attribution,
-                    $ai_session_id: taskId,
-                  })
-                : undefined,
               additionalDirectories: options.additionalDirectories,
             }
           : undefined,

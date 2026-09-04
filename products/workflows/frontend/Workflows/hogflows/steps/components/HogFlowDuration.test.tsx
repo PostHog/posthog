@@ -71,6 +71,18 @@ describe('HogFlowDuration', () => {
         expect(screen.getByText('Second(s)')).toBeInTheDocument()
     })
 
+    it.each([
+        ['holds a day amount to the 30-day ceiling on blur by default', false, '30d'],
+        ['keeps a day amount past the ceiling on blur when unbounded', true, '45d'],
+    ])('%s', (_name, allowUnbounded, expected) => {
+        const onChange = jest.fn()
+        render(<HogFlowDuration value="45d" onChange={onChange} allowUnbounded={allowUnbounded as boolean} />)
+
+        fireEvent.blur(screen.getByRole('spinbutton'))
+
+        expect(onChange).toHaveBeenCalledWith(expected)
+    })
+
     it('clears the field immediately on change even before the parent commits the new value', () => {
         render(<HogFlowDuration value="2h" onChange={jest.fn()} />)
 
