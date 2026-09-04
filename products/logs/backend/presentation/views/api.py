@@ -1176,6 +1176,26 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _optional_filter_group(self, raw: str | None) -> PropertyGroupFilter | None:
+        """Parse an optional filterGroup query param. An absent or empty param means no filter, so it
+        must not reach `get_model`, which reports an exception for every value it rejects."""
+        if not raw:
+            return None
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not parsed:
+            return None
+        # The query serializers document a flat array, which is what MCP callers send, so wrap it
+        # like the POST actions do. A dict comes from the browser and already has the nested shape.
+        if isinstance(parsed, list):
+            parsed = self._normalize_filter_group(parsed)
+        try:
+            return self.get_model(parsed, PropertyGroupFilter)
+        except ParseError:
+            return None
+
     @staticmethod
     def _require_dict_query(query_data: object) -> None:
         """Guard against a non-object `query` field crashing on the first `.get()` call below."""
@@ -1686,10 +1706,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
         except json.JSONDecodeError:
             serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+        filterGroup = self._optional_filter_group(request.GET.get("filterGroup"))
 
         attributeType = request.GET.get("attribute_type", "log")
         # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
@@ -1763,10 +1780,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
             except json.JSONDecodeError:
                 serviceNames = []
-            try:
-                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-                filterGroup = None
+            filterGroup = self._optional_filter_group(request.GET.get("filterGroup"))
 
             attributeType = request.GET.get("attribute_type", "log")
             # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
