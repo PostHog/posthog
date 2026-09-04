@@ -13,8 +13,12 @@ import * as robot from '@posthog/brand/hoggies/png/robot'
 import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import * as wizard from '@posthog/brand/hoggies/png/wizard-1'
 import * as workflows from '@posthog/brand/hoggies/png/workflows'
+import { IconAI, IconGithub } from '@posthog/icons'
 
+import { Logomark } from 'lib/brand'
 import { pngHoggie } from 'lib/brand/hoggies'
+import { IconSlack } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -42,6 +46,10 @@ export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
     tagline:
         "We think your organization would get a lot out of this product - it works with the data you're already sending. Give it a try!",
 }
+
+// Shared size for the icon-font surface logos (Slack, GitHub, Self-driving). Desktop's Logomark
+// sizes itself via its own `size` prop instead.
+const SURFACE_ICON_CLASS = 'text-[64px]'
 
 // One entry per pushable product (see BLESSED_PRODUCT_ORDER / FALLBACK_PRODUCT_ORDER in
 // products/growth/backend/product_push/selection.py). Products missing here fall back to
@@ -136,6 +144,39 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         Hoggie: HedgehogWorkflows,
         accentColor: 'var(--color-product-workflows-light)',
         tagline: 'Automate messages and actions triggered by what users actually do in your product.',
+    },
+    // Surfaces that aren't catalog products carry their own label, destination, and logo.
+    [ProductKey.SELF_DRIVING]: {
+        Icon: <IconAI className={`${SURFACE_ICON_CLASS} text-[color:var(--color-purple-300)]`} />,
+        iconBackdrop: true,
+        accentColor: 'var(--color-purple-300)',
+        tagline:
+            'Let PostHog watch your data and surface what needs attention - findings land in your inbox, ready to act on.',
+        label: 'PostHog Self-driving',
+        href: urls.inbox(),
+    },
+    [ProductKey.POSTHOG_SLACK]: {
+        Icon: <IconSlack className={SURFACE_ICON_CLASS} />,
+        accentColor: 'var(--color-accent)',
+        tagline: 'Ask questions and get answers where your team already works. Add the PostHog app to Slack.',
+        label: 'PostHog in Slack',
+        href: urls.settings('environment-integrations', 'integration-slack'),
+    },
+    [ProductKey.POSTHOG_GITHUB]: {
+        Icon: <IconGithub className={SURFACE_ICON_CLASS} />,
+        accentColor: 'var(--color-text-primary)',
+        tagline: 'Connect GitHub so PostHog in Slack and Self-driving can open pull requests, not just suggest fixes.',
+        label: 'Connect GitHub',
+        href: urls.settings('environment-integrations', 'integration-github'),
+    },
+    [ProductKey.POSTHOG_DESKTOP]: {
+        Icon: <Logomark size="xl" />,
+        iconUpright: true,
+        accentColor: 'var(--color-accent)',
+        tagline:
+            'The product editor for builders. Run AI agents that use your product data as context to ship changes.',
+        label: 'PostHog Desktop',
+        href: 'https://posthog.com/desktop',
     },
 }
 

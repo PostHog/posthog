@@ -3,13 +3,15 @@ import type { CloudRegion } from "./regions";
 export const POSTHOG_US_CLIENT_ID = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W";
 export const POSTHOG_EU_CLIENT_ID = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9";
 export const POSTHOG_DEV_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ";
+export const POSTHOG_DEV_CLOUD_CLIENT_ID =
+  "7D6O76iHBMAioX5bLy4smEJ7qehtanmBRYOAQoEw";
 
 // Explicit scopes instead of "*". Mirrors scopes_supported at
 // /.well-known/oauth-authorization-server (OAUTH_SCOPES_SUPPORTED in the API's
 // services/mcp/src/lib/oauth-scopes.generated.ts), plus privileged llm_gateway:read
 // which the advertised set excludes. The LLM gateway requires that scope; it is
-// granted only because this app's OAuth ceiling is seeded to
-// ["@default", "llm_gateway:read"] in US + EU.
+// granted only because each hosted Desktop OAuth app has a ceiling of
+// ["@default", "llm_gateway:read"].
 //
 // That generated file also exports OAUTH_SCOPES_HIDDEN (batch_import_support,
 // query_performance, wizard_session). Never copy those in: they are staff-only
@@ -18,7 +20,7 @@ export const POSTHOG_DEV_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ";
 //
 // Deploy-order guardrail: NEVER ship a non-"*" OAUTH_SCOPES set (or bump
 // OAUTH_SCOPE_VERSION off a build that still requests "*") until that ceiling is
-// seeded in both regions. A non-empty ceiling rejects scope=* at /authorize, and
+// seeded in every hosted region. A non-empty ceiling rejects scope=* at /authorize, and
 // an empty/unseeded ceiling rejects privileged llm_gateway:read. #3411 shipped
 // the explicit list bundled with loops without seeding; prod login broke and was
 // reverted in #3668. Keep this comment when regenerating the list.
@@ -252,5 +254,7 @@ export function getOauthClientIdFromRegion(region: CloudRegion): string {
       return POSTHOG_EU_CLIENT_ID;
     case "dev":
       return POSTHOG_DEV_CLIENT_ID;
+    case "dev-cloud":
+      return POSTHOG_DEV_CLOUD_CLIENT_ID;
   }
 }

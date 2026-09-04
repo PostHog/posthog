@@ -14,6 +14,7 @@ import { cloudTaskRouter } from "@posthog/host-router/routers/cloud-task.router"
 import { dashboardsRouter } from "@posthog/host-router/routers/dashboards.router";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 import {
+  CLOUD_REGIONS,
   type CloudRegion,
   getCloudUrlFromRegion,
   tabsSnapshotSchema,
@@ -140,9 +141,7 @@ const agentStubRouter = router({
   // Called by resetSessionService() on logout/project switch.
   resetAll: publicProcedure.mutation(() => undefined),
   getPiModelCatalog: publicProcedure
-    .input(
-      z.object({ apiHost: z.string(), region: z.enum(["us", "eu", "dev"]) }),
-    )
+    .input(z.object({ apiHost: z.string(), region: z.enum(CLOUD_REGIONS) }))
     .query(async ({ input }) => {
       const auth = resolveService<AuthService>(AUTH_SERVICE);
       const { accessToken } = await auth.getValidAccessToken();
