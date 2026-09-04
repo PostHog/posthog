@@ -23,6 +23,7 @@ export const SPEND_TYPES = [
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
     { label: 'Logs 30-day retention (MB)', value: 'logs_retention_30d_mb_in_period' },
+    { label: 'Logs retention (MB-days)', value: 'logs_retention_mb_days_in_period' },
 ] as const
 
 export const USAGE_ONLY_TYPES = [
@@ -38,13 +39,6 @@ export type UsageTypeOption = (typeof USAGE_TYPES)[number]
 export type UsageTypeValue = UsageTypeOption['value']
 
 export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.value)
-
-export const CODE_PRODUCT_KEY = 'posthog_code'
-// TODO: Replace hardcoded plan keys with dynamic plan metadata from billing service
-export const CODE_PLAN_ALPHA_PRO = 'posthog-code-pro-0-20260422'
-
-export const CODE_PRO_PLAN_PREFIX = 'posthog-code-pro-'
-export const CODE_FREE_PLAN_PREFIX = 'posthog-code-free'
 
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,
 // in sync with billing_end_date of data_pipelines in billing plans config

@@ -57,6 +57,7 @@ class ProductConfig:
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
 
 # OAuth application IDs per region
+POSTHOG_CODE_PRODUCT = "posthog_code"
 POSTHOG_CODE_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
 POSTHOG_CODE_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
 POSTHOG_CODE_DEV_APP_ID = "019ebb47-c750-0000-e1ea-723a6ff112d3"
@@ -233,7 +234,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "llma_summarization": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini"}),
+        # Every value LLMA_SUMMARIZATION_MODEL realistically takes (rollback: gpt-4.1-nano,
+        # escalation: gpt-5-mini) must be servable here, or the fallback path 403s.
+        allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini", "gpt-5-nano", "gpt-5-mini"}),
         allow_api_keys=True,
     ),
     "llma_eval_summary": ProductConfig(

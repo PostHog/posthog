@@ -36,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
     SYNTHESIS_PROMPT_NAME,
+    prepend_hogql_query_writing_rules,
     render_prompt,
     resolve_prompt,
 )
@@ -60,7 +61,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_error_message, undisclosed_query_error_type
+from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -163,9 +164,9 @@ class QueryStepDiagnostic:
     hogql: str
     ok: bool
     error_type: Optional[str]
-    # Safe-to-surface failure reason; set only for query-structure errors (see _safe_error_message), else None.
     human_readable_error: Optional[str] = None
     chart_dropped_reason: Optional[ChartFailureReason] = None
+    error_code: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -221,7 +222,7 @@ async def generate_ai_report(
             if ai_query_plan is not None:
                 try:
                     spec = await _spec_from_frozen_plan(
-                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan
+                        team=team, user=user, prompt=prompt, window=window, ai_query_plan=ai_query_plan
                     )
                     freshly_planned = False
                 except StoredPlanInvalidError as exc:
@@ -404,11 +405,12 @@ async def _plan(
 
 
 async def _spec_from_frozen_plan(
-    *, team: Team, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
+    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
             team=team,
+            user=user,
             prompt=prompt,
             window=window,
             ai_query_plan=ai_query_plan,
@@ -568,11 +570,11 @@ async def _run_steps(
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )
+                error_details = safe_query_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward the safe message (exposed/resolution errors describe the field/property the
-                    # planner referenced, which is what the fixer needs); fall back to the type name.
-                    error_message=safe_error_message(exc) or type(exc).__name__,
+                    # Forward explicitly safe detail when available; fall back to the type name.
+                    error_message=(error_details["message"] if error_details else None) or type(exc).__name__,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
                     # re-guesses the wrong name, so give it the same grounding the planner had.
@@ -585,9 +587,8 @@ async def _run_steps(
                     break
                 current_hogql = fixed
 
-        # type only — ClickHouse errors can echo team-scoped identifiers
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        undisclosed_type = undisclosed_query_error_type(last_exc) if last_exc is not None else None
+        error_details = safe_query_error_details(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
@@ -597,15 +598,18 @@ async def _run_steps(
         )
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-        cause = "" if undisclosed_type is not None else f" ({type_name})"
+        # Safe query details belong in the owner-only diagnostics below. The rendered output is fed
+        # into synthesis and eventually delivered to recipients, who may not have query access.
+        cause = "" if error_details else f" ({type_name})"
         return StepOutcome(
             rendered=f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             diagnostic=QueryStepDiagnostic(
                 description=safe_description,
                 hogql=window.render_window_filter(current_hogql),
                 ok=False,
-                error_type=undisclosed_type or type_name,
-                human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
+                error_type=type_name,
+                error_code=error_details["code"] if error_details else None,
+                human_readable_error=error_details["message"] if error_details else None,
             ),
         )
 
@@ -664,6 +668,7 @@ async def _arequest_hogql_fix(
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
     )
+    fix_prompt = prepend_hogql_query_writing_rules(fix_prompt)
     rendered = render_prompt(
         fix_prompt,
         {"description": step_description, "error": error_message, "original_hogql": original_hogql},

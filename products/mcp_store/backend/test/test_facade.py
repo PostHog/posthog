@@ -15,6 +15,7 @@ from products.mcp_store.backend.facade.api import (
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
+    resolve_agent_gateway_server_ids,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
@@ -580,6 +581,68 @@ class TestGetInstallationsForSandbox(BaseTest):
         # with no servers selected runs without MCP servers.
         assert resolve([]) == set()
         assert resolve(None) == {str(picked.id), str(dropped.id)}
+
+    def test_installation_allowlist_narrows_the_member_path_only(self) -> None:
+        kept = self._create_installation(scope="shared", display_name="Kept", url="https://kept.example.com/mcp")
+        self._create_installation(scope="shared", display_name="Dropped", url="https://dropped.example.com/mcp")
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        team_shared = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=team_shared, scope="team")
+
+        member = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[str(kept.id)])
+        member_empty = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[])
+        # A workflow run's snapshot carries no installation ids, so the agent path must not be
+        # emptied by the closed member allowlist that comes with it.
+        agent = get_installations_for_sandbox(
+            self.team.id, task_origin="support_reply", task_agent_key="support", allowed_installation_ids=[]
+        )
+
+        assert [result.id for result in member] == [str(kept.id)]
+        assert member_empty == []
+        assert [result.id for result in agent] == [str(team_shared.id)]
+
+    def test_resolves_saved_connectors_to_the_servers_an_agent_run_reaches(self) -> None:
+        account = get_built_in_agent(self.team.id, "workflow")
+        assert account is not None
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        team_server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        personal_server = self._create_gateway_server(name="Personal", url="https://personal.example.com/mcp")
+        disabled_server = self._create_gateway_server(
+            name="Disabled", url="https://disabled.example.com/mcp", is_team_enabled=False
+        )
+        unshared_server = self._create_gateway_server(name="Unshared", url="https://unshared.example.com/mcp")
+        team_shared = self._create_installation(user=teammate, gateway_server=team_server, url=team_server.url)
+        personal = self._create_installation(gateway_server=personal_server, url=personal_server.url)
+        disabled = self._create_installation(user=teammate, gateway_server=disabled_server, url=disabled_server.url)
+        self._grant(account, team_server, user=teammate, installation=team_shared, scope="team")
+        self._grant(account, personal_server, user=self.user, installation=personal)
+        self._grant(account, disabled_server, user=teammate, installation=disabled, scope="team")
+        connector_ids = [
+            str(team_server.id),
+            # A selection saved before connectors were keyed by gateway server names the
+            # installation; it still resolves to the server that installation sits on.
+            str(team_shared.id),
+            str(personal_server.id),
+            str(disabled_server.id),
+            str(unshared_server.id),
+            "not-a-uuid",
+        ]
+
+        resolve = lambda owner_id: resolve_agent_gateway_server_ids(
+            self.team.id, agent_key="workflow", credential_owner_id=owner_id, connector_ids=connector_ids
+        )
+
+        assert resolve(None) == {
+            str(team_server.id): str(team_server.id),
+            str(team_shared.id): str(team_server.id),
+            str(personal_server.id): None,
+            str(disabled_server.id): None,
+            str(unshared_server.id): None,
+            "not-a-uuid": None,
+        }
+        # A run with a credential owner also reaches that owner's personal grants.
+        assert resolve(self.user.id)[str(personal_server.id)] == str(personal_server.id)
 
     def test_sandbox_server_names_match_what_the_sandbox_mounts(self) -> None:
         # The names projection backs prompt steering (a scout's run prompt names its mounted

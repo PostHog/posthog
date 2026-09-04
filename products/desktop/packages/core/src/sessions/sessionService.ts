@@ -38,6 +38,7 @@ import {
   isPersistedOptionSupported,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   leadingSlashCommand,
   type ModelAccess,
   mergeConfigOptions,
@@ -4354,35 +4355,39 @@ export class SessionService {
    * Called internally when a turn completes and there are queued messages.
    * Only the head message is dequeued (`max: 1`) so a queue drains one turn at
    * a time — when this turn completes, the drain fires again for the next one.
-   * The message is removed from the queue before sending; if sending fails it
-   * is lost (acceptable since the user can re-type; avoids complex retry logic).
+   * The message is removed before sending and restored if the send fails.
    */
   private async sendQueuedMessages(
     taskId: string,
   ): Promise<{ stopReason: string }> {
-    const combinedText = this.d.store.dequeueMessagesAsText(taskId, {
+    const drained = this.d.store.dequeueMessages(taskId, {
       stopAtEdited: true,
       max: 1,
     });
-    if (!combinedText) {
+    const message = drained[0];
+    if (!message) {
       return { stopReason: "skipped" };
     }
 
+    const prompt = message.rawPrompt ?? message.content;
+    const promptText = extractPromptText(prompt);
+
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) {
-      this.d.log.warn("No session found for queued messages, messages lost", {
+      this.d.store.prependQueuedMessages(taskId, drained);
+      this.d.log.warn("No session found for queued messages; re-enqueued", {
         taskId,
-        lostMessageLength: combinedText.length,
+        promptLength: promptText.length,
       });
       return { stopReason: "no_session" };
     }
 
     this.d.log.info("Sending next queued message as prompt", {
       taskId,
-      promptLength: combinedText.length,
+      promptLength: promptText.length,
     });
 
-    let blocks = normalizePromptToBlocks(combinedText);
+    let blocks = normalizePromptToBlocks(prompt);
 
     const shellExecutes = getUserShellExecutesSinceLastPrompt(session.events);
     if (shellExecutes.length > 0) {
@@ -4394,17 +4399,28 @@ export class SessionService {
       task_id: taskId,
       is_initial: false,
       execution_type: "local",
-      prompt_length_chars: combinedText.length,
+      prompt_length_chars: promptText.length,
     });
 
     try {
-      return await this.sendLocalPrompt(session, blocks, combinedText);
+      const result = await this.sendLocalPrompt(session, blocks, promptText);
+      if (result.stopReason === "rate_limited") {
+        this.d.store.prependQueuedMessages(taskId, drained);
+        this.d.log.warn("Queued message hit a gateway limit; re-enqueued", {
+          taskId,
+          promptLength: promptText.length,
+        });
+      }
+      return result;
     } catch (error) {
-      // Log that queued messages were lost due to send failure
-      this.d.log.error("Failed to send queued messages, messages lost", {
+      this.d.store.prependQueuedMessages(taskId, drained);
+      this.d.log.error("Failed to send queued messages; re-enqueued", {
         taskId,
-        lostMessageLength: combinedText.length,
+        promptLength: promptText.length,
         error,
+      });
+      this.d.toast.error("Couldn't send the queued message", {
+        description: "Your message is still queued. Use Steer to try again.",
       });
       throw error;
     }
@@ -4522,9 +4538,21 @@ export class SessionService {
         });
       }
 
-      // A provider request that timed out or dropped leaves the session
-      // healthy — no recovery ran above — so tell the user to just re-send
-      // instead of surfacing the raw "Internal error: API Error: …" text.
+      if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) {
+        this.d.log.warn("Turn ended without an assistant response", {
+          taskRunId: session.taskRunId,
+          errorMessage,
+          errorDetails,
+        });
+        throw new Error(
+          "The model ended this turn without a response. Your session is unaffected — please send the message again.",
+          { cause: error },
+        );
+      }
+
+      // A provider request that timed out, dropped, or was refused leaves the
+      // session healthy — no recovery ran above — so tell the user to just
+      // re-send instead of surfacing the raw "Internal error: API Error: …" text.
       if (isTransientUpstreamError(errorMessage, errorDetails)) {
         this.d.log.warn("Transient upstream provider failure during prompt", {
           taskRunId: session.taskRunId,
@@ -4532,7 +4560,7 @@ export class SessionService {
           errorDetails,
         });
         throw new Error(
-          "The AI provider timed out or dropped the connection. Your session is unaffected — please send the message again.",
+          "The AI provider could not complete the request. Your session is unaffected, so please send the message again.",
           { cause: error },
         );
       }

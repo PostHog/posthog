@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
@@ -65,6 +65,12 @@ GitHub caps _workflow-run dispatch_ at 500 runs per 10s per repo; overflow fails
   Heavy matrices (`ci-backend`, `ci-nodejs`) do exactly this — deliberate.
 - Delete dead dispatchers outright.
   A disabled-but-still-triggered workflow keeps dispatching no-op runs against the cap — remove the trigger, don't just disable it.
+- **A filter has to cover what the job actually compiles, not just where the code lives.**
+  A build that reaches out of its own tree — through a tsconfig `paths` alias, a workspace dependency, a generated file — breaks when a filter lists only the service directory.
+  The PR touching the imported tree skips the job, the merge-queue run skips it too, and the break lands on master, where it then fails every later PR whose diff does match.
+  Cover the _enclosing directory_, not the imported file: the module drags its own relative imports along.
+  When the imported tree is busy, give it a second filter output and gate only the jobs it can actually break, rather than widening the one that also fires an expensive suite.
+  `WF009` derives the MCP filters' required trees from the MCP sources and fails when one is uncovered; a build with the same shape wants the same treatment.
 
 ## Concurrency
 
@@ -92,18 +98,42 @@ concurrency:
 The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
 By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally when a step reads `needs.<dep>.result`, because the convention is not universally followed.
 A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
-Gates and the workers they inspect need **opposite** conditions:
+Gates and the workers they inspect share the **same** condition:
 
-| Job     | Condition          | Why                                                                           |
-| ------- | ------------------ | ----------------------------------------------------------------------------- |
-| Gate    | `if: always()`     | It must run and emit an explicit verdict, even when everything upstream died. |
-| Workers | `if: !cancelled()` | So a superseded run actually stops instead of holding the concurrency slot.   |
+| Job     | Condition                 | Why                                                                                                           |
+| ------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Gate    | `if: ${{ !cancelled() }}` | It emits an explicit verdict on every completed run, and a superseded run records `cancelled`, not `failure`. |
+| Workers | `if: !cancelled()`        | So a superseded run actually stops instead of holding the concurrency slot.                                   |
 
-The gate condition must be exactly `always()`, with optional `${{ }}` wrapping.
-Adding another predicate can skip the required check, so `always() && <condition>` is rejected.
+The gate condition must contain `!cancelled()`, with optional `${{ }}` wrapping.
+`always()` is rejected: it is identical to `!cancelled()` on any run that is not cancelled, but on a superseded run it runs the gate after the cancel and reports `failure`, which inflates every CI failure-rate metric with runs a developer merely pushed over.
 
-`!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
-Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
+**Extra predicates may only be OR-ed on, never AND-ed.**
+This is a correctness rule, not a style one.
+A conjunction gives the gate a second way to be false, and a job skipped by its own condition records `skipped`, which branch protection reads as a pass.
+Both conclusions occur in the same cancelled run: in [run 33496887370](https://github.com/PostHog/posthog/actions/runs/33496887370) `Calculate running time` recorded `cancelled` while `Backend coverage report` recorded `skipped`, because an AND-ed predicate of its own was already false.
+A disjunction cannot be false while `!cancelled()` is true, so cancellation stays the gate's one false predicate and the conclusion stays `cancelled`.
+
+Cancellation still fails closed.
+A gate on `!cancelled()` that never starts records conclusion `cancelled`, never `skipped`.
+Measured on a superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529762)): the gate recorded `cancelled` with zero steps, while the `always()` control ran after the cancel and recorded `failure`.
+GitHub's [status checks reference](https://docs.github.com/en/pull-requests/reference/status-checks) lists `success`/`neutral`/`skipped` as passing and never places `cancelled` among them, and a commit whose only checks are cancelled rolls up to `FAILURE` ([evidence](https://github.com/PostHog/posthog/actions/runs/33513732017)).
+That is inference rather than a documented guarantee, which is the reason for the next rule.
+
+**A workflow that cancels its own run must OR that signal onto its gate.**
+`ci-backend` cancels itself when repo checks or OpenAPI types fail deterministically, to stop paying for runners on a failure a retry cannot fix.
+Under a bare `!cancelled()` those real failures would report `cancelled` too, which both hides them from the failure-rate metric and rests merge safety on the inference above.
+OR-ing the deterministic-failure output back on keeps the honest verdict, because the disjunct is true, so the gate dispatches despite the cancel:
+
+```yaml
+if: >
+  !cancelled()
+  || needs.repo-checks.outputs.deterministic_failure == 'true'
+  || needs.check-openapi-types.outputs.deterministic_failure == 'true'
+```
+
+Measured on a self-cancelled run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529687)): the bare `!cancelled()` gate recorded `cancelled`, the OR-ed gate ran and recorded `failure`.
+Only superseded runs then report `cancelled`, and every real failure keeps a `failure` conclusion.
 
 Four rules for the gate body:
 
@@ -120,7 +150,7 @@ Four rules for the gate body:
    Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
    A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
 
-`WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+`WF007` enforces 1, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
 
 ## Checkout / clone — sparse first, then shallow
@@ -274,9 +304,83 @@ Details: `/depot-github-runners`.
 
 ## Draft vs ready-for-review
 
-Most commits land before a PR is marked ready, and drafts can't merge — so heavy suites should run a narrowed subset on drafts and the full matrix on `ready_for_review` (the merge gate).
-Add `ready_for_review` to the `pull_request` types, and make aggregator "... Tests Pass" jobs treat `skipped` as success so drafts still report.
+The merge gate is the merge queue's run on a `trunk-merge/` branch.
+So a heavy suite runs its narrowed subset on drafts _and_ on ready PRs, and only the queue run takes the full matrix.
+`ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml` all work this way.
+Exclude the queue with `!startsWith(github.head_ref, 'trunk-merge/')`, or with `draft != true` since those PRs open as drafts — not with `draft == true`.
+
+Still add `ready_for_review` to the `pull_request` types — a `no-ci` draft skips the workflow outright, and that event is what gives it a run — and make aggregator "... Tests Pass" jobs treat `skipped` as success so drafts still report.
+
+What draft state _does_ decide is the fallback when a selection cannot be trusted (config change, oversized diff, selector crash):
+
+- **draft → skip the suite.** Its own ready run selects again, so nothing is lost.
+- **ready → full matrix.** No later run on that PR would cover it, and a narrowed run the selector can't vouch for is false confidence.
+
+The real test is not draft-vs-ready, it is whether a later run on this PR exists to defer to.
+So **draft → skip is only valid when the workflow lists `ready_for_review` in its `pull_request` types and its "... Tests Pass" aggregator treats `skipped` as success.**
+Otherwise the fallback is full on drafts too: `ci-nodejs.yml` has a bare `pull_request:` trigger, so a skipped draft would never get a second run, and `ci-e2e-playwright.yml` skips drafts entirely, so there is no draft run to fall back from.
+
+`turbo-discover.js` (`draft ? 'skip' : 'full'`) and `ci-frontend.yml`'s `fall_back` are the two reference implementations of the draft/ready split; `ci-nodejs.yml` and `ci-e2e-playwright.yml` are the reference for always-full.
 Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
+
+### A selector needs telemetry, or nobody knows whether it bites
+
+A narrowing that falls back on most runs looks identical in the YAML to one that works.
+The Playwright selector was eligible on 2,783 runs over two weeks and narrowed on 167 of them; the rest fell back, most often on one glob.
+That is unreadable without an event, so every selector emits one to the DevEx project (347861): `posthog-ci-test-selection`, `posthog-ci-e2e-spec-selection`, `posthog-ci-jest-selection`, `posthog-ci-nodejs-selection`.
+
+Copy the shape from `capture-jest-selection` in `ci-frontend.yml`:
+
+- Emit **on full runs too**, tagged so they are distinguishable. They are the baseline a narrowed run is measured against.
+- Give the fallback a **closed category** plus an unbounded **detail**. The category is what you group by; the detail is what tells you which glob to attack.
+- Emit the counts from **every** branch of the selector, including the ones that narrow to nothing.
+- `continue-on-error`, `github.run_attempt == '1'`, and the same-repo `if:` — telemetry never reds CI, never double-counts a re-run, and forks have no secret.
+- Do not duplicate timings. `posthog-ci-running-time-job` already carries each job's duration; join it on `run_id`.
+
+What this still does not answer is whether a narrowed run would have **caught** what broke.
+Only backend scores that, in `tools/test_selection_verdict.py`, which reads the run's JUnit and reports recall.
+The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the same code with the full suite, so a failure there whose file was reachable from the diff and was not selected is a miss, at no extra compute.
+
+## The hourly master lane
+
+The merge queue's `trunk-merge/**` run tests every commit before it lands, so re-running a heavy suite on the master push tests a commit that CI already covered.
+Those suites skip `push` and take their master coverage — and their Trunk flaky-test baseline — from an hourly `schedule:` instead.
+
+Crons are offset so the runs do not all fire at once, and the offsets live here rather than in the workflows:
+
+| Workflow          | Minute |
+| ----------------- | ------ |
+| `ci-frontend.yml` | 7      |
+| `ci-nodejs.yml`   | 13     |
+| `ci-backend.yml`  | 23     |
+| `ci-dagster.yml`  | 33     |
+| `ci-python.yml`   | 43     |
+| `ci-mcp.yml`      | 53     |
+
+Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
+
+**Give the cron its own concurrency group.**
+`cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.
+An hourly run that shares the ref group with master pushes therefore holds the group for its whole duration while pushes queue behind it, and each new push discards the previous pending one along with whatever per-commit checks it carried.
+
+```yaml
+group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
+```
+
+That keeps hourly runs queueing behind each other rather than stacking, and leaves push behavior untouched.
+`ci-backend.yml` reaches the same place from the other side: its push arm is already keyed per SHA, so pushes never share a group with the cron.
+Prefer the `'scheduled'` key when the push lane still runs real per-commit work, because a per-SHA push arm also gives up the deduplication that collapses a burst of master pushes into one run.
+
+**The paths filter must be skipped on `schedule`, and every output it feeds must default to `true`.**
+On a cron the action has nothing to diff against: it gets no `base` input, so base resolves to the default branch and equals head, and `before` is set only on push events.
+It falls back to the last commit alone, so one docs-only commit narrows the hourly run to nothing and reports green having tested almost nothing — a silent failure, not a red one.
+Guard the step with `if: github.event_name != 'push' && github.event_name != 'schedule'`, and give each consumed output a `|| 'true'` default.
+
+Any _step_ that reads a filter output needs the same `schedule` arm.
+`ci-dagster.yml`'s `build-matrix` is the cautionary case: without it the matrix is `[]` and the hourly run passes having run no tests.
+
+A lane that stops producing runs is invisible to the master-red alerter: it reads run completions, so a dropped cron reads as unreadable and drops out of evaluation rather than paging.
+Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
 
 ## Backwards-compat with unrebased PRs
 

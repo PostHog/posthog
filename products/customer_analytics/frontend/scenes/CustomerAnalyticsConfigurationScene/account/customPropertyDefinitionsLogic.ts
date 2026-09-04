@@ -246,6 +246,7 @@ export interface customPropertyDefinitionsLogicValues {
     definitionsInitialLoading: boolean
     definitionsLoading: boolean
     editingDefinition: CustomPropertyDefinitionApi | null
+    editingHasWorkflowReference: boolean
     editingReferences: readonly CustomPropertyReferenceApi[]
     filteredDefinitions: CustomPropertyDefinitionApi[]
     hasSyncedWarehouseTables: boolean | null
@@ -555,6 +556,10 @@ export interface customPropertyDefinitionsLogicMeta {
             searchTerm: string,
             targetTypeFilter: CustomPropertyTargetTypeFilter
         ) => CustomPropertyDefinitionApi[]
+        editingHasWorkflowReference: (
+            definitions: CustomPropertyDefinitionApi[],
+            editingDefinition: CustomPropertyDefinitionApi | null
+        ) => boolean
         editingReferences: (
             definitions: CustomPropertyDefinitionApi[],
             editingDefinition: CustomPropertyDefinitionApi | null
@@ -1222,6 +1227,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 )
             },
         ],
+        editingHasWorkflowReference: [
+            (s) => [s.definitions, s.editingDefinition],
+            (
+                definitions: CustomPropertyDefinitionApi[],
+                editingDefinition: CustomPropertyDefinitionApi | null
+            ): boolean => {
+                if (!editingDefinition) {
+                    return false
+                }
+                const fresh = definitions.find((definition) => definition.id === editingDefinition.id)
+                return fresh?.has_workflow_reference ?? editingDefinition.has_workflow_reference
+            },
+        ],
         editingReferences: [
             (s) => [s.definitions, s.editingDefinition],
             (
@@ -1294,7 +1312,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 groupTypeIndex: definition.group_type_index ?? null,
                 sourceMode: definition.source
                     ? 'data_warehouse'
-                    : definition.references?.length
+                    : definition.has_workflow_reference
                       ? 'workflow'
                       : 'manual',
                 savedQuery: definition.source?.saved_query ?? null,

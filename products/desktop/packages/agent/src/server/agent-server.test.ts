@@ -232,6 +232,7 @@ interface TestableServer {
   detectedPrUrl: string | null;
   slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
   slackChartDelivery: boolean;
+  slackReplyContext: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -396,11 +397,9 @@ describe("AgentServer HTTP Mode", () => {
   let appendLogCalls: unknown[][];
   let port: number;
 
-  beforeEach(async () => {
-    repo = await createTestRepo("agent-server-http");
-    appendLogCalls = [];
-    // Use a unique high port per test to avoid reuse and browser-blocked ports.
-    port = getNextTestPort();
+  // msw patches fetch process-wide. A second listen() on an already-patched
+  // fetch throws, so patch once per file and reset the handlers per test.
+  beforeAll(() => {
     mswServer = setupServer(
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
@@ -410,13 +409,26 @@ describe("AgentServer HTTP Mode", () => {
     mswServer.listen({ onUnhandledRequest: "bypass" });
   });
 
-  afterEach(async () => {
-    if (server) {
-      await server.stop();
-      server = undefined;
-    }
+  afterAll(() => {
     mswServer.close();
-    await repo.cleanup();
+  });
+
+  beforeEach(async () => {
+    repo = await createTestRepo("agent-server-http");
+    appendLogCalls = [];
+    // Use a unique high port per test to avoid reuse and browser-blocked ports.
+    port = getNextTestPort();
+  });
+
+  afterEach(async () => {
+    const runningServer = server;
+    server = undefined;
+    try {
+      await runningServer?.stop();
+    } finally {
+      mswServer.resetHandlers();
+      await repo.cleanup();
+    }
   });
 
   const createServer = (
@@ -974,7 +986,7 @@ describe("AgentServer HTTP Mode", () => {
       return testServer;
     }
 
-    it("reports cumulative run token usage into TaskRun.state after each settled turn", () => {
+    it("reports cumulative run token usage into TaskRun.state after each settled turn", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
@@ -987,7 +999,9 @@ describe("AgentServer HTTP Mode", () => {
       testServer.recordTurnUsage(turnUsage);
       testServer.recordTurnUsage(turnUsage);
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2),
+      );
       expect(testServer.posthogAPI.updateTaskRun).toHaveBeenNthCalledWith(
         1,
         "task-1",
@@ -1218,7 +1232,7 @@ describe("AgentServer HTTP Mode", () => {
           payload: JwtPayload,
           phase: "initial" | "resume" | "followup",
           error: unknown,
-        ): Promise<void>;
+        ): Promise<unknown>;
       };
       testServer.eventStreamSender = {
         enqueue: vi.fn(),
@@ -1243,37 +1257,74 @@ describe("AgentServer HTTP Mode", () => {
     };
 
     it.each([
-      ["genuine agent error (terminal)", "boom", "agent_error", true],
+      [
+        "genuine agent error (terminal)",
+        "interactive",
+        "boom",
+        "terminal",
+        "agent_error",
+        true,
+      ],
       [
         "transient upstream timeout (recoverable)",
+        "interactive",
         "API Error: The operation timed out.",
+        "recoverable",
         "upstream_timeout",
+        false,
+      ],
+      [
+        "interactive content-block rejection (retryable delivery)",
+        "interactive",
+        "API Error: Content block is not a thinking block",
+        "retryable_delivery",
+        null,
+        false,
+      ],
+      [
+        "background content-block rejection (retryable delivery)",
+        "background",
+        "API Error: Content block is not a thinking block",
+        "retryable_delivery",
+        null,
         false,
       ],
     ] as const)(
       "tags and handles a follow-up %s",
-      async (_name, errorMessage, expectedErrorType, expectsFailed) => {
+      async (
+        _name,
+        mode,
+        errorMessage,
+        expectedDisposition,
+        expectedErrorType,
+        expectsFailed,
+      ) => {
         const testServer = createFailureTestServer();
 
-        await testServer.handleTurnFailure(
-          interactivePayload,
+        const disposition = await testServer.handleTurnFailure(
+          { ...interactivePayload, mode },
           "followup",
           new Error(errorMessage),
         );
 
-        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
-          expect.objectContaining({
-            notification: expect.objectContaining({
-              method: "session/update",
-              params: expect.objectContaining({
-                update: expect.objectContaining({
-                  sessionUpdate: "error",
-                  errorType: expectedErrorType,
+        expect(disposition).toBe(expectedDisposition);
+        if (expectedErrorType) {
+          expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+            expect.objectContaining({
+              notification: expect.objectContaining({
+                method: "session/update",
+                params: expect.objectContaining({
+                  update: expect.objectContaining({
+                    sessionUpdate: "error",
+                    errorType: expectedErrorType,
+                  }),
                 }),
               }),
             }),
-          }),
-        );
+          );
+        } else {
+          expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
+        }
 
         if (expectsFailed) {
           expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
@@ -1307,6 +1358,22 @@ describe("AgentServer HTTP Mode", () => {
           }),
         }),
       );
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+    });
+
+    it("quietly ends an interactive follow-up that ended without a response", async () => {
+      const testServer = createFailureTestServer();
+
+      const result = await testServer.handleTurnFailure(
+        interactivePayload,
+        "followup",
+        new Error(
+          "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+        ),
+      );
+
+      expect(result).toBe("retryable_followup");
+      expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
@@ -2022,9 +2089,11 @@ describe("AgentServer HTTP Mode", () => {
     function exposeRefresh(testServer: AgentServer) {
       return testServer as unknown as {
         session: {
+          payload: { task_id: string; run_id: string };
           clientConnection: { extMethod: ReturnType<typeof vi.fn> };
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
         executeCommand(
           method: string,
           params: Record<string, unknown>,
@@ -2032,10 +2101,28 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
+    // A refresh also resyncs the acting user's skills store stubs. That reads
+    // the run and writes to the skill roots, so keep it out of these relay
+    // assertions by failing the fetch it starts from.
+    function attachSession(
+      testServer: ReturnType<typeof exposeRefresh>,
+      extMethod: ReturnType<typeof vi.fn>,
+    ) {
+      testServer.session = {
+        payload: { task_id: "test-task-id", run_id: "test-run-id" },
+        clientConnection: { extMethod },
+      };
+      testServer.posthogAPI = {
+        getTaskRun: vi.fn(async () => {
+          throw new Error("run fetch unavailable");
+        }),
+      };
+    }
+
     it("re-appends the loopback relay entries so a refresh doesn't drop them", async () => {
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));
-      testServer.session = { clientConnection: { extMethod } };
+      attachSession(testServer, extMethod);
       const relayEntry = {
         type: "http",
         name: "slack",
@@ -2070,7 +2157,7 @@ describe("AgentServer HTTP Mode", () => {
       // declare a server description; only pi reads it.
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));
-      testServer.session = { clientConnection: { extMethod } };
+      attachSession(testServer, extMethod);
       testServer.mcpRelayServer = null;
 
       await testServer.executeCommand("refresh_session", {
@@ -2096,7 +2183,7 @@ describe("AgentServer HTTP Mode", () => {
     it("does not duplicate a relay entry already present in the refresh list", async () => {
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));
-      testServer.session = { clientConnection: { extMethod } };
+      attachSession(testServer, extMethod);
       testServer.mcpRelayServer = {
         mcpServers: [
           {
@@ -2833,6 +2920,50 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toHaveBeenCalledTimes(4);
     }, 20000);
 
+    it("allows a no-response follow-up to be retried with the same messageId", async () => {
+      const s = createServer();
+      await s.start();
+      const prompt = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new Error(
+            "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+          ),
+        )
+        .mockResolvedValueOnce({ stopReason: "end_turn" });
+      const serverInternals = s as unknown as {
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const send = async () => {
+        const response = await fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${createToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "no-response",
+            method: "user_message",
+            params: { content: "continue", messageId: "message-1" },
+          }),
+        });
+        return (await response.json()) as {
+          error?: { message?: string };
+          result?: { stopReason?: string };
+        };
+      };
+
+      const first = await send();
+      expect(first.error?.message).toContain("[ede_diagnostic]");
+
+      const second = await send();
+      expect(second.result?.stopReason).toBe("end_turn");
+      expect(prompt).toHaveBeenCalledTimes(2);
+    }, 30000);
+
     it("steers an active turn without emitting a separate turn completion", async () => {
       const s = createServer();
       await s.start();
@@ -3209,6 +3340,64 @@ describe("AgentServer HTTP Mode", () => {
       });
       expect(prompt).toHaveBeenCalledTimes(1);
     }, 20000);
+
+    it.each(["interactive", "background"] as const)(
+      "redelivers a content-block rejection with the same messageId in %s mode",
+      async (mode) => {
+        const s = createServer({ mode });
+        await s.start();
+        const prompt = vi
+          .fn(async (_params: { _meta?: Record<string, unknown> }) => ({
+            stopReason: "end_turn",
+          }))
+          .mockRejectedValueOnce(
+            new Error("API Error: Content block is not a thinking block"),
+          );
+        const serverInternals = s as unknown as {
+          session: { clientConnection: { prompt: typeof prompt } };
+        };
+        serverInternals.session.clientConnection.prompt = prompt;
+
+        const token = createToken({ mode });
+        const send = async (requestId: string) =>
+          fetch(`http://localhost:${port}/command`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: requestId,
+              method: "user_message",
+              params: {
+                content: "do the thing",
+                messageId: "m-content-block",
+              },
+            }),
+          });
+
+        const first = await send("first-attempt");
+        await expect(first.json()).resolves.toMatchObject({
+          error: {
+            message: expect.stringContaining(
+              "Content block is not a thinking block",
+            ),
+          },
+        });
+        expect(prompt).toHaveBeenCalledTimes(1);
+
+        const retry = await send("retry");
+        await expect(retry.json()).resolves.toMatchObject({
+          result: { stopReason: "end_turn" },
+        });
+        expect(prompt).toHaveBeenCalledTimes(2);
+        expect(
+          prompt.mock.calls.map(([params]) => params._meta?.messageId),
+        ).toEqual(["m-content-block", "m-content-block"]);
+      },
+      20000,
+    );
 
     it("shares a failed in-flight messageId outcome with concurrent retries", async () => {
       const s = createServer();
@@ -5172,11 +5361,22 @@ describe("AgentServer HTTP Mode", () => {
           "Task-Id: test-task-id",
           "canonical `posthog:exec` tool",
           "`posthog:read-data-schema`",
+          "`posthog:metric-list`",
+          "`posthog:metric-describe`",
+          "`posthog:data-catalog-metric-run`",
+          "You do not have GitHub access in this session.",
+          "Codebase analysis and code review require readable repository content.",
+          "do not replace the requested code work with generic guidance or PostHog data analysis",
+          "The connection applies to a new task, not this task.",
+          "call `show_actions` with one `compose` action",
+          "Try again in a new task",
+          "/settings/user-personal-integrations",
         ],
         shouldNotContain: [
           "gh repo clone",
           "query-run",
           "event-definitions-list",
+          "send the request again",
         ],
       },
       {
@@ -5188,6 +5388,9 @@ describe("AgentServer HTTP Mode", () => {
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",
           "canonical `posthog:exec` tool",
+          "`posthog:metric-list`",
+          "`posthog:metric-describe`",
+          "`posthog:data-catalog-metric-run`",
         ],
         shouldNotContain: [
           "open a draft pull request",
@@ -5250,6 +5453,7 @@ describe("AgentServer HTTP Mode", () => {
       vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
+      expect(prompt).toContain("You have GitHub access in this session.");
       expect(prompt).toContain('gh issue create --assignee "@me"');
       expect(prompt).toContain("gh api user --jq .login");
       // An installation token resolves to the app, so acting on it would assign a bot.
@@ -5335,7 +5539,7 @@ describe("AgentServer HTTP Mode", () => {
         };
       } | null;
       posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-      resolveActivationSettings(): Promise<string | null>;
+      resolveActivationSettings(): Promise<string[]>;
       buildCloudSystemPrompt(): string;
     };
     const makeWarmServer = (
@@ -5373,7 +5577,7 @@ describe("AgentServer HTTP Mode", () => {
           };
         };
         posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-        resolveActivationSettings(): Promise<string | null>;
+        resolveActivationSettings(): Promise<string[]>;
       };
       t.prewarmedRun = true;
       t.session = {
@@ -5402,13 +5606,13 @@ describe("AgentServer HTTP Mode", () => {
     it("upgrades a prewarmed run to auto-publish from run state on the first message", async () => {
       const t = makeWarmServer({ prewarmed: true, auto_publish: true });
 
-      const override = await t.resolveActivationSettings();
+      const override = (await t.resolveActivationSettings()).join("\n");
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(override).toContain("gh pr create --draft");
       // The flip persists for the rest of the session...
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
       // ...and the override is injected only once.
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -5416,7 +5620,7 @@ describe("AgentServer HTTP Mode", () => {
       const t = makeWarmServer({ auto_publish: true });
       t.prewarmedRun = false;
 
-      const override = await t.resolveActivationSettings();
+      const override = (await t.resolveActivationSettings()).join("\n");
 
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
@@ -5426,11 +5630,11 @@ describe("AgentServer HTTP Mode", () => {
     it("keeps a prewarmed run review-first when run state has no auto_publish", async () => {
       const t = makeWarmServer({ prewarmed: true });
 
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -5442,7 +5646,7 @@ describe("AgentServer HTTP Mode", () => {
         { createPr: false },
       );
 
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
@@ -5451,12 +5655,12 @@ describe("AgentServer HTTP Mode", () => {
 
     it("retries the state fetch on a later message when it fails", async () => {
       const t = makeWarmServer(new Error("fetch failed"));
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
 
       t.posthogAPI.getTaskRun = vi.fn(async () => ({
         state: { prewarmed: true, auto_publish: true },
       }));
-      expect(await t.resolveActivationSettings()).toContain(
+      expect((await t.resolveActivationSettings()).join("\n")).toContain(
         "gh pr create --draft",
       );
     });
@@ -5472,8 +5676,8 @@ describe("AgentServer HTTP Mode", () => {
         setSessionConfigOption,
       );
 
-      await expect(t.resolveActivationSettings()).resolves.toBeNull();
-      await expect(t.resolveActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveActivationSettings()).resolves.toEqual([]);
+      await expect(t.resolveActivationSettings()).resolves.toEqual([]);
 
       expect(setSessionConfigOption).toHaveBeenCalledTimes(2);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(2);
@@ -5605,6 +5809,17 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("identity instructions", () => {
+      it("injects Slack identity for workflow Slack replies", () => {
+        delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+        const s = createServer() as unknown as TestableServer;
+        s.slackReplyContext = true;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("# Identity");
+        expect(prompt).toContain("You are replying in a Slack thread");
+      });
+
       it.each([
         {
           label: "no repository, no PR",
