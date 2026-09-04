@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -167,5 +168,14 @@ describe('sourceManagementLogic', () => {
 
         resolveShallowLoad?.({ tables: {}, joins: [] } as DatabaseSchemaQueryResponse)
         await shallowLoad
+    })
+
+    it('loads sources once on the initial sources page mount', () => {
+        router.actions.push('/data-management/sources')
+        const loadSources = jest.spyOn(logic.actions, 'loadSources')
+
+        logic.mount()
+
+        expect(loadSources).toHaveBeenCalledTimes(1)
     })
 })

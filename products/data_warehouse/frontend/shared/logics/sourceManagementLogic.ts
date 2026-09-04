@@ -446,7 +446,8 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     urlToAction(({ actions }) => {
         // Reload (and restart polling) when landing on a page that renders the sources list, in
         // case this shared logic was already mounted by another scene and afterMount won't re-run.
-        // Skip same-path URL changes — the sources tables sync their pagination to the URL (e.g.
+        // afterMount handles the initial load. Skip that initial route callback, plus same-path URL
+        // changes — the sources tables sync their pagination to the URL (e.g.
         // ?managed-sources_page=2), and a full refetch on every page click would blink the table
         // and shift the page.
         const reload = (
@@ -456,7 +457,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             currentLocation: { pathname: string; initial?: boolean },
             previousLocation?: { pathname: string }
         ): void => {
-            if (!currentLocation.initial && currentLocation.pathname === previousLocation?.pathname) {
+            if (currentLocation.initial || currentLocation.pathname === previousLocation?.pathname) {
                 return
             }
             actions.loadSources()
