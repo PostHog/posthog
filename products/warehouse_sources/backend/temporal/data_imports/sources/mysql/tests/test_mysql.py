@@ -429,6 +429,20 @@ class TestBuildPipelineProjection:
         )
         assert query.startswith("SELECT `id`, `email` FROM")
 
+    def test_sync_all_falls_back_to_star_for_unquotable_column_names(self, impl, mocker):
+        # A catalog name the backtick allowlist rejects, e.g. the `:` in `Ach:CompanyId`. Naming it
+        # would raise at setup, so the table keeps reading the way it always has.
+        query = self._sync_all_query(
+            impl,
+            mocker,
+            [
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="Ach:CompanyId", data_type="varchar", column_type="varchar(50)", nullable=True),
+            ],
+            ["id"],
+        )
+        assert query.startswith("SELECT * FROM")
+
     def test_sync_all_keeps_invisible_primary_key(self, impl, mocker):
         query = self._sync_all_query(
             impl,

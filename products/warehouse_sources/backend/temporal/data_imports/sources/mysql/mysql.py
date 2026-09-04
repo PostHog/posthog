@@ -258,6 +258,24 @@ def _sanitize_identifier(identifier: str) -> str:
         raise ValueError(f"Invalid SQL identifier: {identifier}") from e
 
 
+def _quotable_column_names(columns: list[str], logger: FilteringBoundLogger) -> list[str]:
+    """Return `columns`, or nothing when the backtick allowlist rejects one of the names.
+
+    Catalog column names legitimately carry characters the allowlist rejects — a space, or the
+    `:` in `Ach:CompanyId`. Naming one in a projection raises before the first row is read, so
+    hand back an empty list and let the caller keep the `SELECT *` such a table always synced
+    with. Skipping only the offending column is not an option here: that silently drops it from
+    the read.
+    """
+    for column in columns:
+        try:
+            _IDENTIFIER_QUOTER.quote(column)
+        except InvalidIdentifierError:
+            logger.warning(f"Can't quote the column name {column!r}, so this sync reads the whole table with SELECT *")
+            return []
+    return columns
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -1455,12 +1473,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                     full_table = self.get_table_metadata(cursor, schema, table_name)
-                    # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
-                    # Invisible columns stay out, so sync-all reads what `SELECT *` read. An invisible
-                    # primary key comes back through `compute_projected_columns` below.
-                    enabled_columns = resolve_enabled_columns(
-                        enabled_columns, [column.name for column in full_table.columns if not column.invisible]
-                    )
+                    if enabled_columns is None:
+                        # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
+                        # Invisible columns stay out, so sync-all reads what `SELECT *` read. An invisible
+                        # primary key comes back through `compute_projected_columns` below.
+                        visible_columns = [column.name for column in full_table.columns if not column.invisible]
+                        enabled_columns = resolve_enabled_columns(None, _quotable_column_names(visible_columns, logger))
 
                     # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
                     if primary_keys is None and "id" in full_table:
