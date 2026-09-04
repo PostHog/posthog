@@ -64,8 +64,10 @@ class ExperimentBreakdownAttributionContext:
         events are ``step_1 .. step_N`` (N = len(series)). The breakdown is read off
         the metric events, so attribution targets those steps, never the exposure step.
 
-        - first_touch / all_events: argMinIf from the first metric step (step_1).
-        - last_touch: argMaxIf from the last metric step (step_N).
+        - first_touch / all_events: argMinIf across all metric steps (step_1..step_N), so the
+          value comes from the user's earliest metric event, whichever step it matched.
+        - last_touch: argMaxIf across all metric steps, so a user who drops off before the last
+          step still gets the value from their latest metric event.
         - step (ordered): argMinIf from ``breakdownAttributionValue`` (0-indexed into the
           series, mapped to the corresponding step column step_{value + 1}).
         - step (unordered, "Any step"): argMinIf across all metric step columns, since an
@@ -74,15 +76,14 @@ class ExperimentBreakdownAttributionContext:
         attribution = self.metric.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
         num_metric_steps = len(self.metric.series)
         is_unordered = self.metric.funnel_order_type == StepOrderValue.UNORDERED
+        all_metric_steps = list(range(1, num_metric_steps + 1))
 
         if attribution == BreakdownAttributionType.LAST_TOUCH:
-            return AttributionResolution(aggregation_fn="argMaxIf", step_indexes=[num_metric_steps])
+            return AttributionResolution(aggregation_fn="argMaxIf", step_indexes=all_metric_steps)
         if attribution == BreakdownAttributionType.STEP:
             if is_unordered:
                 # "Any step": the stored index is ignored, attribute from the earliest matching step.
-                return AttributionResolution(
-                    aggregation_fn="argMinIf", step_indexes=list(range(1, num_metric_steps + 1))
-                )
+                return AttributionResolution(aggregation_fn="argMinIf", step_indexes=all_metric_steps)
             series_index = self.metric.breakdownAttributionValue
             if series_index is None or series_index < 0 or series_index >= num_metric_steps:
                 raise ValueError(
@@ -90,4 +91,4 @@ class ExperimentBreakdownAttributionContext:
                     f"got {series_index}"
                 )
             return AttributionResolution(aggregation_fn="argMinIf", step_indexes=[series_index + 1])
-        return AttributionResolution(aggregation_fn="argMinIf", step_indexes=[1])
+        return AttributionResolution(aggregation_fn="argMinIf", step_indexes=all_metric_steps)
