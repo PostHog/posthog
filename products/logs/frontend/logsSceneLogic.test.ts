@@ -27,6 +27,17 @@ describe('logsSceneLogic', () => {
             post: {
                 '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
                 '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                '/api/projects/:team_id/logs/anomalies/series_bands/': () => [
+                    200,
+                    {
+                        service_name: 'checkout',
+                        window_start: '2026-08-10T10:00:00Z',
+                        window_end: '2026-08-17T10:00:00Z',
+                        interval_minutes: 60,
+                        series_truncated: false,
+                        series: [],
+                    },
+                ],
             },
         })
         initKeaTests()
@@ -274,6 +285,131 @@ describe('logsSceneLogic', () => {
 
             expect(logic.values.facetNameSearch).toEqual('')
             expect(router.values.searchParams).not.toHaveProperty('facetNameSearch')
+        })
+    })
+
+    describe('anomalies tab URL sync', () => {
+        // A write arms the sync guard, which clears on a macrotask that `toFinishAllListeners`
+        // does not flush. A real back-navigation lands long after that tick.
+        const flushUrlSyncGuard = async (): Promise<void> => {
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+
+        const onAnomaliesTab = async (): Promise<void> => {
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('anomalies')
+            }).toFinishAllListeners()
+        }
+
+        it('reads the service and the window off the URL', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'anomalies',
+                    anomaliesService: 'checkout',
+                    anomaliesDateRange: { date_from: '-24h' },
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.anomaliesService).toEqual('checkout')
+            expect(logic.values.anomaliesDateRange).toEqual({ date_from: '-24h' })
+        })
+
+        it('ignores the params while another tab is shown', async () => {
+            // Reading a service fetches its band charts, so an ungated read would fire that
+            // request from any URL change made on the viewer.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { anomaliesService: 'checkout' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.anomaliesService).toBeNull()
+        })
+
+        it('returns the picker to the default window when the param goes', async () => {
+            // This is the Back case: stepping past the change that wrote the param has to
+            // return the default week, not keep the older pick.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'anomalies',
+                    anomaliesDateRange: { date_from: '-24h' },
+                })
+            }).toFinishAllListeners()
+            await flushUrlSyncGuard()
+
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { activeTab: 'anomalies' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.anomaliesDateRange).toEqual({ date_from: '-7d' })
+        })
+
+        it('falls back to the default window when the param is not a date range', async () => {
+            // A hand-edited or stale URL must not push a shape the picker and the band request
+            // cannot read.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'anomalies',
+                    anomaliesDateRange: ['-24h'],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.anomaliesDateRange).toEqual({ date_from: '-7d' })
+        })
+
+        it('writes both params, and drops each one at its default', async () => {
+            await onAnomaliesTab()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAnomaliesService('checkout')
+                logic.actions.setAnomaliesDateRange({ date_from: '-24h' })
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams).toHaveProperty('anomaliesService', 'checkout')
+            expect(router.values.searchParams.anomaliesDateRange).toEqual({ date_from: '-24h' })
+
+            // Left in the URL, the default week would ride along in every link from this tab.
+            await expectLogic(logic, () => {
+                logic.actions.setAnomaliesService(null)
+                logic.actions.setAnomaliesDateRange({ date_from: '-7d' })
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams).not.toHaveProperty('anomaliesService')
+            expect(router.values.searchParams).not.toHaveProperty('anomaliesDateRange')
+        })
+
+        it('leaves the viewer own service and window params alone', async () => {
+            // Both tabs live under one URL. Sharing `dateRange` would move the viewer window,
+            // and `serviceNames` is deleted by the viewer writer, so the pick would not survive.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'anomalies',
+                    dateRange: { date_from: '-1h' },
+                })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAnomaliesService('checkout')
+                logic.actions.setAnomaliesDateRange({ date_from: '-24h' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.dateRange).toEqual({ date_from: '-1h' })
+            expect(router.values.searchParams.dateRange).toEqual({ date_from: '-1h' })
+        })
+
+        it('carries the params in and out of the URL with the tab', async () => {
+            // A clicked bucket sends the user to the viewer on a URL that has neither param, so
+            // the selection has to go back into the URL when the tab comes back.
+            await onAnomaliesTab()
+            await expectLogic(logic, () => {
+                logic.actions.setAnomaliesService('checkout')
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('viewer')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('anomaliesService')
+
+            await onAnomaliesTab()
+            expect(router.values.searchParams).toHaveProperty('anomaliesService', 'checkout')
         })
     })
 })
