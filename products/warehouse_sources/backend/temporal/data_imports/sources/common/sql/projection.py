@@ -1,7 +1,8 @@
 """Column-projection helpers shared by every SQL source.
 
 Semantics:
-- `enabled_columns is None` → `SELECT *`.
+- `enabled_columns is None` → `SELECT *`, unless the caller first resolves it against the
+  source catalog with `resolve_enabled_columns`.
 - `enabled_columns == []` → primary keys + incremental field only.
 - PKs + active incremental field are always retained: merges break without PKs,
   incremental can't advance without its cursor field.
@@ -73,6 +74,27 @@ def compute_projected_columns(
         return None
 
     return ordered
+
+
+def resolve_enabled_columns(
+    enabled_columns: list[str] | None,
+    available_columns: list[str],
+) -> list[str] | None:
+    """Turn "sync every column" into the explicit list of columns the source shows us.
+
+    `None` means the user kept every column, which renders as `SELECT *`. A source role that
+    holds column grants instead of table grants cannot run `SELECT *`: the star expands to
+    columns it may not read, so the sync fails on a table the setup wizard listed as available.
+    The catalogs each source reads at discovery already hide those columns, so projecting them
+    reads exactly what the role can and returns the same rows for a role that can read the
+    whole table.
+
+    Discovery runs on every sync, so a column added at the source still reaches the projection.
+    An empty catalog keeps the `SELECT *` fallback.
+    """
+    if enabled_columns is not None:
+        return enabled_columns
+    return list(available_columns) or None
 
 
 def format_projected_select_clause(

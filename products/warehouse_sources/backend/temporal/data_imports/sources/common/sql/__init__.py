@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     format_projected_select_clause,
     project_arrow_columns,
     prune_enabled_columns,
+    resolve_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     ParamStyle,
@@ -99,6 +100,7 @@ __all__ = [
     "render_named_conditions",
     "render_positional_conditions",
     "resolve_detected_primary_keys",
+    "resolve_enabled_columns",
     "sql_schema_metadata",
     "validate_and_coerce_row_filters",
 ]

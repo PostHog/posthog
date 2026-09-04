@@ -355,8 +355,8 @@ class TestGetTableMetadata:
     def test_builds_table_with_non_numeric_columns(self, impl, cursor):
         cursor.__iter__.return_value = iter(
             [
-                ("id", "int", "int", True, None, None),
-                ("email", "varchar", "varchar(255)", False, None, None),
+                ("id", "int", "int", True, None, None, ""),
+                ("email", "varchar", "varchar(255)", False, None, None, ""),
             ]
         )
         table = impl.get_table_metadata(cursor, "mydb", "users")
@@ -370,7 +370,7 @@ class TestGetTableMetadata:
     def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
         cursor.__iter__.return_value = iter(
             [
-                ("amount", "decimal", "decimal(10,2)", False, 10, 2),
+                ("amount", "decimal", "decimal(10,2)", False, 10, 2, ""),
             ]
         )
         table = impl.get_table_metadata(cursor, "mydb", "orders")
@@ -380,12 +380,86 @@ class TestGetTableMetadata:
     def test_falls_back_to_defaults_when_decimal_missing_precision(self, impl, cursor):
         cursor.__iter__.return_value = iter(
             [
-                ("amount", "decimal", "decimal", False, None, None),
+                ("amount", "decimal", "decimal", False, None, None, ""),
             ]
         )
         table = impl.get_table_metadata(cursor, "mydb", "orders")
         assert isinstance(table.columns[0].numeric_precision, int)
         assert isinstance(table.columns[0].numeric_scale, int)
+
+    def test_flags_invisible_columns(self, impl, cursor):
+        cursor.__iter__.return_value = iter(
+            [
+                ("my_row_id", "bigint", "bigint unsigned", False, None, None, "auto_increment INVISIBLE"),
+                ("email", "varchar", "varchar(255)", True, None, None, ""),
+            ]
+        )
+        table = impl.get_table_metadata(cursor, "mydb", "users")
+        assert [column.invisible for column in table.columns] == [True, False]
+
+
+class TestBuildPipelineProjection:
+    def _sync_all_query(self, impl, mocker, columns, primary_keys):
+        mocker.patch.object(impl, "connect", return_value=MagicMock())
+        mocker.patch.object(impl, "get_primary_keys_for_table", return_value=primary_keys)
+        mocker.patch.object(
+            impl,
+            "get_table_metadata",
+            return_value=Table(name="messages", parents=("mydb",), columns=columns),
+        )
+        rows_to_sync = mocker.patch.object(impl, "get_rows_to_sync", return_value=0)
+        mocker.patch.object(impl, "get_chunk_size", return_value=1000)
+
+        impl.build_pipeline(_make_config(), _make_inputs())
+
+        return rows_to_sync.call_args.args[1]
+
+    def test_sync_all_skips_invisible_columns(self, impl, mocker):
+        query = self._sync_all_query(
+            impl,
+            mocker,
+            [
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="email", data_type="varchar", column_type="varchar(255)", nullable=True),
+                MySQLColumn(
+                    name="notes", data_type="varchar", column_type="varchar(255)", nullable=True, invisible=True
+                ),
+            ],
+            ["id"],
+        )
+        assert query.startswith("SELECT `id`, `email` FROM")
+
+    def test_sync_all_falls_back_to_star_for_unquotable_column_names(self, impl, mocker):
+        # A catalog name the backtick allowlist rejects, e.g. the `:` in `Ach:CompanyId`. Naming it
+        # would raise at setup, so the table keeps reading the way it always has.
+        query = self._sync_all_query(
+            impl,
+            mocker,
+            [
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="Ach:CompanyId", data_type="varchar", column_type="varchar(50)", nullable=True),
+            ],
+            ["id"],
+        )
+        assert query.startswith("SELECT * FROM")
+
+    def test_sync_all_keeps_invisible_primary_key(self, impl, mocker):
+        query = self._sync_all_query(
+            impl,
+            mocker,
+            [
+                MySQLColumn(
+                    name="my_row_id",
+                    data_type="bigint",
+                    column_type="bigint unsigned",
+                    nullable=False,
+                    invisible=True,
+                ),
+                MySQLColumn(name="email", data_type="varchar", column_type="varchar(255)", nullable=True),
+            ],
+            ["my_row_id"],
+        )
+        assert query.startswith("SELECT `email`, `my_row_id` FROM")
 
 
 class TestGetRowsToSync:

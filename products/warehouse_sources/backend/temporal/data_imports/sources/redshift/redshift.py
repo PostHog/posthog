@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
+    resolve_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     fetch_row_batches,
@@ -1515,6 +1516,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         row_filters = inputs.row_filters
 
         def _discover_and_probe() -> RedshiftTableSetup:
+            # The streaming read below reuses the resolved projection, so rebind the outer name.
+            nonlocal enabled_columns
             with self.connect(config) as connection:
                 # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
                 # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
@@ -1524,6 +1527,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 with connection.cursor() as cursor:
                     logger.debug("Getting table types...")
                     full_table = self.get_table_metadata(cursor, schema, table_name, logger)
+                    # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
+                    enabled_columns = resolve_enabled_columns(
+                        enabled_columns, [column.name for column in full_table.columns]
+                    )
 
                     cursor.execute(
                         sql.SQL("SET statement_timeout = {timeout}").format(

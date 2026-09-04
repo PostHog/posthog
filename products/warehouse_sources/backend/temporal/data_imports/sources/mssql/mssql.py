@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     format_projected_select_clause,
     project_arrow_columns,
     render_named_conditions,
+    resolve_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -904,6 +905,10 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             with connection.cursor() as cursor:
                 primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                 full_table = self.get_table_metadata(cursor, schema, table_name)
+                # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
+                enabled_columns = resolve_enabled_columns(
+                    enabled_columns, [column.name for column in full_table.columns]
+                )
 
                 # Resolve PKs before projection so SELECT and Arrow schema agree.
                 if primary_keys is None and "id" in full_table:

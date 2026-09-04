@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
+    resolve_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -255,6 +256,24 @@ def _sanitize_identifier(identifier: str) -> str:
         # Preserve the old message shape so semgrep / log-matching rules that
         # key on the old text keep working.
         raise ValueError(f"Invalid SQL identifier: {identifier}") from e
+
+
+def _quotable_column_names(columns: list[str], logger: FilteringBoundLogger) -> list[str]:
+    """Return `columns`, or nothing when the backtick allowlist rejects one of the names.
+
+    Catalog column names legitimately carry characters the allowlist rejects — a space, or the
+    `:` in `Ach:CompanyId`. Naming one in a projection raises before the first row is read, so
+    hand back an empty list and let the caller keep the `SELECT *` such a table always synced
+    with. Skipping only the offending column is not an option here: that silently drops it from
+    the read.
+    """
+    for column in columns:
+        try:
+            _IDENTIFIER_QUOTER.quote(column)
+        except InvalidIdentifierError:
+            logger.warning(f"Can't quote the column name {column!r}, so this sync reads the whole table with SELECT *")
+            return []
+    return columns
 
 
 def _build_query(
@@ -773,6 +792,17 @@ def get_connection_metadata(conn: pymysql.Connection, *, database: str) -> dict[
     }
 
 
+# MySQL 8.0.23+ can mark a column `INVISIBLE`: `information_schema.columns` still lists it, but
+# `SELECT *` never returns it. `EXTRA` holds space-separated attributes, so a generated invisible
+# primary key reads `auto_increment INVISIBLE`.
+_INVISIBLE_COLUMN_EXTRA_TOKEN = "INVISIBLE"
+
+
+def _is_invisible_column(extra: str | None) -> bool:
+    """Return whether an `information_schema.columns` row describes an invisible column."""
+    return _INVISIBLE_COLUMN_EXTRA_TOKEN in (extra or "").upper().split()
+
+
 class MySQLColumn(Column):
     """`Column` for a MySQL source — carries enough type info to build a PyArrow field.
 
@@ -783,6 +813,7 @@ class MySQLColumn(Column):
             used to detect `unsigned` which affects the PyArrow integer width.
         nullable: Whether the column is nullable in MySQL.
         numeric_precision / numeric_scale: Populated only for `decimal` / `numeric`.
+        invisible: Whether MySQL hides the column from `SELECT *`.
     """
 
     def __init__(
@@ -793,6 +824,7 @@ class MySQLColumn(Column):
         nullable: bool,
         numeric_precision: int | None = None,
         numeric_scale: int | None = None,
+        invisible: bool = False,
     ) -> None:
         self.name = name
         self.data_type = data_type
@@ -800,6 +832,7 @@ class MySQLColumn(Column):
         self.nullable = nullable
         self.numeric_precision = numeric_precision
         self.numeric_scale = numeric_scale
+        self.invisible = invisible
 
     def to_arrow_field(self) -> pa.Field[pa.DataType]:
         """Return a `pyarrow.Field` that closely matches this column."""
@@ -1133,7 +1166,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     column_type,
                     is_nullable,
                     numeric_precision,
-                    numeric_scale
+                    numeric_scale,
+                    extra
                 FROM
                     information_schema.columns
                 WHERE
@@ -1145,7 +1179,15 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
         numeric_data_types = {"numeric", "decimal"}
         columns = []
-        for name, data_type, column_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+        for (
+            name,
+            data_type,
+            column_type,
+            nullable,
+            numeric_precision_candidate,
+            numeric_scale_candidate,
+            extra,
+        ) in cursor:
             if data_type in numeric_data_types:
                 numeric_precision = (
                     numeric_precision_candidate
@@ -1167,6 +1209,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     nullable=nullable,
                     numeric_precision=numeric_precision,
                     numeric_scale=numeric_scale,
+                    invisible=_is_invisible_column(extra),
                 )
             )
 
@@ -1424,10 +1467,18 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         row_filters = inputs.row_filters
 
         def _discover_metadata() -> tuple[list[str] | None, pa.Schema, int, PartitionSettings | None, int]:
+            # The streaming read below reuses the resolved projection, so rebind the outer name.
+            nonlocal enabled_columns
             with self.connect(config) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                     full_table = self.get_table_metadata(cursor, schema, table_name)
+                    if enabled_columns is None:
+                        # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
+                        # Invisible columns stay out, so sync-all reads what `SELECT *` read. An invisible
+                        # primary key comes back through `compute_projected_columns` below.
+                        visible_columns = [column.name for column in full_table.columns if not column.invisible]
+                        enabled_columns = resolve_enabled_columns(None, _quotable_column_names(visible_columns, logger))
 
                     # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
                     if primary_keys is None and "id" in full_table:
