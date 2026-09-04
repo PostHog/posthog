@@ -14,7 +14,7 @@ describe('Http2SessionManager GOAWAY on an idle connection', () => {
     beforeAll(async () => {
         server = http2.createServer()
         server.on('session', (session) => serverSessions.push(session))
-        server.on('stream', () => {})
+        server.on('stream', (stream) => stream.respond({ ':status': 200 }))
         await new Promise<void>((resolve) => server.listen(0, resolve))
     })
 
@@ -50,6 +50,10 @@ describe('Http2SessionManager GOAWAY on an idle connection', () => {
             await socketClosed
             await new Promise<void>((resolve) => setImmediate(resolve))
             expect(manager.state()).toBe('open')
+            const response = await new Promise<http2.IncomingHttpHeaders>((resolve) =>
+                secondRequest.once('response', resolve)
+            )
+            expect(response[':status']).toBe(200)
             await closeStream(secondRequest)
         } finally {
             manager.abort()
