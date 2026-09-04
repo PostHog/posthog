@@ -23,10 +23,20 @@ class SyncStatus(models.TextChoices):
     FAILED = "failed", "failed"
 
 
+class SyncSegment(models.TextChoices):
+    TRACKED = "tracked", "tracked"
+    IGNORED = "ignored", "ignored"
+
+
+class SyncPhase(models.TextChoices):
+    STAGING = "staging", "staging"
+    DISPATCHING = "dispatching", "dispatching"
+    SYNCING = "syncing", "syncing"
+    COMPLETED = "completed", "completed"
+
+
 class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
-    """One person-property sync run for a single source. Persists the funnel counts the sync/backfill
-    activities compute (which otherwise live only in Prometheus/logs) so the UI can show run history
-    and how many person profiles were affected."""
+    """One warehouse sync run for a single custom property source."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
@@ -44,6 +54,11 @@ class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     # The warehouse job this run rode on: an import job, or a view materialization. Null for
     # backfill/manual runs, which read the table directly instead of riding a job.
     job_id = models.CharField(max_length=400, null=True, blank=True)
+    segment = models.CharField(max_length=20, choices=SyncSegment.choices, null=True, blank=True)
+    phase = models.CharField(max_length=20, choices=SyncPhase.choices, null=True, blank=True)
+    attempt = models.PositiveSmallIntegerField(null=True, blank=True)
+    workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.UUIDField(null=True, blank=True)
 
     trigger = models.CharField(max_length=20, choices=SyncTrigger.choices)
     status = models.CharField(max_length=20, choices=SyncStatus.choices, default=SyncStatus.RUNNING)
@@ -51,9 +66,7 @@ class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
-    # Funnel: read -> changed (survived the snapshot diff) -> existing (distinct_id resolved to a
-    # person) -> produced (intent on Kafka); skipped_missing_person is the changed rows that dropped
-    # because no person matched.
+    # The same funnel serves all targets. For accounts, existing means matched and produced means written.
     rows_read = models.PositiveIntegerField(default=0)
     changed = models.PositiveIntegerField(default=0)
     existing = models.PositiveIntegerField(default=0)

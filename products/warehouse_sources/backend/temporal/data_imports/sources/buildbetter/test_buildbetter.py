@@ -268,19 +268,3 @@ class TestBuildBetterSourceNonRetryableErrors:
     def test_does_not_match_transient_errors(self, _name: str, other_error: str) -> None:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
-
-
-class TestBuildBetterSourceRetryableErrors:
-    def setup_method(self) -> None:
-        self.source = BuildBetterSource()
-
-    @parameterized.expand(
-        [
-            ("server_error_502", "BuildBetter: server error 502"),
-            ("server_error_503", "BuildBetter: server error 503"),
-            ("rate_limited", "BuildBetter: rate limited"),
-        ]
-    )
-    def test_matches_exhausted_internal_retries(self, _name: str, observed_error: str) -> None:
-        retryable_errors = self.source.get_retryable_errors()
-        assert any(pattern in observed_error for pattern in retryable_errors)

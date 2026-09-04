@@ -62,9 +62,12 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderDailyThrottle,
     CustomSourceAIBuilderSustainedThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
@@ -105,11 +108,14 @@ from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
+    ExternalDataDestination,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    ExternalDataSourceDestination,
     PendingSourceCredential,
     auto_enable_new_schemas,
+    latest_completed_job_prefetch,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
@@ -160,6 +166,11 @@ from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceType,
     ManagedWarehouseSQLMode,
 )
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    DestinationLinkSerializer,
+    SourceDestinationsSerializer,
+    set_source_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
@@ -181,6 +192,15 @@ RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
+
+
+def _source_unavailable_message(source_type: str) -> str:
+    # A source with no schema discovery is an unreleased scaffold the UI normally hides. Tell the
+    # user it isn't ready rather than exposing the internal "schema discovery" wording.
+    return (
+        f"The {source_type} source isn't available to connect yet. "
+        "Choose a different source, or contact support if you were expecting it."
+    )
 
 
 def _canonical_legacy_managed_warehouse_source(
@@ -474,6 +494,9 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
+    # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
+    # would resume legacy delivery from an advanced slot and strand the unread buffer.
+    "cdc_ingest_mode",
 }
 
 
@@ -626,11 +649,18 @@ def get_postgres_source_table_location(
     )
 
 
-DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-)
+DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, ClickHouse, MotherDuck, and Trino sources."
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
+DIRECT_CONNECTION_ENGINE_CHOICES = [
+    "duckdb",
+    "postgres",
+    "mysql",
+    "snowflake",
+    "redshift",
+    "clickhouse",
+    "motherduck",
+    "trino",
+]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -886,6 +916,15 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "`null` on legacy rows and means billable."
         ),
     )
+    destination_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Destinations this run delivered to, snapshotted when it started. Empty on runs that "
+            "predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts "
+            "the rows read from the source once, not once per destination."
+        ),
+    )
 
     class Meta:
         model = ExternalDataJob
@@ -901,6 +940,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "workflow_run_id",
             "cdc_write_mode",
             "billable",
+            "destination_ids",
         ]
         read_only_fields = [
             "id",
@@ -914,6 +954,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "workflow_run_id",
             "cdc_write_mode",
             "billable",
+            "destination_ids",
         ]
 
     def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
@@ -1595,6 +1636,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
             "Defaults to false; ignored for pure direct-query sources."
         ),
     )
+    destination_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text=(
+            "Destinations every table on this source writes to. Set here rather than afterwards, "
+            "so the opening sync already carries them. Omit to write to the PostHog warehouse only."
+        ),
+    )
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1677,6 +1726,10 @@ class SourceSetupResponseSerializer(serializers.Serializer):
 
 class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the created external data source.")
+
+
+class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Human-readable explanation of why the source could not be created.")
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -1963,6 +2016,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "store_credentials",
         "source_prefix",
         "revenue_analytics_config",
+        "destinations",
         "create_webhook",
         "update_webhook_inputs",
         "delete_webhook",
@@ -2117,13 +2171,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # list load (up to one query, and a get_or_create write, per source).
             .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
-                Prefetch(
-                    "jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
-                        "-created_at"
-                    )[:1],
-                    to_attr="ordered_jobs",
-                ),
+                latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"),
                 # The one place schemas are read during serialization. `active_schemas` used to be a
                 # second prefetch over the same rows — it's now derived in Python from this one (see
                 # `_active_schemas`), so the schema table is scanned once.
@@ -2212,6 +2260,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            destination_ids=serializer.validated_data.get("destination_ids"),
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
@@ -2339,6 +2388,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         created_via: str,
         direct_query_enabled: bool = False,
         skip_credential_validation: bool = False,
+        destination_ids: list | None = None,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
         # full config + credential gate (including the SSRF host check) before discovering schemas.
@@ -2423,6 +2473,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        if not is_direct_query and not source.supports_scheduled_sync:
+            return Response(
+                ExternalDataSourceErrorResponseSerializer(
+                    {"message": f"{source_type_model.label} is available only as a direct connection."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
@@ -2478,9 +2535,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Roll back the row just created so a caller can't accumulate orphaned sources, and return
             # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
             new_source_model.delete()
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # `get_schemas` opens its own connection, so credentials validated above can still fail
@@ -2515,7 +2573,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         schema_names = [schema.name for schema in source_schemas]
         source_config_dict = source_config.to_dict()
         default_source_schema = source_config_dict.get("schema")
-        default_source_catalog = source_config_dict.get("database")
+        default_source_catalog = source_config_dict.get("database") or source_config_dict.get("catalog")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         # Omitting `schemas` means "sync what you found", the same defaults `setup` builds. A
@@ -2885,6 +2943,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
+
+        # Attach destinations before any schedule starts. Extraction snapshots the set onto the
+        # run, so a source whose destinations arrive after its first sync began writes that run
+        # to the warehouse alone, and reaching the others costs a full resync.
+        if destination_ids:
+            try:
+                set_source_destinations(
+                    team_id=self.team_id,
+                    source_id=new_source_model.pk,
+                    destination_ids=destination_ids,
+                )
+            except Exception as e:
+                # The source is already created and its tables are configured. Losing that over a
+                # destination set the user can still fix on the Destinations tab is the worse trade.
+                logger.exception(
+                    "Could not attach destinations to a new source",
+                    exc_info=e,
+                    source_id=new_source_model.pk,
+                )
 
         # Create all sync schedules over a single shared Temporal connection. Creating them
         # one call at a time reconnects to Temporal on every iteration, which does not scale
@@ -3379,9 +3456,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
@@ -3494,9 +3572,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
             # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # Credentials validated above can still fail here — `get_schemas` opens its own
@@ -3758,7 +3837,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 eligible_schemas=eligible_schemas,
                 config=source_config,
             )
-            if hog_fn_result.error or hog_fn_result.hog_function is None:
+            if hog_fn_result.error or hog_fn_result.hog_function_id is None:
                 return failure(hog_fn_result.error)
 
             registration = create_and_register_webhook(
@@ -3775,7 +3854,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not registration.success:
             # The external registration failed (e.g. credentials can't create webhooks), so the
             # handler would never receive events — remove it and keep the polling defaults.
-            hog_function = hog_fn_result.hog_function
+            hog_function = HogFunction.objects.get(id=hog_fn_result.hog_function_id, team_id=self.team_id)
             hog_function.deleted = True
             hog_function.enabled = False
             hog_function.save(update_fields=["deleted", "enabled"])
@@ -4915,6 +4994,64 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         serializer = DirectConnectionSourceOptionSerializer(options, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+    @extend_schema(
+        request=DestinationLinkSerializer,
+        responses={200: SourceDestinationsSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=True)
+    def destinations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read or replace the destinations every table on this source syncs to.
+
+        A table with its own override ignores this set until the override is cleared.
+        """
+        source = self.get_object()
+
+        if request.method == "GET":
+            attached = [
+                str(link.destination_id)
+                for link in ExternalDataSourceDestination.objects.for_team(self.team_id)
+                .filter(source_id=source.id, enabled=True)
+                .exclude(destination__deleted=True)
+            ]
+            # A source nobody configured has no links but is not syncing nowhere: it syncs to the
+            # PostHog warehouse. Report where it actually goes, or the picker shows every
+            # destination off and saving from that state silently drops the warehouse.
+            # Looked up rather than resolved, because `resolve_destinations` creates the
+            # warehouse row on demand and a GET must not write.
+            if not attached:
+                warehouse = (
+                    ExternalDataDestination.objects.for_team(self.team_id)
+                    .filter(type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE, deleted=False)
+                    .first()
+                )
+                attached = [str(warehouse.id)] if warehouse else []
+            return Response(
+                status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data
+            )
+
+        serializer = DestinationLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Editor on the source isn't enough on its own: this replaces the destination set every
+        # table without its own override inherits, and (like `destroy`) never resolves a schema
+        # through DRF's object permissions, so a table locked below the source would otherwise be
+        # rerouted to a destination its editor never had access to.
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=source.id)
+            .select_related("table")
+        )
+        self._assert_can_write_schemas(schemas)
+
+        attached = set_source_destinations(
+            team_id=self.team_id,
+            source_id=source.id,
+            destination_ids=serializer.validated_data["destination_ids"],
+        )
+        return Response(
+            status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data
+        )
 
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:

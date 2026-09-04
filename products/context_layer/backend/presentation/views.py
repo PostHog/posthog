@@ -18,6 +18,8 @@ from products.context_layer.backend.presentation.serializers import (
     ChannelWikiPageSerializer,
     CommitBundleSerializer,
     ContextLayerStatusSerializer,
+    DreamRunDetailSerializer,
+    DreamRunListSerializer,
     HeadConflictSerializer,
     LintErrorSerializer,
     WikiExportSerializer,
@@ -33,22 +35,6 @@ from products.tasks.backend.facade import api as tasks_facade
 RUN_COMMITS_PER_DAY_CAP = 20
 
 
-def _assert_no_private_projects(organization_id) -> None:  # noqa: ANN001
-    """The wiki is org-readable, so it goes dark the moment any project is private.
-
-    Enablement refuses orgs with private projects, but privacy can arrive later;
-    imported context must not stay readable to members the project now excludes.
-    Re-enabling access means removing the project restriction (or, later,
-    per-project partitioning).
-    """
-    if facade.organization_has_private_projects(organization_id):
-        raise PermissionDenied(
-            "This organization now has private projects, so its context wiki is unavailable. "
-            "The context layer does not support private projects yet.",
-            code="private_projects",
-        )
-
-
 def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
     """One mapping from store errors to HTTP for every action, so new writers
     added in later layers cannot drift from this contract."""
@@ -59,6 +45,8 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
     if isinstance(error, facade.RepoLockUnavailableError):
         raise Throttled(detail=str(error))
     if isinstance(error, facade.PageNotFoundError):
+        raise NotFound(str(error)) from error
+    if isinstance(error, facade.DreamNotFoundError):
         raise NotFound(str(error)) from error
     if isinstance(error, facade.HeadConflictError):
         return Response(
@@ -75,11 +63,15 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
             {"detail": "The change violates the wiki structure.", "errors": error.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    if isinstance(error, facade.DependencyUnavailableError):
+        return Response(
+            {"detail": "The context layer is temporarily unavailable. Try again later."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     raise error
 
 
 def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
     try:
         wiki_page = facade.get_page(organization_id, request.query_params.get("path", ""))
     except facade.ContextLayerStoreError as error:
@@ -87,57 +79,65 @@ def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     return Response(WikiPageSerializer(wiki_page).data)
 
 
-def _assert_loop_write_in_scope(organization_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
-    """A loop run may only write the context page it was configured to maintain.
+def _assert_run_write_in_scope(organization_id, team_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
+    """A sandbox run may only write the context page for its channel.
 
     Reads stay open, because the wiki is organization-wide reference material
     every agent is meant to draw on. Writes cannot be: the agent route's scope
-    override accepts a `task:write` token, so without this a loop steered by
+    override accepts server-minted task tokens, so without this a run steered by
     injected text could rewrite AGENTS.md, and with it the instructions every
-    agent in the organization starts from. Mirrors the target check the legacy
-    channel-instructions endpoint already makes.
+    agent in the organization starts from. Ordinary tasks bind to their owning
+    channel; loops bind to the context target in their frozen configuration.
 
-    A no-op for any caller without the loop provenance scope, so it is safe to
-    run on every write and both routes stay bound by it.
+    A no-op for callers without run provenance, so direct human/API writes keep
+    the organization-wide editing behavior of the non-agent route.
     """
     access_token = get_oauth_access_token(request)
     token_scopes = set((getattr(access_token, "scope", "") or "").split())
-    if LOOP_CONTEXT_INTERNAL_SCOPE not in token_scopes:
+    is_loop_run = LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes
+    is_ordinary_run = INTERNAL_RUN_SCOPE in token_scopes
+    if not is_loop_run and not is_ordinary_run:
         return
 
-    denied = PermissionDenied("This loop can update only the context page configured for this run.")
+    denied = PermissionDenied("This run can update only the context page for its channel.")
     sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
-    if sandbox_task_id is None:
+    if sandbox_task_id is None or team_id is None:
         raise denied
+
+    configured_channel_id = (
+        tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
+        if is_loop_run
+        else tasks_facade.task_channel_id(sandbox_task_id, team_id)
+    )
+    if configured_channel_id is None:
+        raise denied
+    configured_channel_id = str(configured_channel_id)
 
     # Both sides resolve inside this organization's own wiki index, so a run
     # cannot reach another organization's pages even by naming its channel.
-    configured_channel_id = tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
-    if configured_channel_id is None:
-        raise denied
     requested_channel_id = facade.resolve_page_channel(organization_id, path)
     if configured_channel_id == requested_channel_id:
         return
     if requested_channel_id is not None:
         raise denied
     try:
-        _assert_loop_may_create_channel_page(organization_id, configured_channel_id, path, content, denied)
+        _assert_run_may_create_channel_page(organization_id, configured_channel_id, path, content, denied)
     except facade.ContextLayerStoreError as error:
         # A vanished channel or wiki mid-write reads as out of scope, not a 500.
         raise denied from error
 
 
-def _assert_loop_may_create_channel_page(
+def _assert_run_may_create_channel_page(
     organization_id,  # noqa: ANN001
     channel_id: str,
     path: str,
     content: str,
     denied: PermissionDenied,
 ) -> None:
-    """A loop may create its channel's page when the channel truly has none.
+    """A sandbox run may create its channel's page when the channel truly has none.
 
     Channels created after wiki enablement never went through the one-time
-    import, so their loops would otherwise fall back to legacy channel
+    import, so their runs would otherwise fall back to legacy channel
     instructions forever. Everything is pinned: the channel must have no page,
     the path must be exactly the one resolution proposed, nothing may already
     exist there, and the content's frontmatter must claim the configured
@@ -155,7 +155,6 @@ def _assert_loop_may_create_channel_page(
 
 
 def _read_channel_page(organization_id, channel_id: str, *, propose_on_miss: bool = False) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
     try:
         path = facade.resolve_channel_page(organization_id, channel_id)
         if path is None and propose_on_miss:
@@ -170,12 +169,15 @@ def _read_channel_page(organization_id, channel_id: str, *, propose_on_miss: boo
     return Response(ChannelWikiPageSerializer({"path": path}).data)
 
 
-def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
+def _write_page(organization_id, request: Request, *, team_id=None) -> Response:  # noqa: ANN001
     serializer = WikiPageWriteSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    _assert_loop_write_in_scope(
-        organization_id, request, serializer.validated_data["path"], serializer.validated_data["content"]
+    _assert_run_write_in_scope(
+        organization_id,
+        team_id,
+        request,
+        serializer.validated_data["path"],
+        serializer.validated_data["content"],
     )
     _assert_run_commit_cap(request)
     user = request.user
@@ -218,7 +220,6 @@ def _assert_run_commit_cap(request: Request) -> None:
 
 
 def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
     access_token = get_oauth_access_token(request)
     token_scopes = set((getattr(access_token, "scope", "") or "").split())
     if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
@@ -259,7 +260,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
-    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export"]
+    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export", "dreams", "dream"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
     # No sandbox-token override here: a run token carries `scoped_teams`, which
@@ -282,8 +283,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_id = request.user.id if request.user and request.user.is_authenticated else None
         try:
             config = facade.enable_context_layer(self.organization.id, created_by_id=user_id)
-        except facade.RestrictedProjectsError as error:
-            raise ValidationError(str(error), code="private_projects") from error
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
         return Response(
@@ -299,7 +298,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False)
     def status(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             config = facade.get_config(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -312,7 +310,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False)
     def tree(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             wiki_tree = facade.get_tree(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -325,7 +322,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="wiki/report")
     def report(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             report = facade.get_health_report(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -386,13 +382,46 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return _land_commits(self.organization.id, request)
 
     @extend_schema(
+        operation_id="context_layer_dreams_list",
+        responses={200: DreamRunListSerializer, 404: OpenApiResponse(description="The context layer is not enabled.")},
+        summary="List dream runs",
+        description=(
+            "The active dreaming task, when present, plus every landed run newest first. A landed run is one "
+            "merge commit `dream: <date>` whose body is the summary; its changes are on the detail read."
+        ),
+    )
+    @action(methods=["GET"], detail=False)
+    def dreams(self, request: Request, **kwargs) -> Response:
+        try:
+            dream_list = facade.list_dream_runs(self.organization.id)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(DreamRunListSerializer(dream_list).data)
+
+    @extend_schema(
+        operation_id="context_layer_dreams_retrieve",
+        responses={
+            200: DreamRunDetailSerializer,
+            404: OpenApiResponse(description="No dream run at this sha, or the context layer is not enabled."),
+        },
+        summary="Read one dream run",
+        description="One dreaming run with the per-file unified patches it landed.",
+    )
+    @action(methods=["GET"], detail=False, url_path=r"dreams/(?P<sha>[0-9a-f]{40})")
+    def dream(self, request: Request, sha: str, **kwargs) -> Response:
+        try:
+            detail = facade.get_dream_run(self.organization.id, sha)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(DreamRunDetailSerializer(detail).data)
+
+    @extend_schema(
         responses={200: WikiExportSerializer},
         summary="Export the wiki",
         description="A short-lived download URL for the wiki's current bundle: the whole repo and its history, one file, standard git.",
     )
     @action(methods=["GET"], detail=False)
     def export(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             bundle = facade.get_bundle_export(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -428,7 +457,8 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     # Which task scope each action accepts, and the provenance marker that has to
     # come with it. A sandbox run lands commits; a context-maintaining loop run
-    # reads and rewrites its own page.
+    # reads and rewrites its own page. Ordinary runs use organization scopes for
+    # page operations, then the write path binds them to their task channel.
     _RUN_SCOPES = {
         "commits": ("task:write", INTERNAL_RUN_SCOPE),
         "page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
@@ -496,7 +526,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: ContextLayerStatusSerializer,
             400: LintErrorSerializer,
             403: OpenApiResponse(
-                description="The wiki is unavailable, or a loop run targeted a page outside its own context."
+                description="The wiki is unavailable, or a sandbox run targeted a page outside its channel."
             ),
             409: HeadConflictSerializer,
         },
@@ -504,7 +534,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @page.mapping.put
     def update_page(self, request: Request, **kwargs) -> Response:
-        return _write_page(self.organization.id, request)
+        return _write_page(self.organization.id, request, team_id=self.team_id)
 
     @extend_schema(
         request=CommitBundleSerializer,

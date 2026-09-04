@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RecordingSnapshot } from '@posthog/replay-shared'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     PlayerInspectorLogicProps,
@@ -9,12 +11,13 @@ import {
 import { sessionRecordingExperimentContextLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingExperimentContextLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { snapshotDataLogic } from 'scenes/session-recordings/player/snapshotDataLogic'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { SessionRecordingType } from '~/types'
+import { RRWebRecordingConsoleLogPayload, SessionRecordingType } from '~/types'
 
-import { setupSessionRecordingTest } from '../__mocks__/test-setup'
+import { BLOB_SOURCE_V2, overrideSessionRecordingMocks, setupSessionRecordingTest } from '../__mocks__/test-setup'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -220,6 +223,23 @@ describe('playerInspectorLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('custom snapshots', () => {
+        const customSnapshot = (timestamp: number, data: Record<string, any>): RecordingSnapshot =>
+            ({ type: 5, timestamp, windowId: 1, data }) as unknown as RecordingSnapshot
+
+        it('derives doctor items from tagged custom snapshots and skips untagged ones', () => {
+            dataLogic.actions.setProcessedSnapshots([
+                customSnapshot(1691755416097, { tag: '$session_options', payload: {} }),
+                customSnapshot(1691755417097, { payload: { without: 'a tag' } }),
+            ])
+
+            expect(logic.values.processedSnapshotData.doctorEvents.map((item) => item.tag)).toEqual([
+                'session options',
+                'count of snapshot types by window',
+            ])
         })
     })
 
@@ -435,21 +455,7 @@ describe('playerInspectorLogic', () => {
     })
 
     describe('experiment variant markers', () => {
-        // The featureFlags reducer persists to localStorage, so each test pins the flag state
-        // explicitly and remounts the inspector so the context load runs with that state.
-        const remountWithFlagState = (enabled: boolean): void => {
-            featureFlagLogic.actions.setFeatureFlags(
-                enabled ? [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT] : [],
-                enabled ? { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true } : {}
-            )
-            logic.unmount()
-            logic = playerInspectorLogic(playerLogicProps)
-            logic.mount()
-        }
-
         it('synthesizes one marker per context item with a first-exposure timestamp', async () => {
-            remountWithFlagState(true)
-
             const contextLogic = sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
             await expectLogic(contextLogic).toDispatchActions([
                 (action) =>
@@ -472,18 +478,49 @@ describe('playerInspectorLogic', () => {
             const seekbarMarkers = logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')
             expect(seekbarMarkers).toHaveLength(1)
         })
+    })
 
-        it('synthesizes no markers when the feature flag is off', async () => {
-            remountWithFlagState(false)
+    describe('console log snapshots', () => {
+        const consoleSnapshot = (
+            timestamp: number,
+            payload?: RRWebRecordingConsoleLogPayload
+        ): Record<string, any> => ({
+            type: 6,
+            data: { plugin: 'rrweb/console@1', ...(payload ? { payload } : {}) },
+            timestamp,
+        })
 
-            // With the flag off the context load never starts (afterMount is gated on the flag),
-            // so there is no exposure data and no markers are synthesized.
-            await expectLogic(
-                sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
-            ).toNotHaveDispatchedActions(['loadExperimentContext'])
+        it('skips a console log snapshot that has no payload instead of crashing', async () => {
+            const snapshotLine = JSON.stringify({
+                window_id: 'window-1',
+                data: [
+                    {
+                        type: 4,
+                        data: { href: 'http://localhost:3000/', width: 100, height: 100 },
+                        timestamp: 1682952380877,
+                    },
+                    consoleSnapshot(1682952380878),
+                    consoleSnapshot(1682952380879, { level: 'log', payload: ['hello'], trace: [] }),
+                ],
+            })
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) =>
+                        new URL(request.url).searchParams.get('source')
+                            ? new HttpResponse(`${snapshotLine}\n`)
+                            : [200, { sources: [BLOB_SOURCE_V2] }],
+                },
+            })
 
-            expect(logic.values.allItems.items.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
-            expect(logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
+            dataLogic.actions.loadRecordingMeta()
+            dataLogic.actions.loadSnapshots()
+            await expectLogic(dataLogic).toDispatchActions([
+                snapshotDataLogic(playerLogicProps).actionTypes.loadSnapshotsForSourceSuccess,
+            ])
+
+            const consoleItems = logic.values.allItems.items.filter((item) => item.type === 'console')
+            expect(consoleItems).toHaveLength(1)
+            expect(consoleItems[0]).toMatchObject({ data: { content: 'hello', level: 'log' } })
         })
     })
 })

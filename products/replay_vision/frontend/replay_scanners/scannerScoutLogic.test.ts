@@ -7,7 +7,11 @@ import { signalsScoutConfigDestroy } from 'products/signals/frontend/generated/a
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 
-import { visionScannersScoutReportsList, visionScannersScoutReportsRetrieve } from '../generated/api'
+import {
+    visionScannersScoutReportsList,
+    visionScannersScoutReportsRetrieve,
+    visionScannersScoutsCreate,
+} from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import { scannerScoutLogic } from './scannerScoutLogic'
 
@@ -22,6 +26,7 @@ const mockReportRetrieve = visionScannersScoutReportsRetrieve as jest.MockedFunc
     typeof visionScannersScoutReportsRetrieve
 >
 const mockScoutConfigDestroy = signalsScoutConfigDestroy as jest.MockedFunction<typeof signalsScoutConfigDestroy>
+const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeof visionScannersScoutsCreate>
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
 
@@ -174,5 +179,46 @@ describe('scannerScoutLogic', () => {
             enabled: false,
             deleted: true,
         })
+    })
+
+    it('renames and retries when another tab already took the name', async () => {
+        // Skill names are unique per team, so a scout created in one tab leaves this tab's roster
+        // stale and its derived name already taken.
+        await mountWithReports([])
+        mockScoutsCreate
+            .mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }))
+            .mockResolvedValueOnce({ created: true, config: makeConfig() } as any)
+
+        logic.actions.createScout({
+            name: 'Daily digest',
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockScoutsCreate).toHaveBeenCalledTimes(2)
+        const [firstName, secondName] = mockScoutsCreate.mock.calls.map((call) => (call[2] as any).name)
+        expect(firstName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest')
+        expect(secondName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest-2')
+    })
+
+    it('separates a failed report load from a scout that filed nothing', async () => {
+        // Both leave the list empty. Reading a failure as "filed nothing" offers Run now, and that
+        // click spends credits on a scout whose reports may already exist.
+        mockReportsList.mockRejectedValueOnce(new Error('boom'))
+        logic = scannerScoutLogic({ scannerId: SCANNER_ID, scannerName: 'Rage clicks on checkout' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.scoutReports).toEqual([])
+        expect(logic.values.scoutReportsFailed).toBe(true)
+
+        mockReportsList.mockResolvedValueOnce([makeReport()])
+        logic.actions.loadScoutReports()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.scoutReportsFailed).toBe(false)
     })
 })

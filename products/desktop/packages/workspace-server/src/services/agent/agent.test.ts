@@ -150,6 +150,12 @@ vi.mock("./context-wiki", () => ({
   prepareContextWiki: mockPrepareContextWiki,
 }));
 
+vi.mock("./codex-home", () => ({
+  cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
+  getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
+  prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
+}));
+
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
   return {
@@ -284,10 +290,6 @@ describe("AgentService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // The Codex MCP reachability probe hits the network; default it to "reachable"
-    // so unrelated session tests stay deterministic and offline-safe.
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ body: null }));
-
     deps = createMockDependencies();
     service = new AgentService(
       deps.processTracking as never,
@@ -312,6 +314,51 @@ describe("AgentService", () => {
     vi.unstubAllGlobals();
   });
 
+  describe("claude auth terminal", () => {
+    it.each([
+      { action: "login" as const, expected: "'auth' 'login'" },
+      { action: "logout" as const, expected: "'auth' 'logout'" },
+    ])(
+      "describes the claude auth $action terminal",
+      async ({ action, expected }) => {
+        const terminal = await service.getClaudeAuthTerminal(action);
+
+        expect(terminal.command).toContain(
+          "/mock/appPath/.vite/build/claude-cli/claude",
+        );
+        expect(terminal.command).toContain(expected);
+        expect(terminal.additionalEnv.CLAUDE_CONFIG_DIR).toMatch(
+          /[\\/]\.claude$/,
+        );
+        expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
+      },
+    );
+
+    it("stops active subscription sessions when logout starts", async () => {
+      const sessions = (
+        service as unknown as { sessions: Map<string, unknown> }
+      ).sessions;
+      const cleanedUp: string[] = [];
+      vi.spyOn(
+        service as unknown as { cleanupSession: (id: string) => Promise<void> },
+        "cleanupSession",
+      ).mockImplementation((taskRunId: string) => {
+        cleanedUp.push(taskRunId);
+        return Promise.resolve();
+      });
+      sessions.set("run-sub-1", {
+        config: { claudeModelAccess: "own-subscription" },
+      });
+      sessions.set("run-gw-1", {
+        config: { claudeModelAccess: "posthog-gateway" },
+      });
+
+      await service.getClaudeAuthTerminal("logout");
+
+      expect(cleanedUp).toEqual(["run-sub-1"]);
+    });
+  });
+
   describe("context wiki mount", () => {
     const credentials = {
       apiHost: "https://app.posthog.test",
@@ -321,6 +368,12 @@ describe("AgentService", () => {
       path: "/mock/appData/context-wiki/org-1/head1",
       commitsPath: "/api/organizations/org-1/context_layer/commits/",
     };
+    const mountContextWiki = () =>
+      (
+        service as unknown as {
+          mountContextWiki: (value: unknown) => Promise<unknown>;
+        }
+      ).mountContextWiki(credentials);
 
     const ENV_KEYS = [
       "POSTHOG_API_KEY",
@@ -355,7 +408,7 @@ describe("AgentService", () => {
         }
         mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-        const wiki = await service["mountContextWiki"](credentials);
+        const wiki = await mountContextWiki();
 
         expect(wiki).toEqual({
           path: mount.path,
@@ -372,7 +425,7 @@ describe("AgentService", () => {
       process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-      await service["mountContextWiki"](credentials);
+      await mountContextWiki();
 
       expect(process.env.POSTHOG_CONTEXT_LAYER_PATH).toBeUndefined();
       expect(process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBeUndefined();
@@ -433,6 +486,48 @@ describe("AgentService", () => {
       options: expect.arrayContaining([
         expect.objectContaining({ value: "moonshotai/kimi-k3" }),
       ]),
+    });
+  });
+
+  it("groups models by provider when allHarnessModels is set", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+      {
+        id: "gpt-5.6-sol",
+        owned_by: "openai",
+        context_window: 400_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+    ]);
+
+    const options = await service.getPreviewConfigOptions(
+      "https://us.posthog.com",
+      "claude",
+      true,
+    );
+
+    const modelOption = options.find((option) => option.id === "model");
+    expect(modelOption).toMatchObject({
+      type: "select",
+      options: [
+        {
+          group: "anthropic",
+          options: [expect.objectContaining({ value: "claude-opus-4-8" })],
+        },
+        {
+          group: "openai",
+          options: [expect.objectContaining({ value: "gpt-5.6-sol" })],
+        },
+      ],
     });
   });
 
@@ -643,6 +738,7 @@ describe("AgentService", () => {
 
       expect(mockNewSession).toHaveBeenCalledTimes(1);
       expect(mockNewSession.mock.calls[0][0]._meta).toMatchObject({
+        taskId: "task-1",
         taskRunId: "run-1",
         environment: "local",
       });
@@ -686,25 +782,7 @@ describe("AgentService", () => {
       );
     });
 
-    it("passes identical MCP servers to both adapters when all servers are reachable", async () => {
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-claude",
-        adapter: "claude",
-      });
-
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-codex",
-        adapter: "codex",
-      });
-
-      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
-      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
-      expect(codexMcp).toEqual(claudeMcp);
-    });
-
-    it("drops unreachable MCP servers for codex but keeps them for claude", async () => {
+    it("passes the same MCP servers to codex as to claude without probing them first", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
@@ -721,10 +799,10 @@ describe("AgentService", () => {
         adapter: "codex",
       });
 
-      // Claude connects to MCP lazily, so an unreachable server is harmless.
-      expect(mockNewSession.mock.calls[0][0].mcpServers).toHaveLength(1);
-      // codex-acp dies on an unreachable server, so it must be pruned.
-      expect(mockNewSession.mock.calls[1][0].mcpServers).toHaveLength(0);
+      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
+      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
+      expect(claudeMcp).toHaveLength(1);
+      expect(codexMcp).toEqual(claudeMcp);
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {
@@ -1261,6 +1339,7 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
             customInstructions?: string,
             additionalDirectories?: string[],
             systemPromptOverride?: string,
@@ -1270,6 +1349,7 @@ describe("AgentService", () => {
       ).buildSystemPrompt(
         credentials,
         "task-1",
+        "/tmp/task-1",
         undefined,
         undefined,
         systemPromptOverride,
@@ -1314,11 +1394,13 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
           ) => { append: string };
         }
       ).buildSystemPrompt(
         { apiHost: "https://app.posthog.com", projectId: 1 },
         "task-1",
+        "/tmp/task-1",
       ).append;
 
       expect(prompt).toContain(

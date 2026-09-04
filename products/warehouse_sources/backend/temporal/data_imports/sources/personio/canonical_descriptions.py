@@ -51,4 +51,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Time at which the attendance period was last updated.",
         },
     },
+    "salary_bands": {
+        "description": "A salary band with its compensation range and the workplaces it applies to.",
+        "docs_url": "https://developer.personio.de/reference/listsalarybands",
+        "columns": {
+            "id": "Unique identifier for the salary band.",
+            "min": "Minimum salary of the band, in major currency units.",
+            "max": "Maximum salary of the band, in major currency units.",
+            "middle": "Midpoint of the band, in major currency units. Null when no midpoint is defined.",
+            "currency": "ISO 4217 three-letter currency code of the band.",
+            "workplaces": "Workplaces the salary band applies to, each carrying a workplace id.",
+        },
+    },
+    "cost_centers": {
+        "description": "A cost center defined in Personio, used to allocate people and time to finance dimensions.",
+        "docs_url": "https://developer.personio.de/reference/listcostcenters",
+        "columns": {
+            "id": "Unique identifier for the cost center.",
+            "name": "The name of the cost center.",
+        },
+    },
 }

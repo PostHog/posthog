@@ -33,7 +33,10 @@ class TestMaterializeContextLayer(SimpleTestCase):
         sandbox = MagicMock()
         with (
             patch(f"{MODULE}.context_layer_facade.get_sandbox_mount", return_value=None),
-            patch(f"{MODULE}.Sandbox.get_by_id", return_value=sandbox),
+            patch(
+                "products.tasks.backend.logic.services.sandbox.get_sandbox_class",
+                return_value=MagicMock(get_by_id=MagicMock(return_value=sandbox)),
+            ),
         ):
             output = async_to_sync(materialize_context_layer_in_sandbox)(
                 MaterializeContextLayerInput(context=_context(), sandbox_id="sandbox-1")

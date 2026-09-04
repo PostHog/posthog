@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.redis import get_async_client
@@ -121,15 +122,22 @@ def _fetch_and_format_generation(
 
     # Query the dedicated table first; the resolver rewrites + re-runs against the
     # shared `events` table when ai_events returns zero rows (data beyond the
-    # retention window). Heavy columns (`input`, `output`) live only as native
-    # columns on ai_events, so only this path can recover them for recent rows.
+    # retention window). Heavy columns (`input`, `output`, `output_choices`) live
+    # only as native columns on ai_events, so only this path can recover them for
+    # recent rows.
+    # Chat-format SDK calls (most OpenAI/Anthropic) record the result in `$ai_output_choices`
+    # and leave `$ai_output` empty. Read choices first, the same precedence the canonical
+    # formatter uses (`format_output_messages`).
     query = parse_select(
         """
         SELECT
             model,
             provider,
             input,
-            output,
+            coalesce(
+                nullIf(output_choices, ''),
+                output
+            ) as output,
             input_tokens,
             output_tokens,
             latency
@@ -171,25 +179,89 @@ def _fetch_and_format_generation(
         "latency": row[6],
     }
 
-    text_repr = _format_generation_text_repr(generation_dict)
-
-    if max_length and len(text_repr) > max_length:
-        text_repr = text_repr[:max_length] + "\n... [truncated]"
+    text_repr = _format_generation_text_repr(generation_dict, max_length=max_length)
 
     return FetchResult(text_repr=text_repr, event_count=1)
 
 
-def _format_generation_text_repr(generation_data: dict) -> str:
-    """Format a generation event into a text representation for LLM summarization."""
-    parts = []
+GENERATION_SECTION_TRUNCATION_MARKER = "\n... [truncated] ...\n"
 
-    parts.append("=== LLM Generation Event ===")
-    parts.append("")
+
+def _render_generation_messages(content: object) -> str:
+    """Render a generation's input or output messages into a text block.
+
+    Returns an empty string when there is no content, so the caller drops the whole section.
+    """
+    if not content:
+        return ""
+    if isinstance(content, list):
+        return "\n".join(f"[{msg.get('role', 'unknown')}]: {msg.get('content', '')}" for msg in content)
+    return str(content)
+
+
+def _truncate_section(text: str, budget: int) -> str:
+    """Truncate one section's text to at most `budget` characters, marking the cut.
+
+    Keeps the head and the tail with the marker between them, because both ends matter:
+    the head carries the system prompt and the tail carries the newest messages.
+    """
+    if budget <= 0:
+        return ""
+    if len(text) <= budget:
+        return text
+    keep = budget - len(GENERATION_SECTION_TRUNCATION_MARKER)
+    if keep <= 0:
+        return text[:budget]
+    tail = keep // 2
+    head = keep - tail
+    return text[:head] + GENERATION_SECTION_TRUNCATION_MARKER + text[len(text) - tail :]
+
+
+@frozen
+class _BudgetedSections:
+    """A generation's input and output blocks after sharing the character budget."""
+
+    input_block: str
+    output_block: str
+
+
+def _split_section_budget(input_block: str, output_block: str, budget: int) -> _BudgetedSections:
+    """Split `budget` characters between the input and output blocks.
+
+    A block that already fits gives its slack to the other, so the full budget is used. When both
+    are oversized, each keeps half. The output block is never dropped to fit a large input, because
+    a summary that describes only the prompt and omits the model result is close to useless for
+    clustering and search.
+    """
+    if len(input_block) + len(output_block) <= budget:
+        return _BudgetedSections(input_block=input_block, output_block=output_block)
+    half = budget // 2
+    if len(input_block) <= half:
+        return _BudgetedSections(
+            input_block=input_block, output_block=_truncate_section(output_block, budget - len(input_block))
+        )
+    if len(output_block) <= half:
+        return _BudgetedSections(
+            input_block=_truncate_section(input_block, budget - len(output_block)), output_block=output_block
+        )
+    return _BudgetedSections(
+        input_block=_truncate_section(input_block, half), output_block=_truncate_section(output_block, budget - half)
+    )
+
+
+def _format_generation_text_repr(generation_data: dict, max_length: int | None = None) -> str:
+    """Format a generation event into a text representation for LLM summarization.
+
+    When `max_length` is set, the input and output sections share the budget so a large input
+    cannot push the output section out entirely. Both sections stay represented, each truncated to
+    its share.
+    """
+    header_parts = ["=== LLM Generation Event ===", ""]
 
     if generation_data.get("model"):
-        parts.append(f"Model: {generation_data['model']}")
+        header_parts.append(f"Model: {generation_data['model']}")
     if generation_data.get("provider"):
-        parts.append(f"Provider: {generation_data['provider']}")
+        header_parts.append(f"Provider: {generation_data['provider']}")
 
     input_tokens = generation_data.get("input_tokens")
     output_tokens = generation_data.get("output_tokens")
@@ -199,38 +271,34 @@ def _format_generation_text_repr(generation_data: dict) -> str:
             tokens_str.append(f"input={input_tokens}")
         if output_tokens is not None:
             tokens_str.append(f"output={output_tokens}")
-        parts.append(f"Tokens: {', '.join(tokens_str)}")
+        header_parts.append(f"Tokens: {', '.join(tokens_str)}")
 
     latency = generation_data.get("latency")
     if latency is not None:
-        parts.append(f"Latency: {latency:.2f}s")
+        header_parts.append(f"Latency: {latency:.2f}s")
 
-    parts.append("")
+    header_parts.append("")
 
-    input_content = generation_data.get("input")
-    if input_content:
-        parts.append("--- Input ---")
-        if isinstance(input_content, list):
-            for msg in input_content:
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                parts.append(f"[{role}]: {content}")
-        else:
-            parts.append(str(input_content))
-        parts.append("")
+    input_block = _render_generation_messages(generation_data.get("input"))
+    output_block = _render_generation_messages(generation_data.get("output"))
 
-    output_content = generation_data.get("output")
-    if output_content:
-        parts.append("--- Output ---")
-        if isinstance(output_content, list):
-            for msg in output_content:
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                parts.append(f"[{role}]: {content}")
-        else:
-            parts.append(str(output_content))
+    def assemble(in_block: str, out_block: str) -> str:
+        parts = list(header_parts)
+        if in_block:
+            parts.extend(("--- Input ---", in_block, ""))
+        if out_block:
+            parts.extend(("--- Output ---", out_block))
+        return "\n".join(parts)
 
-    return "\n".join(parts)
+    text_repr = assemble(input_block, output_block)
+    if max_length is None or len(text_repr) <= max_length:
+        return text_repr
+
+    # `overhead` is the header, section markers, and blank lines, so the split budgets only the
+    # two content blocks and the reassembled text stays within `max_length`.
+    overhead = len(text_repr) - len(input_block) - len(output_block)
+    sections = _split_section_budget(input_block, output_block, max(max_length - overhead, 0))
+    return assemble(sections.input_block, sections.output_block)
 
 
 @temporalio.activity.defn

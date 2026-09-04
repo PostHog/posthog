@@ -50,6 +50,28 @@ class TestOAuthModels(TestCase):
 
     @parameterized.expand(
         [
+            ("whole_token", "openid  llm_gateway:read query:read", True, True),
+            ("substring", "openid llm_gateway:reader query:read", True, False),
+            ("different_case", "openid LLM_GATEWAY:READ query:read", True, False),
+            ("no_application", "llm_gateway:read", False, False),
+        ]
+    )
+    def test_access_tokens_with_scope(
+        self, name: str, stored_scopes: str, application_bound: bool, expected: bool
+    ) -> None:
+        app = self._make_app(f"Scope lookup {name}", f"scope_lookup_{name}")
+        access_token = OAuthAccessToken.objects.create(
+            application=app if application_bound else None,
+            user=self.user,
+            token=f"scope_lookup_token_{name}",
+            expires=timezone.now() + timedelta(minutes=5),
+            scope=stored_scopes,
+        )
+
+        self.assertEqual(OAuthAccessToken.with_scope("llm_gateway:read").filter(pk=access_token.pk).exists(), expected)
+
+    @parameterized.expand(
+        [
             ("empty_scopes_broad", [], [], [], []),
             ("explicit_no_optional_all_required", ["insight:read"], [], ["insight:read"], ["insight:read"]),
             ("split", ["insight:read"], ["dashboard:read"], ["insight:read", "dashboard:read"], ["insight:read"]),
@@ -87,7 +109,6 @@ class TestOAuthModels(TestCase):
             "CIMD Split",
             "cimd_split_client",
             is_cimd_client=True,
-            cimd_metadata_url="https://example.com/oauth-client",
             scopes=["insight:read"],
             optional_scopes=["dashboard:read"],
         )

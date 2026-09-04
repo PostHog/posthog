@@ -17,7 +17,7 @@ from products.conversations.backend.temporal.channel_summary.summarize import (
     _slack_permalink,
 )
 from products.customer_analytics.backend.facade import api as customer_analytics
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.facade.testing import create_account
 
 COORD_MODULE = "products.conversations.backend.temporal.channel_summary.coordinator"
 

@@ -63,7 +63,7 @@
                                                     "type": "null"
                                                 }
                                             ],
-                                            "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                            "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
                                         },
                                         "integration_id": {
                                             "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
@@ -72,8 +72,26 @@
                                         },
                                         "thread_reports": {
                                             "default": false,
-                                            "description": "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post.",
+                                            "description": "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post.",
                                             "type": "boolean"
+                                        },
+                                        "users": {
+                                            "anyOf": [
+                                                {
+                                                    "items": {
+                                                        "maxLength": 255,
+                                                        "pattern": "^[UW][A-Z0-9]{4,}\\s*(\\|.*)?$",
+                                                        "type": "string"
+                                                    },
+                                                    "maxItems": 5,
+                                                    "minItems": 1,
+                                                    "type": "array"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel."
                                         }
                                     },
                                     "required": ["integration_id"],
@@ -152,7 +170,7 @@
         },
         "description": {
             "description": "Short description of the signal or behavior this scout investigates.",
-            "maxLength": 4096,
+            "maxLength": 1024,
             "type": "string"
         },
         "files": {

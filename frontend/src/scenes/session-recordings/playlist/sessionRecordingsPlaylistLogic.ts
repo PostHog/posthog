@@ -461,8 +461,12 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
-    /** Called with each freshly loaded page of recordings (not the accumulated list). */
-    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
+    /**
+     * Called with each freshly loaded page of recordings (not the accumulated list). `isFirstPage`
+     * is false for the pages scrolling adds on either end, so a host page can tell the list it
+     * first rendered from the ones paging appended to it.
+     */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[], isFirstPage: boolean) => void
     /**
      * Called once each time the recording the player shows changes — clicked, played next,
      * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
@@ -501,6 +505,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isCreatingNewCollectionInModal: boolean
     isDeleteSelectedRecordingsDialogOpen: boolean
     isDeletingSelectedRecordings: boolean
+    isScopedByCaller: boolean
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -543,11 +548,21 @@ export interface sessionRecordingsPlaylistLogicActions {
         loadTime: number,
         filters: RecordingUniversalFilters,
         defaultDurationFilter: RecordingDurationFilter,
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        },
         source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        }
         source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
@@ -796,6 +811,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
             }
         ) => boolean
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
+        isScopedByCaller: (arg: any) => boolean
         totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any) => number
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
@@ -1013,6 +1029,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         loadTimeMs,
                         filters,
                         defaultRecordingDurationFilter,
+                        {
+                            resultCount: response.results.length,
+                            hasNext: response.has_next,
+                            isFirstPage: !direction,
+                        },
                         props.analyticsSource
                     )
 
@@ -1043,6 +1064,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             limit: 30,
                             order: '-last_modified_at',
                             type: 'collection',
+                            // Built-in collections can't be added to, so keep them out of the list.
+                            collection_type: 'custom',
                             search: values.addToCollectionSearch || undefined,
                         })
                     )
@@ -1154,10 +1177,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
 
                 loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse }) => {
+                    // Dedupe against a Set so a merge stays O(n + m) rather than O(n * m).
+                    const seenIds = new Set(state.map((r) => r.id))
                     const mergedResults: SessionRecordingType[] = [...state]
 
                     sessionRecordingsResponse.results.forEach((recording) => {
-                        if (!state.find((r) => r.id === recording.id)) {
+                        if (!seenIds.has(recording.id)) {
+                            seenIds.add(recording.id)
                             mergedResults.push(recording)
                         }
                     })
@@ -1497,9 +1523,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(direction)
             },
 
-            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
+            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
-                props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
+                // A load without a direction replaces the list rather than paging it, the same
+                // reading the `sessionRecordings` reducer takes.
+                props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
                 notifyRecordingSelected()
             },
@@ -1546,25 +1574,32 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings()
             },
             handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+                const requestedCount = values.selectedRecordingsIds.length
+                let addedCount = 0
                 await lemonToast.promise(
                     (async () => {
-                        try {
-                            await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
-                            actions.setSelectedRecordingsIds([])
-
-                            // Reload the playlist to show the new recordings
-                            handleLoadCollectionRecordings(short_id)
-                        } catch (e) {
-                            posthog.captureException(e)
+                        const result = await api.recordings
+                            .bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
+                            .catch((e) => {
+                                // Report real API or network failures; rethrow so the toast still shows its error state.
+                                posthog.captureException(e)
+                                throw e
+                            })
+                        // The endpoint answers 200 even when it saved nothing, so trust added_count.
+                        if (result.added_count === 0) {
+                            throw new Error('No recordings were added to the collection')
                         }
+                        addedCount = result.added_count
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to show the new recordings
+                        handleLoadCollectionRecordings(short_id)
                     })(),
                     {
-                        success: `${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        } added to collection!`,
+                        success: () => `${addedCount} recording${addedCount > 1 ? 's' : ''} added to collection!`,
                         error: 'Failed to add to collection!',
-                        pending: `Adding ${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        pending: `Adding ${requestedCount} recording${
+                            requestedCount > 1 ? 's' : ''
                         } to the collection...`,
                     },
                     {
@@ -1840,6 +1875,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         pinnedFilters: [
             () => [(_, props) => props.pinnedFilters],
             (pinnedFilters): UniversalFiltersGroup | undefined => pinnedFilters,
+        ],
+
+        // props.filters scopes embedded playlists (experiment tab, group page, notebook node).
+        isScopedByCaller: [
+            () => [(_, props) => props.filters],
+            (filters: RecordingUniversalFilters | undefined): boolean => !!filters,
         ],
 
         totalFiltersCount: [

@@ -356,6 +356,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     reconcile_interval: config.coordinator_reconcile_interval(),
                     handoff_deadline: config.coordinator_handoff_deadline(),
                     warming_deadline: config.coordinator_warming_deadline(),
+                    // The same server limit the routing table's ack
+                    // batches mirror: one env, one `--max-txn-ops`.
+                    max_txn_ops: config.etcd_max_txn_ops,
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,
@@ -554,7 +557,10 @@ fn preregister_metrics() {
     use metrics::counter;
     counter!("personhog_router_stash_enqueued_total").increment(0);
     counter!("personhog_router_stash_replayed_total").increment(0);
-    counter!("personhog_router_forward_retries_exhausted_total").increment(0);
+    for reason in ["unrouted", "fenced", "transport"] {
+        counter!("personhog_router_forward_retries_exhausted_total", "reason" => reason)
+            .increment(0);
+    }
     for outcome in ["success", "error", "expired"] {
         counter!("personhog_router_stash_drained_total", "outcome" => outcome).increment(0);
     }

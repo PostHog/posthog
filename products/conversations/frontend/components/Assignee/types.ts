@@ -1,9 +1,8 @@
 import type { OrganizationMemberType, RoleType } from '~/types'
 
-export type TicketAssignee = {
-    type: 'user' | 'role'
-    id: string | number
-} | null
+import type { TicketAssigneeRequestApi } from '../../generated/api.schemas'
+
+export type TicketAssignee = TicketAssigneeRequestApi | null
 
 // `'me'` is a dynamic, per-viewer token: it filters to whoever is currently
 // signed in, resolved server-side against `request.user`. Unlike a concrete
@@ -11,7 +10,11 @@ export type TicketAssignee = {
 // a "My tickets" view means each teammate's own tickets rather than the
 // creator's. It's a filter-only concept — a ticket's actual assignee is always
 // a concrete user/role, never `'me'`.
-export type AssigneeFilterEntry = 'unassigned' | 'me' | NonNullable<TicketAssignee>
+export type AssigneeFilterEntry = 'unassigned' | 'me' | { type: 'user' | 'role'; id: string | number }
+
+export function toTicketAssignee(entry: Exclude<AssigneeFilterEntry, string>): NonNullable<TicketAssignee> {
+    return entry.type === 'user' ? { type: 'user', id: Number(entry.id) } : { type: 'role', id: String(entry.id) }
+}
 
 /** Mirrors the entry cap the tickets list endpoint applies to the `assignee` param. */
 export const MAX_ASSIGNEE_FILTER_ENTRIES = 100

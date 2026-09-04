@@ -540,10 +540,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_hog_invocation_results'"
-      group_name           = "kafka_group_name = 'clickhouse_hog_invocation_results'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_hog_invocation_results"
+      group_name           = "clickhouse_hog_invocation_results"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -565,10 +565,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
-      group_name  = "kafka_group_name = 'clickhouse_ingestion_warnings_v2'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_ingestion_warnings"
+      group_name = "clickhouse_ingestion_warnings_v2"
+      format     = "JSONEachRow"
     }
   }
 
@@ -622,10 +622,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_message_assets'"
-      group_name           = "kafka_group_name = 'clickhouse_message_assets'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_message_assets"
+      group_name           = "clickhouse_message_assets"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -647,10 +647,10 @@ database "posthog" {
       type = "UInt64"
     }
     engine "kafka" {
-      broker_list         = "warpstream_ingestion"
-      topic_list          = "kafka_topic_list = 'clickhouse_property_values'"
-      group_name          = "kafka_group_name = 'clickhouse_property_values'"
-      format              = "kafka_format = 'JSONEachRow'"
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values"
+      format              = "JSONEachRow"
       num_consumers       = 8
       thread_per_consumer = true
     }
@@ -1811,6 +1811,42 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.experiment_metric_events_preaggregated"
       replica_name   = "{replica}-{shard}"
       version_column = "computed_at"
+    }
+  }
+
+  table "sharded_ingestion_warnings" {
+    order_by     = ["team_id", "toHour(timestamp)", "type", "source", "timestamp"]
+    partition_by = "toYear(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "String"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/reshard/{shard}/posthog.sharded_ingestion_warnings"
+      replica_name = "{replica}"
     }
   }
 
@@ -3796,14 +3832,90 @@ SQL
     }
   }
 
+  view "custom_metrics" {
+    query = <<SQL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_test
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_replication_queue
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_server_crash
+UNION ALL
+SELECT *
+FROM posthog.custom_metrics_table_sizes
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_part_counts
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_dictionaries
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_S3DiskBytesUsed' AS name,
+  map('instance', hostname(), 'disk', disk_name) AS labels,
+  toFloat64(sum(bytes_on_disk)) AS value,
+  'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help,
+  'gauge' AS type
+FROM system.parts
+WHERE disk_name IN ('s3disk', 'cache')
+GROUP BY
+  disk_name
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeFailures15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(count()) AS value,
+  'Number of failed merge operations in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM system.part_log
+WHERE
+  (event_time >= (now() - toIntervalMinute(15)))
+AND
+  (event_type = 'MergeParts')
+AND
+  (error > 0)
+AND
+  (merge_reason != 'NotAMerge')
+AND
+  (error != 40)
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(max(cnt)) AS value,
+  'Max failed merge retries for any single table in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT count() AS cnt
+    FROM system.part_log
+    WHERE
+      (event_time >= (now() - toIntervalMinute(15)))
+    AND
+      (event_type = 'MergeParts')
+    AND
+      (error > 0)
+    AND
+      (merge_reason != 'NotAMerge')
+    AND
+      (error != 40)
+    GROUP BY
+      database, `table`, partition_id
+  )
+SQL
+
+  }
+
   view "custom_metrics_backups" {
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -3876,10 +3988,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,
@@ -3969,4 +4081,40 @@ SQL
     layout "regexp_tree" {
     }
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

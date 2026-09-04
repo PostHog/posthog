@@ -2,55 +2,33 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    DashboardTemplatesListQueryParams,
-    DashboardTemplatesRetrieveParams,
-    DashboardsCopyTileCreateBody,
-    DashboardsCopyTileCreateParams,
-    DashboardsCreateBody,
-    DashboardsCreateQueryParams,
-    DashboardsCreateTextTileCreateBody,
-    DashboardsCreateTextTileCreateParams,
-    DashboardsDeleteTileBody,
-    DashboardsDeleteTileParams,
-    DashboardsDestroyParams,
-    DashboardsListQueryParams,
-    DashboardsMoveTilePartialUpdateBody,
-    DashboardsMoveTilePartialUpdateParams,
-    DashboardsPartialUpdateBody,
-    DashboardsPartialUpdateParams,
-    DashboardsPartialUpdateQueryParams,
-    DashboardsReorderTilesCreateBody,
-    DashboardsReorderTilesCreateParams,
-    DashboardsRetrieveParams,
-    DashboardsRetrieveQueryParams,
-    DashboardsRunInsightsRetrieveParams,
-    DashboardsRunInsightsRetrieveQueryParams,
-    DashboardsRunWidgetsRetrieveParams,
-    DashboardsRunWidgetsRetrieveQueryParams,
-    DashboardsUpdateTextTileCreateBody,
-    DashboardsUpdateTextTileCreateParams,
-    DashboardsUpdateWidgetsBatchBody,
-    DashboardsUpdateWidgetsBatchParams,
-    DashboardsWidgetsBatchCreateBody,
-    DashboardsWidgetsBatchCreateParams,
-} from '@/generated/dashboards/api'
+import * as orvalSchemas from '@/generated/dashboards/api'
+import { DashboardTileCreateSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
+    withAgentNote,
     omitResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithAgentNote,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
+const DashboardCreateSchema = () => {
+    const DashboardsCreateBody = orvalSchemas.DashboardsCreateBody()
+    const DashboardsCreateQueryParams = orvalSchemas.DashboardsCreateQueryParams()
+    return DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
+}
 
-const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+const dashboardCreate = (): ToolBase<
+    ReturnType<typeof DashboardCreateSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.Dashboard>>
+> => ({
     name: 'dashboard-create',
-    schema: DashboardCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardCreateSchema>) => {
+    schema: DashboardCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -139,49 +117,42 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
             'tiles.*.insight.timezone',
             'tiles.*.insight.resolved_date_range',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`),
+            "Consider offering the user a recurring delivery of this dashboard as a next step, but only when the dashboard in this response has tiles on it. Creating from a template (`use_template`) or duplicating another dashboard (`use_dashboard`) usually starts with tiles, though duplicating an empty dashboard does not. A dashboard with no tiles has nothing to deliver, and subscriptions-create needs at least one chart, so say nothing about subscriptions until it has some. Describe it the way a person would recognize it, for example a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again."
+        )
     },
 })
 
-const DashboardCreateTextTileSchema = DashboardsCreateTextTileCreateParams.omit({ project_id: true })
-    .extend(DashboardsCreateTextTileCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsCreateTextTileCreateParams.shape['id']) })
+const DashboardCreateTileSchema = () => DashboardTileCreateSchema
 
-const dashboardCreateTextTile = (): ToolBase<
-    typeof DashboardCreateTextTileSchema,
-    WithPostHogUrl<Schemas.DashboardTile>
-> => ({
-    name: 'dashboard-create-text-tile',
-    schema: DashboardCreateTextTileSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardCreateTextTileSchema>) => {
+const dashboardCreateTile = (): ToolBase<ReturnType<typeof DashboardCreateTileSchema>, Schemas.DashboardTile> => ({
+    name: 'dashboard-create-tile',
+    schema: DashboardCreateTileSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardCreateTileSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.body !== undefined) {
-            body['body'] = params.body
-        }
-        if (params.layouts !== undefined) {
-            body['layouts'] = params.layouts
-        }
-        if (params.color !== undefined) {
-            body['color'] = params.color
-        }
+        const parsedParams = DashboardCreateTileSchema().parse(params)
+        const { id, ...body } = parsedParams
         const result = await context.api.request<Schemas.DashboardTile>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/create_text_tile/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(id))}/create_text_tile/`,
             body,
         })
         return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
     },
 })
 
-const DashboardDeleteSchema = DashboardsDestroyParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, DashboardsDestroyParams.shape['id']),
-})
+const DashboardDeleteSchema = () => {
+    const DashboardsDestroyParams = orvalSchemas.DashboardsDestroyParams()
+    return DashboardsDestroyParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, DashboardsDestroyParams.shape['id']),
+    })
+}
 
-const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashboard> => ({
+const dashboardDelete = (): ToolBase<ReturnType<typeof DashboardDeleteSchema>, Schemas.Dashboard> => ({
     name: 'dashboard-delete',
-    schema: DashboardDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardDeleteSchema>) => {
+    schema: DashboardDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'PATCH',
@@ -192,14 +163,18 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
     },
 })
 
-const DashboardDeleteTileSchema = DashboardsDeleteTileParams.omit({ project_id: true })
-    .extend(DashboardsDeleteTileBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsDeleteTileParams.shape['id']) })
+const DashboardDeleteTileSchema = () => {
+    const DashboardsDeleteTileBody = orvalSchemas.DashboardsDeleteTileBody()
+    const DashboardsDeleteTileParams = orvalSchemas.DashboardsDeleteTileParams()
+    return DashboardsDeleteTileParams.omit({ project_id: true })
+        .extend(DashboardsDeleteTileBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsDeleteTileParams.shape['id']) })
+}
 
-const dashboardDeleteTile = (): ToolBase<typeof DashboardDeleteTileSchema, unknown> => ({
+const dashboardDeleteTile = (): ToolBase<ReturnType<typeof DashboardDeleteTileSchema>, unknown> => ({
     name: 'dashboard-delete-tile',
-    schema: DashboardDeleteTileSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardDeleteTileSchema>) => {
+    schema: DashboardDeleteTileSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardDeleteTileSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.tile_id !== undefined) {
@@ -214,28 +189,32 @@ const dashboardDeleteTile = (): ToolBase<typeof DashboardDeleteTileSchema, unkno
     },
 })
 
-const DashboardGetSchema = DashboardsRetrieveParams.omit({ project_id: true })
-    .extend(DashboardsRetrieveQueryParams.omit({ format: true }).shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsRetrieveParams.shape['id']) })
-    .extend({
-        filters_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
-            ),
-        variables_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-            ),
-    })
+const DashboardGetSchema = () => {
+    const DashboardsRetrieveParams = orvalSchemas.DashboardsRetrieveParams()
+    const DashboardsRetrieveQueryParams = orvalSchemas.DashboardsRetrieveQueryParams()
+    return DashboardsRetrieveParams.omit({ project_id: true })
+        .extend(DashboardsRetrieveQueryParams.omit({ format: true }).shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsRetrieveParams.shape['id']) })
+        .extend({
+            filters_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+                ),
+            variables_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                ),
+        })
+}
 
-const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+const dashboardGet = (): ToolBase<ReturnType<typeof DashboardGetSchema>, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-get',
-    schema: DashboardGetSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardGetSchema>) => {
+    schema: DashboardGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'GET',
@@ -287,31 +266,35 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
     },
 })
 
-const DashboardInsightsRunSchema = DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
-    .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']) })
-    .extend({
-        filters_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
-            ),
-        variables_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-            ),
-    })
+const DashboardInsightsRunSchema = () => {
+    const DashboardsRunInsightsRetrieveParams = orvalSchemas.DashboardsRunInsightsRetrieveParams()
+    const DashboardsRunInsightsRetrieveQueryParams = orvalSchemas.DashboardsRunInsightsRetrieveQueryParams()
+    return DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
+        .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']) })
+        .extend({
+            filters_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+                ),
+            variables_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                ),
+        })
+}
 
 const dashboardInsightsRun = (): ToolBase<
-    typeof DashboardInsightsRunSchema,
+    ReturnType<typeof DashboardInsightsRunSchema>,
     WithPostHogUrl<Schemas.RunInsightsResponse>
 > => ({
     name: 'dashboard-insights-run',
-    schema: DashboardInsightsRunSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardInsightsRunSchema>) => {
+    schema: DashboardInsightsRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardInsightsRunSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.RunInsightsResponse>({
             method: 'GET',
@@ -327,14 +310,19 @@ const dashboardInsightsRun = (): ToolBase<
     },
 })
 
-const DashboardReorderTilesSchema = DashboardsReorderTilesCreateParams.omit({ project_id: true }).extend(
-    DashboardsReorderTilesCreateBody.shape
-)
+const DashboardReorderTilesSchema = () => {
+    const DashboardsReorderTilesCreateBody = orvalSchemas.DashboardsReorderTilesCreateBody()
+    const DashboardsReorderTilesCreateParams = orvalSchemas.DashboardsReorderTilesCreateParams()
+    return DashboardsReorderTilesCreateParams.omit({ project_id: true }).extend(DashboardsReorderTilesCreateBody.shape)
+}
 
-const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+const dashboardReorderTiles = (): ToolBase<
+    ReturnType<typeof DashboardReorderTilesSchema>,
+    WithPostHogUrl<Schemas.Dashboard>
+> => ({
     name: 'dashboard-reorder-tiles',
-    schema: DashboardReorderTilesSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardReorderTilesSchema>) => {
+    schema: DashboardReorderTilesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardReorderTilesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.tile_order !== undefined) {
@@ -352,15 +340,18 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
-const DashboardTemplatesListSchema = DashboardTemplatesListQueryParams
+const DashboardTemplatesListSchema = () => {
+    const DashboardTemplatesListQueryParams = orvalSchemas.DashboardTemplatesListQueryParams()
+    return DashboardTemplatesListQueryParams
+}
 
 const dashboardTemplatesList = (): ToolBase<
-    typeof DashboardTemplatesListSchema,
+    ReturnType<typeof DashboardTemplatesListSchema>,
     WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDashboardTemplateList>>
 > => ({
     name: 'dashboard-templates-list',
-    schema: DashboardTemplatesListSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardTemplatesListSchema>) => {
+    schema: DashboardTemplatesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardTemplatesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDashboardTemplateList>({
             method: 'GET',
@@ -394,15 +385,18 @@ const dashboardTemplatesList = (): ToolBase<
     },
 })
 
-const DashboardTemplatesRetrieveSchema = DashboardTemplatesRetrieveParams.omit({ project_id: true })
+const DashboardTemplatesRetrieveSchema = () => {
+    const DashboardTemplatesRetrieveParams = orvalSchemas.DashboardTemplatesRetrieveParams()
+    return DashboardTemplatesRetrieveParams.omit({ project_id: true })
+}
 
 const dashboardTemplatesRetrieve = (): ToolBase<
-    typeof DashboardTemplatesRetrieveSchema,
+    ReturnType<typeof DashboardTemplatesRetrieveSchema>,
     WithInformationalResponse<Schemas.DashboardTemplate>
 > => ({
     name: 'dashboard-templates-retrieve',
-    schema: DashboardTemplatesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardTemplatesRetrieveSchema>) => {
+    schema: DashboardTemplatesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardTemplatesRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DashboardTemplate>({
             method: 'GET',
@@ -416,14 +410,21 @@ const dashboardTemplatesRetrieve = (): ToolBase<
     },
 })
 
-const DashboardTileCopySchema = DashboardsCopyTileCreateParams.omit({ project_id: true })
-    .extend(DashboardsCopyTileCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsCopyTileCreateParams.shape['id']) })
+const DashboardTileCopySchema = () => {
+    const DashboardsCopyTileCreateBody = orvalSchemas.DashboardsCopyTileCreateBody()
+    const DashboardsCopyTileCreateParams = orvalSchemas.DashboardsCopyTileCreateParams()
+    return DashboardsCopyTileCreateParams.omit({ project_id: true })
+        .extend(DashboardsCopyTileCreateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsCopyTileCreateParams.shape['id']) })
+}
 
-const dashboardTileCopy = (): ToolBase<typeof DashboardTileCopySchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+const dashboardTileCopy = (): ToolBase<
+    ReturnType<typeof DashboardTileCopySchema>,
+    WithPostHogUrl<Schemas.Dashboard>
+> => ({
     name: 'dashboard-tile-copy',
-    schema: DashboardTileCopySchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardTileCopySchema>) => {
+    schema: DashboardTileCopySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardTileCopySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.fromDashboardId !== undefined) {
@@ -441,15 +442,20 @@ const dashboardTileCopy = (): ToolBase<typeof DashboardTileCopySchema, WithPostH
     },
 })
 
-const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
-    .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
-    .extend(DashboardsPartialUpdateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
+const DashboardUpdateSchema = () => {
+    const DashboardsPartialUpdateBody = orvalSchemas.DashboardsPartialUpdateBody()
+    const DashboardsPartialUpdateParams = orvalSchemas.DashboardsPartialUpdateParams()
+    const DashboardsPartialUpdateQueryParams = orvalSchemas.DashboardsPartialUpdateQueryParams()
+    return DashboardsPartialUpdateParams.omit({ project_id: true })
+        .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
+        .extend(DashboardsPartialUpdateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
+}
 
-const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+const dashboardUpdate = (): ToolBase<ReturnType<typeof DashboardUpdateSchema>, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-update',
-    schema: DashboardUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardUpdateSchema>) => {
+    schema: DashboardUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -546,17 +552,21 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
     },
 })
 
-const DashboardUpdateTextTileSchema = DashboardsUpdateTextTileCreateParams.omit({ project_id: true })
-    .extend(DashboardsUpdateTextTileCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateTextTileCreateParams.shape['id']) })
+const DashboardUpdateTextTileSchema = () => {
+    const DashboardsUpdateTextTileCreateBody = orvalSchemas.DashboardsUpdateTextTileCreateBody()
+    const DashboardsUpdateTextTileCreateParams = orvalSchemas.DashboardsUpdateTextTileCreateParams()
+    return DashboardsUpdateTextTileCreateParams.omit({ project_id: true })
+        .extend(DashboardsUpdateTextTileCreateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateTextTileCreateParams.shape['id']) })
+}
 
 const dashboardUpdateTextTile = (): ToolBase<
-    typeof DashboardUpdateTextTileSchema,
+    ReturnType<typeof DashboardUpdateTextTileSchema>,
     WithPostHogUrl<Schemas.DashboardTile>
 > => ({
     name: 'dashboard-update-text-tile',
-    schema: DashboardUpdateTextTileSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardUpdateTextTileSchema>) => {
+    schema: DashboardUpdateTextTileSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardUpdateTextTileSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.tile_id !== undefined) {
@@ -580,16 +590,15 @@ const dashboardUpdateTextTile = (): ToolBase<
     },
 })
 
-const DashboardWidgetCatalogListSchema = z.object({})
+const DashboardWidgetCatalogListSchema = () => z.object({})
 
 const dashboardWidgetCatalogList = (): ToolBase<
-    typeof DashboardWidgetCatalogListSchema,
+    ReturnType<typeof DashboardWidgetCatalogListSchema>,
     Schemas.WidgetCatalogResponse
 > => ({
     name: 'dashboard-widget-catalog-list',
-    schema: DashboardWidgetCatalogListSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof DashboardWidgetCatalogListSchema>) => {
+    schema: DashboardWidgetCatalogListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof DashboardWidgetCatalogListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WidgetCatalogResponse>({
             method: 'GET',
@@ -599,17 +608,21 @@ const dashboardWidgetCatalogList = (): ToolBase<
     },
 })
 
-const DashboardWidgetsBatchAddSchema = DashboardsWidgetsBatchCreateParams.omit({ project_id: true })
-    .extend(DashboardsWidgetsBatchCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsWidgetsBatchCreateParams.shape['id']) })
+const DashboardWidgetsBatchAddSchema = () => {
+    const DashboardsWidgetsBatchCreateBody = orvalSchemas.DashboardsWidgetsBatchCreateBody()
+    const DashboardsWidgetsBatchCreateParams = orvalSchemas.DashboardsWidgetsBatchCreateParams()
+    return DashboardsWidgetsBatchCreateParams.omit({ project_id: true })
+        .extend(DashboardsWidgetsBatchCreateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsWidgetsBatchCreateParams.shape['id']) })
+}
 
 const dashboardWidgetsBatchAdd = (): ToolBase<
-    typeof DashboardWidgetsBatchAddSchema,
+    ReturnType<typeof DashboardWidgetsBatchAddSchema>,
     WithPostHogUrl<Schemas.AddDashboardWidgetsBatchResponse>
 > => ({
     name: 'dashboard-widgets-batch-add',
-    schema: DashboardWidgetsBatchAddSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardWidgetsBatchAddSchema>) => {
+    schema: DashboardWidgetsBatchAddSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardWidgetsBatchAddSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.widgets !== undefined) {
@@ -624,17 +637,21 @@ const dashboardWidgetsBatchAdd = (): ToolBase<
     },
 })
 
-const DashboardWidgetsBatchUpdateSchema = DashboardsUpdateWidgetsBatchParams.omit({ project_id: true })
-    .extend(DashboardsUpdateWidgetsBatchBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateWidgetsBatchParams.shape['id']) })
+const DashboardWidgetsBatchUpdateSchema = () => {
+    const DashboardsUpdateWidgetsBatchBody = orvalSchemas.DashboardsUpdateWidgetsBatchBody()
+    const DashboardsUpdateWidgetsBatchParams = orvalSchemas.DashboardsUpdateWidgetsBatchParams()
+    return DashboardsUpdateWidgetsBatchParams.omit({ project_id: true })
+        .extend(DashboardsUpdateWidgetsBatchBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateWidgetsBatchParams.shape['id']) })
+}
 
 const dashboardWidgetsBatchUpdate = (): ToolBase<
-    typeof DashboardWidgetsBatchUpdateSchema,
+    ReturnType<typeof DashboardWidgetsBatchUpdateSchema>,
     WithPostHogUrl<Schemas.UpdateDashboardWidgetsBatchResponse>
 > => ({
     name: 'dashboard-widgets-batch-update',
-    schema: DashboardWidgetsBatchUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardWidgetsBatchUpdateSchema>) => {
+    schema: DashboardWidgetsBatchUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardWidgetsBatchUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.widgets !== undefined) {
@@ -649,17 +666,21 @@ const dashboardWidgetsBatchUpdate = (): ToolBase<
     },
 })
 
-const DashboardWidgetsRunSchema = DashboardsRunWidgetsRetrieveParams.omit({ project_id: true })
-    .extend(DashboardsRunWidgetsRetrieveQueryParams.omit({ format: true }).shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsRunWidgetsRetrieveParams.shape['id']) })
+const DashboardWidgetsRunSchema = () => {
+    const DashboardsRunWidgetsRetrieveParams = orvalSchemas.DashboardsRunWidgetsRetrieveParams()
+    const DashboardsRunWidgetsRetrieveQueryParams = orvalSchemas.DashboardsRunWidgetsRetrieveQueryParams()
+    return DashboardsRunWidgetsRetrieveParams.omit({ project_id: true })
+        .extend(DashboardsRunWidgetsRetrieveQueryParams.omit({ format: true }).shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsRunWidgetsRetrieveParams.shape['id']) })
+}
 
 const dashboardWidgetsRun = (): ToolBase<
-    typeof DashboardWidgetsRunSchema,
+    ReturnType<typeof DashboardWidgetsRunSchema>,
     WithPostHogUrl<Schemas.RunWidgetsResponse>
 > => ({
     name: 'dashboard-widgets-run',
-    schema: DashboardWidgetsRunSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardWidgetsRunSchema>) => {
+    schema: DashboardWidgetsRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardWidgetsRunSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.RunWidgetsResponse>({
             method: 'GET',
@@ -672,18 +693,21 @@ const dashboardWidgetsRun = (): ToolBase<
     },
 })
 
-const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true }).extend({
-    limit: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['limit']).optional(),
-    offset: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['offset']).optional(),
-})
+const DashboardsGetAllSchema = () => {
+    const DashboardsListQueryParams = orvalSchemas.DashboardsListQueryParams()
+    return DashboardsListQueryParams.omit({ format: true }).extend({
+        limit: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['offset']).optional(),
+    })
+}
 
 const dashboardsGetAll = (): ToolBase<
-    typeof DashboardsGetAllSchema,
+    ReturnType<typeof DashboardsGetAllSchema>,
     WithPostHogUrl<Schemas.PaginatedDashboardBasicList>
 > => ({
     name: 'dashboards-get-all',
-    schema: DashboardsGetAllSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardsGetAllSchema>) => {
+    schema: DashboardsGetAllSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardsGetAllSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDashboardBasicList>({
             method: 'GET',
@@ -708,17 +732,21 @@ const dashboardsGetAll = (): ToolBase<
     },
 })
 
-const DashboardsMoveTilePartialUpdateSchema = DashboardsMoveTilePartialUpdateParams.omit({ project_id: true })
-    .extend(DashboardsMoveTilePartialUpdateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']) })
+const DashboardsMoveTilePartialUpdateSchema = () => {
+    const DashboardsMoveTilePartialUpdateBody = orvalSchemas.DashboardsMoveTilePartialUpdateBody()
+    const DashboardsMoveTilePartialUpdateParams = orvalSchemas.DashboardsMoveTilePartialUpdateParams()
+    return DashboardsMoveTilePartialUpdateParams.omit({ project_id: true })
+        .extend(DashboardsMoveTilePartialUpdateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']) })
+}
 
 const dashboardsMoveTilePartialUpdate = (): ToolBase<
-    typeof DashboardsMoveTilePartialUpdateSchema,
+    ReturnType<typeof DashboardsMoveTilePartialUpdateSchema>,
     WithPostHogUrl<Schemas.Dashboard>
 > => ({
     name: 'dashboards-move-tile-partial-update',
-    schema: DashboardsMoveTilePartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardsMoveTilePartialUpdateSchema>) => {
+    schema: DashboardsMoveTilePartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardsMoveTilePartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.to_dashboard !== undefined) {
@@ -738,7 +766,7 @@ const dashboardsMoveTilePartialUpdate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': dashboardCreate,
-    'dashboard-create-text-tile': dashboardCreateTextTile,
+    'dashboard-create-tile': dashboardCreateTile,
     'dashboard-delete': dashboardDelete,
     'dashboard-delete-tile': dashboardDeleteTile,
     'dashboard-get': dashboardGet,

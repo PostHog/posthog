@@ -798,7 +798,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Converts an object to a JSON string',
         example: 'jsonStringify($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     JSONHas: {
         fn: ([obj, ...path]) => {
@@ -887,7 +887,7 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Returns the length of a JSON array or object',
         example: 'JSONLength($1, $2)',
-        minArgs: 2,
+        minArgs: 1,
     },
     JSONExtractBool: {
         fn: ([obj, ...path]) => {
@@ -1653,15 +1653,13 @@ export const STL: Record<string, STLFunction> = {
         fn: andFn,
         description: 'Logical AND operation',
         example: 'and($1, $2)',
-        minArgs: 2,
-        maxArgs: 2,
+        minArgs: 1,
     },
     or: {
         fn: orFn,
         description: 'Logical OR operation',
         example: 'or($1, $2)',
-        minArgs: 2,
-        maxArgs: 2,
+        minArgs: 1,
     },
     plus: {
         fn: plusFn,

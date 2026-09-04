@@ -22,7 +22,8 @@ from products.product_analytics.backend.facade.models import Insight, generate_i
 
 if TYPE_CHECKING:
     from posthog.caching.insight_result import InsightResult
-    from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 logger = structlog.get_logger(__name__)

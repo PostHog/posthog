@@ -8,6 +8,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 class DisplayType(StrEnum):
     TEXT = "text"
+    LINK = "link"
     NUMBER = "number"
     CURRENCY = "currency"
     PERCENT = "percent"
@@ -32,6 +33,7 @@ class DataType(StrEnum):
 
 DATA_TYPE_BY_DISPLAY_TYPE: dict[DisplayType, DataType] = {
     DisplayType.TEXT: DataType.STRING,
+    DisplayType.LINK: DataType.STRING,
     DisplayType.NUMBER: DataType.NUMERIC,
     DisplayType.CURRENCY: DataType.NUMERIC,
     DisplayType.PERCENT: DataType.NUMERIC,

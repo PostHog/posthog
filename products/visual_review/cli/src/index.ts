@@ -37,6 +37,7 @@ program
     .option('--token <value>', 'Personal API token (Authorization: Bearer)')
     .option('--cookie <value>', 'Session cookie for authentication')
     .option('--purpose <purpose>', 'Run purpose: review (gating, approvable) or observe (tracking only)', 'review')
+    .option('--tolerate-drift', 'Report snapshot drift on an observe run without failing. Default branch only.')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
         if (!baselineExists(options.baseline)) {
@@ -133,6 +134,7 @@ run.command('complete')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
     .option('--purpose <purpose>', 'Run purpose: review or observe. Must match `run create`.', 'review')
+    .option('--tolerate-drift', 'Report snapshot drift on an observe run without failing. Default branch only.')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: RunCompleteOptions) => {
         if (!baselineExists(options.baseline)) {
@@ -171,6 +173,7 @@ interface SubmitOptions {
     token?: string
     cookie?: string
     purpose?: string
+    tolerateDrift?: boolean
     autoApprove?: boolean
 }
 
@@ -207,6 +210,7 @@ interface RunCompleteOptions {
     token?: string
     cookie?: string
     purpose?: string
+    tolerateDrift?: boolean
     autoApprove?: boolean
 }
 
@@ -433,7 +437,8 @@ async function runComplete(options: RunCompleteOptions): Promise<number> {
         client,
         run,
         `${api}/project/${team}/visual_review/runs/${runId}`,
-        options.purpose ?? 'review'
+        options.purpose ?? 'review',
+        options.tolerateDrift ?? false
     )
 }
 
@@ -656,5 +661,11 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         return 0
     }
 
-    return reportRunOutcome(client, run, `${api}/project/${team}/visual_review/runs/${runId}`, purpose)
+    return reportRunOutcome(
+        client,
+        run,
+        `${api}/project/${team}/visual_review/runs/${runId}`,
+        purpose,
+        options.tolerateDrift ?? false
+    )
 }

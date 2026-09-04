@@ -29,7 +29,9 @@ export const lastResolvedTimestamp = new Gauge({
 // anyone needed the previous value.
 export const previousVersionServedTotal = new Counter({
     name: 'integration_secret_previous_version_served_total',
-    help: 'Responses in which a previous (<KEY>_FALLBACKS) value was included alongside the current one',
+    // Metric name kept as-is: renaming it would break every dashboard and alert already reading
+    // it. The help text carries the correction.
+    help: 'Responses in which a staged, incoming (<KEY>_FALLBACKS) value was included alongside the live one',
     labelNames: ['key'],
     registers: [register],
 })

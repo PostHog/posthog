@@ -53,6 +53,12 @@ from products.signals.backend.scout_harness.team_limits import (
     _team_configs,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
+from products.signals.backend.temporal.metrics import (
+    COORDINATOR_DISPATCH_DEDUPED,
+    COORDINATOR_DISPATCH_STARTED,
+    increment_coordinator_dispatch,
+    increment_coordinator_tick,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -91,11 +97,14 @@ class FetchEnabledRunsOutput:
 
 @frozen
 class StampDispatchedRunsInput:
-    """The (team, skill) runs whose child workflow was dispatched this tick, and the tick's own
-    start time to anchor their stamps on (`None` falls back to the wall clock)."""
+    """The (team, skill) runs whose child workflow was dispatched this batch, the tick's own
+    start time to anchor their stamps on (`None` falls back to the wall clock), and how that
+    batch split between freshly started children and dedupe-skipped ones."""
 
     dispatched_runs: list[PlannedRun]
     dispatched_at: datetime | None = None
+    started_count: int = 0
+    deduped_count: int = 0
 
 
 @dataclass
@@ -140,6 +149,7 @@ async def fetch_enabled_signals_scout_runs_activity(
             enrollment, team_configs, default_team_config, global_max_runs_per_tick
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
+    increment_coordinator_tick(len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=smear_seconds)
 
 
@@ -165,6 +175,10 @@ async def stamp_dispatched_signals_scout_runs_activity(
         await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
             stamp_input.dispatched_runs, slot_aligned=slot_aligned, dispatched_at=stamp_input.dispatched_at
         )
+    # Counted here rather than in the workflow so a replay cannot double-count it, and after the
+    # stamp so a retried attempt counts the batch once.
+    increment_coordinator_dispatch(COORDINATOR_DISPATCH_STARTED, stamp_input.started_count)
+    increment_coordinator_dispatch(COORDINATOR_DISPATCH_DEDUPED, stamp_input.deduped_count)
 
 
 def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
@@ -681,21 +695,31 @@ class SignalsScoutCoordinatorWorkflow:
         skipped = 0
         for batch_number, batch in enumerate(batches, start=1):
             dispatched: list[PlannedRun] = []
+            batch_started = 0
+            batch_deduped = 0
             for idx, planned in batch:
                 if await _start_child(planned=planned, tick_id=tick_id, idx=idx):
-                    started += 1
+                    batch_started += 1
                 else:
-                    skipped += 1
+                    batch_deduped += 1
                 # Both branches mean a child for this (team, skill, tick) now exists (started, or
                 # dedupe-skipped because a retry already started it) — so its schedule should
                 # advance. A hard `start_child` error raises out of `_start_child` before reaching
                 # here, leaving that config unstamped to re-dispatch next tick.
                 dispatched.append(planned)
 
+            started += batch_started
+            skipped += batch_deduped
+
             # Stamp only after dispatch, so a fan-out failure can't suppress a scout for a day.
             await workflow.execute_activity(
                 stamp_dispatched_signals_scout_runs_activity,
-                StampDispatchedRunsInput(dispatched_runs=dispatched, dispatched_at=tick_started_at),
+                StampDispatchedRunsInput(
+                    dispatched_runs=dispatched,
+                    dispatched_at=tick_started_at,
+                    started_count=batch_started,
+                    deduped_count=batch_deduped,
+                ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=5),
             )
@@ -752,9 +776,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
     except WorkflowAlreadyStartedError:
         workflow.logger.info(
             "signals_scout coordinator: child already running, skipping",
-            team_id=planned.team_id,
-            skill_name=planned.skill_name,
-            child_id=child_id,
+            extra={"team_id": planned.team_id, "skill_name": planned.skill_name, "child_id": child_id},
         )
         return False
 

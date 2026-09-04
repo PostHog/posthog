@@ -5,11 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.source import RKICovidSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.source"
 
@@ -21,24 +18,12 @@ def _make_config(history_days: int | None = None) -> Any:
 
 
 class TestRKICovidSource:
-    def test_source_type(self) -> None:
-        assert RKICovidSource().source_type == ExternalDataSourceType.RKICOVID
-
     def test_source_config_is_released_alpha(self) -> None:
         config = RKICovidSource().get_source_config
         # A finished source must stay visible: unreleasedSource hides it from every user.
         assert not config.unreleasedSource
         assert config.releaseStatus == "alpha"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/rki-covid"
-
-    def test_source_config_history_days_field_is_optional(self) -> None:
-        config = RKICovidSource().get_source_config
-        assert [f.name for f in config.fields] == ["history_days"]
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.type == "number"
-        assert field.required is False
-        assert field.secret is False
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.

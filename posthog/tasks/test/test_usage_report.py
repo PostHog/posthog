@@ -23,6 +23,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, Mock, patch
 
 from django.apps import apps
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.utils.timezone import now
@@ -62,11 +63,14 @@ from posthog.tasks.usage_report import (
     _get_mcp_analytics_event_metric_counts,
     _get_team_report,
     _get_teams_for_usage_reports,
+    _get_teams_with_ai_credits_for_products,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     has_non_zero_usage,
     send_all_org_usage_reports,
@@ -299,14 +303,14 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 team=self.org_1_team_1,
                 name="Enabled scanner",
                 scanner_type=ScannerType.MONITOR,
-                model=ScannerModel.GEMINI_3_7_FLASH,
+                model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=True,
             )
             ReplayScanner.objects.create(
                 team=self.org_1_team_1,
                 name="Disabled scanner",
                 scanner_type=ScannerType.MONITOR,
-                model=ScannerModel.GEMINI_3_7_FLASH,
+                model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=False,
             )
 
@@ -479,9 +483,12 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "web",
                 "js",
                 "posthog-node",
+                "posthog-node-mcp",
+                "posthog-python-mcp",
                 "posthog-edge",
                 "posthog-convex",
                 "posthog-android",
+                "posthog-kmp",
                 "posthog-flutter",
                 "posthog-ios",
                 "posthog-go",
@@ -489,9 +496,11 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "posthog-server",
                 "posthog-react-native",
                 "posthog-ruby",
+                "posthog-rails",
                 "posthog-python",
                 "posthog-php",
                 "posthog-dotnet",
+                "posthog-aspnetcore",
                 "posthog-elixir",
                 "posthog-unity",
             ]
@@ -517,6 +526,14 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
             create_event(
                 event_uuid=uuid4(),
                 distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={"$lib": "posthog-node", "$ai_lib": "posthog-opencode", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
                 event="$ai_span",
                 properties={"$lib": "posthog-node", "$ai_lib": "@posthog/pi", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
@@ -527,6 +544,22 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 distinct_id=distinct_id,
                 event="$ai_generation",
                 properties={"$lib": "posthog-node", "$ai_lib": "posthog-ai", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={"$lib": "posthog-python", "$ai_lib": "posthog-ai", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={"$lib": "posthog-dotnet", "$ai_lib": "posthog-ai", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
             )
@@ -657,8 +690,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 44,
-                    "enhanced_persons_event_count_in_period": 43,
+                    "event_count_in_period": 49,
+                    "enhanced_persons_event_count_in_period": 48,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -667,6 +700,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 37,
                     "web_lite_events_count_in_period": 1,
                     "node_events_count_in_period": 1,
+                    "node_mcp_events_count_in_period": 1,
+                    "python_mcp_events_count_in_period": 1,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -676,20 +711,24 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mcp_prompt_get_events_count_in_period": 0,
                     "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 1,
+                    "opencode_events_count_in_period": 1,
                     "posthog_pi_events_count_in_period": 1,
                     "posthog_ai_events_count_in_period": 1,
+                    "posthog_python_ai_events_count_in_period": 1,
+                    "posthog_dotnet_ai_events_count_in_period": 1,
                     "edge_events_count_in_period": 1,
                     "convex_events_count_in_period": 1,
                     "android_events_count_in_period": 1,
+                    "kmp_events_count_in_period": 1,
                     "flutter_events_count_in_period": 1,
                     "ios_events_count_in_period": 1,
                     "go_events_count_in_period": 1,
                     "java_events_count_in_period": 2,
                     "react_native_events_count_in_period": 1,
-                    "ruby_events_count_in_period": 1,
+                    "ruby_events_count_in_period": 2,
                     "python_events_count_in_period": 1,
                     "php_events_count_in_period": 1,
-                    "dotnet_events_count_in_period": 1,
+                    "dotnet_events_count_in_period": 2,
                     "elixir_events_count_in_period": 1,
                     "unity_events_count_in_period": 1,
                     "rust_events_count_in_period": 0,
@@ -732,7 +771,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
-                    "ai_event_count_in_period": 4,
+                    "ai_event_count_in_period": 7,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -745,8 +784,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 33,
-                            "enhanced_persons_event_count_in_period": 32,
+                            "event_count_in_period": 38,
+                            "enhanced_persons_event_count_in_period": 37,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -755,6 +794,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 25,
                             "web_lite_events_count_in_period": 1,
                             "node_events_count_in_period": 1,
+                            "node_mcp_events_count_in_period": 1,
+                            "python_mcp_events_count_in_period": 1,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -764,20 +805,24 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mcp_prompt_get_events_count_in_period": 0,
                             "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 1,
+                            "opencode_events_count_in_period": 1,
                             "posthog_pi_events_count_in_period": 1,
                             "posthog_ai_events_count_in_period": 1,
+                            "posthog_python_ai_events_count_in_period": 1,
+                            "posthog_dotnet_ai_events_count_in_period": 1,
                             "edge_events_count_in_period": 1,
                             "convex_events_count_in_period": 1,
                             "android_events_count_in_period": 1,
+                            "kmp_events_count_in_period": 1,
                             "flutter_events_count_in_period": 1,
                             "ios_events_count_in_period": 1,
                             "go_events_count_in_period": 1,
                             "java_events_count_in_period": 2,
                             "react_native_events_count_in_period": 1,
-                            "ruby_events_count_in_period": 1,
+                            "ruby_events_count_in_period": 2,
                             "python_events_count_in_period": 1,
                             "php_events_count_in_period": 1,
-                            "dotnet_events_count_in_period": 1,
+                            "dotnet_events_count_in_period": 2,
                             "elixir_events_count_in_period": 1,
                             "unity_events_count_in_period": 1,
                             "rust_events_count_in_period": 0,
@@ -824,7 +869,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
-                            "ai_event_count_in_period": 4,
+                            "ai_event_count_in_period": 7,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -837,6 +882,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 12,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "node_mcp_events_count_in_period": 0,
+                            "python_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -846,11 +893,15 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mcp_prompt_get_events_count_in_period": 0,
                             "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
+                            "opencode_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
+                            "posthog_python_ai_events_count_in_period": 0,
+                            "posthog_dotnet_ai_events_count_in_period": 0,
                             "edge_events_count_in_period": 0,
                             "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
+                            "kmp_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
                             "go_events_count_in_period": 0,
@@ -942,6 +993,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 11,
                     "web_lite_events_count_in_period": 0,
                     "node_events_count_in_period": 0,
+                    "node_mcp_events_count_in_period": 0,
+                    "python_mcp_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -951,11 +1004,15 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mcp_prompt_get_events_count_in_period": 0,
                     "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 0,
+                    "opencode_events_count_in_period": 0,
                     "posthog_pi_events_count_in_period": 0,
                     "posthog_ai_events_count_in_period": 0,
+                    "posthog_python_ai_events_count_in_period": 0,
+                    "posthog_dotnet_ai_events_count_in_period": 0,
                     "edge_events_count_in_period": 0,
                     "convex_events_count_in_period": 0,
                     "android_events_count_in_period": 0,
+                    "kmp_events_count_in_period": 0,
                     "flutter_events_count_in_period": 0,
                     "ios_events_count_in_period": 0,
                     "go_events_count_in_period": 0,
@@ -1030,6 +1087,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 11,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "node_mcp_events_count_in_period": 0,
+                            "python_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -1039,11 +1098,15 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mcp_prompt_get_events_count_in_period": 0,
                             "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
+                            "opencode_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
+                            "posthog_python_ai_events_count_in_period": 0,
+                            "posthog_dotnet_ai_events_count_in_period": 0,
                             "edge_events_count_in_period": 0,
                             "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
+                            "kmp_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
                             "go_events_count_in_period": 0,
@@ -1175,19 +1238,32 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
+        # `$snapshot_source` reaches ClickHouse unvalidated, so anything that is not mobile has to
+        # land on the web meter. An equality on 'web' here would bill this session under neither.
+        timestamp = now() - relativedelta(hours=12)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="unrecognized-snapshot-source",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
+            snapshot_source="not-a-real-source",
+            size=10,
+        )
+
         period = get_previous_day()
 
         all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
-        assert report.recording_count_in_period == 5
+        assert report.recording_count_in_period == 6
         assert report.mobile_recording_count_in_period == 0
         assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
-        assert org_reports[str(self.organization.id)].recording_count_in_period == 5
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 6
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
@@ -1224,13 +1300,14 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         # but we do split them out of the daily usage since that field is used
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 1
-        assert report.mobile_billable_recording_count_in_period == 0
+        # Reports no library at all, and still bills: the client decides what to send here.
+        assert report.mobile_billable_recording_count_in_period == 1
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
-        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 1
 
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_billable_mobile(self) -> None:
@@ -1272,17 +1349,49 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
-        # Regular mobile recordings (non-billable) + billable ones
         assert report.recording_count_in_period == 5  # web recordings
-        assert report.mobile_recording_count_in_period == 4  # 1 non-billable + 2 billable + 1 from _setup_replay_data
-        assert report.mobile_billable_recording_count_in_period == 2  # iOS and Android recordings
+        assert report.mobile_recording_count_in_period == 4
+        # All four bill, the one naming a library we do not ship included: `$lib` is whatever the
+        # caller sent, so letting it decide leaves a session no meter charges for.
+        assert report.mobile_billable_recording_count_in_period == 4
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 4
-        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 4
+
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    def test_usage_report_replay_bills_every_recording_exactly_once(self) -> None:
+        # `$snapshot_source` and `$lib` arrive from the client and are never validated, so the two
+        # billed meters have to partition every recording between them. A combination that matched
+        # neither would be a recording anyone could ask for and not be charged for.
+        crafted = [
+            ("plain-web", "web", "web"),
+            ("mobile-shipped-sdk", "mobile", "posthog-ios"),
+            ("mobile-unshipped-sdk", "mobile", "posthog-unity"),
+            ("mobile-invented-sdk", "mobile", "not-a-real-sdk"),
+            ("invented-source", "not-a-real-source", "web"),
+        ]
+        timestamp = now() - relativedelta(hours=12)
+        for session_id, snapshot_source, snapshot_library in crafted:
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=session_id,
+                distinct_id=str(uuid4()),
+                first_timestamp=timestamp,
+                last_timestamp=timestamp + timedelta(seconds=1),
+                snapshot_source=snapshot_source,
+                snapshot_library=snapshot_library,
+                size=10,
+            )
+
+        period = get_previous_day()
+        report = _get_team_report(_get_all_usage_data_as_team_rows(period.start, period.end), self.team)
+
+        billed = report.recording_count_in_period + report.mobile_billable_recording_count_in_period
+        assert billed == len(crafted)
 
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_excludes_deleted_recordings(self) -> None:
@@ -1516,11 +1625,32 @@ class TestQueryUsageReportSQL:
         _mock_use_new_events_schema: MagicMock,
     ) -> None:
         mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
-        # 1st _execute_split_query call is the main per-$lib scan (node_events over-counts every
-        # posthog-node event); 2nd is the AI sub-SDK rows (team_id, $ai_lib, count) over $ai_* events.
+        # 1st _execute_split_query call is the main per-$lib scan; 2nd is the AI sub-SDK rows
+        # (team_id, $lib, $ai_lib, count) used to remove sub-SDK events from each parent metric.
         mock_execute_split_query.side_effect = [
-            {"node_events": [(1, 10)], "openclaw_events": [], "posthog_pi_events": [], "posthog_ai_events": []},
-            [(1, "posthog-ai", 2), (1, "posthog-openclaw", 3)],
+            {
+                "node_events": [(1, 10)],
+                "python_events": [(1, 7)],
+                "node_mcp_events": [(1, 9)],
+                "python_mcp_events": [(1, 6)],
+                "kmp_events": [(1, 8)],
+                "ruby_events": [(1, 2)],
+                "dotnet_events": [(1, 5)],
+                "openclaw_events": [],
+                "opencode_events": [],
+                "posthog_pi_events": [],
+                "posthog_ai_events": [],
+                "posthog_python_ai_events": [],
+                "posthog_dotnet_ai_events": [],
+            },
+            [
+                (1, "posthog-node", "posthog-ai", 2),
+                (1, "posthog-node", "posthog-openclaw", 3),
+                (1, "posthog-node", "posthog-opencode", 1),
+                (1, "posthog-python", "posthog-ai", 4),
+                (1, "posthog-dotnet", "posthog-ai", 1),
+                (1, "posthog-aspnetcore", "posthog-ai", 2),
+            ],
         ]
         # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
         # `$mcp_tool_call`, 2nd is the grouped (team_id, event, count) scan over the other 7 events.
@@ -1542,17 +1672,25 @@ class TestQueryUsageReportSQL:
         assert "OR lib_expr IN (" in main_query
         assert "event = '$mcp_tool_call'" not in main_query
         assert "'posthog-node'" in main_query
+        assert "'posthog-node-mcp'" in main_query
+        assert "'posthog-python-mcp'" in main_query
+        assert "'posthog-kmp'" in main_query
+        assert "'posthog-rails'" in main_query
+        assert "'posthog-aspnetcore'" in main_query
         assert "'posthog-rs'" in main_query
         assert "ai_lib_expr" not in main_query
         assert "HAVING metric != 'other'" not in main_query
         assert mock_execute_split_query.call_args_list[0].kwargs["num_splits"] == 12
 
-        # AI sub-SDK scan reads $ai_lib only for the $ai_* subset.
+        # AI sub-SDK scan reads both library identities only for the $ai_* subset.
         ai_query = mock_execute_split_query.call_args_list[1].kwargs["query_template"]
         assert "startsWith(event, '$ai_')" in ai_query
-        assert "lib_expr IN ('posthog-node')" in ai_query
+        assert "lib_expr AS sdk_lib" in ai_query
+        assert "lib_expr IN ('posthog-node', 'posthog-python', 'posthog-dotnet', 'posthog-aspnetcore')" in ai_query
         assert "ai_lib_expr IN (" in ai_query
+        assert "GROUP BY team_id, sdk_lib, ai_lib" in ai_query
         assert "'posthog-ai'" in ai_query
+        assert "'posthog-opencode'" in ai_query
 
         dedup_expression = "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))"
 
@@ -1573,10 +1711,19 @@ class TestQueryUsageReportSQL:
         # One grouped query for the 7, not one query each.
         assert mock_sync_execute.call_count == 2
 
-        # AI counts are folded back in and subtracted from node_events (10 - 2 - 3 = 5).
+        # Subtract AI sub-SDK counts so each event belongs to one SDK metric.
         assert result["posthog_ai_events"] == [(1, 2)]
+        assert result["posthog_python_ai_events"] == [(1, 4)]
+        assert result["posthog_dotnet_ai_events"] == [(1, 3)]
         assert result["openclaw_events"] == [(1, 3)]
-        assert result["node_events"] == [(1, 5)]
+        assert result["opencode_events"] == [(1, 1)]
+        assert result["node_events"] == [(1, 4)]
+        assert result["python_events"] == [(1, 3)]
+        assert result["node_mcp_events"] == [(1, 9)]
+        assert result["python_mcp_events"] == [(1, 6)]
+        assert result["kmp_events"] == [(1, 8)]
+        assert result["ruby_events"] == [(1, 2)]
+        assert result["dotnet_events"] == [(1, 2)]
 
         # New MCP Analytics metrics are merged straight into the returned dict.
         assert result["mcp_missing_capability_events"] == [(1, 6)]
@@ -3245,60 +3392,59 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # A team that changed retention 14d -> 30d mid-period: 1.5 GB total split across both tiers
-            # (0.5 GB at 14d, 1.0 GB at 30d).
+            # 1.5 GB at a non-tier 45 days = 67.5 GB-days, so logs_retention_mb_days_in_period = 67_500
+            # (67_500_000_000 byte-days // 1_000_000).
             (
-                "split_retention_14d_to_30d",
+                "arbitrary_retention_days",
                 {
                     "bytes_ingested": 1_500_000_000,
-                    "bytes_ingested_retention_14d": 500_000_000,
-                    "bytes_ingested_retention_30d": 1_000_000_000,
+                    "retention_byte_days": 67_500_000_000,
                     "records_ingested": 1000,
                 },
                 {
                     "logs_bytes_in_period": 1_500_000_000,
                     "logs_records_in_period": 1000,
                     "logs_mb_in_period": 1500,
-                    "logs_retention_14d_mb_in_period": 500,
-                    "logs_retention_30d_mb_in_period": 1000,
-                    "logs_retention_90d_mb_in_period": 0,
+                    "logs_and_traces_mb_in_period": 1500,
+                    "logs_retention_mb_days_in_period": 67_500,
                 },
             ),
-            # A team on a single tier the whole period: 2.5 GB, all under 90d retention.
+            # Sub-MB-day total floors to 0: 500 KB retained 1 day is 500_000 byte-days, under 1 MB-day.
             (
-                "single_tier_90d",
+                "sub_mb_day_floors_to_zero",
                 {
-                    "bytes_ingested": 2_500_000_000,
-                    "bytes_ingested_retention_90d": 2_500_000_000,
-                    "records_ingested": 2000,
-                },
-                {
-                    "logs_bytes_in_period": 2_500_000_000,
-                    "logs_records_in_period": 2000,
-                    "logs_mb_in_period": 2500,
-                    "logs_retention_14d_mb_in_period": 0,
-                    "logs_retention_30d_mb_in_period": 0,
-                    "logs_retention_90d_mb_in_period": 2500,
-                },
-            ),
-            # Sub-MB bytes split across tiers: each tier is floored to whole MB independently, so both
-            # tier counters drop to 0 even though the total (1.2 MB) rounds down to 1 MB. The tiers can
-            # sum to less than logs_mb_in_period.
-            (
-                "sub_mb_split_floors_to_zero",
-                {
-                    "bytes_ingested": 1_200_000,
-                    "bytes_ingested_retention_14d": 600_000,
-                    "bytes_ingested_retention_30d": 600_000,
+                    "bytes_ingested": 500_000,
+                    "retention_byte_days": 500_000,
                     "records_ingested": 5,
                 },
                 {
-                    "logs_bytes_in_period": 1_200_000,
+                    "logs_bytes_in_period": 500_000,
                     "logs_records_in_period": 5,
-                    "logs_mb_in_period": 1,
-                    "logs_retention_14d_mb_in_period": 0,
-                    "logs_retention_30d_mb_in_period": 0,
+                    "logs_mb_in_period": 0,
+                    "logs_and_traces_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 0,
+                },
+            ),
+            # Per-tier and byte-days in parallel: 2 GB at 30 days + 1 GB at 14 days. Each tier reports
+            # its own MB; byte-days = 2_000*30 + 1_000*14 = 74_000 MB-days.
+            (
+                "per_tier_and_byte_days_in_parallel",
+                {
+                    "bytes_ingested": 3_000_000_000,
+                    "bytes_ingested_retention_30d": 2_000_000_000,
+                    "bytes_ingested_retention_14d": 1_000_000_000,
+                    "retention_byte_days": 74_000_000_000,
+                    "records_ingested": 1500,
+                },
+                {
+                    "logs_bytes_in_period": 3_000_000_000,
+                    "logs_records_in_period": 1500,
+                    "logs_mb_in_period": 3000,
+                    "logs_and_traces_mb_in_period": 3000,
+                    "logs_retention_14d_mb_in_period": 1000,
+                    "logs_retention_30d_mb_in_period": 2000,
                     "logs_retention_90d_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 74_000,
                 },
             ),
         ]
@@ -3415,23 +3561,32 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # MB is floored to whole decimal MB like logs_mb_in_period.
+            # Per-signal MB is floored to whole decimal MB, and the billable combined metric is
+            # floored once off the summed bytes: 77_000_000 + 2_500_000 -> 79 MB.
             (
                 "with_usage",
                 {"bytes_ingested": 2_500_000, "records_ingested": 40},
+                77_000_000,
                 {
                     "apm_tracing_bytes_in_period": 2_500_000,
                     "apm_tracing_spans_in_period": 40,
                     "apm_tracing_mb_in_period": 2,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 79,
                 },
             ),
+            # Flooring once off the summed bytes, rather than adding the floored per-signal figures,
+            # keeps the remainders both signals drop: 77_600_000 + 999_999 -> 78 MB, not 77 + 0.
             (
-                "sub_mb_floors_to_zero",
+                "sub_mb_remainders_add_up",
                 {"bytes_ingested": 999_999, "records_ingested": 5},
+                77_600_000,
                 {
                     "apm_tracing_bytes_in_period": 999_999,
                     "apm_tracing_spans_in_period": 5,
                     "apm_tracing_mb_in_period": 0,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 78,
                 },
             ),
         ]
@@ -3442,6 +3597,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self,
         _name: str,
         metrics: dict[str, int],
+        logs_bytes: int,
         expected: dict[str, int],
         billing_task_mock: MagicMock,
         posthog_capture_mock: MagicMock,
@@ -3460,7 +3616,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             team_id=self.org_1_team_1.id,
             app_source="logs",
             metric_name="bytes_ingested",
-            count=77_000_000,
+            count=logs_bytes,
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -3470,7 +3626,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
 
-        # Only org_1_team_1 has traces usage, so the org-level rollup equals that single team's values.
+        # Only org_1_team_1 has logs or traces usage, so the org-level rollup equals that team's values.
         team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
         for field, value in expected.items():
             assert org_1_report[field] == value, field
@@ -3563,6 +3719,31 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["exceptions_captured_in_period"] == 7
         assert org_2_report["teams"][str(self.org_2_team_3.pk)]["exceptions_captured_in_period"] == 7
+
+
+class TestAICreditsRegionHandling(SimpleTestCase):
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_on_dev_region_returns_empty(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "DEV"
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        assert get_teams_with_ai_credits_used_in_period(period.start, period.end) == []
+        assert get_teams_with_posthog_code_credits_used_in_period(period.start, period.end) == []
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_on_unexpected_region_raises(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "APAC"
+        period_end = now()
+        period_start = period_end - timedelta(days=1)
+
+        with self.assertRaisesRegex(ImproperlyConfigured, "APAC"):
+            _get_teams_with_ai_credits_for_products(
+                period_start,
+                period_end,
+                ai_products=[],
+                usage_report_tag="test",
+            )
 
 
 @freeze_time("2022-01-10T10:00:00Z")
@@ -5829,7 +6010,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             distinct_id="mcp_user",
             event_uuid=tool_call_event_uuid,
             timestamp=self.begin + relativedelta(hours=1),
-            properties={"$lib": "custom-mcp-client"},
+            properties={"$lib": "posthog-node-mcp"},
         )
         _create_event(
             event="$mcp_tool_call",
@@ -5844,7 +6025,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             team=self.team,
             distinct_id="python_mcp_user",
             timestamp=self.begin + relativedelta(hours=3),
-            properties={"$lib": "posthog-python"},
+            properties={"$lib": "posthog-python-mcp"},
         )
 
         flush_persons_and_events()
@@ -5855,8 +6036,10 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
+        self.assertEqual(dict(event_metrics["node_mcp_events"]).get(self.team.id), 2)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
-        self.assertEqual(dict(event_metrics["python_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(event_metrics["python_mcp_events"]).get(self.team.id), 1)
+        self.assertIsNone(dict(event_metrics["python_events"]).get(self.team.id))
 
     @parameterized.expand(
         [
@@ -5908,11 +6091,53 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             properties={"$lib": "posthog-node"},
         )
         _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="python_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-python"},
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="python_ai_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-python", "$ai_lib": "posthog-ai"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="dotnet_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-dotnet"},
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="dotnet_ai_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-dotnet", "$ai_lib": "posthog-ai"},
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="aspnetcore_ai_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-aspnetcore", "$ai_lib": "posthog-ai"},
+        )
+        _create_event(
             event="$ai_generation",
             team=self.team,
             distinct_id="openclaw_user",
             timestamp=self.begin + relativedelta(hours=12),
             properties={"$lib": "posthog-node", "$ai_lib": "posthog-openclaw"},
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="opencode_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-node", "$ai_lib": "posthog-opencode"},
         )
         _create_event(
             event="$ai_span",
@@ -5934,8 +6159,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         self.assertEqual(dict(result["node_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["openclaw_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["opencode_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["posthog_pi_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["posthog_ai_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["python_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["posthog_python_ai_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["dotnet_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["posthog_dotnet_ai_events"]).get(self.team.id), 2)
 
     @patch("posthog.tasks.usage_report._execute_split_query")
     def test_split_query_with_different_num_splits(self, mock_execute_split_query: MagicMock) -> None:
@@ -6556,8 +6786,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "a later generation does not replenish the per-trace allowance",
         )
 
-    def test_conversations_events_excluded_from_billable_count(self) -> None:
-        """Test that Conversations widget events are excluded from billable event counts."""
+    def test_events_owned_by_other_products_excluded_from_billable_count(self) -> None:
+        """Test that Conversations widget and prompt management events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
@@ -6571,6 +6801,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "$conversations_restore_link_requested",
             "$conversations_widget_state_changed",
             "$conversations_back_to_tickets",
+            "$llm_prompt_fetched",
         ):
             _create_event(
                 event=event_name,

@@ -33,6 +33,7 @@ export enum Scene {
     Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
+    CustomerAnalyticsAccount = 'CustomerAnalyticsAccount',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
@@ -90,6 +91,7 @@ export enum Scene {
     IntegrationsLanding = 'IntegrationsLanding',
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
+    IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
     LegacyPlugin = 'LegacyPlugin',
@@ -148,10 +150,8 @@ export enum Scene {
     ReplayVisionScanner = 'ReplayVisionScanner',
     ReplayVisionScannerEditor = 'ReplayVisionScannerEditor',
     ReplayVisionObservation = 'ReplayVisionObservation',
-    ReplayVisionAction = 'ReplayVisionAction',
-    ReplayVisionActionEditor = 'ReplayVisionActionEditor',
-    ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
+    RealTimeUsage = 'RealTimeUsage',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
@@ -170,6 +170,9 @@ export enum Scene {
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
+    Stamphog = 'Stamphog',
+    StamphogRuns = 'StamphogRuns',
+    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -303,6 +306,8 @@ export interface SceneConfig {
     name?: string
     /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
     description?: string
+    /** Link to this product's page on posthog.com/docs. Shown next to the product in sidebar settings */
+    docsHref?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -375,9 +380,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplayVisionScanner]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionScannerEditor]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionObservation]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionAction]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
 
     // Toolbar
     [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
@@ -400,6 +402,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
+
+    // Stamphog
+    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

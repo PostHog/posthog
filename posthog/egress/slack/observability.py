@@ -1,6 +1,7 @@
 import time
 from collections.abc import Mapping
 from typing import cast
+from urllib.parse import urlparse
 
 import requests
 from prometheus_client import Counter, Gauge
@@ -55,6 +56,13 @@ def _parse_slack_rate_limit(response: requests.Response) -> RateLimitSnapshot:
 
 slack_egress = EgressObservability(SLACK_DOMAIN, _metrics, _parse_slack_rate_limit)
 register_egress_observability(slack_egress)
+
+
+def slack_endpoint_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.netloc == "files.slack.com" and parsed.path.startswith("/upload/v1/"):
+        return "files.uploadExternal.data"
+    return parsed.path.rstrip("/").rsplit("/", 1)[-1] or "unknown"
 
 
 def record_slack_api_response(

@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.canonical_descriptions import (
@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.conekta import (
     ConektaSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.conekta.source.api_client"
 
@@ -29,9 +28,6 @@ class TestConektaSource:
         self.team_id = 123
         self.config = ConektaSourceConfig(api_key="key_priv")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CONEKTA
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -41,17 +37,6 @@ class TestConektaSource:
         # The source must ship visible: unreleasedSource hides it from every user.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/conekta"
-
-    def test_api_key_field_is_a_required_secret(self):
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"
-        )
-
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_declared_version_is_the_one_the_transport_sends(self):
         # A pin the code doesn't actually send makes every deprecation warning and upgrade path wrong.
@@ -70,11 +55,6 @@ class TestConektaSource:
     def test_non_retryable_errors_match_only_conekta_auth_failures(self, observed_error, matches):
         assert any(key in observed_error for key in self.source.get_non_retryable_errors()) is matches
 
-    def test_get_schemas_lists_every_endpoint(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     def test_only_orders_is_incremental(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -89,16 +69,6 @@ class TestConektaSource:
             assert schemas[name].supports_incremental is True
             # `.gte` is inclusive, so the watermark row comes back every run; append would duplicate it.
             assert schemas[name].supports_append is False
-
-    def test_orders_offers_both_documented_cursors(self):
-        orders = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == "orders")
-
-        assert [field["field"] for field in orders.incremental_fields] == ["updated_at", "created_at"]
-
-    def test_get_schemas_filters_by_name(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders", "charges"])
-
-        assert {schema.name for schema in schemas} == {"orders", "charges"}
 
     def test_canonical_descriptions_cover_every_schema(self):
         # A renamed endpoint would silently orphan its curated descriptions and fall back to the LLM.

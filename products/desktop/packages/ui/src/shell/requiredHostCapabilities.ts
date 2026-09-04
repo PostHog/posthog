@@ -35,7 +35,7 @@ import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
  *
  * Excluded on purpose: core-module services (they fail at module load, a
  * different and already-loud failure mode) and host-specific/local-only
- * capabilities (e.g. file watchers, local handoff) that not every host provides.
+ * capabilities such as file watchers that not every host provides.
  */
 export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
   [

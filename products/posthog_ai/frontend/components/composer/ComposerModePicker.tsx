@@ -47,7 +47,7 @@ interface ModeItemRowProps extends HTMLAttributes<HTMLDivElement> {
 /**
  * Row body for a mode option. Rendered through the item's `render` prop so it can watch Base UI's
  * `highlighted` state — both pointer hover and keyboard navigation — and report it up for the
- * description footer. Must forward the ref: Base UI registers the element into its item list through
+ * description strip. Must forward the ref: Base UI registers the element into its item list through
  * it, and an unregistered item is invisible to hover highlighting.
  */
 const ModeItemRow = forwardRef<HTMLDivElement, ModeItemRowProps>(function ModeItemRow(
@@ -77,20 +77,20 @@ export interface ComposerModePickerProps {
  * model/effort pickers. The caller owns the selection and its side effects. Also reused by the plan-approval
  * card, where `modes` narrows the menu to the wire-offered modes.
  *
- * The menu keeps each option to one line (icon + label); the highlighted option's description renders in
- * a footer strip pinned to two lines of height, so the menu never jumps while moving between modes.
+ * The highlighted option's description renders in a panel attached to the menu's growing edge, so its
+ * height changes never move the option rows.
  */
 export function ComposerModePicker({ selectedMode, onModeChange, modes }: ComposerModePickerProps): JSX.Element {
     // Ordered by `modes`, not by MODE_OPTIONS: each runtime lists its modes in its own order.
     const offered = modes ?? getModesForRuntimeAdapter(RuntimeAdapterEnumApi.Claude)
     const options = offered.flatMap((mode) => MODE_OPTIONS.filter((option) => option.value === mode))
     const selectedOption = getModeOption(selectedMode)
-    // The mode whose description the footer shows. Base UI highlights the selected item on open, which
+    // The mode the description strip shows. Base UI highlights the selected item on open, which
     // seeds this; reset on open so a hover from the previous open can't leak into the next one.
     const [highlightedMode, setHighlightedMode] = useState<PermissionMode | null>(null)
-    // Resolve against `options`, not all modes: when `modes` narrows the menu, the footer must never
+    // Resolve against `options`, not all modes: when `modes` narrows the menu, the strip must never
     // describe a mode that isn't offered (e.g. a selected mode the plan-approval card filtered out).
-    const footerOption =
+    const descriptionOption =
         options.find((option) => option.value === highlightedMode) ??
         options.find((option) => option.value === selectedMode) ??
         options[0]
@@ -115,7 +115,23 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
                     )}
                 </SelectValue>
             </SelectTrigger>
-            <SelectContent align="start" alignItemWithTrigger={false}>
+            <SelectContent
+                align="start"
+                alignItemWithTrigger={false}
+                className="min-w-60 data-[side=top]:rounded-t-none data-[side=bottom]:rounded-b-none"
+                popupSibling={
+                    descriptionOption && (
+                        <>
+                            <div className="absolute bottom-full left-0 right-0 hidden min-h-[3.25rem] items-center rounded-t-[var(--radius-md)] border border-b-0 border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs text-secondary [[data-side=top]_&]:flex">
+                                {descriptionOption.description}
+                            </div>
+                            <div className="absolute top-full left-0 right-0 hidden min-h-[3.25rem] items-center rounded-b-[var(--radius-md)] border border-t-0 border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs text-secondary [[data-side=bottom]_&]:flex">
+                                {descriptionOption.description}
+                            </div>
+                        </>
+                    )
+                }
+            >
                 {options.map((option) => (
                     <SelectItem
                         key={option.value}
@@ -133,11 +149,6 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
                         {option.label}
                     </SelectItem>
                 ))}
-                {footerOption && (
-                    <div className="-mx-1 -mb-1 mt-1 flex min-h-[3.25rem] w-60 items-center border-t px-3 py-1.5 text-xs text-secondary">
-                        {footerOption.description}
-                    </div>
-                )}
             </SelectContent>
         </Select>
     )

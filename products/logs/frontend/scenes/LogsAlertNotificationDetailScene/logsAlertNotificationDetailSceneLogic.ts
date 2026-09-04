@@ -22,6 +22,8 @@ import {
 import { logsAlertsDestinationsDeleteCreate, logsAlertsRetrieve } from 'products/logs/frontend/generated/api'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
+import type { LogsAlertConfigurationDetailApi } from '../../generated/api.schemas'
+
 export interface LogsAlertNotificationDetailSceneLogicProps {
     alertId: string
     hogFunctionId: string
@@ -63,10 +65,10 @@ export interface logsAlertNotificationDetailSceneLogicActions {
         errorObject?: any
     }
     loadAlertSuccess: (
-        alert: LogsAlertConfigurationApi | null,
+        alert: LogsAlertConfigurationDetailApi | null,
         payload?: any
     ) => {
-        alert: LogsAlertConfigurationApi | null
+        alert: LogsAlertConfigurationDetailApi | null
         payload?: any
     }
     loadHogFunctions: () => any

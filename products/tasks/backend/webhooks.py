@@ -22,8 +22,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.models import InvalidStatusTransition, SignalReport
+from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import (
@@ -33,7 +34,7 @@ from products.tasks.backend.metrics import (
     observe_github_webhook_pr_event_dropped,
     observe_github_webhook_task_run_lookup,
 )
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
@@ -73,6 +74,12 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
 
     candidates = TaskRun.objects.filter(team_id__in=team_ids) if team_ids else TaskRun.objects.all()
+    # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
+    # leg below may return one. The exclusion belongs here rather than on each leg: a stale
+    # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
+    # otherwise keep every later event for that PR on the reviewing run. Dropping the claim falls
+    # through to the legs below, which resolve the run that authored the PR.
+    candidates = candidates.exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
 
     if pr_url:
         # A resumed wizard run inherits its predecessor's head branch, so a terminal
@@ -103,6 +110,28 @@ def find_task_run(
     # Without this, a PR opened on an unrelated repo with a colliding branch name
     # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
     if branch and repository:
+        # A self-driving implementation run stamps its server-generated head branch into
+        # PATCH-protected state (signals' auto_start). That stamp is the run->PR link no
+        # caller can forge, so resolve it before the generic branch legs below. Without
+        # this, a newer ReviewHog run whose checkout branch is the same head ref wins the
+        # branch match and every later webhook, misattributing the PR's lifecycle events.
+        # FAILED and CANCELLED runs and soft-deleted tasks are dropped; a COMPLETED run
+        # stays eligible because success flips the run to COMPLETED right after it opens
+        # the PR. The task_run_sd_branch_idx index covers this filter.
+        task_run = (
+            candidates.filter(
+                _run_repository_filter(repository),
+                state__self_driving_head_branch=branch,
+                task__deleted=False,
+            )
+            .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+            .order_by("-created_at", "-id")
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
         # Wizard runs are excluded here: their `branch` column holds the checkout (base)
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
         # otherwise claim the run before the dedicated leg below is consulted.
@@ -112,6 +141,7 @@ def find_task_run(
                 branch=branch,
                 state__wizard_head_branch__isnull=True,
             )
+            .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
@@ -128,6 +158,7 @@ def find_task_run(
                 output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
+            .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
@@ -235,9 +266,9 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
-    task_run = find_task_run(
-        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_task_run_scope_team_ids(payload)
-    )
+    scoped_team_ids = _task_run_scope_team_ids(payload)
+    assignment_team_ids = _installation_team_ids(payload)
+    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=scoped_team_ids)
     claimed_pr_urls = (
         read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
     )
@@ -280,33 +311,35 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     ):
         _record_run_pr_state(task_run, pr_state)
 
+    if pr_state is not None and repository_full_name and assignment_team_ids:
+        try:
+            update_assignments_for_pull_request(
+                team_ids=assignment_team_ids,
+                repository=repository_full_name,
+                pr_number=int(pull_request.get("number")),
+                pr_state=pr_state,
+            )
+        except (TypeError, ValueError):
+            logger.warning("github_pr_webhook_signal_assignment_missing_number", pr_url=pr_url)
+        except Exception:
+            logger.exception("github_pr_webhook_signal_assignment_update_failed", pr_url=pr_url)
+
     if analytics_event is not None:
         # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
         event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
         _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
-    if task_run and action == "closed" and merged:
+    if action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        if pr_url in claimed_pr_urls:
+        if task_run and pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
-        # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
-        # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
-        # doesn't apply — a merged PR resolves its report.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
-        )
 
-    if task_run and action == "closed" and not merged:
+    if action == "closed" and not merged:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
-        if pr_url in claimed_pr_urls:
+        if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
-        # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
-        # archives (suppresses) its report so it leaves the inbox instead of lingering.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
-        )
 
     return HttpResponse(status=200)
 
@@ -380,10 +413,10 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
     try:
-        for event in (
-            task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url),
-            task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"),
-        ):
+        events = [task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url)]
+        if (task_run.state or {}).get(PR_LOOP_ENABLED_STATE_KEY):
+            events.append(task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"))
+        for event in events:
             task_run.publish_stream_event(event)
         task_run.publish_stream_state_event()
     except Exception:
@@ -906,45 +939,3 @@ def _resolve_external_team(payload: dict) -> Team | None:
     if not team_ids:
         return None
     return Team.objects.filter(pk=team_ids[0]).first()
-
-
-def _transition_signal_reports_for_task(
-    task_id: uuid.UUID, pr_url: str, target_status: SignalReport.Status, success_log_event: str
-) -> None:
-    """Transition signal reports linked to a task's PR to ``target_status``.
-
-    Covers both PR outcomes: a merged PR resolves its reports, a closed-unmerged PR archives
-    (suppresses) them so they leave the inbox instead of lingering as if work were still pending.
-    Kept tolerant: a single bad transition should not fail the whole webhook, since GitHub retries
-    5xx responses and we've already acknowledged the PR event.
-    """
-    reports = (
-        SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
-        .exclude(
-            status__in=[
-                SignalReport.Status.RESOLVED,
-                SignalReport.Status.DELETED,
-                SignalReport.Status.SUPPRESSED,
-            ]
-        )
-        .distinct()
-    )
-
-    for report in reports:
-        try:
-            updated_fields = report.transition_to(target_status)
-        except InvalidStatusTransition:
-            logger.warning(
-                "github_pr_webhook_signal_report_invalid_transition",
-                report_id=str(report.id),
-                from_status=report.status,
-                pr_url=pr_url,
-            )
-            continue
-        report.save(update_fields=updated_fields)
-        logger.info(
-            success_log_event,
-            report_id=str(report.id),
-            task_id=str(task_id),
-            pr_url=pr_url,
-        )

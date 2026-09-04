@@ -2193,6 +2193,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 0,  # 20:00
             ],
         )
+        # The previous period spans the full day (00:00–23:00), not just the elapsed part of today,
+        # so both series can be compared hour-by-hour across the whole chart.
         self.assertEqual(
             response[1]["days"],
             [
@@ -2217,6 +2219,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-01 18:00:00",
                 "2020-01-01 19:00:00",
                 "2020-01-01 20:00:00",
+                "2020-01-01 21:00:00",
+                "2020-01-01 22:00:00",
+                "2020-01-01 23:00:00",
             ],
         )
         self.assertEqual(
@@ -2243,6 +2248,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 0,  # 18:00
                 0,  # 19:00
                 0,  # 20:00
+                0,  # 21:00
+                0,  # 22:00
+                0,  # 23:00
             ],
         )
 

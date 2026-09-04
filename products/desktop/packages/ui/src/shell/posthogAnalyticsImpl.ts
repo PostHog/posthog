@@ -7,6 +7,7 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
+import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -33,12 +34,18 @@ export type HostInfoProperties = { platform: string; arch: string };
 
 let isInitialized = false;
 
+export type AdapterSubscriptionState = {
+  access: ModelAccess;
+  connected: boolean;
+};
+
 // Cached so it can be re-applied after posthog.reset() clears super properties.
 let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
+const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
-function registerPersistentSuperProperties() {
+function registerPersistentSuperProperties(): void {
   posthog.register({
     team: "posthog-code",
     ...(registeredAppVersion !== null
@@ -47,6 +54,7 @@ function registerPersistentSuperProperties() {
     ...(registeredHostInfo !== null
       ? hostInfoProperties(registeredHostInfo)
       : {}),
+    ...subscriptionSuperProperties(),
   });
 }
 
@@ -55,6 +63,37 @@ function hostInfoProperties({ platform, arch }: HostInfoProperties): {
   os_arch: string;
 } {
   return { os_platform: platform, os_arch: arch };
+}
+
+function subscriptionProperties(
+  adapter: Adapter,
+  { access, connected }: AdapterSubscriptionState,
+): Record<string, string | boolean> {
+  const effectiveAccess = connected ? access : "posthog-gateway";
+  return {
+    [`${adapter}_model_access`]: effectiveAccess,
+    [`${adapter}_subscription_connected`]: connected,
+  };
+}
+
+function subscriptionSuperProperties(): Record<string, string | boolean> {
+  const properties: Record<string, string | boolean> = {};
+  for (const [adapter, state] of registeredSubscriptions) {
+    Object.assign(properties, subscriptionProperties(adapter, state));
+  }
+  return properties;
+}
+
+export function registerAdapterSubscription(
+  adapter: Adapter,
+  state: AdapterSubscriptionState,
+): void {
+  registeredSubscriptions.set(adapter, state);
+  if (!isInitialized) {
+    return;
+  }
+
+  posthog.register(subscriptionProperties(adapter, state));
 }
 
 type PendingFlagListener = {
@@ -443,7 +482,6 @@ export function getFeatureFlagVariant(flagKey: string): string | undefined {
 
 /**
  * Reload feature flags from the server.
- * Useful after a person property change (e.g., invite code redemption).
  */
 export function reloadFeatureFlags(): void {
   if (!isInitialized) {

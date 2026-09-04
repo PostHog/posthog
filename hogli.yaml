@@ -13,11 +13,16 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        - lint-complexity.mjs
+        - render-jest-timings-example
         # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
         - phrocs
         - start-local-ngrok
+        # Helper behind format:html / lint:html, called as `bash ./bin/djlint.sh` rather
+        # than run directly, so it is not a command of its own.
+        - djlint.sh
     env:
         files:
             - .env.development
@@ -547,11 +552,6 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
-    build:openapi-scene-tool-context:
-        cmd: pnpm --filter=@posthog/mcp run generate-scene-tool-context
-        description: Generate per-product agent-context payloads (MCP tool summaries +
-            skill bodies) for scene-level PostHog AI integration (must run after
-            build:openapi-mcp-tools)
     build:openapi-exec-docs:
         cmd: pnpm --filter=@posthog/mcp run generate-exec-docs
         description: Render the MCP exec tool's command reference into the markdown
@@ -566,9 +566,10 @@ build:
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
-            - build:openapi-scene-tool-context
             - build:openapi-exec-docs
-        description: Generate OpenAPI schema and TypeScript types from the backend
+        description: 'Generate OpenAPI schema and TypeScript types from the backend.
+            Needs the dev stack running (Postgres and ClickHouse): Django starts
+            before the schema is generated. Start it with hogli up -d'
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (C++)
@@ -836,6 +837,15 @@ quality:
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
+    format:html:
+        cmd: bash ./bin/djlint.sh --reformat "$@"
+        description: Format Django templates
+    format:html:check:
+        cmd: bash ./bin/djlint.sh --check "$@"
+        description: Check Django template formatting without writing
+    lint:html:
+        cmd: bash ./bin/djlint.sh --lint "$@"
+        description: Lint Django templates
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
@@ -846,9 +856,18 @@ quality:
     lint:feature-flags:fix:
         cmd: node bin/lint-feature-flag-sorting.mjs --fix
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
+    lint:complexity:
+        click: hogli_commands.complexity_lint:cmd_lint_complexity
+        description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
+    lint:size:
+        click: hogli_commands.size_lint:cmd_lint_size
+        description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
+    lint:tach:
+        click: hogli_commands.tach_lint:cmd_lint_tach
+        description: Check module boundaries with tach (dependencies without test code, interfaces with it)
     lint:migration-deletions:
         click: hogli_commands.migration_deletions:cmd_lint_migration_deletions
         description: Block deleting historical Django migration files
@@ -890,6 +909,9 @@ tools:
     doctor:ports:
         click: hogli_commands.doctor:doctor_ports
         description: Pre-flight check for host ports the dev stack needs
+    doctor:git:
+        click: hogli_commands.doctor:doctor_git
+        description: Report git housekeeping problems that make fetch and status slow
     doctor:migrate-volumes:
         click: hogli_commands.doctor:doctor_migrate_volumes
         description: Auto-migrate ClickHouse/ZooKeeper data to the new named docker volumes
@@ -964,10 +986,6 @@ tools:
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: Initialize ClickHouse logs schema (temporary, pre-migration)
-        hidden: true
-    clickhouse:metrics:init:
-        bin_script: clickhouse-metrics-init
-        description: Initialize ClickHouse metrics schema (temporary, pre-migration)
         hidden: true
     clickhouse:multinode:start:
         cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
@@ -1065,6 +1083,9 @@ owners:
     owners:who:
         click: posthog_owners.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
+    owners:census:
+        click: posthog_owners.cli:cmd_census
+        description: Count test files per owning team (optional PREFIX; --json for machine output)
     owners:unowned:
         click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
@@ -1221,4 +1242,8 @@ environment:
     verify:ai:ingestion:stack:
         bin_script: verify-ai-ingestion-stack
         description: 'Check the multimodal AI ingestion path at the data layer: send an $ai_generation with an inline base64 image through capture-ai and assert ingestion offloaded it to a blob pointer in ClickHouse'
+        hidden: true
+    report:jest:timings:
+        bin_script: report-jest-timings
+        description: 'Render a Jest test-speed report from timing artifacts'
         hidden: true

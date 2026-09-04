@@ -130,7 +130,7 @@ def test_the_route_serves_a_signed_directory():
 
     assert response.status_code == 200
     assert response["Content-Type"] == CONTENT_TYPE
-    assert response["Cache-Control"] == "public, max-age=240"
+    assert response["Cache-Control"] == "public, max-age=60"
     assert response["Content-Digest"].startswith("sha-256=:")
     assert response["Signature-Input"].startswith('sig1=("@authority";req "content-digest")')
     assert response["Signature"].startswith("sig1=:")

@@ -328,6 +328,39 @@ class TestSearchSourceWiring:
 
         assert session.bodies[0]["query"]["queries"][0]["object_type"] == endpoint.rstrip("s").lower()
 
+    def test_fields_list_too_long_retries_without_custom_fields(self, monkeypatch: Any) -> None:
+        # Orgs with many custom fields can push the combined _fields list past Close's limit.
+        # The source must fall back to standard fields so the sync can complete rather than
+        # permanently failing on every Temporal retry.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        too_long = _response(
+            {"errors": [], "field-errors": {"_fields": {"errors": {"lead": "List is too long."}}}},
+            status_code=400,
+        )
+        ok = _response({"data": []})
+        custom_field_page = _response({"data": [{"id": "cf_x"}], "has_more": False})
+        session = FakeSession(pages=[too_long, ok], get_pages=[custom_field_page])
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_search_session",
+            lambda _api_key: session,
+        )
+
+        response = close_source(
+            api_key="test-key",
+            endpoint="Leads",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=manager,
+            db_incremental_field_last_value=None,
+            logger=MagicMock(),
+        )
+        list(cast(Any, response.items()))
+
+        assert len(session.bodies) == 2
+        assert "custom.cf_x" in session.bodies[0]["_fields"]["lead"]
+        assert "custom.cf_x" not in session.bodies[1]["_fields"]["lead"]
+
     @pytest.mark.parametrize(
         ("incremental", "field", "last_value", "expected_cursor_field", "expected_anchor"),
         [

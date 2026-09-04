@@ -21,6 +21,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import type { CanvasDiagnostic } from "@posthog/shared";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -106,7 +107,9 @@ export function CanvasBuildStatus({
         className="flex items-center gap-1"
         data-testid="canvas-build-active"
       >
-        <SpinnerGapIcon size={14} className="animate-spin text-gray-9" />
+        <Spin className="text-gray-9">
+          <SpinnerGapIcon size={14} />
+        </Spin>
         <Text size="xs" variant="muted">
           {active.buildStatus === "queued" ? "Queued" : "Building"} · {elapsed}
         </Text>

@@ -41,55 +41,55 @@ The [upstream Kafka consumer](/nodejs/src/ingestion/pipelines/sessionreplay/ml-m
 
 The presence of a listed signature, credential, token, or signed-header list is enough to refuse the URL. The lane does not validate the value or require other fields from the same signing scheme. Supporting fields such as the algorithm, creation time, and expiry do not cause a refusal by themselves.
 
-The lane checks every occurrence of a query parameter, including an occurrence with an empty value. It decodes percent-encoding in each parameter name before a case-insensitive comparison. It refuses the URL if it cannot enumerate and decode every parameter. The lane compares path patterns case-insensitively. A `*` wildcard in a domain pattern matches one non-empty DNS label.
+The lane checks every occurrence of a query parameter, including an occurrence with an empty value. It decodes percent-encoding in each parameter name before a case-insensitive comparison. It refuses the URL if it cannot enumerate and decode every parameter. The lane compares path patterns case-insensitively. A `*` wildcard in a host pattern matches one non-empty DNS label.
 
 Query parameters:
 
-| Parameter              | Domain | Notes                                                                                                                                                                                                                                                                    |
-| ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `__cld_token__`        |        | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) access token                                                                                                                                                                                  |
-| `__token__`            |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
-| `access_token`         |        |                                                                                                                                                                                                                                                                          |
-| `api_key`              |        |                                                                                                                                                                                                                                                                          |
-| `apikey`               |        |                                                                                                                                                                                                                                                                          |
-| `auth_token`           |        |                                                                                                                                                                                                                                                                          |
-| `authorization`        |        |                                                                                                                                                                                                                                                                          |
-| `AWSAccessKeyId`       |        | AWS Signature Version 2 credential                                                                                                                                                                                                                                       |
-| `Credential`           |        |                                                                                                                                                                                                                                                                          |
-| `GoogleAccessId`       |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 2 credential                                                                                                                                             |
-| `hdnea`                |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
-| `hdntl`                |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
-| `hdnts`                |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
-| `id_token`             |        |                                                                                                                                                                                                                                                                          |
-| `ik-s`                 |        | [ImageKit](https://imagekit.io/docs/media-delivery-basic-security) signature                                                                                                                                                                                             |
-| `jsessionid`           |        | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token                                                                                                                                                             |
-| `OSSAccessKeyId`       |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) credential                                                                                                                                                            |
-| `phpsessid`            |        |                                                                                                                                                                                                                                                                          |
-| `q-ak`                 |        | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) credential                                                                                                                                                                                           |
-| `q-signature`          |        | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) signature                                                                                                                                                                                            |
-| `s=<32-char token>`    |        | [Imgix](https://github.com/imgix/imgix-blueprint#securing-urls)                                                                                                                                                                                                          |
-| `security-token`       |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential                                                                                                                                                  |
-| `session_token`        |        |                                                                                                                                                                                                                                                                          |
-| `sessionid`            |        |                                                                                                                                                                                                                                                                          |
-| `sig`                  |        | Includes [Azure SAS](https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas) and [Cloudflare Images](https://developers.cloudflare.com/images/optimization/hosted-images/serve-private-images/) signatures                                        |
-| `Signature`            |        | Includes AWS, [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-custom-policy.html), and [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) signatures |
-| `SignedHeaders`        |        | Signed URL header list                                                                                                                                                                                                                                                   |
-| `token`                |        | Includes [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) query tokens                                                                                                                               |
-| `X-Amz-Credential`     |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) credential                                                                                                                                            |
-| `X-Amz-Security-Token` |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) temporary credential                                                                                                                                  |
-| `X-Amz-Signature`      |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signature                                                                                                                                             |
-| `X-Amz-SignedHeaders`  |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signed header list                                                                                                                                    |
-| `X-Cos-Security-Token` |        | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) temporary credential                                                                                                                                                                                 |
-| `X-Goog-Credential`    |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 credential                                                                                                                                             |
-| `X-Goog-Signature`     |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signature                                                                                                                                              |
-| `X-Goog-SignedHeaders` |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signed header list                                                                                                                                     |
-| `x-oss-credential`     |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 credential                                                                                                                                        |
-| `x-oss-security-token` |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential                                                                                                                                                  |
-| `x-oss-signature`      |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 signature                                                                                                                                         |
+| Parameter              | Host pattern | Notes                                                                                                                                                                                                                                                                    |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `__cld_token__`        |              | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) access token                                                                                                                                                                                  |
+| `__token__`            |              | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `access_token`         |              |                                                                                                                                                                                                                                                                          |
+| `api_key`              |              |                                                                                                                                                                                                                                                                          |
+| `apikey`               |              |                                                                                                                                                                                                                                                                          |
+| `auth_token`           |              |                                                                                                                                                                                                                                                                          |
+| `authorization`        |              |                                                                                                                                                                                                                                                                          |
+| `AWSAccessKeyId`       |              | AWS Signature Version 2 credential                                                                                                                                                                                                                                       |
+| `Credential`           |              |                                                                                                                                                                                                                                                                          |
+| `GoogleAccessId`       |              | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 2 credential                                                                                                                                             |
+| `hdnea`                |              | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `hdntl`                |              | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `hdnts`                |              | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `id_token`             |              |                                                                                                                                                                                                                                                                          |
+| `ik-s`                 |              | [ImageKit](https://imagekit.io/docs/media-delivery-basic-security) signature                                                                                                                                                                                             |
+| `jsessionid`           |              | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token                                                                                                                                                             |
+| `OSSAccessKeyId`       |              | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) credential                                                                                                                                                            |
+| `phpsessid`            |              |                                                                                                                                                                                                                                                                          |
+| `q-ak`                 |              | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) credential                                                                                                                                                                                           |
+| `q-signature`          |              | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) signature                                                                                                                                                                                            |
+| `s=<32-char token>`    |              | [Imgix](https://github.com/imgix/imgix-blueprint#securing-urls)                                                                                                                                                                                                          |
+| `security-token`       |              | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential                                                                                                                                                  |
+| `session_token`        |              |                                                                                                                                                                                                                                                                          |
+| `sessionid`            |              |                                                                                                                                                                                                                                                                          |
+| `sig`                  |              | Includes [Azure SAS](https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas) and [Cloudflare Images](https://developers.cloudflare.com/images/optimization/hosted-images/serve-private-images/) signatures                                        |
+| `Signature`            |              | Includes AWS, [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-custom-policy.html), and [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) signatures |
+| `SignedHeaders`        |              | Signed URL header list                                                                                                                                                                                                                                                   |
+| `token`                |              | Includes [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) query tokens                                                                                                                               |
+| `X-Amz-Credential`     |              | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) credential                                                                                                                                            |
+| `X-Amz-Security-Token` |              | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) temporary credential                                                                                                                                  |
+| `X-Amz-Signature`      |              | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signature                                                                                                                                             |
+| `X-Amz-SignedHeaders`  |              | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signed header list                                                                                                                                    |
+| `X-Cos-Security-Token` |              | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) temporary credential                                                                                                                                                                                 |
+| `X-Goog-Credential`    |              | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 credential                                                                                                                                             |
+| `X-Goog-Signature`     |              | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signature                                                                                                                                              |
+| `X-Goog-SignedHeaders` |              | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signed header list                                                                                                                                     |
+| `x-oss-credential`     |              | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 credential                                                                                                                                        |
+| `x-oss-security-token` |              | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential                                                                                                                                                  |
+| `x-oss-signature`      |              | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 signature                                                                                                                                         |
 
 Path patterns:
 
-| Pattern                                       | Domain                            | Notes                                                                                                                                                                                                |
+| Pattern                                       | Host pattern                      | Notes                                                                                                                                                                                                |
 | --------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/bcdn_token=<token>[&<field>=<value>...]/`   |                                   | [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) token in the first path segment                                                 |
 | `/p/<token>/n/`                               | `objectstorage.*.oraclecloud.com` | [Oracle pre-authenticated request](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingpreauthenticatedrequests_topic-To_create_a_preauthenticated_request_for_all_objects_in_a_bucket.htm) |
@@ -155,7 +155,7 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.4** To avoid interruptions, the lane starts to refresh robots.txt and tdmrep.json when the cached version is 23 hours old. The lane can use the current cached version while one refresh is in progress.
 
-**3.5** The lane follows up to 5 redirects when requesting robots.txt and tdmrep.json, including to a different authority. It follows these redirects without publishing to Kafka. The result still applies to the original origin. Configuration-file requests use the failure, cache, and retry rules in this section rather than the redirected authority's per-origin image back-off or circuit-breaker state.
+**3.5** The lane follows up to 5 redirects when requesting robots.txt and tdmrep.json, including to a different authority in the same registrable domain. It follows these redirects without publishing to Kafka. The result still applies to the original origin. A redirect to another registrable domain makes the configuration file unreachable. This rule prevents a source partition from creating a second request budget for the redirect target. Configuration-file requests use the failure, cache, and retry rules in this section. They do not read or change image back-off or circuit-breaker state.
 
 **3.6** A redirect chain longer than 5 counts as unreachable.
 
@@ -191,6 +191,8 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.22** The lane uses separate cache entries for robots.txt, tdmrep.json, and each URL crawl result. A robots.txt or tdmrep.json success, absence, or valid refusal has a 24-hour TTL. An unreachable result without a cached version has a 1-hour TTL. A terminal URL result has a minimum TTL of 30 days. If the response's explicit freshness lifetime is longer, the entry uses that longer TTL.
 
+**3.23** A retained configuration body must be valid UTF-8. If the 500KiB robots.txt prefix ends inside a UTF-8 code point, the lane discards that incomplete code point. Any other invalid UTF-8 makes the configuration file unreachable.
+
 ### 4. Web Bot Auth
 
 **4.1** Our User Agent starts with `PostHogImageFetcherBot` and contains a link to https://posthog.com/docs/ai-research/image-fetcher-bot. An example value is `PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
@@ -223,17 +225,17 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.1** Requests in flight never exceed the pod limit.
 
-**5.2** Requests in flight to one origin never exceed the origin limit during steady-state ownership. A bounded exception applies during the Kafka rebalance window described below.
+**5.2** Requests in flight to one registrable domain never exceed the registrable-domain limit during steady-state ownership. A bounded exception applies during the Kafka rebalance window described below.
 
-**5.3** Requests to one origin never exceed the rate its token bucket allows during steady-state ownership. The same bounded rebalance exception applies.
+**5.3** A positive configured request rate enables a token bucket for each registrable domain. The default zero value disables this rate limit and uses only the active-request limit. The same bounded rebalance exception applies when the token bucket is enabled.
 
-**5.4** A redirect is not a way around any limit. For example, if a request to `https://a.com/image` redirects to `https://b.com/image`, the first request counts against the first origin and the second request counts against the second origin.
+**5.4** A redirect is not a way around any limit. Each image request counts against the registrable-domain budget of its target and the crawl delay of its target origin. The lane follows a configuration redirect only when its target has the same registrable domain. Each followed configuration request counts against that shared registrable-domain budget.
 
-**5.5** A wait is not a way around any limit. For example, a URL that waits for the pod limit must check the per-origin limit and all other limits before it resumes.
+**5.5** A wait is not a way around any limit. A URL that waits for the pod limit must check the registrable-domain limit, the origin crawl delay, and all other limits before it resumes.
 
-**5.6** There is no global handling of concurrent request limits. The Kafka topic is partitioned by registrable domain, using both the ICANN and private sections of the Public Suffix List. All origins under one registrable domain therefore go to one partition, and one pod normally holds the separate request-control state for each of those origins.
+**5.6** There is no global handling of concurrent request limits. The Kafka topic is partitioned by registrable domain, using both the ICANN and private sections of the Public Suffix List. All origins under one registrable domain therefore go to one partition. One pod normally holds the shared registrable-domain request budget and the separate policy and crawl-delay state for each origin.
 
-**5.7** On partition revocation, the consumer stops starting work for the revoked partitions and drains their active batch before it unassigns them. If the drain exceeds Kafka's rebalance timeout, Kafka can assign the partition to a new pod while the old pod finishes its active requests. During this exceptional window, one old owner and one new owner can each apply the origin limit and token bucket. The pod limit still applies independently to each pod. The lane does not use a distributed lease to close this window.
+**5.7** On partition revocation, the consumer stops starting work for the revoked partitions and drains their active batch before it unassigns them. If the drain exceeds Kafka's rebalance timeout, Kafka can assign the partition to a new pod while the old pod finishes its active requests. During this exceptional window, one old owner and one new owner can each apply the registrable-domain limit and an enabled token bucket. The pod limit still applies independently to each pod. The lane does not use a distributed lease to close this window.
 
 **5.8** In-flight concurrency limits apply to all external URL fetches (e.g. `robots.txt` files), not just images. It does not apply to internal services like DynamoDB or Kafka.
 
@@ -241,44 +243,61 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.10** These are the limits in the system:
 
-| Constant                                | Scope                                             | Value      |
-| --------------------------------------- | ------------------------------------------------- | ---------- |
-| Requests in flight                      | pod                                               | 300        |
-| Requests in flight per origin           | origin                                            | 6          |
-| Requests per second per origin          | origin                                            | 1, burst 5 |
-| Hop budget                              | one original URL, across every message it becomes | 10         |
-| Redirects followed without republishing | one fetch                                         | 3          |
-| Response bytes, compressed              | one response                                      | 20 MiB     |
-| Request timeout                         | one URL, redirects included                       | 10 seconds |
-| Pass deadline                           | one pass                                          | 20 seconds |
-| Pass wall time, worst case              | one pass                                          | 30 seconds |
-| Origins tracked                         | pod                                               | 20000      |
-| Crawl history entry                     | one URL                                           | 30 days    |
+| Constant                                   | Scope                                             | Value      |
+| ------------------------------------------ | ------------------------------------------------- | ---------- |
+| Requests in flight                         | pod                                               | 300        |
+| Requests in flight per registrable domain  | registrable domain                                | 6          |
+| Requests per second per registrable domain | registrable domain                                | disabled   |
+| Hop budget                                 | one original URL, across every message it becomes | 10         |
+| Redirects followed without republishing    | one fetch                                         | 3          |
+| Response bytes, compressed                 | one response                                      | 20 MiB     |
+| Request timeout                            | one URL, redirects included                       | 10 seconds |
+| Pass deadline                              | one pass                                          | 40 seconds |
+| Pass wall time, worst case                 | one pass                                          | 50 seconds |
+| Registrable domains tracked                | pod                                               | 20,000     |
+| Origins tracked                            | pod                                               | 20,000     |
+| Crawl history entry                        | one URL                                           | 30 days    |
 
 **5.11** State is stored as follows:
 
-| State                                                                                                 | Key                         | Location                                                 |
-| ----------------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------------- |
-| Active requests, token bucket, crawl delay, back-off, circuit breaker, and configuration request lock | Origin                      | Memory on the pod that owns the origin's Kafka partition |
-| robots.txt and tdmrep.json results                                                                    | Origin and file type        | DynamoDB, with an optional hot cache in pod memory       |
-| URL crawl history and HTTP cache metadata                                                             | Global canonical URL        | DynamoDB                                                 |
-| Original ref, current URL, remaining image hops, and earliest retry time                              | One URL job                 | Kafka record                                             |
-| Top-N metric labels                                                                                   | Registrable/provider domain | Bounded pod memory                                       |
+| State                                                                    | Key                  | Location                                                     |
+| ------------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------ |
+| Active requests, optional token bucket, back-off, and circuit breaker    | Registrable domain   | Memory on the pod that owns the Kafka partition              |
+| Crawl delay and scheduled request count                                  | Origin               | Memory on the pod that owns the registrable-domain partition |
+| Configuration request coalescing lock                                    | Origin and file type | Memory on the pod that owns the registrable-domain partition |
+| robots.txt and tdmrep.json results                                       | Origin and file type | DynamoDB, with an optional hot cache in pod memory           |
+| URL crawl history and HTTP cache metadata                                | Global canonical URL | DynamoDB                                                     |
+| Original ref, current URL, remaining image hops, and earliest retry time | One URL job          | Kafka record                                                 |
 
-**5.12** No request-control state uses the registrable domain or provider domain as its key.
+**5.12** A configured request rate, burst, active-request count, transient back-off, `Retry-After`, and circuit-breaker state use the registrable domain as their key. Configuration policy and `Crawl-delay` use the origin as their key. No request-control state uses the provider domain as its key.
 
-**5.13** The pod limits its origin runtime map to 20,000 entries because the number of origins is unbounded.
+**5.13** The pod limits both its registrable-domain runtime map and its origin runtime map to 20,000 entries because both key sets are unbounded.
 
-**5.14** The pod can evict an origin entry only when all these conditions apply:
+**5.14** The pod can evict a registrable-domain entry only when all these conditions apply:
 
-- The origin has no active request.
-- The origin has no configuration request in progress.
-- The origin has no active delay or breaker.
-- The origin's token bucket is full.
+- The registrable domain has no active request or pending request grant.
+- The registrable domain has no active back-off or breaker.
+- The registrable domain's token bucket is disabled or full.
+
+The pod can evict an origin entry only when all these conditions apply:
+
+- The origin has no active or scheduled request.
+- The origin has no reserved image-request start time.
+- The origin's crawl delay has elapsed.
 
 Removing an eligible entry cannot permit an earlier request.
 
-**5.15** If the map is full and has no eligible entry, the pod does not contact an untracked origin. It sends the job to the 1-minute delay topic.
+**5.15** If either map is full and has no eligible entry, the pod does not make the request. It sends the job to the 1-minute delay topic. The record names `origin_map_full` or `registrable_domain_map_full` as the reason.
+
+**5.16** Before scheduling a pass, the lane deduplicates jobs by global canonical URL ref. It keeps the most conservative hop, retry, and timing state for each ref.
+
+**5.17** The pass queue groups jobs first by registrable domain and then by origin. It assigns capped proportional concurrency targets at both levels. It starts with each queue's share of the deduplicated pass and the available parent capacity. It caps the target at the queue's job count and the registrable-domain limit. It redistributes unused capacity until no eligible queue exceeds either cap.
+
+**5.18** The queue selects the registrable domain that is furthest below its concurrency target. It uses the waiting job count and then insertion order as tie-breakers. It applies the same rule to origins within the selected registrable domain. The pod and registrable-domain limits still apply.
+
+**5.19** The queue continues processing eligible jobs when few origins or registrable domains remain. The scheduler still applies crawl delay, request rate, connection, breaker, registrable-domain, pod, and pass-deadline limits. The lane does not republish a job only to seek more origin diversity in a later Kafka batch.
+
+**5.20** Each worker creates one Kafka group member for each configured target partition. Group assignments do not overlap, so ready group members supply batches from different partitions. The worker joins their batches into one fetch pass. The target must be from one to four and defaults to two. The worker starts the fetch pass when all target batches arrive or the join window ends. If fewer batches arrive, the worker processes the available batches. A later group can run concurrently instead of waiting behind a full pass. Shared request limits still bound total network concurrency. The worker divides the existing Kafka prefetch memory budget across its group members.
 
 ### 6. Smokescreen
 
@@ -294,27 +313,27 @@ Removing an eligible entry cannot permit an earlier request.
 
 ### 7. Back-off and retry delay
 
-**7.1** This section applies to image requests. Configuration-file requests use the failure and retry rules in section 3 and do not change an origin's image back-off or circuit-breaker state.
+**7.1** This section applies to image requests. Configuration-file requests use the failure and retry rules in section 3 and do not change a registrable domain's image back-off or circuit-breaker state.
 
-**7.2** A network error, timeout, HTTP 408, HTTP 425, HTTP 429, or HTTP 5xx response is a transient failure. It increments the origin's consecutive transient-failure count. A successful response, valid redirect, or terminal HTTP response resets that count.
+**7.2** A network error, timeout, HTTP 408, HTTP 425, HTTP 429, or HTTP 5xx response is a transient failure. It increments the registrable domain's consecutive transient-failure count. A successful response, valid redirect, or terminal HTTP response resets that count.
 
-**7.3** One transient failure for an origin applies to every image URL queued for that origin in the same pass.
+**7.3** One transient failure for a registrable domain applies to every image URL queued for that registrable domain in the same pass.
 
 **7.4** The retry back-off after the first consecutive transient failure is 1 minute. Each further consecutive failure doubles the maximum delay, up to 1 hour. The actual delay is selected uniformly between one half and all of that maximum, inclusive.
 
 **7.5** A valid `Retry-After` on HTTP 429 or HTTP 503 sets a minimum retry delay. The lane accepts either a non-negative integer number of seconds or an HTTP date. It uses the longer of `Retry-After` and the delay from requirement 7.4. It ignores an invalid or past value.
 
-**7.6** After 5 consecutive transient failures, the origin's circuit breaker opens for the calculated delay. When that period ends, one image request becomes the half-open probe. Other image requests for the origin remain delayed until the probe completes.
+**7.6** After 5 consecutive transient failures, the registrable domain's circuit breaker opens for the calculated delay. When that period ends, one image request becomes the half-open probe. Other image requests for the registrable domain remain delayed until the probe completes.
 
 **7.7** A successful, redirected, or terminal response to the half-open probe closes the circuit breaker and resets its failure count. A transient failure reopens it with the next exponential delay.
 
-**7.8** Per-origin delays, failure counts, and circuit-breaker state use the bounded pod memory described in requirement 5.11.
+**7.8** Registrable-domain back-off, failure counts, and circuit-breaker state use the bounded pod memory described in requirement 5.11.
 
 **7.9** The lane respects every `Crawl-delay` field line in the selected robots.txt group for `PostHogImageFetcherBot`. It accepts a non-negative decimal number of seconds, ignores invalid values, and uses the greatest valid value.
 
-**7.10** `Crawl-delay` is the minimum interval between the start times of two image requests to the same origin. The lane uses the longer of its 1-request-per-second interval and `Crawl-delay`.
+**7.10** `Crawl-delay` is the minimum interval between the start times of two image requests to the same origin. An origin without this field has no start-time interval. A positive configured request rate can also apply across the registrable domain. A request must satisfy every enabled limit.
 
-**7.11** One active delay, whether it comes from back-off, `Retry-After`, `Crawl-delay`, or an open circuit breaker, applies to every image URL queued for that origin. The lane uses the latest resulting not-before time.
+**7.11** Back-off, `Retry-After`, and an open circuit breaker apply to every image URL queued for the registrable domain. `Crawl-delay` applies only to image URLs queued for the origin that published it. The lane uses the latest applicable not-before time.
 
 **7.12** A delayed retry must not block processing. It goes to the back of the queue for its current batch. If the delay has not elapsed when it returns to the front, the lane republishes it to a delay Kafka topic.
 
@@ -369,7 +388,7 @@ built from a redirect target matches no recording.
 
 **10.3** The consumer completes durable work in this order:
 
-1. It publishes any image or delayed retry to its destination Kafka topic and waits for the delivery acknowledgement.
+1. It publishes each image and every frontier or delay record to its destination Kafka topic and waits for the delivery acknowledgement.
 2. It writes all required crawl-history changes to DynamoDB.
 3. It returns from the batch so that the input fetch-topic offset can be stored.
 
@@ -379,7 +398,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "jobs": [
     {
       "originalRef": "imageurl:<hash>",
@@ -395,7 +414,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 }
 ```
 
-`v` is the integer `1`. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, or `origin_map_full`.
+`v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`. The parser accepts and removes the legacy optional `lowOriginDiversityDeferred` field.
 
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 
@@ -403,6 +422,12 @@ The parser ignores unknown fields so that a producer can add optional data witho
 
 **10.6** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
 that scenario.
+
+**10.7** A redirect or pass-deadline deferral has no required wait. The lane publishes it to the frontier with `notBeforeMs` set to `0`. A retry, an early `notBeforeMs`, or a full runtime-state map uses the smallest delay topic that satisfies its required wait.
+
+**10.8** Before Kafka delivery, the lane groups republished jobs by destination topic and the current URL's registrable domain. It packs each group into records of no more than 1,000 jobs and no more than 512 KiB. It sends records up to the configured pending-publish limit and waits for every started delivery acknowledgement. After one delivery fails, it starts no more records from that batch. It also stops starting deliveries 200 seconds after the poll batch began. This leaves time for in-flight delivery callbacks, the final crawl-history write, and offset handling before Kafka's 300-second poll limit. A record contains only one registrable domain and uses that registrable domain as its Kafka key.
+
+A fetch batch can publish more frontier records than it consumed. This can occur when URLs from one source-domain record redirect to several target registrable domains. It can also occur when the added durable state makes a republished record reach a wire limit earlier than its input record. The lane must preserve those target-domain keys and wire limits. It must not send a zero-wait redirect to a delay topic only to keep the record count unchanged.
 
 ### 11. Metrics
 
@@ -416,12 +441,10 @@ that scenario.
 
 **11.2** These metrics are tracked for each completed fetch request (images and other files)
 
-- Registrable domain (top N, bounded with Space-Saving algorithm)
-- Provider domain (top N, bounded with Space-Saving algorithm)
 - Time taken
-- HTTP response / network failure if any
+- HTTP response class or network failure
 
-**11.3** These metrics are tracked for each origin after establishing whether it is blocked or not
+**11.3** These metrics are tracked for each origin-policy or registrable-domain request-control decision
 
 - Block status
 - Block reason if any
@@ -430,7 +453,31 @@ that scenario.
 
 **11.5** The provider domain is the effective top-level domain plus one when only the ICANN section is active. For example, it is `posthog.com` for `app.posthog.com` and `vercel.app` for `myapp.vercel.app`. This document does not use the ambiguous term `root domain`.
 
-**11.6** Each top-N metric uses 200 Space-Saving counters per pod for one 10-minute window. It exports the 20 largest labels and one `other` label as gauges. At the window boundary, it clears the estimator and removes the labels from the previous window before it starts the next window.
+**11.6** Every metric label defined by this lane uses a fixed set of values or the bounded integer partition set of the frontier topic. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Image scrub sources use `inline` or `url`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
+
+**11.7** The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
+
+It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
+
+**11.8** The lane observes completed poll batch duration, active batch age, distinct origins and registrable domains per poll batch, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. For deduplicated canonical URL jobs, it observes the URL share held by the top 1, 5, and 10 origins and registrable domains. It also observes the inverse Simpson effective count for both scopes. At fetch-pass start, it observes the request slots that the queue can use immediately and their ratio to the pod request limit. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
+
+**11.9** Partition metrics count valid Kafka records and URL jobs at the parsed, accepted, unique, fetchable, not-ready, and store-deduplicated stages. They count durable completed and republished outcomes. They also observe image request outcomes, image scheduler waits, the largest origin and registrable-domain share, and the effective count for each source partition. These metrics do not label configuration requests because one configuration request can serve jobs from more than one partition.
+
+**11.10** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
+
+**11.11** The mirror counts collected image ref occurrences by `css` or `html` source, canonical property name, and `inline` or `url` lane. It counts before per-message ref deduplication. Every property label comes from the fixed HTML attribute set in requirement 13.11 or the fixed CSS property allowlist in the anonymizer.
+
+**11.12** The fetch deployment writes three high-cardinality metrics to TopHog. It does not export registrable domains as Prometheus labels.
+
+`ml_image_fetch_attempts_by_registrable_domain` counts durable URL attempts by partition, registrable domain, completed or republished disposition, and outcome.
+
+`ml_image_fetch_block_events_by_registrable_domain` counts blocking observations by partition, registrable domain, and exact reason. Reasons distinguish concurrency, scheduler waits, configuration failures, response backoff, and deadlines.
+
+`ml_image_fetch_blocked_ms_by_registrable_domain` sums positive wait milliseconds spent or imposed for the same keys. Domain concurrency contributes events because it has no measured wait duration.
+
+The frontier retains an exact block reason across delay topics. Records created before this field existed use `unknown_backoff` when they return early.
+
+Each metric returns the top 20 domain-factor keys per flush and tracks at most 2,000 keys in pod memory.
 
 ### 12. Conditional requests
 
@@ -460,21 +507,31 @@ that scenario.
 
 **13.3** The key uses the shared Rust URL-policy implementation to canonicalize the URL. The canonical form uses the parser's serialized HTTPS URL, lowercases and IDNA-encodes the host, removes a trailing DNS root dot, removes the fragment, omits the explicit default port `443`, and uses `/` for an empty path. It does not sort path segments or query fields. The shared parser's serialization is authoritative for percent-encoding and dot-segment normalization.
 
-After parsing and before final serialization, the implementation removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable.
+The fetch URL keeps the original query verbatim. The global ref uses a canonical query that removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The implementation filters raw query fields and never rebuilds a query. Every retained field stays byte-for-byte unchanged. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable. If several fetch URLs in one collection batch map to one global ref, the first collected fetch URL becomes the fetch candidate.
 
 **13.4** A URL ref does not contain a team identifier, a team pseudonym, or a key derived from one team. The same canonical URL produces the same ref for every team.
 
 **13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `GLOBAL_URL_KEY` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(GLOBAL_URL_KEY, canonical_url)`. Every producer must use this construction. The DynamoDB crawl-history key for the original URL is the same `imageurl:<hash>` string.
 
-**13.6** The mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
+**13.6** For a direct image attribute, the mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
 
-**13.7** Data preparation uses the suffix of the ref attribute to find the source attribute. If the ref resolves, data preparation replaces the placeholder with the scrubbed image.
+**13.7** For a CSS field, the mirror stores refs in a sibling attribute named `data-anon-image-refs-<field>`. Its value is a JSON object that maps each decimal slot number to one image ref.
 
-**13.8** Data preparation removes the ref attribute whether or not the ref resolves. The ref is a hash that has no meaning in training data and would appear as random noise.
+**13.8** The mirror replaces each collected CSS image with the existing valid SVG placeholder. It adds `<metadata id='anon-image-slot-<slot>'/>` before the closing `</svg>` to identify the corresponding ref without changing the rendered placeholder.
+
+**13.9** Data preparation uses the suffix of a direct ref attribute to find its source attribute. It uses each CSS slot number to find the matching numbered placeholder. If the ref resolves, data preparation replaces the placeholder with the scrubbed image.
+
+**13.10** Data preparation removes direct ref attributes and CSS ref maps whether or not their refs resolve. It removes the slot metadata from unresolved CSS placeholders, so the remaining CSS still contains a valid, unnumbered placeholder.
+
+**13.11** The mirror collects remote images from `img[src]`, `img[rr_src]`, `img[srcset]`, SVG `image[href]`, SVG `image[xlink:href]`, `video[poster]`, and `source[srcset]` below a `picture` element. It does not infer a `source` parent from a tagless attribute mutation.
+
+**13.12** For `srcset` and CSS `image-set()`, the mirror selects the candidate with the largest width or pixel density. It declines a malformed or mixed `srcset`. The first candidate wins a tie.
+
+**13.13** The mirror processes inline base64 images and remote URLs in image-bearing CSS properties. It keeps same-document fragment URLs unchanged and does not collect font or import URLs.
 
 ### 14. HTTP request/response
 
-**14.1** The lane accepts the `identity`, `gzip`, `deflate`, `br`, and `zstd` content codings and refuses every other coding. It sends `gzip, deflate, br, zstd` in `Accept-Encoding`; `identity` remains acceptable as HTTP defines.
+**14.1** The lane accepts up to 4 `identity`, `gzip`, `deflate`, `br`, and `zstd` content codings and refuses every other coding. It sends `gzip, deflate, br, zstd` in `Accept-Encoding`; `identity` remains acceptable as HTTP defines.
 
 **14.2** The lane never sends cookies, and ignores cookies that are set by the response
 
@@ -501,7 +558,6 @@ the userinfo of a URL, cookies, and known credential query parameters
 | `image/jpeg`   | JPEG   |
 | `image/gif`    | GIF    |
 | `image/webp`   | WebP   |
-| `image/bmp`    | BMP    |
 | `image/avif`   | AVIF   |
 
 **14.11** This lane does not check that the downloaded bytes match the expected media type. It is expected that the image scrubber will do this.
@@ -538,7 +594,7 @@ the userinfo of a URL, cookies, and known credential query parameters
 
 **15.8** The robots.txt and tdmrep.json caches use separate per-origin items. They do not share a TTL or an item with URL crawl history.
 
-**15.9** The registrable-domain Kafka key puts all origins under that domain on one pod, while each DynamoDB item belongs to one URL or one origin. Outside the bounded rebalance exception in requirement 5.7, one pod therefore builds updates for a given item. Before each `BatchWriteItem` call, the lane folds repeated updates for one item into the last in-memory state so that a request never contains duplicate keys. A rebalance replay can write the same final state again, which requirement 15.4 permits. The lane does not use conditional writes or a distributed DynamoDB concurrency lock.
+**15.9** The registrable-domain Kafka key puts all origins under that registrable domain on one pod, while each DynamoDB item belongs to one URL or one origin. Outside the bounded rebalance exception in requirement 5.7, one pod therefore builds updates for a given item. Before each `BatchWriteItem` call, the lane folds repeated updates for one item into the last in-memory state so that a request never contains duplicate keys. A rebalance replay can write the same final state again, which requirement 15.4 permits. The lane does not use conditional writes or a distributed DynamoDB concurrency lock.
 
 ## 16. Delay topics
 
@@ -576,30 +632,33 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.4** The record has these Kafka headers:
 
-| Header             | Value                                                                                               |
-| ------------------ | --------------------------------------------------------------------------------------------------- |
-| `content-type`     | The normalized media type accepted under requirement 14.10, in lowercase and without parameters     |
-| `content-encoding` | The response content codings in the order in which the server applied them, normalized to lowercase |
+| Header                 | Value                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `content-type`         | The normalized media type accepted under requirement 14.10, in lowercase and without parameters     |
+| `content-encoding`     | The response content codings in the order in which the server applied them, normalized to lowercase |
+| `capture-timestamp-ms` | The Unix timestamp from the replay Kafka record where the collector first saw the URL               |
 
 **17.5** The fetcher omits `content-encoding` when the response has no content coding or specifies `identity`. The scrubber treats a missing header as `identity`.
 
-**17.6** The scrubber decodes the content codings in reverse order. It refuses an unsupported or malformed coding. It must enforce its uncompressed input limit while it decodes the value.
+**17.6** The scrubber decodes up to 4 content codings in reverse order. It refuses an unsupported, malformed, or longer coding list. It must enforce its uncompressed input limit while it decodes the value.
 
 **17.7** After content decoding, the scrubber checks that the bytes match `content-type` before it sends them to the image scrubber.
 
-**17.8** Existing inline image records keep their current format: the key is an `image:<pseudo-team>:<hash>` ref, the value is the raw image bytes, and no transport headers are required.
+**17.8** Inline image records use an `image:<pseudo-team>:<hash>` key and raw image bytes. They carry `capture-timestamp-ms` from the source replay Kafka record.
 
-**17.9** This design does not add a dead-letter topic. The existing image-scrubber dead-letter path and its replay preserve the original key, value, `content-type`, and `content-encoding`. The dead-letter path can add diagnostic headers and update its replay counter.
+**17.9** This design does not add a dead-letter topic. The existing image-scrubber dead-letter path and its replay preserve the original key, value, `content-type`, `content-encoding`, and `capture-timestamp-ms`. The dead-letter path can add diagnostic headers and update its replay counter.
 
 **17.10** The maximum record size is the response byte limit in requirement 5.10 plus the maximum key, header, and Kafka protocol overhead. The fetcher producer, image-scrub topic, existing image-scrub dead-letter topic, and their consumers must accept that size.
 
 **17.11** After scrubbing a URL-backed image, the image scrubber writes it to the deterministic S3 object key `<configured image prefix>/url/<hash>`, where `<hash>` comes from the `imageurl:<hash>` ref. URL-backed images do not use the time-partitioned shard index used by inline images.
 
-**17.12** A later successful scrub for the same ref overwrites that object. The last completed S3 write is the version that data preparation reads. This policy avoids a version index or a search across historical shards.
+**17.12** The image scrubber creates a URL object with `If-None-Match: *`. If an object already exists for the ref, the scrubber keeps it and treats the write as complete. The first completed S3 write is the version that data preparation reads. This policy makes the first fetch URL that reaches storage win when several fetch URLs map to one global ref.
 
 **17.13** Data preparation converts each distinct ref to the deterministic object key and performs one direct S3 read. A missing object leaves the image placeholder in place and does not require a recrawl.
 
 **17.14** Inline images keep their existing sharded S3 storage and Parquet index.
+
+**17.15** After a successful S3 write, the scrubber observes capture-to-S3 duration in a fixed-bucket histogram. The `source` label is `inline` or `url`. The scrubber does not observe a URL candidate when the conditional write finds an existing object.
 
 ## External specifications
 

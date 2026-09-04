@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jira import JiraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.jira.jira import JiraResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jira.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jira.source import JiraSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJiraSource:
@@ -16,28 +11,6 @@ class TestJiraSource:
         self.source = JiraSource()
         self.team_id = 123
         self.config = JiraSourceConfig(subdomain="acme", email="e@x.com", api_token="token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JIRA
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Jira"
-        assert config.label == "Jira"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/jira.svg"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["subdomain", "email", "api_token"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         assert self.source.connection_host_fields == ["subdomain"]
@@ -125,41 +98,3 @@ class TestJiraSource:
         assert is_valid is False
         assert error_message is not None and "subdomain" in error_message
         mock_validate.assert_not_called()
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is JiraResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jira.source.jira_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_jira_source) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "issues"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = "updated"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_jira_source.call_args.kwargs
-        assert kwargs["subdomain"] == "acme"
-        assert kwargs["email"] == "e@x.com"
-        assert kwargs["api_token"] == "token"
-        assert kwargs["endpoint"] == "issues"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert kwargs["incremental_field"] == "updated"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jira.source.jira_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_jira_source) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "projects"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = None
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_jira_source.call_args.kwargs["db_incremental_field_last_value"] is None

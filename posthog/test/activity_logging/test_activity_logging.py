@@ -10,7 +10,10 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
+from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT
+
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
 
 class TestActivityLogModel(BaseTest):
@@ -190,6 +193,31 @@ class TestActivityLogModel(BaseTest):
             error.exception.args[0],
         )
 
+    def test_deferred_write_failure_does_not_escape_committed_transaction(self) -> None:
+        # A write deferred to transaction.on_commit runs after the transaction commits, so a
+        # failure there must not surface as a request error for data that already persisted.
+        with patch("posthog.models.activity_logging.activity_log.logger") as mock_logger:
+            with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+                with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                    try:
+                        with self.captureOnCommitCallbacks(execute=True):
+                            log_activity(
+                                organization_id=self.organization.id,
+                                team_id=self.team.id,
+                                user=self.user,
+                                was_impersonated=False,
+                                item_id="12345",
+                                scope="FeatureFlag",
+                                activity="updated",
+                                detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+                            )
+                    except Exception as e:
+                        raise pytest.fail(f"Deferred write failure should not escape: {e}")
+
+            warning = mock_logger.warn.call_args
+            self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
+            self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
+
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         # Assert on the module logger directly instead of assertLogs: the root logger sits at
         # ERROR under test settings, so whether the warning reaches a root handler depends on
@@ -219,6 +247,23 @@ class TestActivityLogModel(BaseTest):
             self.assertEqual(warning.kwargs["team"], 1)
             self.assertEqual(warning.kwargs["activity"], "does not explode")
             self.assertIsInstance(warning.kwargs["exception"], ValueError)
+
+
+class TestModelActivityMixinTeamScoping(BaseTest):
+    def test_update_outside_team_scope_still_logs_the_change(self) -> None:
+        # DashboardWidget reads through a fail-closed manager, and a save from a Celery task or a
+        # management command carries no team context for it to read the before-state with.
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(team=self.team, widget_type="insight", name="Weekly signups")
+
+        widget.name = "Monthly signups"
+        widget.save()
+
+        log: ActivityLog = ActivityLog.objects.filter(
+            scope="DashboardWidget", item_id=str(widget.id), activity="updated"
+        ).latest("id")
+        assert log.detail is not None
+        self.assertIn("name", [change["field"] for change in log.detail["changes"]])
 
 
 class TestActivityLogVisibilityManager(BaseTest):

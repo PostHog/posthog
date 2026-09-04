@@ -16,6 +16,7 @@ import temporalio.workflow
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import describe_failure
 
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
@@ -119,7 +120,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 MarkReviewFailedInput(
                     review_run_id=input.review_run_id,
                     team_id=input.team_id,
-                    error=str(e),
+                    error=describe_failure(e),
                 ),
                 start_to_close_timeout=MARK_FAILED_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,

@@ -14,12 +14,12 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{
-    is_fetchable_src_attr, is_image_ref_attr, is_media_src_attr, IMAGE_REF_ATTR_PREFIX,
+    is_fetchable_image_attr, is_image_ref_attr, is_media_src_attr, IMAGE_REF_ATTR_PREFIX,
     INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
 };
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSource};
 use crate::css;
 use crate::dom::{
     classify_tag, data_attr_looks_sensitive, is_data_attr, is_url_attr, is_user_text_attr,
@@ -28,6 +28,7 @@ use crate::dom::{
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
 use crate::images::ImageFallback;
 use crate::scan::{self, Span};
+use crate::srcset::largest_candidate;
 use crate::text::{redact_emails, scrub_text};
 use crate::url::scrub_url;
 
@@ -718,7 +719,6 @@ impl<'c, 'a> Walker<'c, 'a> {
             _ => String::new(),
         };
         let kind = classify_tag(&tag);
-        let tag_src_is_image = crate::assets::tag_src_is_image(&tag);
         let node_changed = self.changed != changed_before;
 
         match ty {
@@ -736,10 +736,27 @@ impl<'c, 'a> Walker<'c, 'a> {
                     })?;
                     out.splice(seg.0..seg.1, tmp.iter().copied());
                 }
+                if tag.eq_ignore_ascii_case("picture") {
+                    if let Some((seg, _, src)) = children {
+                        let mut tmp = Vec::with_capacity(src.1 - src.0);
+                        self.walk_array(src.0, &mut tmp, &mut |w, p, o| {
+                            w.walk_node(p, ParentKind::Picture, o)
+                        })?;
+                        out.splice(seg.0..seg.1, tmp.iter().copied());
+                    }
+                }
                 // Attributes with the real tag kind (media blur vs plain scrubs).
                 if let Some((key, v)) = attrs_m {
+                    if self.find_member(v.0, b"style").ok()?.is_some()
+                        || self
+                            .find_member(v.0, css::INLINED_STYLESHEET_ATTR.as_bytes())
+                            .ok()?
+                            .is_some()
+                    {
+                        return self.redo_node(start, end, parent, node_mark, out);
+                    }
                     emit_deferred_key(bytes, key, &mut emitted, out);
-                    self.walk_attrs(v.0, kind, tag_src_is_image, out)?;
+                    self.walk_attrs(v.0, kind, &tag, parent == ParentKind::Picture, out)?;
                 }
                 for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
                     emit_deferred_key(bytes, key, &mut emitted, out);
@@ -763,13 +780,12 @@ impl<'c, 'a> Walker<'c, 'a> {
                         || is_style_m
                             .map(|(_, v)| bytes.get(v.0..v.1) == Some(b"true"))
                             .unwrap_or(false));
+                if styled && text_m.is_some() {
+                    return self.redo_node(start, end, parent, node_mark, out);
+                }
                 if let Some((key, v)) = text_m {
                     emit_deferred_key(bytes, key, &mut emitted, out);
-                    if styled {
-                        self.scrub_string_value(v.0, out, |w, s| css::rewrite(w.ctx, s))?;
-                    } else {
-                        self.scrub_string_value(v.0, out, |w, s| scrub_text(w.ctx.allow, s))?;
-                    }
+                    self.scrub_string_value(v.0, out, |w, s| scrub_text(w.ctx.allow, s))?;
                 }
                 for (key, v) in [ty_m, tag_m, is_style_m, attrs_m].into_iter().flatten() {
                     emit_deferred_key(bytes, key, &mut emitted, out);
@@ -833,7 +849,8 @@ impl<'c, 'a> Walker<'c, 'a> {
         &mut self,
         start: usize,
         kind: TagKind,
-        tag_src_is_image: bool,
+        tag: &str,
+        parent_is_picture: bool,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
         if self.bytes.get(start) != Some(&b'{') {
@@ -851,18 +868,22 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return None;
                 }
                 if kind == TagKind::Media && is_media_src_attr(name) {
-                    return w.blur_media_src(name, vstart, tag_src_is_image, out, stashes);
+                    return w.blur_media_src(name, vstart, tag, parent_is_picture, out, stashes);
                 }
                 if name == INLINE_IMAGE_ATTR {
                     return w.scrub_string_value(vstart, out, |w, s| {
                         if !is_image_data_uri(s) {
                             return None;
                         }
-                        Some(w.ctx.scrub_image(s, ImageFallback::Blank))
+                        Some(w.ctx.scrub_image_from(
+                            s,
+                            ImageFallback::Blank,
+                            ImageSource::HtmlAttribute(INLINE_IMAGE_ATTR),
+                        ))
                     });
                 }
                 if name == "style" || name == css::INLINED_STYLESHEET_ATTR {
-                    return w.scrub_string_value(vstart, out, |w, s| css::rewrite(w.ctx, s));
+                    return None;
                 }
                 if is_url_attr(name) {
                     return w.scrub_string_value(vstart, out, |w, s| scrub_url(w.ctx, s));
@@ -906,7 +927,8 @@ impl<'c, 'a> Walker<'c, 'a> {
         &mut self,
         name: &str,
         vstart: usize,
-        tag_src_is_image: bool,
+        tag: &str,
+        parent_is_picture: bool,
         out: &mut Vec<u8>,
         stashes: &mut Vec<(String, String)>,
     ) -> Option<usize> {
@@ -922,14 +944,32 @@ impl<'c, 'a> Walker<'c, 'a> {
         if self.ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
             return self.copy_value(vstart, out);
         }
-        if is_image_data_uri(&existing) {
-            let blurred = self.ctx.scrub_image(&existing, ImageFallback::Placeholder);
+        let selected = if name == "srcset" {
+            largest_candidate(existing.as_ref()).map(str::to_string)
+        } else {
+            Some(existing.into_owned())
+        };
+        let Some(selected) = selected else {
+            scan::write_json_string(PLACEHOLDER_SRC, out);
+            self.changed = true;
+            return Some(end);
+        };
+        let property = MEDIA_SRC_ATTRS.iter().copied().find(|attr| *attr == name)?;
+        if is_image_data_uri(&selected) {
+            let blurred = self.ctx.scrub_image_from(
+                &selected,
+                ImageFallback::Placeholder,
+                ImageSource::HtmlAttribute(property),
+            );
             scan::write_json_string(&blurred, out);
         } else {
-            let collected = is_fetchable_src_attr(name, tag_src_is_image)
-                .then(|| self.ctx.collect_url(&existing))
+            let collected = is_fetchable_image_attr(name, tag, parent_is_picture)
+                .then(|| {
+                    self.ctx
+                        .collect_url_from(&selected, ImageSource::HtmlAttribute(property))
+                })
                 .flatten();
-            let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
+            let scrubbed = scrub_url(self.ctx, &selected).unwrap_or_else(|| selected.clone());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             if let Some(url_ref) = collected {
                 stashes.push((format!("{IMAGE_REF_ATTR_PREFIX}{name}"), url_ref));
@@ -987,7 +1027,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         };
                         // Mutation attributes carry no tag, so a `src` here is not known to be
                         // an image. Decline rather than guess.
-                        w.walk_attrs(vstart, kind, false, out)
+                        w.walk_attrs(vstart, kind, "", false, out)
                     }
                     _ => w.copy_value(vstart, out),
                 },

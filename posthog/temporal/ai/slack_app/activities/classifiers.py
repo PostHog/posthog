@@ -20,7 +20,6 @@ from products.slack_app.backend.facade.run_preferences import (
     available_model_choices,
     find_model_choice,
     group_by_runtime,
-    is_slack_app_model_classifier_enabled,
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -536,7 +535,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     different model than the first one announced. The workflow calls it once, above the
     point where the mention and follow-up paths diverge.
 
-    Every message behind the flag reaches the classifier. A keyword pre-filter would
+    Every message reaches the classifier. A keyword pre-filter would
     save the Haiku call on the majority that name no model, but it also decides — on
     a substring match — which phrasings can ever steer a run, and that judgement
     belongs to the model reading the sentence, not to a word list. Blank text is not
@@ -550,9 +549,6 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
         kind="slack",
         integration_id=input.slack_team_id,
     )
-    if not is_slack_app_model_classifier_enabled(integration):
-        return None
-
     choices = available_model_choices()
     if not choices:
         # The gateway is the source of truth for what can run; with no catalogue we

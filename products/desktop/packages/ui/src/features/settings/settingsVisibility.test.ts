@@ -21,7 +21,19 @@ describe("getHiddenSettingsCategories", () => {
         localWorkspaces: true,
         quickAskAvailable: true,
       },
-      expected: ["plan-usage"],
+      expected: ["plan-usage", "cost-management"],
+    },
+    {
+      // Every limit and recommendation on the page is measured against
+      // personal spend, so without it the page has nothing to show.
+      name: "hides cost management without spend analysis",
+      input: {
+        billingEnabled: true,
+        spendAnalysisEnabled: false,
+        localWorkspaces: true,
+        quickAskAvailable: true,
+      },
+      expected: ["cost-management"],
     },
     {
       name: "hides host-specific categories without local workspaces",

@@ -17,6 +17,7 @@ from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    MONGO_DOCUMENT_MISSING_ID_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
@@ -377,6 +378,9 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "bad auth : authentication failed, full error: {'ok': 0, 'errmsg': 'bad auth : "
                 "authentication failed', 'code': 8000, 'codeName': 'AtlasError'}",
             ),
+            # Our own error for a view whose pipeline drops _id. Retrying reads the same _id-less
+            # documents forever, so it must be classified non-retryable.
+            ("document_missing_id", MONGO_DOCUMENT_MISSING_ID_ERROR),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
             # pymongo InvalidURI raised before any network call when credentials in the connection
@@ -425,6 +429,16 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
+            # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
+            # valid key for the cursor's timestamp. Retrying the same cursor always fails the same
+            # way, so it must be classified non-retryable.
+            (
+                "key_not_found_hmac",
+                "No keys found for HMAC that is valid for time: { ts: Timestamp(1000000000, 1) } "
+                "with id: 1234567890, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC "
+                "that is valid for time: { ts: Timestamp(1000000000, 1) } with id: 1234567890', "
+                "'code': 211, 'codeName': 'KeyNotFound'}",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -459,6 +473,8 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("unreachable_topology", "Topology Description:", "allowlist"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
+            ("document_missing_id", "one of its documents has no _id field", "view"),
+            ("key_not_found", "No keys found for HMAC", "key management"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -603,12 +619,14 @@ class _FakeCollection:
         self,
         docs: list[dict[str, Any]],
         error: Exception | None = None,
+        error_after: int = 0,
         fallback_docs: list[dict[str, Any]] | None = None,
         fallback_error: Exception | None = None,
         fallback_error_after: int = 0,
     ) -> None:
         self._docs = docs
         self._error = error
+        self._error_after = error_after
         # Docs returned by a second find() call made without no_cursor_timeout, simulating the
         # fallback path taken when the tier rejects that option.
         self._fallback_docs = fallback_docs
@@ -629,7 +647,7 @@ class _FakeCollection:
         self.find_calls.append(kwargs)
         self.find_queries.append(query)
         if kwargs.get("no_cursor_timeout"):
-            cursor = _FakeCursor(self._docs, self._error)
+            cursor = _FakeCursor(self._docs, self._error, self._error_after)
         else:
             docs = self._fallback_docs if self._fallback_docs is not None else self._docs
             resume_after = _resume_after(query)
@@ -692,9 +710,9 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
 
-    def test_cursor_closed_when_iteration_fails(self):
-        # A no_cursor_timeout cursor never expires on its own, so a mid-read failure (like the
-        # CursorNotFound this guards against) must still close it or it leaks server-side.
+    def test_cursor_closed_when_iteration_fails_with_no_progress(self):
+        # A no_cursor_timeout cursor that dies before yielding any document has no safe resume
+        # point — re-raise so Temporal retries the whole activity.
         collection = _FakeCollection([], error=CursorNotFound("cursor id 123 not found"))
 
         with self.assertRaises(CursorNotFound):
@@ -702,6 +720,29 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
 
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
+
+    def test_no_timeout_cursor_killed_mid_stream_resumes_from_last_id(self):
+        # Regression: CursorNotFound can fire even when no_cursor_timeout=True is honored
+        # (e.g. primary election, Atlas maintenance). The initial cursor is _id-ordered, so
+        # last_id is a safe resume point — resume instead of failing the whole sync.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=CursorNotFound("cursor id 123 not found"),
+            error_after=2,
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert len(collection.find_calls) == 2
+        assert collection.find_calls[0].get("no_cursor_timeout") is True
+        assert "no_cursor_timeout" not in collection.find_calls[1]
+        # Resume query picks up after the last document that was yielded.
+        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
+        # Initial cursor is _id-sorted; resumed cursor is also _id-sorted.
+        assert collection.cursors[0].sorted_by == ["_id", 1]
+        assert collection.cursors[1].sorted_by == ["_id", 1]
 
     @parameterized.expand(
         [
@@ -770,6 +811,17 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.find_queries[-1] == {"_id": {"$gt": "2"}}
         # cursors[2] is the read reopened after CursorNotFound; assert it resumes _id-ordered.
         assert collection.cursors[2].sorted_by == ["_id", 1]
+
+    def test_document_without_id_raises_actionable_error(self):
+        # A view whose pipeline drops _id yields documents with no _id, which the importer can't key
+        # on. Regression: get_rows used to crash on doc["_id"] with a bare KeyError('_id'). It must
+        # raise the actionable, non-retryable message instead.
+        collection = _FakeCollection([{"name": "no id here"}])
+
+        with self.assertRaises(ValueError) as ctx:
+            self._run_get_rows(collection)
+
+        assert str(ctx.exception) == MONGO_DOCUMENT_MISSING_ID_ERROR
 
     def test_fallback_cursor_that_expires_without_progress_is_not_retried_forever(self):
         # Resuming re-runs the same query, so a cursor that dies before yielding anything would

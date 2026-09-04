@@ -7,6 +7,7 @@ import type {
   PostHogAPIConfig,
   ProcessSpawnedCallback,
 } from "../types";
+import { createEventIdSource, type NextEventId } from "../utils/event-id";
 import { Logger } from "../utils/logger";
 import {
   createBidirectionalStreams,
@@ -14,6 +15,7 @@ import {
   type StreamPair,
 } from "../utils/streams";
 import { ClaudeAcpAgent } from "./claude/claude-agent";
+import type { MachineClaudeAuth } from "./claude/machine-auth";
 import type { GatewayEnv } from "./claude/session/options";
 import { nativeCodexBinaryPath } from "./codex-app-server/binary-path";
 import { CodexAppServerAgent } from "./codex-app-server/codex-app-server-agent";
@@ -22,6 +24,10 @@ import type { CodexOptions } from "./codex-app-server/spawn";
 export type AcpConnectionConfig = {
   adapter?: Adapter;
   logWriter?: SessionLogWriter;
+  /** Receives every parsed ACP wire message with the event id the session log stored it under. */
+  onWireMessage?: (message: Record<string, unknown>, eventId: string) => void;
+  /** Shared id source so wire events and server-born events stay on one sequence. */
+  eventIdSource?: NextEventId;
   taskRunId?: string;
   taskId?: string;
   /** Deployment environment - "local" for desktop, "cloud" for cloud sandbox */
@@ -38,6 +44,7 @@ export type AcpConnectionConfig = {
   enricherEnabled?: boolean;
   /** Explicit gateway config for the Claude adapter — prevents global process.env mutation. */
   claudeGatewayEnv?: GatewayEnv;
+  claudeMachineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 };
@@ -75,46 +82,78 @@ function resolveEnricherApiConfig(
   return enabled ? config.posthogApiConfig : undefined;
 }
 
+/**
+ * Wraps both directions of the ACP wire so every message fans out once:
+ * parsed a single time, stamped with the next event id, then handed to the
+ * session log writer and the optional broadcast callback with that shared id.
+ */
+function installWireTaps(
+  streams: ReturnType<typeof createBidirectionalStreams>,
+  config: AcpConnectionConfig,
+  logger: Logger,
+): {
+  agentWritable: WritableStream<Uint8Array>;
+  clientWritable: WritableStream<Uint8Array>;
+} {
+  const { logWriter, taskRunId } = config;
+  if (!taskRunId || !logWriter) {
+    logger.info("Tapped streams NOT enabled", {
+      hasTaskRunId: !!taskRunId,
+      hasLogWriter: !!logWriter,
+    });
+    return {
+      agentWritable: streams.agent.writable,
+      clientWritable: streams.client.writable,
+    };
+  }
+
+  if (!logWriter.isRegistered(taskRunId)) {
+    logWriter.register(taskRunId, {
+      taskId: config.taskId ?? taskRunId,
+      runId: taskRunId,
+      deviceType: config.deviceType,
+    });
+  }
+
+  const nextEventId = config.eventIdSource ?? createEventIdSource();
+  const onMessage = (line: string) => {
+    let message: Record<string, unknown>;
+    try {
+      message = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      logger.warn("Failed to parse ACP wire line", {
+        lineLength: line.length,
+      });
+      return;
+    }
+    const eventId = nextEventId();
+    logWriter.appendNotification(taskRunId, message, eventId);
+    config.onWireMessage?.(message, eventId);
+  };
+
+  return {
+    agentWritable: createTappedWritableStream(streams.agent.writable, {
+      onMessage,
+      logger,
+    }),
+    clientWritable: createTappedWritableStream(streams.client.writable, {
+      onMessage,
+      logger,
+    }),
+  };
+}
+
 function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
   const logger =
     config.logger?.child("AcpConnection") ??
     new Logger({ debug: true, prefix: "[AcpConnection]" });
   const streams = createBidirectionalStreams();
 
-  const { logWriter } = config;
-
-  let agentWritable = streams.agent.writable;
-  let clientWritable = streams.client.writable;
-
-  if (config.taskRunId && logWriter) {
-    if (!logWriter.isRegistered(config.taskRunId)) {
-      logWriter.register(config.taskRunId, {
-        taskId: config.taskId ?? config.taskRunId,
-        runId: config.taskRunId,
-        deviceType: config.deviceType,
-      });
-    }
-
-    const taskRunId = config.taskRunId;
-    agentWritable = createTappedWritableStream(streams.agent.writable, {
-      onMessage: (line) => {
-        logWriter.appendRawLine(taskRunId, line);
-      },
-      logger,
-    });
-
-    clientWritable = createTappedWritableStream(streams.client.writable, {
-      onMessage: (line) => {
-        logWriter.appendRawLine(taskRunId, line);
-      },
-      logger,
-    });
-  } else {
-    logger.info("Tapped streams NOT enabled", {
-      hasTaskRunId: !!config.taskRunId,
-      hasLogWriter: !!logWriter,
-    });
-  }
+  const { agentWritable, clientWritable } = installWireTaps(
+    streams,
+    config,
+    logger,
+  );
 
   const agentStream = ndJsonStream(agentWritable, streams.agent.readable);
 
@@ -125,6 +164,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
+      machineAuth: config.claudeMachineAuth,
       contextWiki: config.contextWiki,
     });
     return agent;
@@ -168,44 +208,14 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
     config.logger?.child("CodexConnection") ??
     new Logger({ debug: true, prefix: "[CodexConnection]" });
 
-  const { logWriter } = config;
-
   // Create bidirectional streams for client ↔ agent communication
   const streams = createBidirectionalStreams();
 
-  let agentWritable = streams.agent.writable;
-  let clientWritable = streams.client.writable;
-
-  // Tap streams for session log writing
-  if (config.taskRunId && logWriter) {
-    if (!logWriter.isRegistered(config.taskRunId)) {
-      logWriter.register(config.taskRunId, {
-        taskId: config.taskId ?? config.taskRunId,
-        runId: config.taskRunId,
-        deviceType: config.deviceType,
-      });
-    }
-
-    const taskRunId = config.taskRunId;
-    agentWritable = createTappedWritableStream(streams.agent.writable, {
-      onMessage: (line) => {
-        logWriter.appendRawLine(taskRunId, line);
-      },
-      logger,
-    });
-
-    clientWritable = createTappedWritableStream(streams.client.writable, {
-      onMessage: (line) => {
-        logWriter.appendRawLine(taskRunId, line);
-      },
-      logger,
-    });
-  } else {
-    logger.info("Tapped streams NOT enabled for Codex", {
-      hasTaskRunId: !!config.taskRunId,
-      hasLogWriter: !!logWriter,
-    });
-  }
+  const { agentWritable, clientWritable } = installWireTaps(
+    streams,
+    config,
+    logger,
+  );
 
   const agentStream = ndJsonStream(agentWritable, streams.agent.readable);
 
@@ -232,6 +242,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
         apiBaseUrl: codexOptions.apiBaseUrl,
         apiKey: codexOptions.apiKey,
         codexHome: codexOptions.codexHome,
+        useMachineAuth: codexOptions.useMachineAuth,
         developerInstructions: codexOptions.developerInstructions,
         httpHeaders: codexOptions.httpHeaders,
         configOverrides: codexOptions.configOverrides,

@@ -2,15 +2,16 @@ export type SettingsCategory =
   | "general"
   | "notifications"
   | "plan-usage"
+  | "cost-management"
   | "workspaces"
   | "worktrees"
   | "environments"
   | "cloud-environments"
   | "agents"
+  | "task-agent-defaults"
   | "skills"
   | "mcp-servers"
   | "personalization"
-  | "sidebar"
   | "terminal"
   | "harness"
   | "shortcuts"
@@ -21,19 +22,20 @@ export type SettingsCategory =
   | "advanced"
   | "discord";
 
-export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
+const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "general",
   "notifications",
   "plan-usage",
+  "cost-management",
   "workspaces",
   "worktrees",
   "environments",
   "cloud-environments",
   "agents",
+  "task-agent-defaults",
   "skills",
   "mcp-servers",
   "personalization",
-  "sidebar",
   "terminal",
   "harness",
   "shortcuts",
@@ -56,15 +58,16 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   general: "General",
   notifications: "Notifications",
   "plan-usage": "Plan & usage",
+  "cost-management": "Cost management",
   workspaces: "Workspaces",
   worktrees: "Worktrees",
   environments: "Environments",
   "cloud-environments": "Environments",
   agents: "Agents",
+  "task-agent-defaults": "Model",
   skills: "Skills",
   "mcp-servers": "MCP servers",
   personalization: "Personalization",
-  sidebar: "Sidebar",
   terminal: "Terminal",
   harness: "Harness",
   shortcuts: "Shortcuts",

@@ -33,17 +33,19 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 
+from products.context_layer.backend.dreams import DREAM_AI_STAGE
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.context_layer.backend.models import ContextLayerConfig
 
 logger = structlog.get_logger(__name__)
 
-DISPATCH_CAP_PER_TICK = 200
+DISPATCH_CAP_PER_TICK = 1000
 # Dispatch failures, not run failures: a lane pauses when we cannot even start
 # its nightly run several nights in a row, and a human unpauses it.
 FAILURE_STREAK_PAUSE_THRESHOLD = 3
 SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
 COORDINATOR_DISTINCT_ID = "context-layer-coordinator"
+COMPLETED_TASK_RECOVERY_WINDOW = dt.timedelta(days=7)
 
 
 def _capture_lane_event(distinct_id: str, event: str, properties: dict[str, str | int]) -> None:
@@ -205,6 +207,7 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
                 initial_permission_mode="bypassPermissions",
             ),
             step_name="context-layer-dream",
+            ai_stage=DREAM_AI_STAGE,
             internal=True,
             workflow_id_prefix="context-layer-dream",
         )
@@ -231,9 +234,19 @@ def _build_dream_prompt(since: dt.datetime | None) -> str:
     """The activity window this dream should review, then the canonical skills:
     synthesis first, then the bounded consolidation pass on the same branch."""
     if since is None:
-        preamble = "This is the first dream: review the last 7 days of organizational activity."
+        preamble = (
+            "This is the first dream: review the last 7 days of organizational activity. "
+            "Treat this as a seed run: include public Space pages that still have no substantive content, "
+            "and fill them only when their channels have qualifying activity in the seed window."
+        )
     else:
-        preamble = f"Review organizational activity since {since.astimezone(dt.UTC).isoformat()}."
+        since_utc = since.astimezone(dt.UTC)
+        recovery_cutoff = since_utc - COMPLETED_TASK_RECOVERY_WINDOW
+        preamble = (
+            f"Review organizational activity since {since_utc.isoformat()}. "
+            f"For completed tasks, recover from {recovery_cutoff.isoformat()} so work that completed after an "
+            "earlier review is reconsidered."
+        )
     return f"{preamble}\n\n{_dream_skills_content()}"
 
 

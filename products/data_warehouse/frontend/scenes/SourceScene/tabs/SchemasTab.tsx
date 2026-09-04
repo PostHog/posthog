@@ -128,7 +128,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     } = useActions(sourceSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
+    // Load (and poll) jobs so the Row count column can show live progress for in-progress
     // syncs, before the warehouse table exists. loadJobsSuccess reschedules itself.
     useEffect(() => {
         if (source && source.access_method !== 'direct') {
@@ -480,7 +480,7 @@ function ManagedSchemaTable({
                         ),
                 },
                 {
-                    title: 'Rows synced',
+                    title: 'Row count',
                     key: 'rows_synced',
                     align: 'right',
                     sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
     IconArrowLeft,
     IconArrowRight,
+    IconChevronRight,
     IconClock,
     IconCollapse,
     IconExpand,
@@ -22,6 +23,7 @@ import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -62,23 +64,23 @@ import {
     parseFailureReason,
     parseIneligibleReason,
     OBSERVATION_TRIGGER_TAG,
-    type ScannerType,
+    SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
+import { scannerLabel } from '../utils/observation'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
+import { ObservationPinnedProperties } from './ObservationPinnedProperties'
+import {
+    neighborFilterParams,
+    observationDetailUrl,
+    replayObservationLogic,
+    scannerReturnParams,
+} from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
-    classifier: 'Categories',
-    summarizer: 'Summary',
-    monitor: 'Verdict',
-    scorer: 'Score',
 }
 
 function AutoSeekToTime({
@@ -106,6 +108,34 @@ function AutoSeekToTime({
         seekedForTrigger.current = trigger
     }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId])
     return null
+}
+
+// A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
+// peek line so the verdict and reasoning stay above the fold.
+function PromptRow({ prompt }: { prompt: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div>
+            <button
+                type="button"
+                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
+                onClick={() => setExpanded(!expanded)}
+                aria-expanded={expanded}
+                data-attr="vision-observation-prompt-toggle"
+            >
+                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
+                Prompt
+            </button>
+            <p
+                className={cn(
+                    'text-sm m-0 leading-snug',
+                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
+                )}
+            >
+                {prompt}
+            </p>
+        </div>
+    )
 }
 
 export function ReplayObservationSceneComponent(): JSX.Element {
@@ -141,7 +171,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 <SceneTitleSection name="Observation not found" resourceType={{ type: 'replay_vision' }} />
                 <p className="text-muted">
                     This observation either doesn't exist or you don't have access to it.{' '}
-                    <Link to={urls.replayVision()}>Back to scanners</Link>.
+                    <Link to={urls.replayVision()}>Go to Replay vision</Link>.
                 </p>
             </SceneContent>
         )
@@ -152,7 +182,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
-    const scannerName = snapshot?.name || 'Scanner'
+    const scannerName = scannerLabel(observation)
     const triggerLabel = OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
     const snapshotConfig = configFromSnapshot(snapshot)
     const prompt = snapshotConfig?.prompt ?? null
@@ -193,7 +223,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    const observationUrl = (id: string): string => observationDetailUrl(id, neighborParams)
+    // Prev/next keeps the return params too, so back still lands on the list view the reader came from.
+    const observationUrl = (id: string): string =>
+        observationDetailUrl(id, { ...neighborParams, ...scannerReturnParams(searchParams) })
 
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {
@@ -390,11 +422,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <ScannerTypeBadge scannerType={scannerType} />
                                 </LabeledRow>
                             )}
-                            {prompt && scannerType !== 'summarizer' && (
-                                <LabeledRow label="Prompt">
-                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
-                                </LabeledRow>
-                            )}
                             <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : ''}>
                                 <ObservationPrimaryOutput
                                     observation={observation}
@@ -403,6 +430,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     copyable
                                 />
                             </LabeledRow>
+                            {prompt && scannerType !== 'summarizer' && <PromptRow prompt={prompt} />}
                             {observation.completed_at && (
                                 <LabeledRow label="Event">
                                     <Link to={urls.event(observation.id, observation.completed_at)}>
@@ -444,6 +472,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     </section>
                 )}
             </div>
+
+            <ObservationPinnedProperties sessionId={observation.session_id} />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>

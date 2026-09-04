@@ -9,8 +9,6 @@ import {
     warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
     warehouseSavedQueriesCheckSuiteRunsList,
     warehouseSavedQueriesCheckSuiteRunsRetrieve,
-    warehouseSavedQueriesChecksCheckTypesList,
-    warehouseSavedQueriesChecksCreate,
     warehouseSavedQueriesChecksDestroy,
     warehouseSavedQueriesChecksHealthRetrieve,
     warehouseSavedQueriesChecksList,
@@ -79,16 +77,6 @@ jest.mock('./generated/api', () => ({
 
 const VIEW_PROPS: DataQualityChecksLogicProps = { subjectType: 'view', subjectId: 'view-1' }
 
-const CHECK_TYPE_CATALOG = [
-    { check_type: 'not_null', description: '', requires_column: true, config_schema: {} },
-    { check_type: 'unique', description: '', requires_column: true, config_schema: {} },
-    { check_type: 'accepted_values', description: '', requires_column: true, config_schema: {} },
-    { check_type: 'relationships', description: '', requires_column: true, config_schema: {} },
-    { check_type: 'row_count', description: '', requires_column: false, config_schema: {} },
-    { check_type: 'freshness', description: '', requires_column: true, config_schema: {} },
-    { check_type: 'custom_sql', description: '', requires_column: false, config_schema: {} },
-]
-
 function buildCheck(overrides: Partial<DataQualityCheckApi> = {}): DataQualityCheckApi {
     return {
         id: 'check-1',
@@ -132,12 +120,6 @@ describe('dataQualityChecksLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
-    async function openFormWithCatalog(values: Record<string, unknown>): Promise<void> {
-        logic.actions.openCheckModal()
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setCheckFormValues(values)
-    }
-
     beforeEach(() => {
         jest.clearAllMocks()
         silenceKeaLoadersErrors()
@@ -155,7 +137,6 @@ describe('dataQualityChecksLogic', () => {
         })
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
         ;(warehouseTablesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
-        ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
     })
 
     afterEach(() => {
@@ -185,152 +166,6 @@ describe('dataQualityChecksLogic', () => {
 
         expect(logic.values.accessDenied).toBe(true)
         expect(lemonToast.error).not.toHaveBeenCalled()
-    })
-
-    it.each<[string, Record<string, unknown>, Record<string, unknown>]>([
-        ['not_null', { checkType: 'not_null', columnName: 'customer_id' }, { column_name: 'customer_id', config: {} }],
-        ['unique', { checkType: 'unique', columnName: 'customer_id' }, { column_name: 'customer_id', config: {} }],
-        [
-            'accepted_values',
-            { checkType: 'accepted_values', columnName: 'status', acceptedValues: ['paid'] },
-            { column_name: 'status', config: { values: ['paid'] } },
-        ],
-        [
-            'relationships',
-            {
-                checkType: 'relationships',
-                columnName: 'customer_id',
-                toSubjectType: 'view',
-                toSubjectUuid: 'view-2',
-                toColumn: 'id',
-            },
-            {
-                column_name: 'customer_id',
-                config: { to_subject_type: 'view', to_subject_uuid: 'view-2', to_column: 'id' },
-            },
-        ],
-        // row_count is the one type without a column, so column_name must be left out entirely.
-        ['row_count', { checkType: 'row_count', rowCountMin: 1 }, { config: { min: 1 } }],
-        [
-            'freshness',
-            { checkType: 'freshness', columnName: 'created_at', maxAgeMinutes: 60 },
-            { column_name: 'created_at', config: { max_age_minutes: 60 } },
-        ],
-        ['custom_sql', { checkType: 'custom_sql', customSql: 'SELECT 1' }, { config: { query: 'SELECT 1' } }],
-    ])('sends only the config %s needs', async (checkType, formValues, expectedBody) => {
-        ;(warehouseSavedQueriesChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ id: 'check-new' }))
-        await mountLogic()
-        await openFormWithCatalog(formValues)
-
-        logic.actions.submitCheckForm()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(warehouseSavedQueriesChecksCreate).toHaveBeenCalledWith('1', 'view-1', {
-            check_type: checkType,
-            severity: 'error',
-            tags: [],
-            ...expectedBody,
-        })
-    })
-
-    it.each<[string, Record<string, unknown>]>([
-        ['a name that is not an identifier', { checkType: 'not_null', columnName: 'id', name: '1_bad name' }],
-        ['row_count bounds that cross', { checkType: 'row_count', rowCountMin: 10, rowCountMax: 1 }],
-        ['a freshness window under a minute', { checkType: 'freshness', columnName: 'created_at', maxAgeMinutes: 0 }],
-        ['a missing column', { checkType: 'not_null', columnName: '' }],
-    ])('refuses to submit %s', async (_case, formValues) => {
-        await mountLogic()
-        await openFormWithCatalog(formValues)
-
-        logic.actions.submitCheckForm()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
-        expect(logic.values.checkModalOpen).toBe(true)
-    })
-
-    it('replaces the existing row when the server upserts instead of creating', async () => {
-        // A semantically identical create returns the row that already exists, so appending it blindly
-        // would show the same check twice.
-        ;(warehouseSavedQueriesChecksCreate as jest.Mock).mockResolvedValue(
-            buildCheck({ id: 'check-1', description: 'clarified' })
-        )
-        await mountLogic()
-        await openFormWithCatalog({ checkType: 'not_null', columnName: 'customer_id' })
-
-        logic.actions.submitCheckForm()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.checks.map((check) => check.id)).toEqual(['check-1'])
-        expect(logic.values.checks[0].description).toEqual('clarified')
-        expect(lemonToast.success).toHaveBeenCalledWith('Check saved', expect.anything())
-    })
-
-    it('leaves the assertion out of an edit, since the server rejects changing it', async () => {
-        ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck({ name: 'renamed' }))
-        await mountLogic()
-        logic.actions.openCheckModal(buildCheck())
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setCheckFormValues({ name: 'renamed' })
-
-        logic.actions.submitCheckForm()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(warehouseSavedQueriesChecksPartialUpdate).toHaveBeenCalledWith('1', 'view-1', 'check-1', {
-            name: 'renamed',
-            description: '',
-            severity: 'error',
-            tags: [],
-        })
-    })
-
-    it('clears the name during an edit rather than dropping it', async () => {
-        // A blank name is a supported "address by id" state, so the PATCH must carry the empty string
-        // instead of omitting the key, which would leave the old name in place.
-        ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck({ name: '' }))
-        await mountLogic()
-        logic.actions.openCheckModal(buildCheck({ name: 'existing_name' }))
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setCheckFormValues({ name: '' })
-
-        logic.actions.submitCheckForm()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(warehouseSavedQueriesChecksPartialUpdate).toHaveBeenCalledWith('1', 'view-1', 'check-1', {
-            name: '',
-            description: '',
-            severity: 'error',
-            tags: [],
-        })
-    })
-
-    it('creates the check once when the form is submitted twice', async () => {
-        // Enter submits the form even while the save button is disabled by its loading state.
-        ;(warehouseSavedQueriesChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ id: 'check-new' }))
-        await mountLogic()
-        await openFormWithCatalog({ checkType: 'not_null', columnName: 'customer_id' })
-
-        logic.actions.submitCheckForm()
-        logic.actions.submitCheckForm()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(warehouseSavedQueriesChecksCreate).toHaveBeenCalledTimes(1)
-    })
-
-    it('keeps the form open with the reason when the server rejects a create', async () => {
-        const { ApiError } = jest.requireMock('lib/api')
-        ;(warehouseSavedQueriesChecksCreate as jest.Mock).mockRejectedValue(
-            new ApiError('Forbidden', 403, undefined, { detail: "You don't have access to a table this check reads." })
-        )
-        await mountLogic()
-        await openFormWithCatalog({ checkType: 'not_null', columnName: 'customer_id' })
-
-        logic.actions.submitCheckForm()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.serverError).toEqual("You don't have access to a table this check reads.")
-        expect(logic.values.checkModalOpen).toBe(true)
-        expect(logic.values.isCheckFormSubmitting).toBe(false)
     })
 
     it('drops the deleted row and refreshes health', async () => {

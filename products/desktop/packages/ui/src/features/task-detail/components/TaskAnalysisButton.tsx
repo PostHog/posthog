@@ -7,6 +7,7 @@ import {
 import type { Task } from "@posthog/shared/domain-types";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { toast } from "@posthog/ui/primitives/toast";
+import type { ReactElement } from "react";
 import { useAuthenticatedMutation } from "../../../hooks/useAuthenticatedMutation";
 import { navigateToTaskDetail } from "../../../router/navigationBridge";
 import { track } from "../../../shell/analytics";
@@ -17,11 +18,15 @@ interface AnalyzeResult {
   created: boolean;
 }
 
-export function TaskAnalysisButton({ task }: { task: Task }) {
+export interface TaskAnalysisControls {
+  canAnalyze: boolean;
+  isPending: boolean;
+  run: () => void;
+}
+
+export function useTaskAnalysis(task: Task): TaskAnalysisControls {
   const enabled = useFeatureFlag(TASK_ANALYSIS_FLAG) || import.meta.env.DEV;
   const runId = task.latest_run?.id;
-  const isAnalyzableOrigin = task.origin_product !== "task_analysis";
-
   const mutation = useAuthenticatedMutation<AnalyzeResult, Error, void>(
     (client) => {
       if (!runId) throw new Error("This task has no run to analyze yet.");
@@ -47,21 +52,33 @@ export function TaskAnalysisButton({ task }: { task: Task }) {
     },
   );
 
-  if (
-    !enabled ||
-    !runId ||
-    !isAnalyzableOrigin ||
-    !isTerminalStatus(task.latest_run?.status)
-  )
-    return null;
+  return {
+    canAnalyze:
+      enabled &&
+      !!runId &&
+      task.origin_product !== "task_analysis" &&
+      isTerminalStatus(task.latest_run?.status),
+    isPending: mutation.isPending,
+    run: () => mutation.mutate(),
+  };
+}
+
+export function TaskAnalysisButton({
+  task,
+}: {
+  task: Task;
+}): ReactElement | null {
+  const { canAnalyze, isPending, run } = useTaskAnalysis(task);
+
+  if (!canAnalyze) return null;
 
   return (
     <Button
       size="sm"
       variant="outline"
-      onClick={() => mutation.mutate()}
-      loading={mutation.isPending}
-      disabled={mutation.isPending}
+      onClick={run}
+      loading={isPending}
+      disabled={isPending}
     >
       Run analysis
     </Button>

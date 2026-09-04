@@ -29,19 +29,20 @@ from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.api import (
-    DESTINATION_TEMPLATE_IDS,
+    DESTINATION_SPECS,
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertScheduleRestriction,
     DestinationType,
     build_alert_destination_config,
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
+    owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -81,6 +82,7 @@ UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
 )
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
 
 
 class LogsAlertListQuerySerializer(serializers.Serializer):
@@ -157,6 +159,27 @@ class LogsAlertFiltersField(serializers.JSONField):
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
 class ScheduleRestrictionField(serializers.JSONField):
     pass
+
+
+class LogsAlertDestinationResponseSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
+
+
+class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
+    type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
+    enabled = serializers.BooleanField(
+        help_text=(
+            "Whether every HogFunction in the group is enabled, so the destination notifies for all "
+            "alert event kinds. This is the stored setting: a destination PostHog stopped delivering "
+            "to after repeated failures still reads as true."
+        )
+    )
+    slack_workspace_id = serializers.IntegerField(required=False)
+    slack_channel_id = serializers.CharField(required=False)
+    webhook_url = serializers.CharField(
+        required=False,
+        help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
+    )
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -376,16 +399,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
-        # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
-        team_id = obj.team_id
+        # Only template_id is read. Reading the whole destination would pull its stored
+        # inputs, several KB per row, for every alert on the page.
+        # N+1 is acceptable: max 20 alerts per team, each query a fast indexed lookup.
         configured_template_ids = set(
-            HogFunction.objects.filter(
-                team_id=team_id,
-                deleted=False,
-                template_id__in=(
-                    DESTINATION_TEMPLATE_IDS[destination_type] for destination_type in LOGS_DESTINATION_TYPES
-                ),
-                filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
+            owned_alert_destinations_qs(
+                team_id=obj.team_id,
+                alert_ids=[str(obj.id)],
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
             .values_list("template_id", flat=True)
             .distinct()
@@ -393,7 +414,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         return sorted(
             destination_type.value
             for destination_type in LOGS_DESTINATION_TYPES
-            if DESTINATION_TEMPLATE_IDS[destination_type] in configured_template_ids
+            if DESTINATION_SPECS[destination_type].template_id in configured_template_ids
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -617,6 +638,39 @@ def _validate_filters(filters: dict) -> None:
         )
 
 
+class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
+    """One alert, with the destinations attached to it. The list endpoint leaves them out:
+    reading a destination pulls its stored inputs, which run to several KB per row."""
+
+    destinations = serializers.SerializerMethodField(
+        help_text=(
+            "This alert's notification destinations, one entry per destination. Each carries the "
+            "HogFunction IDs that delete it as a group, and its configuration with credential-bearing "
+            "URL components removed."
+        ),
+    )
+
+    class Meta(LogsAlertConfigurationSerializer.Meta):
+        fields = [*LogsAlertConfigurationSerializer.Meta.fields, "destinations"]
+        read_only_fields = [*LogsAlertConfigurationSerializer.Meta.read_only_fields, "destinations"]
+
+    @extend_schema_field(LogsAlertDestinationConfigSerializer(many=True))
+    def get_destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
+        groups = list_alert_destination_groups(
+            team_id=obj.team_id,
+            alert_id=str(obj.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+        )
+        return [
+            {
+                "hog_function_ids": list(group.hog_function_ids),
+                "enabled": group.fully_enabled,
+                **DESTINATION_SPECS[DestinationType(group.data["type"])].redact(group.data),
+            }
+            for group in groups
+        ]
+
+
 class LogsAlertEventSerializer(serializers.ModelSerializer):
     class Meta:
         model = LogsAlertEvent
@@ -753,13 +807,8 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
-        max_length=len(LOGS_ALERT_EVENT_IDS),
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
-
-
-class LogsAlertDestinationResponseSerializer(serializers.Serializer):
-    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
 
 def _build_reason(
@@ -861,6 +910,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"
+
+    def get_serializer_class(self) -> type[LogsAlertConfigurationSerializer]:
+        # Only a single-alert read carries the destinations. Every other action would pay
+        # for their stored inputs without a caller that wants them.
+        if self.action == "retrieve":
+            return LogsAlertConfigurationDetailSerializer
+        return LogsAlertConfigurationSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
@@ -967,7 +1023,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 for kind in EVENT_KINDS
             ]
-            hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
+            hog_functions = create_alert_destination_hog_functions(
+                configs,
+                request=self.request,
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
 
         report_user_action(
             request.user,
@@ -991,6 +1052,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
+            groups = list_alert_destination_groups(
+                team_id=self.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
+            largest_server_group = max((len(group.hog_function_ids) for group in groups), default=0)
+            if len(hog_function_ids) > max(MAX_DESTINATION_IDS_PER_DELETE_REQUEST, largest_server_group):
+                raise ValidationError({"hog_function_ids": "Too many destination IDs."})
             soft_delete_alert_destinations(
                 team_id=self.team_id,
                 alert_id=str(alert.id),

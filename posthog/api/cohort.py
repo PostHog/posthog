@@ -39,7 +39,11 @@ from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.flags_service import FlagVersionConflictError, batch_evaluate_flag_for_team
+from posthog.api.services.flags_service import (
+    FlagVersionConflictError,
+    PropertyMatchingVersionConflictError,
+    batch_evaluate_flag_for_team,
+)
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
@@ -59,6 +63,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -74,12 +79,11 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property
-from posthog.models.team.team import Team
+from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
+from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
-from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
@@ -102,10 +106,14 @@ from products.cohorts.backend.models.util import (
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    PropertyMatchingVersion,
+    TeamFeatureFlagsConfig,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 
-# Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
+# Mirrors SerializedPerson in posthog/hogql_queries/serialized_actors.py.
 # Nullability mirrors the TypedDict: only Optional[...] fields are nullable; matched_recordings
 # and value_at_data_point are always present in the response (always-set keys), even if empty/None.
 class CohortPersonResultSerializer(serializers.Serializer):
@@ -555,7 +563,8 @@ class CSVConfig:
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
-    ENCODING = "utf-8"
+    # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
+    ENCODING = "utf-8-sig"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
@@ -1002,12 +1011,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 result = self._find_id_column(first_row)
 
                 if result is None:
-                    available_headers = [h for h in first_row if h.strip()]
+                    available_headers = [h.strip() for h in first_row if h.strip()]
                     raise ValidationError(
                         {
                             "csv": [
                                 CSVConfig.ErrorMessages.MISSING_ID_COLUMN.format(
-                                    columns=", ".join(available_headers) if available_headers else "none"
+                                    columns=", ".join(f"'{h}'" for h in available_headers)
+                                    if available_headers
+                                    else "none"
                                 )
                             ]
                         }
@@ -1692,9 +1703,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if is_basic_list:
                 queryset = queryset.defer("query")
 
-        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
-        # one query instead of the two extra round-trips `prefetch_related` costs.
-        queryset = queryset.select_related("created_by", "team")
+        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in one query
+        # instead of the extra round-trips `prefetch_related` costs. The list serializer never
+        # reads `cohort.team`, so the list path only `select_related`s `created_by`. Project
+        # scoping still JOINs `posthog_team` to filter on `project_id`, but without hydration that
+        # JOIN reads only the id — not the full team payload (heavy JSON and array columns) each
+        # cohort row would otherwise carry. Detail and write actions do read `cohort.team`, so they
+        # keep the hydrating JOIN but re-apply `.defer(*DEPRECATED_ATTRS)` — mirroring
+        # `TeamManager`'s lazy-load defer — so the deprecated taxonomy columns, which TOAST out to
+        # megabytes per team, stay off it.
+        if self.action == "list":
+            queryset = queryset.select_related("created_by")
+        else:
+            queryset = queryset.select_related("created_by", "team").defer(
+                *(f"team__{attr}" for attr in DEPRECATED_ATTRS)
+            )
 
         # `experiment_set` is a reverse relation (a prefetch) and the per-row correlated
         # subquery over CohortCalculationHistory only feeds `last_error_message`. The basic
@@ -2130,6 +2153,7 @@ def _batch_evaluate_flag_page_with_retries(
     project_id: int,
     flag_key: str,
     expected_version: int,
+    expected_property_matching_version: int,
     cursor: int,
     limit: int,
 ) -> dict[str, Any]:
@@ -2144,11 +2168,12 @@ def _batch_evaluate_flag_page_with_retries(
                 project_id=project_id,
                 flag_key=flag_key,
                 expected_version=expected_version,
+                expected_property_matching_version=expected_property_matching_version,
                 cursor=cursor,
                 limit=limit,
             )
-        except FlagVersionConflictError:
-            # Permanent: the flag changed mid-run; retrying the same page cannot help.
+        except (FlagVersionConflictError, PropertyMatchingVersionConflictError):
+            # Permanent: the pinned evaluation inputs changed; retrying the same page cannot help.
             raise
         except requests.RequestException as err:
             if (
@@ -2201,6 +2226,12 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     # service refuses to evaluate under any other, so a run can never mix two
     # definitions of the flag. Nullable versions coerce to 0 on both sides.
     expected_version = feature_flag.version or 0
+    expected_property_matching_version = (
+        TeamFeatureFlagsConfig.objects.filter(team_id=team_id)
+        .values_list("property_matching_version", flat=True)
+        .first()
+        or PropertyMatchingVersion.LEGACY
+    )
 
     started_at = timezone.now()
     start_monotonic = time.monotonic()
@@ -2214,6 +2245,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 project_id=project_id,
                 flag_key=feature_flag.key,
                 expected_version=expected_version,
+                expected_property_matching_version=expected_property_matching_version,
                 cursor=cursor,
                 limit=batchsize,
             )
@@ -2266,7 +2298,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         )
         capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
         error_code = (
-            CohortErrorCode.FLAG_CHANGED if isinstance(err, FlagVersionConflictError) else CohortErrorCode.UNKNOWN
+            CohortErrorCode.FLAG_CHANGED
+            if isinstance(err, (FlagVersionConflictError, PropertyMatchingVersionConflictError))
+            else CohortErrorCode.UNKNOWN
         )
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome=error_code.value).inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome=error_code.value).observe(

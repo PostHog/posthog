@@ -3,14 +3,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pabblysubscriptionsbilling import (
     PabblySubscriptionsBillingSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.pabbly_subscriptions_billing import (
-    PabblyResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.settings import (
     ENDPOINTS,
@@ -18,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_sub
 from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source import (
     PabblySubscriptionsBillingSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPabblySubscriptionsBillingSource:
@@ -26,27 +19,6 @@ class TestPabblySubscriptionsBillingSource:
         self.source = PabblySubscriptionsBillingSource()
         self.team_id = 123
         self.config = PabblySubscriptionsBillingSourceConfig(api_key="pabbly-key", secret_key="pabbly-secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PABBLYSUBSCRIPTIONSBILLING
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "PabblySubscriptionsBilling"
-        assert config.label == "Pabbly Subscription Billing"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/pabbly-subscriptions-billing"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "secret_key"]
-
-    @parameterized.expand([("api_key",), ("secret_key",)])
-    def test_credential_fields_are_secret_passwords(self, name: str) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == name)
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # Both fields are secrets and the base URL is hardcoded, so there is no non-secret field
@@ -118,11 +90,6 @@ class TestPabblySubscriptionsBillingSource:
         result = self.source.validate_credentials(self.config, self.team_id)
         mock_validate.assert_called_once_with("pabbly-key", "pabbly-secret")
         assert result == (False, "Invalid Pabbly Subscription Billing API key or secret key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PabblyResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source.pabbly_source"

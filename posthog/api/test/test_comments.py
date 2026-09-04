@@ -19,11 +19,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.redis import get_client
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):

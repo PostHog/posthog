@@ -236,12 +236,12 @@ class Settings(BaseSettings):
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"
-    plan_cache_ttl: int = 900  # 15 minutes
 
     desktop_access_gate_enabled: bool = True
-    desktop_access_cache_ttl: int = 900
-    desktop_access_denied_cache_ttl: int = 60
-    desktop_access_request_timeout: float = 2.0
+    desktop_access_cache_ttl: int = 60
+    desktop_access_denied_cache_ttl: int = 30
+    desktop_access_request_timeout: float = 6.0
+    desktop_access_max_connections: int = 10
 
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.

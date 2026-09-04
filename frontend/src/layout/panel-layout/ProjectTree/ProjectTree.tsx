@@ -1,13 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import {
@@ -26,11 +25,10 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
@@ -54,6 +52,11 @@ export interface ProjectTreeProps {
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /**
+     * Runs in addition to the tree's own click handling, not instead of it. A caller that renders
+     * the tree inside a larger surface uses this to report the click in that surface's own terms.
+     */
+    onItemClicked?: (item: TreeDataItem | undefined) => void
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -62,18 +65,6 @@ export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
-const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
-
-const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
-    [UserProductListReason.USED_BY_COLLEAGUES]:
-        'We think you might like this product because your colleagues are using it.',
-    [UserProductListReason.USED_SIMILAR_PRODUCTS]:
-        'We think you might like this product because you use similar products. Give it a try!',
-    [UserProductListReason.USED_ON_SEPARATE_TEAM]:
-        'You use this product on another project so we think you might like it here.',
-    [UserProductListReason.NEW_PRODUCT]: 'This is a brand new product. Give it a try!',
-    [UserProductListReason.SALES_LED]: 'This product is recommended for you by our team.',
-}
 
 // Show active state for items that are active in the URL
 const isItemActive = (item: TreeDataItem): boolean => {
@@ -114,6 +105,7 @@ export function ProjectTree({
     selectModeOverride,
     checkedItemsOverride,
     onItemCheckedOverride,
+    onItemClicked,
     isActiveInPanel,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
@@ -158,7 +150,6 @@ export function ProjectTree({
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
@@ -167,14 +158,8 @@ export function ProjectTree({
         false
     )
 
-    const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
-        `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
-        []
-    )
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
-
-    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
@@ -231,15 +216,6 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
-    const handleMouseEnterIndicator = useCallback(
-        (itemId: string): void => {
-            if (!seenCustomProducts.includes(itemId)) {
-                setTimeout(() => setSeenCustomProducts((state) => [...state, itemId]), 250)
-            }
-        },
-        [seenCustomProducts, setSeenCustomProducts]
-    )
-
     const tree = (
         <LemonTree
             ref={treeRef}
@@ -274,6 +250,8 @@ export function ProjectTree({
                     has_href: !!item?.record?.href,
                     name: item?.name ?? null,
                 })
+
+                onItemClicked?.(item)
 
                 if (item?.record?.href) {
                     router.actions.push(
@@ -330,7 +308,6 @@ export function ProjectTree({
                 // Sibling reorder within the Starred (shortcuts://) list. All the index/position
                 // math lives in the kea logic so the component can stay focused on rendering.
                 if (
-                    isStarredReorderEnabled &&
                     typeof oldId === 'string' &&
                     typeof newId === 'string' &&
                     shortcutEntryIdMap.has(oldId) &&
@@ -370,7 +347,7 @@ export function ProjectTree({
             }}
             isItemDraggable={(item) => {
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
@@ -380,7 +357,7 @@ export function ProjectTree({
 
                 // Allow dropping onto other top-level starred items to reorder them.
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
 
                 // disable dropping for these IDS
@@ -477,21 +454,6 @@ export function ProjectTree({
                     root === 'custom-products://'
                 ) {
                     const key = item.record?.sceneKey
-                    const reason = item.record?.reason as UserProductListReason | undefined
-                    const reasonText = item.record?.reason_text as string | null | undefined
-
-                    const suggestedProductBaseTooltipText =
-                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
-                    const tooltipText = suggestedProductBaseTooltipText ? (
-                        <>
-                            {suggestedProductBaseTooltipText}
-                            <br />
-                            <br />
-                            Open the three-dot menu to remove from the sidebar.
-                            <br />
-                            <br />
-                        </>
-                    ) : undefined
 
                     return (
                         <>
@@ -500,7 +462,6 @@ export function ProjectTree({
                                     <p className="mb-1 font-semibold">{item.displayName}</p>
                                 </>
                             )}
-                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -566,26 +527,6 @@ export function ProjectTree({
                 return undefined
             }}
             renderItemIcon={(item) => {
-                const createdAt = item.record?.created_at
-                const reason = item.record?.reason as UserProductListReason | undefined
-                const reasonText = item.record?.reason_text as string | null | undefined
-                const itemId = item.id
-
-                // This indicator is shown if we detect we're looking at a custom product
-                // that's been recently added to the user's sidebar.
-                // We extract the `reasonText` from the item or come up with some default
-                // ones for some specific reasons that have a reasonable default.
-                // We exclude USED_ON_SEPARATE_TEAM as those are not particularly useful to highlight.
-                // We also hide the indicator once the user has hovered over the item.
-                const showIndicator =
-                    root === 'custom-products://' &&
-                    createdAt &&
-                    dayjs().diff(dayjs(createdAt), 'days') < 7 &&
-                    reason &&
-                    reason !== UserProductListReason.USED_ON_SEPARATE_TEAM &&
-                    (reasonText || USER_PRODUCT_LIST_REASON_DEFAULTS[reason]) &&
-                    !seenCustomProducts.includes(itemId)
-
                 return (
                     <>
                         {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
@@ -595,12 +536,7 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <div className="relative" onMouseEnter={() => handleMouseEnterIndicator(itemId)}>
-                            <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
-                            {showIndicator && (
-                                <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
-                            )}
-                        </div>
+                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                     </>
                 )
             }}

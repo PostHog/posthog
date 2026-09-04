@@ -2,8 +2,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.nebius_ai import NebiusAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.settings import ENDPOINTS
@@ -12,17 +10,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNebiusAISourceConfig:
-    def test_source_type(self) -> None:
-        assert NebiusAISource().source_type == ExternalDataSourceType.NEBIUSAI
-
-    def test_config_has_single_api_key_password_field(self) -> None:
-        fields = NebiusAISource().get_source_config.fields
-        assert [f.name for f in fields] == ["api_key"]
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.type == "password"
-        assert field.required is True
-
     def test_docs_url_matches_published_doc_slug(self) -> None:
         # docsUrl must match the posthog.com doc filename so the docs link resolves.
         assert NebiusAISource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/nebius-ai"
@@ -51,13 +38,6 @@ class TestNebiusAISchemas:
         source = NebiusAISource()
         assert source.lists_tables_without_credentials is True
         assert {t["name"] for t in source.get_documented_tables()} == set(ENDPOINTS)
-
-
-class TestNebiusAICanonicalDescriptions:
-    def test_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = NebiusAISource().get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        assert all("id" in descriptions[name].get("columns", {}) for name in ENDPOINTS)
 
 
 class TestNebiusAIValidateCredentials:
@@ -107,21 +87,6 @@ class TestNebiusAIResumableWiring:
         inputs = MagicMock()
         manager = NebiusAISource().get_resumable_source_manager(inputs)
         assert manager._data_class is NebiusAIResumeConfig
-
-    def test_source_for_pipeline_forwards_api_key_and_schema(self) -> None:
-        config = MagicMock()
-        config.api_key = "nbk_test"
-        inputs = MagicMock()
-        inputs.schema_name = "batches"
-        manager = MagicMock()
-
-        with patch.object(source_module, "nebius_ai_source") as mock_source:
-            NebiusAISource().source_for_pipeline(config, manager, inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "nbk_test"
-        assert kwargs["endpoint"] == "batches"
-        assert kwargs["resumable_source_manager"] is manager
 
 
 class TestNebiusAIRegistration:

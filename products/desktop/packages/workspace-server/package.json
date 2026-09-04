@@ -6,8 +6,7 @@
   "type": "module",
   "exports": {
     "./*": [
-      "./src/*.ts",
-      "./src/*.tsx"
+      "./src/*.ts"
     ]
   },
   "scripts": {
@@ -21,6 +20,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",
     "@anthropic-ai/claude-agent-sdk": "0.3.156",
+    "@earendil-works/pi-coding-agent": "catalog:",
     "@hono/node-server": "catalog:",
     "@hono/trpc-server": "catalog:",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -33,7 +33,7 @@
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
     "@trpc/server": "catalog:",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^12.10.1",
     "drizzle-orm": "^0.45.1",
     "fflate": "^0.8.2",
     "hono": "catalog:",
@@ -51,6 +51,8 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
     "drizzle-kit": "^0.31.9",
+    "memfs": "^4.57.3",
+    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "^4.1.8"
   }

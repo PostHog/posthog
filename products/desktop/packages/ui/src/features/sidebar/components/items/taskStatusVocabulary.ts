@@ -24,6 +24,7 @@ import { SlackMark } from "@posthog/ui/primitives/SlackMark";
  */
 export type TaskStatusInput = TaskIconProps & {
   prUrl?: string | null;
+  isAgentSessionStarting?: boolean;
 };
 
 /**
@@ -109,19 +110,12 @@ export interface TaskDot {
  *
  * A cloud run's queued is folded into working for the same reason. "Waiting on a
  * sandbox" and "a sandbox is writing code" are one fact to the reader, that it's
- * under way, so they share the spinner. Two states don't share it: a local run
- * at `queued`, whose persisted status nothing ever advances, and a run at
- * `in_progress` with nothing streaming. Both claims outlive the work, and a
- * spinner that never stops is a lie about the machine.
+ * under way, so they share the spinner. A local run at `queued`, or any run at
+ * `in_progress` with nothing streaming, is not a live signal by itself: those
+ * persisted states can outlive the work, so neither earns an attention dot.
  *
- * And a run that has already opened a PR is not working, whatever its status
- * says. The cloud workflow keeps the run `in_progress` while it babysits CI
- * after opening the PR, and under a merge queue that wait ends only when someone
- * enqueues the merge — so the run can claim to be working for hours after the
- * agent stopped. The PR is the deliverable; once it exists the badge carries the
- * story and the dot goes quiet. This beats a status that merely claims work, not
- * one that is visibly starting: a re-queued cloud run keeps its spinner even
- * with last run's PR still on the task.
+ * A run that has already opened a PR follows the same rule. The PR badge carries
+ * that story; only a visibly starting or streaming run lights the dot.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
   if (props.needsPermission) {
@@ -146,29 +140,14 @@ export function taskDot(props: TaskStatusInput): TaskDot {
   // status, so it can sit there for hours after the agent is done with it.
   const isStartingCloudRun =
     props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
-  if (props.isGenerating || isStartingCloudRun) {
+  const isStarting = props.isAgentSessionStarting || isStartingCloudRun;
+  if (props.isGenerating || isStarting) {
     return {
       tone: "yellow",
       style: "solid",
       pulse: false,
       spinner: true,
-      label: props.isGenerating ? "Working" : "Starting",
-    };
-  }
-  // Only a background run's status is a claim about work. An interactive run is
-  // left `in_progress` after it succeeds, deliberately — the session stays open
-  // for a follow-up, so the status says "followable", not "working". Reading it
-  // as a claim marked every finished session as pending, on a row nobody could
-  // clear: opening the session writes a viewed timestamp, not a status.
-  const runClaimsWork =
-    props.runMode === "background" &&
-    (props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued");
-  if (runClaimsWork && !hasPullRequest(props)) {
-    return {
-      tone: "yellow",
-      style: "solid",
-      pulse: false,
-      label: "Pending — no work in flight",
+      label: props.isGenerating && !isStarting ? "Working" : "Starting",
     };
   }
   if (props.isUnread) {
@@ -197,14 +176,6 @@ export function taskDot(props: TaskStatusInput): TaskDot {
     pulse: false,
     label: "All caught up",
   };
-}
-
-/**
- * Whether a PR exists at all, by either route: the state from a GitHub lookup,
- * or just the url the run wrote when it opened one.
- */
-function hasPullRequest(props: TaskStatusInput): boolean {
-  return props.prState != null || !!props.prUrl;
 }
 
 export interface TaskBadge {
