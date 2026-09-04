@@ -215,6 +215,7 @@ async def judge_edited_report_content(
     title: str | None = None,
     summary: str | None = None,
     note: str | None = None,
+    signals: Sequence[ScoutReportSignal] = (),
     charts: Sequence[ReportChart] = (),
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
@@ -235,6 +236,9 @@ async def judge_edited_report_content(
         safety_input.append(_report_content_signal(title or "", summary or ""))
     if note is not None:
         safety_input.append(_report_content_signal("Report work-log note", note))
+    # Appended evidence is judged exactly as emitted evidence is: the descriptions are embedded and
+    # rendered on the report, so the edit path must not be an unjudged door into the evidence rail.
+    safety_input.extend(_to_signal_data(list(signals)))
     chart_signal = _chart_signal(charts)
     if chart_signal is not None:
         safety_input.append(chart_signal)
