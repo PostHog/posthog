@@ -35,7 +35,7 @@ Every delivered message is charged to its partition's ledger during collection, 
 `ingestion_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `ingestion_consumer_ledger_uncommitted_events` and `ingestion_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 `ingestion_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
 `ingestion_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger, and the consumer keeps running.
-`CONSUMER_OFFSET_LEDGER_SHADOW_ENABLED` (default `true`) is the kill switch: off, the consumer builds no ledger at all, so nothing is charged, settled, forgotten on rebalance, or reported.
+`CONSUMER_OFFSET_LEDGER_MODE` selects the source of offset commits: `off` commits the per-batch max offset and builds no ledger at all, so nothing is charged, settled, forgotten on rebalance, or reported; `shadow` (default) commits the same offset and compares the ledger frontier with it; `commit` commits the ledger frontier after that comparison, and a partition that settles without a frontier stays on its last commit.
 
 ## Debug API
 
