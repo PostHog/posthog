@@ -20,6 +20,7 @@ import { SessionReplayHeaders } from './pipeline-types'
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
+const CLOCK_SKEW_QUANTUM_MS = 5 * 60 * 1000
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 // Compression-bomb cap (mirrors the Rust addon): ~6x the 10 MB largest payload in a production
 // sample; exceeding it DLQs instead of risking an unclassifiable OOM.
@@ -79,7 +80,34 @@ export function decompressMessageValue(message: Message): Buffer {
     return messageUnzipped
 }
 
-function getValidEvents(events: unknown[]): {
+// null when capture recorded no usable pair, which must not read as zero skew.
+function rawClockSkewMs(sentAt: string | undefined, now: string | undefined): number | null {
+    if (!sentAt || !now) {
+        return null
+    }
+    const sentAtMs = DateTime.fromISO(sentAt).toMillis()
+    const nowMs = DateTime.fromISO(now).toMillis()
+    if (!Number.isFinite(sentAtMs) || !Number.isFinite(nowMs)) {
+        return null
+    }
+    return sentAtMs - nowMs
+}
+
+// The raw skew includes per-request network latency. Rounding to a coarse quantum gives every
+// message of a session the same correction, so latency cannot reorder events the player sorts by
+// timestamp, and a well-behaved clock rounds to zero.
+function quantizedClockSkewMs(sentAt: string | undefined, now: string | undefined): number {
+    const rawSkew = rawClockSkewMs(sentAt, now)
+    if (rawSkew === null) {
+        return 0
+    }
+    return Math.round(rawSkew / CLOCK_SKEW_QUANTUM_MS) * CLOCK_SKEW_QUANTUM_MS
+}
+
+function getValidEvents(
+    events: unknown[],
+    clockSkewMs: number
+): {
     validEvents: SnapshotEvent[]
     startDateTime: DateTime
     endDateTime: DateTime
@@ -90,6 +118,8 @@ function getValidEvents(events: unknown[]): {
             if (!parseResult.success || parseResult.data.timestamp <= 0) {
                 return null
             }
+            // Corrected on the event object because the recorder serializes it into the blob.
+            parseResult.data.timestamp -= clockSkewMs
             return {
                 event: parseResult.data,
                 dateTime: DateTime.fromMillis(parseResult.data.timestamp),
@@ -127,17 +157,11 @@ function getValidEvents(events: unknown[]): {
  * when the client sends none, so those messages count as unmeasured rather than as zero.
  */
 export function observeClockSkew(sentAt: string | undefined, now: string | undefined): void {
-    if (!sentAt || !now) {
+    const skewMs = rawClockSkewMs(sentAt, now)
+    if (skewMs === null) {
         SessionRecordingIngesterMetrics.incrementMessageClockSkewUnmeasured()
         return
     }
-    const sentAtMs = DateTime.fromISO(sentAt).toMillis()
-    const nowMs = DateTime.fromISO(now).toMillis()
-    if (!Number.isFinite(sentAtMs) || !Number.isFinite(nowMs)) {
-        SessionRecordingIngesterMetrics.incrementMessageClockSkewUnmeasured()
-        return
-    }
-    const skewMs = sentAtMs - nowMs
     const direction = skewMs >= 0 ? 'device_ahead' : 'device_behind'
     SessionRecordingIngesterMetrics.observeMessageClockSkew(direction, Math.abs(skewMs) / 1000)
 }
@@ -197,7 +221,11 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
 
         const sessionId = normalizeSessionId($session_id)
 
-        const result = getValidEvents($snapshot_items)
+        const clockSkewMs = quantizedClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
+        if (clockSkewMs !== 0) {
+            SessionRecordingIngesterMetrics.observeClockSkewCorrection(clockSkewMs)
+        }
+        const result = getValidEvents($snapshot_items, clockSkewMs)
         if (!result) {
             return drop(
                 'message_contained_no_valid_rrweb_events',

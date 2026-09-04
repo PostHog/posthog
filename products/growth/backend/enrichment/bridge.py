@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+from posthog.dataclasses import frozen
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team import Team
@@ -48,14 +49,14 @@ class ClayBridgeInputs:
     clay_processed: bool = False
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class WizardBridgeInputs:
     """The wizard's own AI-SDK detection stamp for one org. False when the wizard never reported it."""
 
     ai_sdk_detected: bool = False
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class OrganizationBridgeInputs:
     clay: ClayBridgeInputs = dataclasses.field(default_factory=ClayBridgeInputs)
     wizard: WizardBridgeInputs = dataclasses.field(default_factory=WizardBridgeInputs)

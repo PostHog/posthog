@@ -251,11 +251,13 @@ _LEAD_TIME_HEADLINE_SELECT = f"""
 
 
 def _box_stat_columns(column: str, prefix: str) -> str:
-    """The six-number box-plot summary of ``column``, aliased under ``prefix``."""
+    """The box-plot summary of ``column``, aliased under ``prefix``: the six-number summary
+    plus p5/p95, the whisker pair the outlier-excluding view draws instead of min/max."""
     return (
-        f"min({column}) AS {prefix}_min, quantile(0.25)({column}) AS {prefix}_p25, "
-        f"quantile(0.5)({column}) AS {prefix}_p50, avg({column}) AS {prefix}_mean, "
-        f"quantile(0.75)({column}) AS {prefix}_p75, max({column}) AS {prefix}_max"
+        f"min({column}) AS {prefix}_min, quantile(0.05)({column}) AS {prefix}_p05, "
+        f"quantile(0.25)({column}) AS {prefix}_p25, quantile(0.5)({column}) AS {prefix}_p50, "
+        f"avg({column}) AS {prefix}_mean, quantile(0.75)({column}) AS {prefix}_p75, "
+        f"quantile(0.95)({column}) AS {prefix}_p95, max({column}) AS {prefix}_max"
     )
 
 
@@ -263,7 +265,7 @@ def _box_stat_columns(column: str, prefix: str) -> str:
 # _LEAD_TIME_SERIES_SELECT. _lead_time_bucket's ``stage`` index walks this same list, so the
 # SQL column order and the Python row-slice order can't drift independently.
 _LEAD_TIME_STAGES = (("mtd", "lead_seconds"), ("otm", "open_to_merge_seconds"), ("otd", "open_to_deploy_seconds"))
-_STAGE_STAT_WIDTH = 6  # min, p25, p50, mean, p75, max
+_STAGE_STAT_WIDTH = 8  # min, p05, p25, p50, mean, p75, p95, max
 _STAGE_MERGE_TO_DEPLOY, _STAGE_OPEN_TO_MERGE, _STAGE_OPEN_TO_DEPLOY = range(len(_LEAD_TIME_STAGES))
 
 _LEAD_TIME_SERIES_SELECT = f"""
@@ -309,10 +311,13 @@ def _date_to_clause(date_to: datetime | None, column: str) -> str:
 
 @frozen
 class _EnvironmentScope:
-    # 'production', 'persistent', or the exact environment the caller passed (see DoraOverview).
+    # 'persistent', or the exact environment name(s) the scope resolved to (see DoraOverview).
     scope: str
     # The trusted SQL predicate variant for the deploys CTE.
     predicate: str
+    # The exact environment names the predicate matches, bound as the {environments} placeholder;
+    # None for the predicate variants that match by flag rather than by name.
+    values: list[str] | None
 
 
 @frozen
@@ -338,30 +343,42 @@ class _DoraScan:
         return window_buckets(self.date_from, self.date_to, self.granularity)
 
 
-def _resolve_environment_scope(environment: str | None, environments: list[tuple[str, bool]]) -> _EnvironmentScope:
-    """Pick the deploy population: the caller's exact environment when given; otherwise the
-    deployments GitHub marks production; otherwise the busiest environment whose NAME says
-    production; otherwise the single busiest persistent environment, so a repo that never sets
-    the production flag still gets numbers instead of a false zero.
+def _resolve_environment_scope(
+    environments_filter: list[str] | None, environments: list[tuple[str, bool]]
+) -> _EnvironmentScope:
+    """Pick the deploy population: the caller's exact environment(s) when given; otherwise the
+    single busiest environment GitHub marks production; otherwise the busiest environment whose
+    NAME says production; otherwise the single busiest persistent environment, so a repo that
+    never sets the production flag still gets numbers instead of a false zero.
     The name tier exists because the ``production_environment`` flag is optional and widely
     unset, and a dev or staging environment can deploy more often than production, which would
     put every default DORA figure on that environment.
-    Busiest-single, not every-name-matched: a multi-region repo deploys each merge to several
-    production environments, which would multiply every deploy count and hand lead time to
-    whichever region deploys first. 'persistent' survives only when the window has no persistent
-    environment at all. Transient environments never join a default scope: they are ephemeral
-    per-PR previews, and on this repo they outnumber real deploys by an order of magnitude."""
-    if environment:
-        return _EnvironmentScope(scope=environment, predicate="d.environment = {environment}")
-    if any(is_production for _, is_production in environments):
-        return _EnvironmentScope(scope="production", predicate="d.is_production_environment")
-    # ``environments`` arrives busiest-first, so the first name match is the busiest match.
+    Busiest-single, not every-matching: a multi-region repo deploys each merge to several
+    production and persistent environments (and to dev, package registries, ...), which would
+    multiply every deploy count and hand lead time to whichever region deploys first.
+    'persistent' survives only when the window has no persistent environment at all. Transient
+    environments never join a default scope: they are ephemeral per-PR previews, and on this
+    repo they outnumber real deploys by an order of magnitude."""
+    if environments_filter:
+        return _EnvironmentScope(
+            scope=", ".join(environments_filter),
+            predicate="d.environment IN {environments}",
+            values=environments_filter,
+        )
+    # ``environments`` arrives busiest-first, so the first match in each tier is the busiest match.
+    production = next((name for name, is_production in environments if is_production), None)
+    if production is not None:
+        return _single_environment_scope(production)
     named = next((name for name, _ in environments if _PRODUCTION_NAME_PATTERN.match(name)), None)
     if named is not None:
-        return _EnvironmentScope(scope=named, predicate="d.environment = {environment}")
+        return _single_environment_scope(named)
     if environments:
-        return _EnvironmentScope(scope=environments[0][0], predicate="d.environment = {environment}")
-    return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment")
+        return _single_environment_scope(environments[0][0])
+    return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment", values=None)
+
+
+def _single_environment_scope(name: str) -> _EnvironmentScope:
+    return _EnvironmentScope(scope=name, predicate="d.environment IN {environments}", values=[name])
 
 
 def _empty_overview(
@@ -586,10 +603,11 @@ def query_dora_overview(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    environment: str | None = None,
+    environments_filter: list[str] | None = None,
     github_team: str | None = None,
+    granularity: Granularity | None = None,
 ) -> DoraOverview:
-    granularity = pick_granularity(date_from, date_to)
+    granularity = granularity or pick_granularity(date_from, date_to)
     deploy_sources = curated.deploy_sources()
     members_source = curated.members_source()
     has_membership_data = members_source is not None
@@ -598,7 +616,7 @@ def query_dora_overview(
     if deploy_sources is None:
         return _empty_overview(
             deploy_data_available=False,
-            environment_scope=environment or "persistent",
+            environment_scope=", ".join(environments_filter) if environments_filter else "persistent",
             environments=[],
             has_membership_data=has_membership_data,
             github_teams=github_teams,
@@ -624,11 +642,11 @@ def query_dora_overview(
         placeholders=placeholders,
         date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
-    env_scope = _resolve_environment_scope(environment, environments)
-    # The busiest-environment fallback binds the same placeholder as an explicit filter: either
-    # way the scope string IS the environment the predicate matches.
-    if "{environment}" in env_scope.predicate:
-        placeholders["environment"] = ast.Constant(value=env_scope.scope)
+    env_scope = _resolve_environment_scope(environments_filter, environments)
+    # The busiest-environment fallbacks bind the same placeholder as an explicit filter: either
+    # way ``values`` holds exactly the environment names the predicate matches.
+    if env_scope.values is not None:
+        placeholders["environments"] = ast.Tuple(exprs=[ast.Constant(value=name) for name in env_scope.values])
 
     scan = _DoraScan(
         curated=curated,
@@ -687,23 +705,27 @@ def _lead_time_bucket(bucket: datetime, stats: tuple[Any, ...] | None, *, stage:
             bucket_start=bucket,
             deployed_pr_count=0,
             min_seconds=None,
+            p05_seconds=None,
             p25_seconds=None,
             p50_seconds=None,
             mean_seconds=None,
             p75_seconds=None,
+            p95_seconds=None,
             max_seconds=None,
         )
     n = stats[0]
     offset = 1 + stage * _STAGE_STAT_WIDTH
-    min_s, p25, p50, mean, p75, max_s = stats[offset : offset + _STAGE_STAT_WIDTH]
+    min_s, p05, p25, p50, mean, p75, p95, max_s = stats[offset : offset + _STAGE_STAT_WIDTH]
     return LeadTimeBucket(
         bucket_start=bucket,
         deployed_pr_count=int(n or 0),
         min_seconds=opt_float(min_s),
+        p05_seconds=opt_float(p05),
         p25_seconds=opt_float(p25),
         p50_seconds=opt_float(p50),
         mean_seconds=opt_float(mean),
         p75_seconds=opt_float(p75),
+        p95_seconds=opt_float(p95),
         max_seconds=opt_float(max_s),
     )
 

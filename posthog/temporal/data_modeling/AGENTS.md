@@ -1,34 +1,31 @@
 # Data-modeling Temporal workflows
 
 Temporal workflows and activities that materialize data-modeling saved queries.
-v2 is the only backend. The v1 code stays registered until its schedules are removed.
+v2 is the only backend, and the only one there has ever been in this tree since v1 was deleted.
 
-## v1 — dead, pending removal
+## Layout
 
-- `run_workflow.py` (1814-line monolith).
-- Node and saved-query interactive paths always start v2. No production or management-command
-  call site creates a `data-modeling-run` schedule. Endpoint compatibility paths can still trigger
-  a pre-existing schedule until the v1 control cleanup lands.
-- `RunWorkflow` stays in `WORKFLOWS` (`__init__.py`) on purpose. A schedule that points at a
-  deregistered workflow type keeps firing, fails its workflow task, and writes no job row, so
-  the workflow can only be removed after its schedules are gone.
-
-**Do not extend v1.** No new features, no refactors, no new error types.
-The v1 code exists only until its schedules are removed.
-
-## v2 — active
-
-- `workflows/materialize_view.py` and `workflows/execute_dag.py`.
+- `workflows/materialize_view.py` materializes one saved query.
+- `workflows/execute_dag.py` runs a DAG, or a tier's subset of its nodes.
 - Activities in `activities/*.py`.
 - Node `run` starts `data-modeling-execute-dag`. Node `materialize` and saved-query `run` start
   `data-modeling-materialize-view` through `start_node_materialization`.
 
-All new work targets v2: new activities, new error types, configuration knobs,
-reliability fixes, and tests.
+## The retired v1 backend
+
+`run_workflow.py` and the `data-modeling-run` per-query schedules it served are gone. Deleting
+the workflow type had to come last: a schedule pointing at a deregistered type does not fail
+loudly, it keeps firing, fails its workflow task, and writes no job row. So the type was
+deregistered only once both regions held zero `data-modeling-run` schedules.
+
+Two artifacts of v1 survive on purpose. `resolve_log_source` still parses the v1 workflow id
+shape, or every pre-cutover run loses its logs; and the v1 `DataModelingJob` rows are the only
+record of what ran before the cutover.
 
 ## Scoping
 
-- `products/data_warehouse/` is owned by another team. Read-only from here —
-  do not modify code under that tree without their review.
-- `DataModelingJob` currently lives in `products/data_warehouse/` for historical
-  reasons; It will soon be moved to `products/data_modeling/`.
+- `products/data_warehouse/` is owned by another team, but the saved-query surface in it
+  (`presentation/views/saved_query.py` and `logic/data_load/saved_query_service.py`) is data
+  modeling's to change. Anything else under that tree needs their review.
+- `DataModelingJob` lives in `products/data_modeling/backend/models/`. Only its viewset is
+  still under `products/data_warehouse/`.

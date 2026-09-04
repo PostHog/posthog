@@ -65,6 +65,9 @@ env:
     # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
     INTERNAL_API_SECRET: posthog123
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -133,7 +136,10 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
-                        - 'products/*/frontend/e2e/**'
+                        # The whole product frontend, not only the specs it owns: it compiles
+                        # into the same bundle the suite drives. tools/playwright_area_map.json
+                        # narrows the run from here.
+                        - 'products/*/frontend/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -966,9 +972,19 @@ jobs:
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
+            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile. A miss
+            # only means the install downloads the tree, which is what it does today.
+            - name: Restore VR CLI npm cache
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
+
             - name: Install VR CLI
               if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
 
             - name: Create VR run
               id: vr-create
@@ -1255,8 +1271,16 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
+            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile.
+            - name: Restore VR CLI npm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
+
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only), but
@@ -1277,7 +1301,7 @@ jobs:
         name: Playwright tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check outcome
               run: |

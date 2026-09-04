@@ -88,15 +88,18 @@ tools:
             deployed-PR population and buckets — open_to_merge_series (PR open to merge), merge_to_deploy_series (median
             seconds from a PR's merge to the first successful deployment at or after it, bots/drafts excluded), and
             open_to_deploy_series (the full open-to-deploy span the other two compose into) — each a per-bucket
-            min/p25/p50/mean/p75/max box-plot series, and two honest proxies: failed_deployment_share (deployments with
-            a failure/error status over deployments that reached an outcome — NOT true change failure rate, since no
-            incident data is linked) and median_failed_deploy_to_next_success_seconds (first failure status to the next
-            successful deploy in the same environment — NOT true time-to-restore, since recovery by anything other than
-            a deploy is invisible). Environments default to production-marked deploys, falling back to every persistent
-            (non-transient) environment — ephemeral per-PR preview environments never join a default scope; pass
-            environment to scope exactly. Pass github_team (a slug from github_teams) to narrow the PR-scoped lead-time
-            figures to that team's authors — deploy counts stay repo-wide. deploy_data_available is false when the
-            deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not re-querying.
+            min/p5/p25/p50/mean/p75/p95/max box-plot series, bucketed by series_granularity (pass granularity to pin
+            hour/day/week, otherwise it's chosen to fit the window), and two honest proxies: failed_deployment_share
+            (deployments with a failure/error status over deployments that reached an outcome — NOT true change failure
+            rate, since no incident data is linked) and median_failed_deploy_to_next_success_seconds (first failure
+            status to the next successful deploy in the same environment — NOT true time-to-restore, since recovery by
+            anything other than a deploy is invisible). Environments default to the busiest production-marked
+            environment, falling back to the busiest persistent (non-transient) one when none are marked production —
+            ephemeral per-PR preview environments never join a default scope; pass environment (repeatable, from the
+            response's environments list) to scope exactly. Pass github_team (a slug from github_teams) to narrow the
+            PR-scoped lead-time figures to that team's authors — deploy counts stay repo-wide. deploy_data_available is
+            false when the deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not
+            re-querying.
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true

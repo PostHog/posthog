@@ -53,7 +53,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         // would render the editor's form default instead of the scanner's own coverage.
         sampling_mode: 'comprehensive',
         provider: 'google',
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         enabled: true,
         emits_signals: false,
         scanner_version: 1,
@@ -176,24 +176,6 @@ const summarizerStats: ObservationStatsApi = {
     monitor: null,
     classifier: null,
     scorer: null,
-    summarizer: {
-        friction_ranked: [
-            { term: 'checkout stalls after applying a coupon', count: 21 },
-            { term: 'search returns no results for valid skus', count: 14 },
-            { term: 'filter selection resets on back navigation', count: 9 },
-            { term: 'payment form rejects valid card numbers', count: 6 },
-            { term: 'session times out mid-signup', count: 3 },
-        ],
-        keyword_ranked: [
-            { term: 'checkout', count: 68 },
-            { term: 'coupon', count: 41 },
-            { term: 'abandoned', count: 33 },
-            { term: 'search', count: 27 },
-            { term: 'signup', count: 12 },
-        ],
-        total_with_facets: 138,
-        total_with_friction: 53,
-    },
 } as ObservationStatsApi
 
 const scannerImpact = {
@@ -215,7 +197,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
             scanner_version: 1,
-            model: 'gemini-3.7-flash',
+            model: 'gemini-3.8-flash',
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
@@ -311,7 +293,7 @@ const monitorObservationDetail = observation({
         name: 'Confused checkout',
         scanner_type: 'monitor',
         scanner_version: 3,
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         provider: 'google',
         emits_signals: true,
         scanner_config: {
@@ -523,7 +505,6 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
 export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
 }
@@ -548,7 +529,6 @@ export const ScannerScanDrought: StoryObj = {
                 }),
                 '/api/projects/:team_id/vision/scanners/:id/observations/stats/': {
                     ...summarizerStats,
-                    summarizer: null,
                     monitor: { yes_total: 12, no_total: 130, inconclusive_total: 0 },
                     labels: {
                         ...summarizerStats.labels,
@@ -559,7 +539,7 @@ export const ScannerScanDrought: StoryObj = {
                                 prompt: 'Did the user struggle?',
                                 scanner_config: { prompt: 'Did the user struggle?' },
                                 scanner_type: 'monitor',
-                                model: 'gemini-3.7-flash',
+                                model: 'gemini-3.8-flash',
                                 provider: 'google',
                                 emits_signals: false,
                                 query: null,

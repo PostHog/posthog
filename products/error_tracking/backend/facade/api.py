@@ -13,6 +13,8 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
+from products.access_control.backend.models.role import RoleMembership
+
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..logic import external_references, rules
 from ..models import (
@@ -106,7 +108,11 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
 def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssueAssignmentNotification:
     role_member_user_ids: list[int] = []
     if assignment.role_id:
-        role_member_user_ids = list(assignment.role.members.values_list("id", flat=True))
+        role_member_user_ids = list(
+            RoleMembership.objects.filter(role=assignment.role)
+            .valid_for_authorization()
+            .values_list("user_id", flat=True)
+        )
 
     issue = assignment.issue
     return contracts.ErrorTrackingIssueAssignmentNotification(
