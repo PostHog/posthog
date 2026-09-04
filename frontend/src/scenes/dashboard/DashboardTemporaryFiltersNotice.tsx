@@ -22,17 +22,11 @@ export function DashboardTemporaryFiltersNotice(): JSX.Element | null {
     const label = hasUrlFilters ? 'Temporary filters' : 'Temporary variables'
     const changes: DashboardFilterChange[] = [
         ...filterChanges,
-        ...(hasUrlVariables
-            ? [
-                  {
-                      label: 'SQL variable',
-                      value: Object.values(urlVariables).map((variable) =>
-                          variable.isNull ? `${variable.code_name}: null` : `${variable.code_name}: ${variable.value}`
-                      ),
-                      status: 'new' as const,
-                  },
-              ]
-            : []),
+        ...Object.values(urlVariables).map((variable) => ({
+            label: variable.code_name,
+            value: variable.isNull ? 'null' : String(variable.value),
+            status: 'new' as const,
+        })),
     ]
     const clear = hasUrlFilters
         ? () => setDashboardMode(null, DashboardEventSource.DashboardHeaderOverridesBanner)
