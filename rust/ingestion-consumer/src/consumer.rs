@@ -710,6 +710,13 @@ impl IngestionConsumer {
         let mut settled = Vec::with_capacity(partitions.len());
         let mut frontier_spans = Vec::with_capacity(partitions.len());
         for (topic_partition, partition) in partitions {
+            // A rejected slice is not committed, and the commit sentinel
+            // keeps its baseline. A stale slice belongs to an assignment the
+            // revoke callback already forgot on the sentinel, so the
+            // partition's next commit rebaselines. A violation reset the
+            // ledger and dropped what it held, so the partition's next commit
+            // can pass work still in flight; the sentinel reports that as the
+            // gap it is.
             let Ok(frontier) = self.settle(topic_partition, partition) else {
                 continue;
             };
@@ -720,7 +727,19 @@ impl IngestionConsumer {
         }
 
         if frontier_spans.is_empty() {
-            warn!("No ledger frontier available for completed offsets; skipping commit");
+            // `rejected`: the ledger dropped every slice, expected around a
+            // rebalance. `no_frontier`: a slice landed, but an earlier batch
+            // is still incomplete at the front of every window it settled.
+            let reason = if settled.is_empty() {
+                "rejected"
+            } else {
+                "no_frontier"
+            };
+            counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
+            warn!(
+                reason,
+                "No ledger frontier available for completed offsets; skipping commit"
+            );
             return Ok(());
         }
 
