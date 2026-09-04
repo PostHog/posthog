@@ -7,6 +7,11 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
+# Not available on hobby: MP4, WebM, and GIF export of session recordings.
+# The render step runs in a separate worker (recording-rasterizer) that this
+# stack does not include, so these export requests stay pending and never
+# produce a file. Session recording capture and playback work as normal.
+#
 
 x-logging: &default-logging
     driver: json-file
