@@ -27,7 +27,8 @@ Layer `rust/capture`'s produce path into five strata with one-way dependencies:
 ```text
 edge              → Pipeline {Analytics, Heatmaps, Warnings, ErrorTracking, Replay}
 pipeline steps    → stamp intent (restrictions, overflow, historical)
-lane resolution   → Lane {Main, Overflow, Historical, Dlq, Custom} + key policy + headers
+lane resolution   → Address {(Pipeline, Lane {Main, Overflow, Historical}) | Dlq | Custom(topic)}
+                     + key policy + headers
 outputs           → (Pipeline, Lane) → output = 1..n targets + selection policy
                      (single | failover(health) | split(token) | dual-write(pct))
 serialization     → per-output: format (json | protobuf…) × envelope (none | lz4);
@@ -97,8 +98,8 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 
 - **Goal.** Introduce the address pair and relocate the decision logic:
   - `Pipeline { Analytics, Heatmaps, Warnings, ErrorTracking, Replay }` (`Pipeline::from_data_type` extracts the pipeline half of `DataType`).
-  - `Lane { Main, Overflow, Historical, Dlq, Custom(&str) }`.
-  - `pipeline::resolve(&ProcessedEventMetadata) -> Result<LaneDecision { pipeline, lane, ordering }, CaptureError>` — Step-2's `route()` moved out of the sink module wholesale, precedence unchanged (dlq > custom > historical > overflow > main), pure (no counters, no headers, no I/O). `OrderingGuarantee` moves with it as decision *data*.
+  - `Lane { Main, Overflow, Historical }`, with `Address` carrying the admin redirects (`Dlq`, `Custom(topic)`) outside the lane model.
+  - `pipeline::resolve(&ProcessedEventMetadata) -> Result<AddressDecision { address, ordering }, CaptureError>` — Step-2's `route()` moved out of the sink module wholesale, precedence unchanged (dlq > custom > historical > overflow > main), pure (no counters, no headers, no I/O). `OrderingGuarantee` moves with it as decision *data*.
   - The sink keeps a private `output_for((pipeline, lane)) -> Output` bridge and still *invokes* `resolve` from its prep path — the invocation site moves up in Step 7 when the outputs layer exists to own it. This keeps the commit a pure relocation: no metadata changes, no call-site changes, goldens byte-identical.
 - **Files.** `rust/capture/src/pipeline.rs` (new); `rust/capture/src/sinks/kafka.rs` (drops `route()`/`Route`/`OrderingGuarantee`, gains the `output_for` bridge); `rust/capture/src/lib.rs`.
 - **Parity proof.** Step-1 goldens unmodified. `route()`'s precedence tests move to `pipeline::tests` with assertions preserved, plus a pipeline classification test.
@@ -152,9 +153,9 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 
 ### Step 11 · Typed per-pipeline lanes
 
-- **Goal.** Lanes become types per pipeline — `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane` — so invalid `(pipeline, lane)` pairs are unrepresentable, and admin custom redirects become addresses carrying their own topic outside the lane model: the vocabulary rules above, made code. `resolve` constructs addresses; pipeline and lane kind become projections.
+- **Goal.** Lanes become types per pipeline — `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane` — so invalid `(pipeline, lane)` pairs are unrepresentable: the rest of the vocabulary rules above, made code (admin redirects already sit outside the lane model as `Address::Dlq` / `Address::Custom`). There is no `AiLane::Historical` — the AI divert wins over historical, matching v1. Pipeline and lane kind become projections.
 - **Why it sits here.** Step 12's registry rows demand topics per lane. With the flat `Lane`, the set of valid lanes per pipeline is runtime knowledge, and the registry keeps a fatal backstop for pairs routing never produces. Typed lanes make the demand total: the fields a row requires are exactly the addresses that exist.
-- **Scope.** The address model only. The AI membership rework (allowlist stamp, `AiRouting` retirement) stays deferred as Step 25.
+- **Scope.** The address model only.
 - **Parity proof.** Step-1 goldens unmodified; `resolve` precedence tests retyped with assertions preserved.
 - **Size.** M/L.
 
@@ -268,12 +269,6 @@ Not scheduled, and serving no objective directly. Revive a step by moving it und
 - **Files.** `outputs/mod.rs`, `outputs/registry.rs` (moved), `sinks/*`, `setup.rs`, all capturing test mocks.
 - **Size.** L.
 
-### AI pipeline and Import mode (Step 25)
-
-- **AI pipeline membership is a name allowlist, resolved once into a stamp.** `AI_EVENT_NAMES` lists the event names on the lane; `DataType::from_event_name` resolves a name against it and stamps `DataType::AiEvents`, on every capture mode, mirroring v1's `Destination::AiEvents`. Everything downstream reads the stamp — `Pipeline::from_metadata` maps it, and the multipart and OTEL AI ingress stamp the same lane at the handler. The allowlist is deliberately not an `$ai_` prefix match: the Node AI pipeline DLQs anything it receives off its own `AI_EVENT_TYPES` list, so a prefixed-but-unlisted name like `$ai_call` must stay on the analytics lane. (The quota predicate `is_llm_event` is separate and *is* prefix-based.) There is no per-batch routing config and no per-deployment divert switch — the rollout-era `AiRouting` mode/allowlist/percentage machinery is retired, and so is the capture-mode predicate that replaced it. A deployment that wants AI traffic on a given topic points `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` at it.
-- **The AI lanes own dedicated topics.** `TopicTable` grows an `ai_events` row (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, required with default `events_plugin_ingestion_ai`) and an optional `ai_events_overflow` row (`..._OVERFLOW_TOPIC`); there is no `AiLane::Historical` — the divert decision wins over historical, matching v1. The AI overflow valve (overflow topic set) rides `PrepSpec` into `resolve`, so an unarmed deployment never routes the AI lane to overflow, force_overflow included.
-- **Import mode** is an analytics-family deployment on `router::router`; it mounts `/i/v0/ai/batch` (gated batch handler) but not the ai/otel handlers, and shares the Events topic requirements.
-
 ### Handlers bound by publish capabilities (Step 27)
 
 The half of the per-mode registries Step 12 leaves behind: handlers bind on sealed capability traits (`PublishesAnalyticsFamily`, `PublishesSessionReplay`); `State<T>` goes generic over the Step-12 registry and `setup` instantiates the monomorphized router per `CaptureMode` (`router` for the analytics family, `session_replay_router` for recordings) — mounting an ingress on a table that cannot publish its family is a compile error, and the registry's runtime fatal backstop for a pipeline without a row goes structurally dead.
@@ -373,7 +368,7 @@ When all steps land, the five strata hold:
 | 22 · Producer health metrics out | objective 3 | `feat(capture): outputs report producer health for the breaker service` |
 | 23 · Switch signals in | objective 3 | `feat(capture): apply breaker switch signals to the failover output` |
 | 24 · Prep hoist; `PublishEvents` retired | deferred | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
-| 25 · AI membership stamp; `AiRouting` retired | deferred | `refactor(capture): ai lane membership resolves once into a stamp` |
+| 25 · AI membership stamp; `AiRouting` retired | done | — (landed with the AI lane rollout, outside this plan's sequence) |
 | 26 · Sinks realize namespaces | deferred | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
 | 27 · Handlers bound by publish capabilities | deferred | `feat(capture): handlers bound by publish capabilities over per-mode state` |
 | 28 · AI ingress family | deferred | `feat(capture): ai ingress is its own router family with its own capability` |
