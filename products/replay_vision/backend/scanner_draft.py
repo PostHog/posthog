@@ -73,10 +73,11 @@ _SCALE_MAX_ALLOWED = 100
 _SCALE_SPAN_ALLOWED = 100
 # CoreMemory.text is model-capped at 10k chars; cap lower to keep the one-shot draft prompt lean.
 _MAX_BUSINESS_CONTEXT_CHARS = 5_000
-# Thinking tokens are drawn from this same budget, and a vague goal ("help") makes the model
-# deliberate far longer than it writes: at 4096 the JSON was being cut off mid-object after only
-# ~150 tokens of answer. The draft itself is a few hundred tokens, so this only caps runaway output.
-_MAX_OUTPUT_TOKENS = 16384
+# Thinking tokens are drawn from this same budget, and a vague goal makes the model deliberate far
+# longer than it writes: at 4096 the JSON was being cut off mid-object after only ~150 tokens of
+# answer. Doubling it clears that while staying well inside `_MODEL_CALL_TIMEOUT_MS` — a budget the
+# model cannot exhaust before the request times out just trades a quick failure for a slow one.
+_MAX_OUTPUT_TOKENS = 8192
 # Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
 _MAX_EXISTING_SCANNERS = 15
 _SCANNER_GIST_CHARS = 200

@@ -422,7 +422,7 @@ class TestGenerate:
 
         _generate(user_content="goal", team_id=1, distinct_id="u")
 
-        assert generate.call_args.kwargs["config"].max_output_tokens == 16384
+        assert generate.call_args.kwargs["config"].max_output_tokens == 8192
 
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
     def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
