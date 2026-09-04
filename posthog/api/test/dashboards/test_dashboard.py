@@ -1629,6 +1629,40 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "unknown id must not have created a new row"
             )
 
+    @parameterized.expand([("text",), ("button_tile",)])
+    def test_tile_patch_rejects_related_object_owned_by_another_tile(self, kind: str) -> None:
+        """
+        Regression: ``_upsert_tile`` keyed the update on ``(tile id, dashboard)`` and pushed the
+        related object in through ``defaults``. The guard only checked that *some* tile on the
+        dashboard held the related object, never that it was the posted tile. So a PATCH carrying
+        tile A's id and tile B's text/button id set a duplicate FK on tile A and tripped the
+        partial unique index (``unique_dashboard_text`` / ``unique_dashboard_button_tile``),
+        returning a generic 500 that lost the user's edit. It must be a 400, and neither tile may
+        change.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "target"})
+        if kind == "text":
+            self.dashboard_api.create_text_tile(dashboard_id, text="tile A")
+            _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="tile B")
+        else:
+            self.dashboard_api.create_button_tile(dashboard_id, text="tile A")
+            _, dashboard_json = self.dashboard_api.create_button_tile(dashboard_id, text="tile B")
+
+        tile_a, tile_b = sorted(dashboard_json["tiles"], key=lambda t: t["id"])
+        related_b_id = tile_b[kind]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            # tile A's id, but tile B's related object — the cross-tile contamination
+            {"tiles": [{"id": tile_a["id"], kind: tile_b[kind]}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content[:500]
+
+        tiles_after = {t["id"]: t for t in self.dashboard_api.get_dashboard(dashboard_id)["tiles"]}
+        assert tiles_after[tile_b["id"]][kind]["id"] == related_b_id, "tile B keeps its related object"
+        assert tiles_after[tile_a["id"]][kind]["id"] != related_b_id, "tile A did not steal tile B's related object"
+
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
         insight_id, _ = self.dashboard_api.create_insight(
