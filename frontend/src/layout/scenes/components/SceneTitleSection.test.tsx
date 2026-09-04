@@ -129,6 +129,18 @@ describe('SceneName', () => {
         expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     })
 
+    // The row claims stray presses, so it needs the same secondary press guard as the field.
+    // Without it a right-click beside the title would block the context menu.
+    test('a right-click beside the view mode title is left alone', () => {
+        render(<SceneName name="Paying users" canEdit onChange={jest.fn()} />)
+
+        const row = screen.getByTestId('scene-name')
+        const press = createEvent.mouseDown(row, { button: 2 })
+        fireEvent(row, press)
+
+        expect(press.defaultPrevented).toBe(false)
+    })
+
     // Ctrl+click is the macOS secondary press. It reports button 0, so it needs its own
     // guard or it would enter edit mode and swallow the context menu.
     test('ctrl+click on the view mode title does not enter edit mode', () => {

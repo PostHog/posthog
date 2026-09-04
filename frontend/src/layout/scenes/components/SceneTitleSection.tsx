@@ -551,6 +551,9 @@ export function SceneName({
     //
     // A read-only name has no press to claim, so leave its text selectable.
     const claimStrayPress = (e: React.MouseEvent): void => {
+        if (e.button !== 0 || e.ctrlKey) {
+            return
+        }
         if (!onChange || !canEdit) {
             return
         }
