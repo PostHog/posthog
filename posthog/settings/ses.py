@@ -56,10 +56,8 @@ SES_ISP_DIMENSIONS: list[str] = [
     "Yahoo",
     "Icloud",
     "Aol",
-    "Comcast",
     "Gmx",
     "Tencent",
-    "NetEase",
     # The dashboard's catch-all row. Whether SES accepts it as a query dimension is unconfirmed:
     # it may be a label for sends it could not attribute rather than a value it matches on.
     "Unknown ISP",
