@@ -242,6 +242,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             })}
             data-attr="taxonomic-filter-searchfield"
             type="search"
+            suffixAfterClear={categoriesAreInDropdown}
             fullWidth
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}

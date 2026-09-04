@@ -87,6 +87,7 @@ function renderTrigger(
         <LemonButton
             type={joinedToInput ? 'tertiary' : 'secondary'}
             size="xsmall"
+            truncate
             sideIcon={<IconChevronDown />}
             data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
             aria-label={`Current category: ${activeLabel}. Click to change.`}

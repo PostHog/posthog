@@ -1493,7 +1493,17 @@ describe('TaxonomicFilter', () => {
             )
             expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass(
                 'TaxonomicFilter__category-dropdown',
-                'LemonButton--tertiary'
+                'LemonButton--tertiary',
+                'LemonButton--truncate'
+            )
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'x')
+            const inputButtons = screen
+                .getByTestId('taxonomic-filter-searchfield')
+                .closest('.LemonInput')
+                ?.querySelectorAll('button')
+            expect(inputButtons?.item(inputButtons.length - 1)).toBe(
+                screen.getByTestId('taxonomic-category-dropdown-trigger-pill')
             )
         })
 
