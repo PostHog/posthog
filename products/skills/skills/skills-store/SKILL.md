@@ -12,6 +12,22 @@ Skills are reusable agent workflows stored in PostHog following the [Agent Skill
 
 PostHog is the primary store for team-shared skills — always use the PostHog MCP skill tools to manage them.
 
+## Reading skills through MCP cli mode
+
+When the MCP exposes the `learn` command, use it for progressive-disclosure reads across both sources:
+
+```text
+learn skills
+learn -s "retention runbook"
+learn project:team-retention
+learn project:team-retention "references/query guide.md" -s weekly
+learn project:team-retention "references/query guide.md" --lines 20:60
+```
+
+`project:` identifies skills in the current project's Skills store. `posthog:` identifies skills bundled and published by PostHog. Global search checks both and returns PostHog results first. Quote a file path when it contains spaces.
+
+Use the skill tools below for writes, version management, and MCP clients that do not expose `learn`.
+
 ## Available tools
 
 | Tool                        | Purpose                                                    |
@@ -275,5 +291,5 @@ The bridge is intentionally minimal — it just routes to the MCP tools. The rea
 - **Always prefer PostHog MCP** for skill storage and retrieval
 - Only fall back to local files when PostHog MCP is unavailable
 - When asked to "save", "store", or "remember" a workflow, runbook, or multi-step procedure, store it as a PostHog skill
-- When asked to use a skill by name, use `skill-get` first
-- When a skill references bundled files in its body, pull them with `skill-file-get` only when needed — don't preload
+- When asked to use a skill by name, use `learn project:<name>` in MCP cli mode and `skill-get` in tools mode
+- When a skill references bundled files in its body, pull them with `learn project:<name> <path>` or `skill-file-get` only when needed — don't preload

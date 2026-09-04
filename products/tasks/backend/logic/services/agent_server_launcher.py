@@ -297,6 +297,7 @@ class AgentServerLaunchMixin(SandboxBase):
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return 0 if wait_for_health else None
         self._free_agent_server_port()
+        self.clear_bundled_skills_if_disabled()
 
         repo_path: str | None = None
         if repository:

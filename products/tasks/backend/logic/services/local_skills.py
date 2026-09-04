@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 BUILT_SKILLS_RELATIVE_PATH = Path("products/posthog_ai/dist/skills")
 BUILD_HASH_FILENAME = ".build-hash"
 ENV_LOCAL_SKILLS_HOST_PATH = "SANDBOX_LOCAL_SKILLS_HOST_PATH"
+ENV_DISABLE_BUNDLED_SKILLS = "POSTHOG_CODE_DISABLE_BUNDLED_SKILLS"
+BUNDLED_SKILLS_PATHS: tuple[str, ...] = (
+    "/scripts/plugins/posthog/skills",
+    "/root/.claude/skills",
+    "/root/.agents/skills",
+)
+
+
+def bundled_skills_disabled(environment_variables: dict[str, str] | None) -> bool:
+    return environment_variables is not None and environment_variables.get(ENV_DISABLE_BUNDLED_SKILLS) == "1"
 
 
 def _copy_directory_contents(source: Path, destination: Path) -> None:

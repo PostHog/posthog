@@ -28,10 +28,26 @@ export interface SharedBlobCacheOptions {
  * many independent shared blobs (e.g. context-mill archive, future bundles)
  * without colliding.
  */
+export interface SharedBlobRecord {
+    bytes: Uint8Array
+    fresh: boolean
+    etag?: string
+    /** Content hash written alongside the bytes, so readers can detect a change without reading them. */
+    sha?: string
+}
+
+export interface SharedBlobVersion {
+    sha: string
+    fresh: boolean
+    etag?: string
+}
+
 export class SharedBlobCache {
     public readonly cacheKey: string
     public readonly freshKey: string
     public readonly lockKey: string
+    public readonly etagKey: string
+    public readonly versionKey: string
 
     private cacheTtlSeconds: number
     private freshSeconds: number
@@ -48,6 +64,8 @@ export class SharedBlobCache {
         this.cacheKey = `${prefix}:bytes`
         this.freshKey = `${prefix}:fresh`
         this.lockKey = `${prefix}:lock`
+        this.etagKey = `${prefix}:etag`
+        this.versionKey = `${prefix}:sha`
 
         this.cacheTtlSeconds = opts.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS
         this.freshSeconds = opts.freshSeconds ?? DEFAULT_FRESH_SECONDS
@@ -56,24 +74,85 @@ export class SharedBlobCache {
         this.waitTimeoutMs = opts.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
     }
 
-    protected async readCache(): Promise<{ bytes: Uint8Array; fresh: boolean } | null> {
-        const [raw, freshUntilStr] = await Promise.all([this.redis.get(this.cacheKey), this.redis.get(this.freshKey)])
+    protected async readCache(): Promise<SharedBlobRecord | null> {
+        const [raw, freshUntilStr, etag, sha] = await Promise.all([
+            this.redis.get(this.cacheKey),
+            this.redis.get(this.freshKey),
+            this.redis.get(this.etagKey),
+            this.redis.get(this.versionKey),
+        ])
         if (raw === null) {
             return null
         }
         const buf = Buffer.from(raw, 'base64')
         const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-        const freshUntil = freshUntilStr !== null ? Number(freshUntilStr) : 0
-        const fresh = Number.isFinite(freshUntil) && Date.now() < freshUntil
-        return { bytes, fresh }
+        return { bytes, fresh: isFresh(freshUntilStr), etag: etag ?? undefined, sha: sha ?? undefined }
     }
 
-    protected async writeCache(bytes: Uint8Array): Promise<void> {
+    /**
+     * The small keys only: enough to tell whether the shared bytes changed or went
+     * stale, without transferring them. Null when no version was ever written,
+     * which also covers entries written before the version key existed.
+     */
+    protected async readVersion(): Promise<SharedBlobVersion | null> {
+        const [sha, freshUntilStr, etag] = await Promise.all([
+            this.redis.get(this.versionKey),
+            this.redis.get(this.freshKey),
+            this.redis.get(this.etagKey),
+        ])
+        if (sha === null) {
+            return null
+        }
+        return { sha, fresh: isFresh(freshUntilStr), etag: etag ?? undefined }
+    }
+
+    protected async writeCache(bytes: Uint8Array, validator?: string, sha?: string): Promise<void> {
         const b64 = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64')
         const freshUntil = Date.now() + this.freshSeconds * 1000
+        // Land the bytes before their validator, since the two live under separate
+        // Redis keys with no cross-key transaction. If the validator write landed
+        // first (or in parallel) and the bytes write then failed, Redis would keep
+        // old bytes paired with the new validator — a stuck state where every later
+        // conditional refresh sends the new validator, gets a 304, and touches the
+        // stale bytes fresh again. Ordering it the other way makes both partial
+        // failures self-heal: if the bytes write fails, the old bytes keep the old
+        // validator (consistent); if only the validator write fails after new bytes
+        // land, the next conditional refresh sends the old validator, gets a full
+        // 200, and rewrites everything.
+        await this.redis.set(this.cacheKey, b64, 'EX', this.cacheTtlSeconds)
         await Promise.all([
-            this.redis.set(this.cacheKey, b64, 'EX', this.cacheTtlSeconds),
             this.redis.set(this.freshKey, String(freshUntil), 'EX', this.cacheTtlSeconds),
+            // Keep the validator in lockstep with the bytes: store it when present,
+            // clear any stale one otherwise so a later conditional request can't
+            // send a validator that no longer matches the cached bytes.
+            validator !== undefined
+                ? this.redis.set(this.etagKey, validator, 'EX', this.cacheTtlSeconds)
+                : this.redis.del(this.etagKey),
+            // Same lockstep for the version: it lands last so a reader that sees a
+            // new sha always finds the matching bytes already in place.
+            sha !== undefined
+                ? this.redis.set(this.versionKey, sha, 'EX', this.cacheTtlSeconds)
+                : this.redis.del(this.versionKey),
+        ])
+    }
+
+    /** Backfill the version key for a record that has bytes but no sha (written by an older layout). */
+    protected async writeVersion(sha: string): Promise<void> {
+        await this.redis.set(this.versionKey, sha, 'EX', this.cacheTtlSeconds)
+    }
+
+    /**
+     * Refresh the freshness marker and re-extend the hard TTLs without rewriting
+     * the payload. Used when a conditional refresh confirms the cached bytes are
+     * still current (HTTP 304), so the re-download and re-parse are skipped.
+     */
+    protected async touchCache(): Promise<void> {
+        const freshUntil = Date.now() + this.freshSeconds * 1000
+        await Promise.all([
+            this.redis.set(this.freshKey, String(freshUntil), 'EX', this.cacheTtlSeconds),
+            this.redis.expire(this.cacheKey, this.cacheTtlSeconds),
+            this.redis.expire(this.etagKey, this.cacheTtlSeconds),
+            this.redis.expire(this.versionKey, this.cacheTtlSeconds),
         ])
     }
 
@@ -94,16 +173,26 @@ export class SharedBlobCache {
     }
 
     protected async waitForCache(): Promise<Uint8Array | null> {
+        const record = await this.waitForRecord()
+        return record?.bytes ?? null
+    }
+
+    protected async waitForRecord(): Promise<SharedBlobRecord | null> {
         const start = Date.now()
         while (Date.now() - start < this.waitTimeoutMs) {
             await sleep(this.waitIntervalMs)
             const cached = await this.readCache()
             if (cached) {
-                return cached.bytes
+                return cached
             }
         }
         return null
     }
+}
+
+function isFresh(freshUntilStr: string | null): boolean {
+    const freshUntil = freshUntilStr !== null ? Number(freshUntilStr) : 0
+    return Number.isFinite(freshUntil) && Date.now() < freshUntil
 }
 
 function sleep(ms: number): Promise<void> {

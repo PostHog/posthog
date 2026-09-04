@@ -6,6 +6,7 @@ const {
     mockInitTotalInc,
     mockRevalidateContextMillResources,
     mockResolveState,
+    mockSkillCatalogService,
     mockTrackInitEvent,
 } = vi.hoisted(() => ({
     mockBuildInstructions: vi.fn(),
@@ -13,7 +14,20 @@ const {
     mockInitTotalInc: vi.fn(),
     mockRevalidateContextMillResources: vi.fn(),
     mockResolveState: vi.fn(),
+    mockSkillCatalogService: {
+        getCatalog: vi.fn(),
+        poll: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+        warmup: vi.fn(),
+    },
     mockTrackInitEvent: vi.fn(),
+}))
+
+vi.mock('@/hono/skill-catalog-service', () => ({
+    SkillCatalogService: vi.fn().mockImplementation(function () {
+        return mockSkillCatalogService
+    }),
 }))
 
 vi.mock('@/hono/analytics', () => ({
@@ -148,5 +162,31 @@ describe('McpDispatcher initialize resource revalidation', () => {
         expect(response.status).toBe(200)
         expect(body.result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION)
         expect(mockBuildInstructions).toHaveBeenCalled()
+    })
+
+    // The reverted skill discovery revalidated the skill archive on every handshake,
+    // which re-read megabytes from Redis per session. The archive moves only at warmup
+    // and on the service's own timer.
+    it('does no skill archive work on initialize', async () => {
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+
+        const response = await dispatcher.handleRequest(makeInitializeRequest(), makeProps())
+
+        expect(response.status).toBe(200)
+        for (const method of ['warmup', 'poll', 'start'] as const) {
+            expect(mockSkillCatalogService[method]).not.toHaveBeenCalled()
+        }
+    })
+
+    it('starts the skill archive poller only after warmup', async () => {
+        const dispatcher = new McpDispatcher({ warmup: vi.fn(async () => {}) } as any, createMockRedis())
+
+        await dispatcher.warmup()
+
+        expect(mockSkillCatalogService.warmup).toHaveBeenCalledTimes(1)
+        expect(mockSkillCatalogService.start).toHaveBeenCalledTimes(1)
+        expect(mockSkillCatalogService.start.mock.invocationCallOrder[0]).toBeGreaterThan(
+            mockSkillCatalogService.warmup.mock.invocationCallOrder[0]!
+        )
     })
 })

@@ -38,6 +38,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
+from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, bundled_skills_disabled
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -431,6 +432,15 @@ class SandboxBase(ABC):
                 stderr=result.stderr,
             )
         return False
+
+    def clear_bundled_skills_if_disabled(self) -> None:
+        if not bundled_skills_disabled(self.config.environment_variables):
+            return
+
+        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
+        result = self.execute(f"rm -rf {paths} && mkdir -p {paths}", timeout_seconds=30)
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
 
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
