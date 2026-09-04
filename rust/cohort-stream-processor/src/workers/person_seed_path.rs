@@ -254,9 +254,15 @@ struct PersonTouch<'a> {
     person: Uuid,
     /// Every effective evaluated hash of every seed that touched this person, `SkipLiveFresh` ones
     /// included: a register left `true` by a produce that never acked is only found by diffing the
-    /// hashes the record does not match.
-    hashes: BTreeSet<[u8; 16]>,
+    /// hashes the record does not match. Each maps to the run of the last seed that evaluated *it*,
+    /// which is the leaf-level provenance a [`FoldedLeaf`] carries — two seeds of different runs
+    /// can evaluate different hashes of one person.
+    hashes: BTreeMap<[u8; 16], RunId>,
+    /// The run of the last seed that touched this person, which their recomposed changes carry.
     run_id: RunId,
+    /// The leaves some seed asked to recompose. Registered after the fold, so they carry the
+    /// person's final run rather than the run of whichever seed happened to ask.
+    recompose: BTreeSet<LeafStateKey>,
 }
 
 /// Fold every local seed into the overlay in offset order, then read the run's durable intent off
@@ -296,18 +302,12 @@ fn fold_person_seeds(
         // A live-fresh skip is not merged at all: the stored state already subsumes the seed.
         let update = match verdict {
             PersonSeedVerdict::SkipLiveFresh => RecordUpdate::Unchanged,
-            _ => record_update(
-                &prior,
-                &local.seed,
-                local.person,
-                &local.effective,
-                margin_ms,
-            ),
+            _ => record_update(&prior, &local.seed, &local.effective, margin_ms),
         };
         tally.add(update.outcome(verdict));
         let recomposes_this = recomposes(&update, verdict, &prior);
         match update {
-            RecordUpdate::Changed { record, .. } => slot.advance(record),
+            RecordUpdate::Changed(record) => slot.advance(record),
             RecordUpdate::Unchanged => slot.touch(),
         }
 
@@ -317,17 +317,18 @@ fn fold_person_seeds(
                 team_id,
                 filters: local.filters,
                 person: local.person,
-                hashes: BTreeSet::new(),
+                hashes: BTreeMap::new(),
                 run_id,
+                recompose: BTreeSet::new(),
             });
+        // Offset order, so last write wins on both: the person carries the last seed that touched
+        // them, each hash the last seed that evaluated that hash.
         touch.run_id = run_id;
-        touch
-            .hashes
-            .extend(local.effective.evaluated.iter().copied());
+        for &hash in &local.effective.evaluated {
+            touch.hashes.insert(hash, run_id);
+        }
         if recomposes_this {
-            for (leaf, person) in local.effective.leaves(local.person) {
-                recompose.touch(team_id, person, run_id, leaf);
-            }
+            touch.recompose.extend(local.effective.leaf_keys());
         }
     }
 
@@ -347,7 +348,13 @@ fn fold_person_seeds(
         if !evaluated && !slot.prior_corrupt() {
             continue;
         }
-        for hash in &touch.hashes {
+        // Every recomposing seed's leaves under the person's final run, so the composed change
+        // names the last seed that touched them. A person with leaves here always has state to
+        // evaluate, so the guard above never drops one.
+        for &leaf in &touch.recompose {
+            recompose.touch(touch.team_id, touch.person, touch.run_id, leaf);
+        }
+        for (hash, &run_id) in &touch.hashes {
             // An unreadable row survives only under seeds that matched nothing, so the seeds are
             // the one readable evaluation and they say no matches, which is also how the
             // composition reads the row.
@@ -364,7 +371,7 @@ fn fold_person_seeds(
                 person_id: touch.person,
                 in_cohort,
                 minted_transition,
-                run_id: touch.run_id,
+                run_id,
             });
             if minted_transition {
                 let kind = if in_cohort {
@@ -402,10 +409,7 @@ fn fold_person_seeds(
 
 #[derive(Debug, PartialEq, Eq)]
 enum RecordUpdate {
-    Changed {
-        record: PersonRecord,
-        transitions: Vec<LeafTransition>,
-    },
+    Changed(PersonRecord),
     /// Nothing to write, so an absent record with no matches is never created and store growth
     /// stays proportional to matchers.
     Unchanged,
@@ -418,7 +422,7 @@ impl RecordUpdate {
     fn outcome(&self, verdict: PersonSeedVerdict) -> Outcome {
         match (self, verdict) {
             (_, PersonSeedVerdict::SkipLiveFresh) => Outcome::PersonSkipped("stale_vs_live"),
-            (Self::Changed { .. }, _) => Outcome::PersonApplied(verdict.as_str()),
+            (Self::Changed(_), _) => Outcome::PersonApplied(verdict.as_str()),
             (Self::Unchanged, _) => Outcome::PersonUnchanged,
         }
     }
@@ -443,7 +447,7 @@ impl RecordUpdate {
 /// is the reconcile snapshot's to repair. The single-leaf half of the same replay is safe either
 /// way, because a lagging register admits the emit on its own.
 fn recomposes(update: &RecordUpdate, verdict: PersonSeedVerdict, prior: &PriorRecord) -> bool {
-    matches!(update, RecordUpdate::Changed { .. })
+    matches!(update, RecordUpdate::Changed(_))
         || verdict == PersonSeedVerdict::SkipLiveFresh
         || matches!(prior, PriorRecord::Corrupt)
 }
@@ -454,7 +458,6 @@ fn recomposes(update: &RecordUpdate, verdict: PersonSeedVerdict, prior: &PriorRe
 fn record_update(
     prior: &PriorRecord,
     seed: &PersonSeed,
-    person: Uuid,
     effective: &EffectiveHashes,
     live_margin_ms: i64,
 ) -> RecordUpdate {
@@ -471,22 +474,9 @@ fn record_update(
         live_margin_ms,
     ) {
         PersonSeedOutcome::Unchanged => RecordUpdate::Unchanged,
-        PersonSeedOutcome::Changed {
-            record,
-            transitions,
-        } => RecordUpdate::Changed {
-            record,
-            transitions: transitions
-                .into_iter()
-                .map(|(condition_hash, kind)| LeafTransition {
-                    team_id: seed.team_id(),
-                    leaf_state_key: LeafStateKey::for_person_property(&condition_hash),
-                    person_id: person,
-                    condition_hash,
-                    kind,
-                })
-                .collect(),
-        },
+        // The per-seed transitions are dropped: a run counts the *net* flip per hash, which the
+        // fold derives from the overlay once every seed has folded.
+        PersonSeedOutcome::Changed { record, .. } => RecordUpdate::Changed(record),
     }
 }
 
@@ -498,11 +488,8 @@ struct EffectiveHashes {
 }
 
 impl EffectiveHashes {
-    fn leaves(&self, person: Uuid) -> Vec<(LeafStateKey, Uuid)> {
-        self.evaluated
-            .iter()
-            .map(|hash| (LeafStateKey::for_person_property(hash), person))
-            .collect()
+    fn leaf_keys(&self) -> impl Iterator<Item = LeafStateKey> + '_ {
+        self.evaluated.iter().map(LeafStateKey::for_person_property)
     }
 }
 
@@ -587,6 +574,7 @@ mod tests {
 
     const TEAM: TeamId = TeamId(7);
     const PERSON_HASH: &str = "fedcba9876543210";
+    const OTHER_HASH: &str = "abcdef0123456789";
     const UNKNOWN_HASH: &str = "0000000000000000";
     const LAST_UPDATED: &str = "2026-06-15 12:00:00.000000";
     const MARGIN_MS: i64 = 900_000;
@@ -624,6 +612,14 @@ mod tests {
         ]
     }
 
+    /// One single-leaf cohort per hash, so each hash's own change carries its own provenance.
+    fn one_cohort_per_hash() -> Vec<(i32, Value)> {
+        vec![
+            (1, wrap(vec![person_leaf(PERSON_HASH)])),
+            (3, wrap(vec![person_leaf(OTHER_HASH)])),
+        ]
+    }
+
     fn build_filters(cohorts: &[(i32, Value)]) -> TeamFilters {
         let mut builder = TeamFiltersBuilder::default();
         for (id, filters) in cohorts {
@@ -642,13 +638,29 @@ mod tests {
         matched: &[&str],
         scanned_at_ms: i64,
     ) -> PersonSeed {
+        seed_of_run(
+            person,
+            RunId(Uuid::from_u128(0xBF)),
+            evaluated,
+            matched,
+            scanned_at_ms,
+        )
+    }
+
+    fn seed_of_run(
+        person: Uuid,
+        run: RunId,
+        evaluated: &[&str],
+        matched: &[&str],
+        scanned_at_ms: i64,
+    ) -> PersonSeed {
         PersonSeed::new(
             TEAM,
             person,
             evaluated.iter().copied().map(hash).collect(),
             matched.iter().copied().map(hash).collect(),
             ScannedAtMs(scanned_at_ms),
-            RunId(Uuid::from_u128(0xBF)),
+            run,
             ClaimEpoch(1),
         )
         .unwrap()
@@ -1271,6 +1283,157 @@ mod tests {
             "the composed cohort flipped once for the run, not once per seed",
         );
         assert_eq!(composed[0].status, MembershipStatus::Entered);
+    }
+
+    /// Provenance is per leaf, not per person: two backfill runs can seed one person on different
+    /// hashes in one batch, and a change for a hash the later run never evaluated must not claim
+    /// that run.
+    #[tokio::test]
+    async fn each_leafs_change_carries_the_run_that_last_evaluated_that_leaf() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(one_cohort_per_hash());
+        let first = RunId(Uuid::from_u128(0xA));
+        let second = RunId(Uuid::from_u128(0xB));
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (
+                        seed_of_run(
+                            person,
+                            first,
+                            &[PERSON_HASH],
+                            &[PERSON_HASH],
+                            now_ms() - 2 * MARGIN_MS,
+                        ),
+                        0,
+                    ),
+                    // A later scan of the same person on a different hash, past the first seed's
+                    // stamp floor so it applies rather than skipping live-fresh.
+                    (
+                        seed_of_run(person, second, &[OTHER_HASH], &[OTHER_HASH], now_ms()),
+                        1,
+                    ),
+                ],
+            )
+            .await;
+
+        let runs: BTreeMap<u64, Option<RunId>> = shell
+            .sink
+            .changes()
+            .into_iter()
+            .map(|change| (change.cohort_id as u64, change.run_id))
+            .collect();
+        assert_eq!(
+            runs,
+            BTreeMap::from([(1, Some(first)), (3, Some(second))]),
+            "each cohort names the run of the seed that evaluated its hash",
+        );
+    }
+
+    /// A person's composed change carries the last seed that touched them, whether or not that
+    /// seed was the one that asked for the recompose.
+    #[tokio::test]
+    async fn a_composed_change_carries_the_last_seed_that_touched_the_person() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        // The behavioral half of cohort 2, so the person composes in once the person half lands.
+        shell.live_pageview(partition_id, person, None);
+        let first = RunId(Uuid::from_u128(0xA));
+        let second = RunId(Uuid::from_u128(0xB));
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (
+                        seed_of_run(
+                            person,
+                            first,
+                            &[PERSON_HASH],
+                            &[PERSON_HASH],
+                            now_ms() - 2 * MARGIN_MS,
+                        ),
+                        0,
+                    ),
+                    // Asserts what the first seed already wrote, so it recomposes nothing itself.
+                    (
+                        seed_of_run(person, second, &[PERSON_HASH], &[PERSON_HASH], now_ms()),
+                        1,
+                    ),
+                ],
+            )
+            .await;
+
+        let composed: Vec<_> = shell
+            .sink
+            .changes()
+            .into_iter()
+            .filter(|change| change.cohort_id == 2)
+            .collect();
+        assert_eq!(composed.len(), 1, "one composed flip for the run");
+        assert_eq!(
+            composed[0].run_id,
+            Some(second),
+            "the last seed to touch the person, not the one that asked to recompose",
+        );
+    }
+
+    /// A run mixes local and redirected seeds, so a hand-off that fails must not strand the local
+    /// registers. The membership leg already acked, and the cascade for that flip is consumed
+    /// against the *stored* bit right after this run: an unwritten bit reads every referring
+    /// cohort as unchanged until the next tenure replays the run.
+    #[tokio::test]
+    async fn a_failed_rekey_commits_the_local_registers_before_it_holds() {
+        let (redirected, partition_id, survivor) = cross_partition_pair();
+        let local = (100u128..)
+            .map(Uuid::from_u128)
+            .find(|person| {
+                partition_of(TEAM, person, COHORT_PARTITION_COUNT) as u16 == partition_id
+            })
+            .expect("some uuid hashes onto the delivering partition");
+        let mut shell = Shell::with_sinks(
+            mixed_cohorts(),
+            CaptureSink::new(),
+            CaptureSeedTileSink::failing_always(),
+        );
+        write_tombstone(&shell.store, partition_id, redirected, survivor);
+        let scanned_at = now_ms();
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (
+                        seed_for(local, &[PERSON_HASH], &[PERSON_HASH], scanned_at),
+                        4,
+                    ),
+                    (
+                        seed_for(redirected, &[PERSON_HASH], &[PERSON_HASH], scanned_at),
+                        5,
+                    ),
+                ],
+            )
+            .await;
+
+        assert_eq!(
+            shell.sink.changes().len(),
+            1,
+            "the local seed's membership acked",
+        );
+        assert!(
+            shell
+                .stage2(partition_id, local, 1)
+                .expect("the register row exists")
+                .in_cohort,
+            "and the register says what downstream was told",
+        );
+        assert_eq!(
+            shell.committable(partition_id),
+            None,
+            "the run still holds its first offset for the hand-off",
+        );
     }
 
     /// A seed that asserts what the record already holds recomposes nothing on its own, so a

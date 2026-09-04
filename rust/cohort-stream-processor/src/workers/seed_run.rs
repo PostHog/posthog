@@ -9,13 +9,15 @@
 //!
 //! Pure: no I/O, no clock.
 
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 
 use cohort_core::seed::{ConditionHash, PersonSeed, ReconcileTile, SeedTile};
+use uuid::Uuid;
 
 use crate::consumers::seeds::{SeedSkipReason, SeedWork};
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::FilterCatalog;
+use crate::filters::{FilterCatalog, TeamId};
 use crate::stage1::key::LeafStateKey;
 
 /// One message's offset on `cohort_stream_seed_events`. A newtype so the seed tracker can never be
@@ -139,11 +141,15 @@ impl Default for RunBudget {
     }
 }
 
-/// How many store rows one seed can touch, against the catalog snapshot the run will fold with:
-/// its stage-1 rows (one per leaf a tile reaches; one record per person seed) plus one stage-2
-/// register per cohort each of those leaves backs. Every per-run structure — the overlay, the
-/// register read, the recompute set, the membership output and its cascades — holds at most one
-/// entry per row, so the budget this feeds is a ceiling on all of them, not on the overlay alone.
+/// How much of a run one seed can occupy, against the catalog snapshot the run will fold with: one
+/// unit per leaf it reaches, plus one per stage-2 register each of those leaves backs, plus the
+/// person seed's own record row. Every per-run structure — the overlay, the folded leaves, the
+/// recompose set, the register read, the membership output and its cascades — holds at most one
+/// entry per unit, so the budget this feeds is a ceiling on all of them, not on the overlay alone.
+///
+/// Both kinds charge for a leaf that backs no register, because the fold still retains one entry
+/// for it. A person seed carries up to 1,024 hashes, so charging only its registers would let a
+/// full run of leaves that can emit nothing slip under the ceiling.
 ///
 /// It is a ceiling on what a run retains and emits, not on the reads inside each composed
 /// evaluation: those scale with that cohort's tree exactly as under the per-seed apply, and the
@@ -163,7 +169,7 @@ pub(crate) fn row_weight(catalog: &FilterCatalog, work: &SeedWork) -> usize {
                 .evaluated()
                 .iter()
                 .flat_map(|&hash| leaves_of(filters, hash))
-                .map(|lsk| registers_backed_by(filters, lsk))
+                .map(|lsk| 1 + registers_backed_by(filters, lsk))
                 .sum::<usize>()
         }),
         SeedWork::Reconcile(_) | SeedWork::Skip(_) => return 0,
@@ -201,6 +207,19 @@ fn registers_backed_by(filters: &TeamFilters, lsk: &LeafStateKey) -> usize {
 /// runs first, so it stays behind every data seed that precedes it. A budget closes only the run
 /// it bounds.
 ///
+/// Runs apply in first-offset order, so two open runs would apply one person's seeds out of offset
+/// order whenever both kinds touch them. Behavioral and person-property leaves meet inside one
+/// composed cohort, and that reorder emits transitions the per-seed apply never emits. So a seed
+/// whose person the *other* kind's open run already holds closes both runs first, which puts it in
+/// a run that starts above everything already admitted. Runs for different persons keep batching,
+/// which is the ordinary shape: a partition carries many persons, and the seeder claims a run's
+/// behavioral chunks before its person chunks.
+///
+/// Residue: a tombstone redirects a seed to the merge survivor, and routing runs after grouping, so
+/// two seeds that meet only on the survivor are not seen to share a person here. That window is a
+/// straggler seed for a person merged mid-backfill, and it degrades to the reorder above, not to a
+/// wrong final membership.
+///
 /// Pure and total: every input seed lands in exactly one group, groups are emitted in the order of
 /// their first offset, and offset order is preserved within each kind.
 pub(crate) fn group_seeds(
@@ -216,10 +235,32 @@ pub(crate) fn group_seeds(
         let weight = weigh(&work);
         match work {
             SeedWork::Tile(tile) => {
-                tiles.admit(Admitted { work: tile, offset }, weight, budget, &mut groups);
+                let holder = (tile.team_id(), tile.person_id());
+                if persons.holds(holder) {
+                    tiles.close(&mut groups);
+                    persons.close(&mut groups);
+                }
+                tiles.admit(
+                    Admitted { work: tile, offset },
+                    holder,
+                    weight,
+                    budget,
+                    &mut groups,
+                );
             }
             SeedWork::Person(seed) => {
-                persons.admit(Admitted { work: seed, offset }, weight, budget, &mut groups);
+                let holder = (seed.team_id(), seed.person_id());
+                if tiles.holds(holder) {
+                    tiles.close(&mut groups);
+                    persons.close(&mut groups);
+                }
+                persons.admit(
+                    Admitted { work: seed, offset },
+                    holder,
+                    weight,
+                    budget,
+                    &mut groups,
+                );
             }
             SeedWork::Reconcile(tile) => {
                 tiles.close(&mut groups);
@@ -246,11 +287,16 @@ pub(crate) fn group_seeds(
     groups
 }
 
-/// A run of one kind still accepting seeds, with the row weight it has admitted so far.
+/// One person of one team, the unit both seed kinds order against: stage-1 rows, stage-2 registers
+/// and cascades are all keyed on it, so runs that share no holder cannot observe each other.
+type Holder = (TeamId, Uuid);
+
+/// A run of one kind still accepting seeds, with the row weight and the persons it has admitted.
 struct OpenRun<T> {
     into: fn(SeedRun<T>) -> SeedGroup,
     items: Vec<Admitted<T>>,
     rows: usize,
+    holders: HashSet<Holder>,
 }
 
 impl<T> OpenRun<T> {
@@ -259,7 +305,13 @@ impl<T> OpenRun<T> {
             into,
             items: Vec::new(),
             rows: 0,
+            holders: HashSet::new(),
         }
+    }
+
+    /// Whether some admitted seed already acts on this person.
+    fn holds(&self, holder: Holder) -> bool {
+        self.holders.contains(&holder)
     }
 
     /// Admit one seed, closing the run around it as the budget demands: before, when its weight
@@ -270,6 +322,7 @@ impl<T> OpenRun<T> {
     fn admit(
         &mut self,
         item: Admitted<T>,
+        holder: Holder,
         weight: usize,
         budget: RunBudget,
         groups: &mut Vec<SeedGroup>,
@@ -280,6 +333,7 @@ impl<T> OpenRun<T> {
         }
         self.items.push(item);
         self.rows = self.rows.saturating_add(weight);
+        self.holders.insert(holder);
         if self.items.len() >= budget.seeds.get() {
             self.close(groups);
         }
@@ -291,6 +345,7 @@ impl<T> OpenRun<T> {
             return;
         };
         self.rows = 0;
+        self.holders.clear();
         groups.push((self.into)(run));
     }
 }
@@ -322,6 +377,19 @@ mod tests {
         tile_with(TEAM, BEHAVIORAL)
     }
 
+    fn tile_for(person: Uuid) -> SeedTile {
+        SeedTile::new(
+            TEAM,
+            person,
+            hash(BEHAVIORAL),
+            NonZeroU32::new(1).unwrap(),
+            20_614,
+            SChunkMs(1),
+            RunId(Uuid::nil()),
+            ClaimEpoch(1),
+        )
+    }
+
     fn tile_with(team: TeamId, condition_hash: &str) -> SeedTile {
         SeedTile::new(
             team,
@@ -336,9 +404,13 @@ mod tests {
     }
 
     fn person_seed(evaluated: &[&str]) -> PersonSeed {
+        person_seed_for(Uuid::from_u128(2), evaluated)
+    }
+
+    fn person_seed_for(person: Uuid, evaluated: &[&str]) -> PersonSeed {
         PersonSeed::new(
             TEAM,
-            Uuid::from_u128(2),
+            person,
             evaluated.iter().copied().map(hash).collect(),
             vec![],
             ScannedAtMs(1),
@@ -423,9 +495,10 @@ mod tests {
     }
 
     /// An interleaved tile/person stream degraded to runs of one under #93822's kind-change close,
-    /// which is the whole win lost.
+    /// which is the whole win lost. `tile()` and `person_seed()` name different persons, so the
+    /// two runs cannot observe each other and both stay open.
     #[test]
-    fn an_interleaved_stream_still_forms_one_run_per_kind() {
+    fn an_interleaved_stream_of_distinct_persons_still_forms_one_run_per_kind() {
         let groups = group_by_count(
             vec![
                 admitted(SeedWork::Tile(tile()), 0),
@@ -443,6 +516,51 @@ mod tests {
             spans(&groups),
             vec![(0, 2), (1, 3)],
             "each kind keeps its own offset order",
+        );
+    }
+
+    /// Two open runs apply in first-offset order, so a person both kinds touch would have the
+    /// person seed at offset 2 applied before the tile at offset 1. Both leaves feed one composed
+    /// cohort, so that reorder emits an entry and a retraction the per-seed apply never emits.
+    #[test]
+    fn a_person_both_kinds_touch_keeps_every_seed_in_offset_order() {
+        let alice = Uuid::from_u128(11);
+        let groups = group_by_count(
+            vec![
+                admitted(SeedWork::Person(person_seed_for(alice, &[PERSON])), 0),
+                admitted(SeedWork::Tile(tile_for(alice)), 1),
+                admitted(SeedWork::Person(person_seed_for(alice, &[PERSON])), 2),
+            ],
+            256,
+        );
+
+        assert_eq!(
+            spans(&groups),
+            vec![(0, 0), (1, 1), (2, 2)],
+            "no group's span crosses another's",
+        );
+    }
+
+    /// Only the shared person splits: a tile for someone the open person run never touched keeps
+    /// batching, which is the ordinary shape on a partition carrying many persons.
+    #[test]
+    fn one_shared_person_does_not_split_the_runs_around_it() {
+        let alice = Uuid::from_u128(11);
+        let bob = Uuid::from_u128(12);
+        let groups = group_by_count(
+            vec![
+                admitted(SeedWork::Person(person_seed_for(alice, &[PERSON])), 0),
+                admitted(SeedWork::Person(person_seed_for(bob, &[PERSON])), 1),
+                admitted(SeedWork::Tile(tile_for(bob)), 2),
+                admitted(SeedWork::Tile(tile_for(alice)), 3),
+            ],
+            256,
+        );
+
+        assert_eq!(
+            spans(&groups),
+            vec![(0, 1), (2, 3)],
+            "the shared person closes the person run at the tile, and both tiles then batch",
         );
     }
 
@@ -599,21 +717,63 @@ mod tests {
         );
         assert_eq!(
             row_weight(&catalog, &SeedWork::Person(person_seed(&[PERSON]))),
-            1 + (1 + 1),
-            "a person seed is one record plus the registers its hashes back: one single-leaf, one composed",
+            1 + (1 + 1 + 1),
+            "a person seed is one record, then its leaf and the two registers that leaf backs",
         );
         assert_eq!(
             row_weight(
                 &catalog,
                 &SeedWork::Person(person_seed(&[BEHAVIORAL, PERSON])),
             ),
-            1 + (3 + 1) + 1 + (1 + 1),
+            1 + (1 + 3 + 1) + (1 + 1) + (1 + 1 + 1),
             "every hash the seed evaluated counts, whatever the fold later drops",
         );
         assert_eq!(row_weight(&catalog, &SeedWork::Reconcile(reconcile())), 0);
         assert_eq!(
             row_weight(&catalog, &SeedWork::Skip(SeedSkipReason::UnknownKind)),
             0,
+        );
+    }
+
+    /// The fold keeps one entry per evaluated hash, not per register, and a person seed carries up
+    /// to 1,024 hashes. Charging only registers would let a run of seeds whose leaves can emit
+    /// nothing measure its seed count while retaining hash-count entries.
+    #[test]
+    fn a_leaf_that_backs_no_register_still_bounds_the_run() {
+        // A ref-bearing cohort is excluded from composition while cascade is off, so its person
+        // leaf is indexed but keys neither register map.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TEAM,
+                &json!({ "properties": { "type": "AND", "values": [
+                    {
+                        "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+                        "conditionHash": PERSON,
+                        "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+                    },
+                    { "type": "cohort", "value": 99, "negation": false },
+                ] } }),
+            )
+            .unwrap();
+        let catalog = FilterCatalog::from_teams([(TEAM, builder.freeze(chrono_tz::UTC))]);
+
+        assert_eq!(
+            row_weight(&catalog, &SeedWork::Person(person_seed(&[PERSON]))),
+            1 + 1,
+            "the record and the leaf the fold retains, with no register behind it",
+        );
+
+        let seeds: Vec<Admitted<SeedWork>> = (0..4)
+            .map(|offset| admitted(SeedWork::Person(person_seed(&[PERSON])), offset))
+            .collect();
+        let groups = group_seeds(seeds, budget(256, 4), |work| row_weight(&catalog, work));
+
+        assert_eq!(
+            spans(&groups),
+            vec![(0, 1), (2, 3)],
+            "the row ceiling still splits a run that backs no register at all",
         );
     }
 

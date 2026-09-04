@@ -383,8 +383,8 @@ impl TouchedPersons {
 
 // ---- Deferred outcome counters ----
 
-/// One thing a run did, held as data until the run settles. Exhaustive, so a new outcome cannot be
-/// counted mid-flight by accident.
+/// One thing a run did, held as data until the boundary that makes it exactly-once. Exhaustive, so
+/// a new outcome cannot be counted mid-flight by accident.
 ///
 /// Only work the run did is deferred. What a run *found* stays attempt-based, because a run that a
 /// later hold keeps from settling must not hide it: corrupt rows, hop-capped redirects, dropped
@@ -413,49 +413,87 @@ pub(crate) enum Outcome {
     ReKeyed(SeedKind),
 }
 
-/// A run's non-failure counts, emitted only once the run settles, so a hold cannot double-count
-/// them on replay.
+impl Outcome {
+    /// Whether the stage-1 commit is this outcome's exactly-once boundary.
+    ///
+    /// These three say the run *advanced* durable state. Once that commit lands, a replay folds
+    /// the same seeds to `Unchanged` over their own rows and mints nothing, so deferring them any
+    /// further loses a held run's work for good. Every other outcome is re-derived identically by
+    /// a replay — a drop drops again, an idempotent merge is unchanged again — so counting it
+    /// before the run settles would count it once per attempt.
+    fn durable_at_stage1(self) -> bool {
+        matches!(
+            self,
+            Self::TileApplied(_) | Self::PersonApplied(_) | Self::Stage1Transition(_)
+        )
+    }
+}
+
+/// A run's non-failure counts, each held until the boundary that makes it exactly-once: the
+/// stage-1 commit for work that moved durable state, the settled run for everything else.
 #[derive(Debug, Default)]
-pub(crate) struct Tally(BTreeMap<Outcome, u64>);
+pub(crate) struct Tally {
+    durable: BTreeMap<Outcome, u64>,
+    settled: BTreeMap<Outcome, u64>,
+}
 
 impl Tally {
     pub(crate) fn add(&mut self, outcome: Outcome) {
-        *self.0.entry(outcome).or_default() += 1;
+        let half = if outcome.durable_at_stage1() {
+            &mut self.durable
+        } else {
+            &mut self.settled
+        };
+        *half.entry(outcome).or_default() += 1;
+    }
+
+    /// Publish the half the stage-1 commit just made durable. Call only once that commit returned
+    /// `Ok`, so a hold before it re-mints these on replay instead of double-counting them.
+    fn record_durable(&mut self) {
+        record_outcomes(std::mem::take(&mut self.durable));
     }
 
     fn record(self) {
-        for (outcome, count) in self.0 {
-            match outcome {
-                Outcome::TileApplied(variant) => {
-                    counter!(SEED_TILES_APPLIED_TOTAL, "variant" => variant).increment(count);
-                }
-                Outcome::TileUnchanged(variant) => {
-                    counter!(SEED_TILES_UNCHANGED_TOTAL, "variant" => variant).increment(count);
-                }
-                Outcome::TileDropped(reason) => {
-                    counter!(SEED_TILES_DROPPED_TOTAL, "reason" => reason).increment(count);
-                }
-                Outcome::PersonApplied(verdict) => {
-                    counter!(PERSON_SEEDS_APPLIED_TOTAL, "verdict" => verdict).increment(count);
-                }
-                Outcome::PersonUnchanged => {
-                    counter!(PERSON_SEEDS_UNCHANGED_TOTAL).increment(count);
-                }
-                Outcome::PersonSkipped(reason) => {
-                    counter!(PERSON_SEEDS_SKIPPED_TOTAL, "reason" => reason).increment(count);
-                }
-                Outcome::PersonDropped(reason) => {
-                    counter!(PERSON_SEEDS_DROPPED_TOTAL, "reason" => reason).increment(count);
-                }
-                Outcome::Stage1Transition(kind) => {
-                    counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(count);
-                }
-                Outcome::ReKeyed(SeedKind::Tile) => {
-                    counter!(SEED_REKEYED_TOTAL).increment(count);
-                }
-                Outcome::ReKeyed(SeedKind::Person) => {
-                    counter!(PERSON_SEED_REKEYED_TOTAL).increment(count);
-                }
+        debug_assert!(
+            self.durable.is_empty(),
+            "the stage-1 commit publishes the durable half",
+        );
+        record_outcomes(self.settled);
+    }
+}
+
+fn record_outcomes(outcomes: BTreeMap<Outcome, u64>) {
+    for (outcome, count) in outcomes {
+        match outcome {
+            Outcome::TileApplied(variant) => {
+                counter!(SEED_TILES_APPLIED_TOTAL, "variant" => variant).increment(count);
+            }
+            Outcome::TileUnchanged(variant) => {
+                counter!(SEED_TILES_UNCHANGED_TOTAL, "variant" => variant).increment(count);
+            }
+            Outcome::TileDropped(reason) => {
+                counter!(SEED_TILES_DROPPED_TOTAL, "reason" => reason).increment(count);
+            }
+            Outcome::PersonApplied(verdict) => {
+                counter!(PERSON_SEEDS_APPLIED_TOTAL, "verdict" => verdict).increment(count);
+            }
+            Outcome::PersonUnchanged => {
+                counter!(PERSON_SEEDS_UNCHANGED_TOTAL).increment(count);
+            }
+            Outcome::PersonSkipped(reason) => {
+                counter!(PERSON_SEEDS_SKIPPED_TOTAL, "reason" => reason).increment(count);
+            }
+            Outcome::PersonDropped(reason) => {
+                counter!(PERSON_SEEDS_DROPPED_TOTAL, "reason" => reason).increment(count);
+            }
+            Outcome::Stage1Transition(kind) => {
+                counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(count);
+            }
+            Outcome::ReKeyed(SeedKind::Tile) => {
+                counter!(SEED_REKEYED_TOTAL).increment(count);
+            }
+            Outcome::ReKeyed(SeedKind::Person) => {
+                counter!(PERSON_SEED_REKEYED_TOTAL).increment(count);
             }
         }
     }
@@ -630,13 +668,17 @@ impl Diffed {
                 .await
                 .map_err(SeedHold::store(ApplyStage::Stage1Commit))?;
         }
+        let mut tally = self.tally;
+        // The run's advances are durable here, and a replay would fold them to `Unchanged` over
+        // their own rows and mint nothing, so a later hold would drop these counts for good.
+        tally.record_durable();
         Ok(Committed {
             span: self.span,
             recompute: self.recompute,
             recompose: self.recompose,
             schedules: self.schedules,
             re_keys: self.re_keys,
-            tally: self.tally,
+            tally,
         })
     }
 }
@@ -737,6 +779,10 @@ impl Recomputed {
     /// so a failed leg holds the run and the replay re-emits the whole output. Duplicates are safe
     /// on every leg: membership is LWW downstream, a duplicate cascade re-evaluates a referrer from
     /// the store, and a duplicate re-keyed seed re-applies idempotently on its target.
+    ///
+    /// The two output legs decide the run here. The hand-off leg does not: it is carried past the
+    /// stage-2 commit, because a run mixes local and redirected seeds and a hand-off that failed
+    /// says nothing about what downstream was told.
     async fn produce(self, deps: ApplyDeps<'_>) -> Result<Produced, SeedHold> {
         let Self {
             span,
@@ -754,11 +800,11 @@ impl Recomputed {
         );
         require_acked(ProduceLeg::Membership, membership)?;
         require_acked(ProduceLeg::Cascade, cascade)?;
-        require_acked(ProduceLeg::ReKey, re_key)?;
         Ok(Produced {
             span,
             stage2,
             tally,
+            re_key_errors: re_key,
         })
     }
 }
@@ -768,19 +814,32 @@ struct Produced {
     span: OffsetSpan,
     stage2: Stage2Recompute,
     tally: Tally,
+    /// Hand-offs that did not ack. Held until after the stage-2 commit; see
+    /// [`Produced::commit_stage2`].
+    re_key_errors: usize,
 }
 
 impl Produced {
     /// The composed bits and the single-leaf register bits commit only after the produce acks, so
     /// a failed produce is re-derived on replay instead of lost against a flipped bit.
+    ///
+    /// A failed hand-off still holds the run, but only once these bits are committed. The
+    /// membership leg acked, so downstream holds the new truth and the register has to say so: the
+    /// cascade for that flip is co-partitioned and is consumed right after this run, and it reads
+    /// the referenced cohort's *stored* bit. Leaving that bit unwritten makes the cascade read the
+    /// referrer as unchanged and mark itself, and every referring cohort stays stale until the next
+    /// tenure replays the run. The replay is clean either way: the local seeds fold to `Unchanged`
+    /// over their own rows, the register agrees, and only the hand-off is produced again.
     async fn commit_stage2(self, deps: ApplyDeps<'_>) -> Result<Settled, SeedHold> {
         commit_stage2_writes(deps.handle, &self.stage2.writes)
             .await
             .map_err(SeedHold::store(ApplyStage::Stage2Commit))?;
+        // Committed, so a redelivery cannot double-count these and a hold cannot lose them.
+        self.stage2.record_metrics();
         Ok(Settled {
             span: self.span,
-            stage2: self.stage2,
             tally: self.tally,
+            re_key_errors: self.re_key_errors,
         })
     }
 }
@@ -788,16 +847,19 @@ impl Produced {
 #[must_use]
 struct Settled {
     span: OffsetSpan,
-    stage2: Stage2Recompute,
     tally: Tally,
+    re_key_errors: usize,
 }
 
 impl Settled {
     /// Everything the run counted, emitted once its offsets are safe to mark.
-    fn record(self) -> OffsetSpan {
-        self.stage2.record_metrics();
+    ///
+    /// A failed hand-off holds the run here, after its stage-2 commit; see
+    /// [`Produced::commit_stage2`] for why the commit must not wait on that leg.
+    fn record(self) -> Result<OffsetSpan, SeedHold> {
+        require_acked(ProduceLeg::ReKey, self.re_key_errors)?;
         self.tally.record();
-        self.span
+        Ok(self.span)
     }
 }
 
@@ -912,7 +974,7 @@ async fn drive<H: SeedHead>(
     let settled = produced.commit_stage2(deps).await?;
     stages.mark(ApplyStage::Stage2Commit);
 
-    Ok(settled.record())
+    settled.record()
 }
 
 /// Mark the run's whole span, or hold its first offset and count the failed stage.
@@ -1088,8 +1150,55 @@ mod tests {
         tally.add(Outcome::TileApplied("behavioral_single"));
         tally.add(Outcome::PersonUnchanged);
 
-        assert_eq!(tally.0[&Outcome::TileApplied("behavioral_single")], 2);
-        assert_eq!(tally.0[&Outcome::PersonUnchanged], 1);
+        assert_eq!(tally.durable[&Outcome::TileApplied("behavioral_single")], 2);
+        assert_eq!(tally.settled[&Outcome::PersonUnchanged], 1);
+    }
+
+    /// The split is what makes each half exactly-once. An advance the replay cannot re-mint has to
+    /// publish at the stage-1 commit; anything a replay repeats has to wait for the run to settle,
+    /// or a hold counts it once per attempt.
+    #[test]
+    fn a_tally_splits_advances_from_what_a_replay_repeats() {
+        for outcome in [
+            Outcome::TileApplied("behavioral_single"),
+            Outcome::PersonApplied("fresh"),
+            Outcome::Stage1Transition("entered"),
+        ] {
+            assert!(
+                outcome.durable_at_stage1(),
+                "{outcome:?} advanced durable state, so the replay mints nothing",
+            );
+        }
+        for outcome in [
+            Outcome::TileUnchanged("behavioral_single"),
+            Outcome::TileDropped("corrupt_state"),
+            Outcome::PersonUnchanged,
+            Outcome::PersonSkipped("stale_vs_live"),
+            Outcome::PersonDropped("team_absent"),
+            Outcome::ReKeyed(SeedKind::Tile),
+        ] {
+            assert!(
+                !outcome.durable_at_stage1(),
+                "a replay derives {outcome:?} again",
+            );
+        }
+    }
+
+    /// A run held after its stage-1 commit must not publish the advances that commit already
+    /// counted a second time when it settles.
+    #[test]
+    fn the_durable_half_publishes_once() {
+        let mut tally = Tally::default();
+        tally.add(Outcome::TileApplied("behavioral_single"));
+        tally.add(Outcome::PersonUnchanged);
+        tally.record_durable();
+
+        assert!(tally.durable.is_empty(), "drained by the stage-1 commit");
+        assert_eq!(
+            tally.settled[&Outcome::PersonUnchanged],
+            1,
+            "what a replay repeats still waits for the run to settle",
+        );
     }
 
     /// Splitting a person across two recompute calls would evaluate the same cohort twice against
