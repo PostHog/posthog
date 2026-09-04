@@ -17,6 +17,7 @@ import urllib3.exceptions
 from databricks import sql
 from databricks.sdk.core import Config
 from databricks.sdk.credentials_provider import oauth_service_principal
+from databricks.sdk.errors import DatabricksError
 from databricks.sql.client import Connection, Cursor
 from databricks.sql.exc import DatabaseError, OperationalError, ServerOperationError
 from databricks.sql.types import Row
@@ -392,7 +393,9 @@ class DatabricksClient:
             raise DatabricksConnectionError(
                 "Failed to connect to Databricks. Please check that your connection details are valid."
             )
-        except OperationalError as err:
+        # The OAuth credential provider runs its own SDK client, so a failure there raises from the
+        # `databricks.sdk` hierarchy instead of the `databricks.sql` one.
+        except (OperationalError, DatabricksError) as err:
             self.logger.info(
                 "Failed to connect to Databricks: %s. server_hostname: %s, http_path: %s",
                 err,
@@ -406,6 +409,12 @@ class DatabricksClient:
                     "Failed to connect to Databricks: invalid credentials. "
                     "Please check that your client_id and client_secret are valid.",
                     retryable=False,
+                ) from err
+            # An SDK error the SDK could not parse carries a request log with the raw response body
+            # and a request to file a bug on the SDK issue tracker. Neither helps the user.
+            if isinstance(err, DatabricksError):
+                raise DatabricksConnectionError(
+                    "Failed to connect to Databricks. Please check that your connection details are valid."
                 ) from err
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
 
