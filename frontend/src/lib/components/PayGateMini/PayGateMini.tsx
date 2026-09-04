@@ -7,6 +7,7 @@ import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { ProductUpgradePricing, describeProductUpgradePricing } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -186,6 +187,8 @@ function PayGateContent({
         gateVariant,
         isAddonProduct,
         featureInfoOnNextPlan,
+        upgradePricing,
+        ctaLink,
     } = useValues(payGateMiniLogic({ feature, currentUsage }))
 
     if (!productWithFeature || !featureInfo) {
@@ -208,6 +211,8 @@ function PayGateContent({
                 gateVariant,
                 featureInfo,
                 productWithFeature,
+                upgradePricing,
+                ctaLink,
                 isAddonProduct,
                 handleCtaClick
             )}
@@ -224,6 +229,8 @@ const renderUsageLimitMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingFeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    upgradePricing: ProductUpgradePricing | null,
+    ctaLink: string | undefined,
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
 ): JSX.Element => {
@@ -275,7 +282,16 @@ const renderUsageLimitMessage = (
     return (
         <>
             <p className="max-w-140">{featureInfo.description}</p>
-            <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
+            <p className="max-w-140">
+                {renderGateVariantMessage(gateVariant, productWithFeature, upgradePricing, isAddonProduct)}
+            </p>
+            {gateVariant === 'add-card' && !isAddonProduct && ctaLink && (
+                <p className="mb-4 text-xs text-secondary">
+                    <Link to={ctaLink} onClick={handleCtaClick}>
+                        See all plans and pricing
+                    </Link>
+                </p>
+            )}
         </>
     )
 }
@@ -283,6 +299,7 @@ const renderUsageLimitMessage = (
 const renderGateVariantMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    upgradePricing: ProductUpgradePricing | null,
     isAddonProduct?: boolean
 ): JSX.Element => {
     if (gateVariant === 'move-to-cloud') {
@@ -291,6 +308,15 @@ const renderGateVariantMessage = (
         return (
             <>
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
+            </>
+        )
+    }
+
+    if (gateVariant === 'add-card' && productWithFeature?.name) {
+        return (
+            <>
+                Subscribe to <b>{productWithFeature.name}</b> to use this feature.
+                {upgradePricing ? ` ${describeProductUpgradePricing(upgradePricing)}` : ''}
             </>
         )
     }

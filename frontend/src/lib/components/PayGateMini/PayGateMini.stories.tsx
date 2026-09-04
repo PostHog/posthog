@@ -146,6 +146,33 @@ export const PayGateMiniLimitFeatureProjects: Story = {
     },
 }
 
+export const PayGateMiniFreeProduct: Story = {
+    args: { feature: AvailableFeature.SURVEYS_STYLING },
+    render: ({ cloud, ...props }) => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: cloud !== undefined ? cloud : true,
+                    is_debug: cloud !== undefined ? cloud : true,
+                    realm: Realm.Cloud,
+                },
+                '/api/billing/': {
+                    ...billingUnsubscribedJson,
+                },
+            },
+        })
+
+        return (
+            <div className="p-10 max-w-4xl mx-auto">
+                <PayGateMini {...props}>
+                    <></>
+                </PayGateMini>
+            </div>
+        )
+    },
+}
+
 export const PayGateMiniFree: Story = {
     args: { feature: AvailableFeature.ORGANIZATIONS_PROJECTS, currentUsage: 2 },
     render: ({ cloud, ...props }) => {

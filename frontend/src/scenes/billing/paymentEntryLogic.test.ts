@@ -12,7 +12,7 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BillingType } from '~/types'
+import { BillingProductV2Type, BillingType } from '~/types'
 
 const seedBilling = async (billing: Partial<BillingType> | null): Promise<void> => {
     useMocks({ get: { '/api/billing': () => [200, billing ?? {}] } })
@@ -117,6 +117,19 @@ describe('paymentEntryLogic', () => {
             expect(logic.values.paymentEntryModalOpen).toBe(true)
             expect(logic.values.redirectPath).toBe('/foo')
             expect(toastErrorSpy).not.toHaveBeenCalled()
+        })
+
+        it('keeps the product so the modal can name what is being subscribed to', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const surveys = { type: 'surveys', name: 'Surveys' } as BillingProductV2Type
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow(surveys)).toFinishAllListeners()
+            expect(logic.values.intentProduct).toEqual(surveys)
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
+            expect(logic.values.intentProduct).toBe(null)
         })
     })
 })

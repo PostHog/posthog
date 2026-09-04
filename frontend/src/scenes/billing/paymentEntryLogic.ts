@@ -18,6 +18,7 @@ export interface paymentEntryLogicValues {
     apiError: null
     authorizationStatus: string | null
     clientSecret: null
+    intentProduct: BillingProductV2Type | null
     isLoading: boolean
     paymentEntryModalOpen: boolean
     redirectPath: string | null
@@ -50,6 +51,9 @@ export interface paymentEntryLogicActions {
     }
     setClientSecret: (clientSecret: any) => {
         clientSecret: any
+    }
+    setIntentProduct: (product: BillingProductV2Type | null) => {
+        product: BillingProductV2Type | null
     }
     setLoading: (loading: any) => {
         loading: any
@@ -95,6 +99,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
         showPaymentEntryModal: true,
         hidePaymentEntryModal: true,
         setRedirectPath: (redirectPath: string | null) => ({ redirectPath }),
+        setIntentProduct: (product: BillingProductV2Type | null) => ({ product }),
     }),
     reducers({
         clientSecret: [
@@ -142,10 +147,17 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 setRedirectPath: (_, { redirectPath }) => redirectPath,
             },
         ],
+        intentProduct: [
+            null as BillingProductV2Type | null,
+            {
+                setIntentProduct: (_, { product }) => product,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         startPaymentEntryFlow: async ({ product, redirectPath }) => {
             const { billing } = billingLogic.values
+            actions.setIntentProduct(product || null)
 
             if (billing?.customer_id) {
                 // Returning customer — call POST API to activate subscription

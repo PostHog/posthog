@@ -7,12 +7,19 @@ import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
-import { compactNumber } from 'lib/utils/numbers'
+import { compactNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { wordPluralize } from 'lib/utils/strings'
 import { Params } from 'scenes/sceneTypes'
 
-import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
+import {
+    BillingPeriod,
+    BillingPlanType,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTierType,
+    BillingType,
+} from '~/types'
 
 import { billingProductDisplayName } from './billingProductDisplayName'
 import { SPEND_TYPES, USAGE_TYPES } from './constants'
@@ -792,4 +799,87 @@ export function buildUsageLimitApproachingMessage(
         title: products.length === 1 ? 'You will soon hit your usage limit' : 'You will soon hit your usage limits',
         message,
     }
+}
+
+export interface ProductUpgradePricing {
+    /** Units included at no cost in each billing period, when the paid plan has a free tier. */
+    freeAllocation: number | null
+    /** Formatted price of the first paid unit, e.g. "$0.20". */
+    unitAmountUsd: string
+    /** Singular unit label, e.g. "survey response". */
+    unit: string | null
+    /** True when the plan charges a fixed amount instead of a price per unit. */
+    flatRate: boolean
+}
+
+const unitPriceFormatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+})
+
+const formatUnitPrice = (unitAmountUsd: string, product: BillingProductV2Type | BillingProductV2AddonType): string => {
+    const price = parseFloat(unitAmountUsd)
+    // Products that display in a larger unit (per GB instead of per MB) price in the small unit.
+    const displayPrice =
+        hasDisplayFormatting(product) && product.display_divisor ? price * product.display_divisor : price
+    return unitPriceFormatter.format(displayPrice)
+}
+
+// The free plan carries no price at all, so the plan that quotes one is the plan to upgrade to.
+const quotesAPrice = (plan: BillingPlanType): boolean =>
+    plan.flat_rate ? !!plan.unit_amount_usd : (plan.tiers ?? []).some((tier) => parseFloat(tier.unit_amount_usd) > 0)
+
+/**
+ * What a paid plan for this product costs, ready to show on an upgrade prompt.
+ * Returns null when the payload carries no price to quote.
+ */
+export const getProductUpgradePricing = (
+    product: BillingProductV2Type | BillingProductV2AddonType,
+    plan?: BillingPlanType | null
+): ProductUpgradePricing | null => {
+    const paidPlan = plan && quotesAPrice(plan) ? plan : product.plans?.find(quotesAPrice)
+    if (!paidPlan) {
+        return null
+    }
+    const unit = paidPlan.unit ?? product.unit ?? null
+
+    if (paidPlan.flat_rate) {
+        return paidPlan.unit_amount_usd
+            ? {
+                  freeAllocation: null,
+                  unitAmountUsd: formatUnitPrice(paidPlan.unit_amount_usd, product),
+                  unit,
+                  flatRate: true,
+              }
+            : null
+    }
+
+    const tiers = paidPlan.tiers ?? []
+    const firstPaidTier = tiers.find((tier) => parseFloat(tier.unit_amount_usd) > 0)
+    if (!firstPaidTier) {
+        return null
+    }
+    const freeTier = tiers.find((tier) => parseFloat(tier.unit_amount_usd) === 0)
+
+    return {
+        freeAllocation: freeTier?.up_to ?? paidPlan.free_allocation ?? null,
+        unitAmountUsd: formatUnitPrice(firstPaidTier.unit_amount_usd, product),
+        unit: (hasDisplayFormatting(product) && product.display_unit) || unit,
+        flatRate: false,
+    }
+}
+
+/** One sentence a person can read on a paywall, saying what the product costs. */
+export const describeProductUpgradePricing = (pricing: ProductUpgradePricing): string => {
+    if (pricing.flatRate) {
+        return `It costs ${pricing.unitAmountUsd} per ${pricing.unit ?? 'month'}.`
+    }
+    const unit = pricing.unit ?? 'unit'
+    const perUnit = `${pricing.unitAmountUsd} per ${unit}`
+    if (pricing.freeAllocation) {
+        return `The first ${humanFriendlyNumber(pricing.freeAllocation)} ${wordPluralize(unit)} each month are free, then ${perUnit}.`
+    }
+    return `It costs ${perUnit}.`
 }

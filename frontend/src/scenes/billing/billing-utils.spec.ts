@@ -5,7 +5,9 @@ import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
+import { BillingProductV2Type } from '~/types'
 
 import {
     buildUsageLimitApproachingMessage,
@@ -15,10 +17,12 @@ import {
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
+    describeProductUpgradePricing,
     formatDisplayUsage,
     formatProductNames,
     formatWithDecimals,
     getMinimumBillingAccessLevel,
+    getProductUpgradePricing,
     getMinimumUsageSpendReadAccessLevel,
     getProration,
     getUsageLimitConsequence,
@@ -766,5 +770,51 @@ describe('isMemberUsageSpendReadAccessEnabled', () => {
         { case: 'neither flag is present', featureFlags: {}, expected: false },
     ])('returns $expected when $case', ({ featureFlags, expected }) => {
         expect(isMemberUsageSpendReadAccessEnabled(featureFlags)).toBe(expected)
+    })
+})
+
+describe('getProductUpgradePricing', () => {
+    const surveys = billingUnsubscribedJson.products.find(
+        (product) => product.type === 'surveys'
+    ) as unknown as BillingProductV2Type
+
+    it('quotes the free allowance and the first paid tier of the paid plan', () => {
+        const pricing = getProductUpgradePricing(surveys)
+
+        expect(pricing).toEqual({
+            freeAllocation: 250,
+            unitAmountUsd: '$0.20',
+            unit: 'survey response',
+            flatRate: false,
+        })
+        expect(describeProductUpgradePricing(pricing!)).toEqual(
+            'The first 250 survey responses each month are free, then $0.20 per survey response.'
+        )
+    })
+
+    it('falls back to the product plans when the preferred plan quotes no price', () => {
+        const freePlan = surveys.plans.find((plan) => plan.plan_key?.startsWith('free'))
+
+        expect(getProductUpgradePricing(surveys, freePlan)).toEqual(getProductUpgradePricing(surveys))
+    })
+
+    it('quotes a flat rate plan per period', () => {
+        const flatRateProduct = {
+            ...surveys,
+            plans: [{ ...surveys.plans[1], flat_rate: true, tiers: null, unit_amount_usd: '450', unit: 'month' }],
+        } as unknown as BillingProductV2Type
+
+        const pricing = getProductUpgradePricing(flatRateProduct)
+
+        expect(describeProductUpgradePricing(pricing!)).toEqual('It costs $450.00 per month.')
+    })
+
+    it('returns null when the paid plan quotes no price', () => {
+        const noPriceProduct = {
+            ...surveys,
+            plans: [{ ...surveys.plans[1], tiers: null, unit_amount_usd: null }],
+        } as unknown as BillingProductV2Type
+
+        expect(getProductUpgradePricing(noPriceProduct)).toBeNull()
     })
 })

@@ -7,9 +7,20 @@ import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { BillingProductV2Type } from '~/types'
+
+import { describeProductUpgradePricing, getProductUpgradePricing } from './billing-utils'
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
+
+// A card subscribes the organization to every product, so the modal says that as well as the price
+// of the product the person came here for.
+const describeSubscription = (product: BillingProductV2Type): string => {
+    const pricing = getProductUpgradePricing(product)
+    const price = pricing ? ` ${describeProductUpgradePricing(pricing)}` : ''
+    return `You get ${product.name} and every other PostHog product.${price} You pay only for the usage above each free allowance.`
+}
 
 // Covers every way Stripe.js can fail to become usable: a blocked script, a network failure, or no
 // publishable key at all on an instance without Stripe configured. Only the first is worth a retry,
@@ -80,7 +91,7 @@ export const PaymentForm = (): JSX.Element => {
 }
 
 export const PaymentEntryModal = (): JSX.Element => {
-    const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
+    const { clientSecret, paymentEntryModalOpen, apiError, intentProduct } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
 
@@ -115,8 +126,8 @@ export const PaymentEntryModal = (): JSX.Element => {
             onClose={hidePaymentEntryModal}
             width="max(44vw)"
             isOpen={paymentEntryModalOpen}
-            title="Add your payment details to subscribe"
-            description=""
+            title={intentProduct ? `Subscribe to ${intentProduct.name}` : 'Add your payment details to subscribe'}
+            description={intentProduct ? describeSubscription(intentProduct) : ''}
         >
             <div>
                 {clientSecret ? (
