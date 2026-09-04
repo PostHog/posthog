@@ -287,6 +287,12 @@ CONSTANCE_CONFIG = {
         "Enable hedged requests for online APP queries to ClickHouse.",
         bool,
     ),
+    "CLICKHOUSE_METERED_CLIENT": (
+        get_from_env("CLICKHOUSE_METERED_CLIENT", False, type_cast=str_to_bool),
+        "Create new pooled ClickHouse connections with the client that keeps per-query CPU from ProfileEvents "
+        "and the query info of a query the server killed. Applies to connections opened after the change.",
+        bool,
+    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -407,6 +413,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
+    "CLICKHOUSE_METERED_CLIENT",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",
