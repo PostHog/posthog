@@ -26,7 +26,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {
@@ -47,7 +48,7 @@ import { supportsDirectQuery } from './schemaGroupingUtils'
 const NO_OP_SET_VALUE = (): void => undefined
 
 export interface SourceFormProps {
-    sourceConfig: SourceConfig
+    sourceConfig: SourceConfigResponseApi
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
@@ -141,7 +142,7 @@ export function SourceAccessMethodSelector({
 
 export const sourceFieldToElement = (
     field: SourceFieldConfig,
-    sourceConfig: SourceConfig,
+    sourceConfig: SourceConfigResponseApi,
     lastValue?: any,
     isUpdateMode?: boolean,
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
@@ -364,9 +365,9 @@ export const sourceFieldToElement = (
                 integrationField={field.integrationField}
                 integrationKind={field.integrationKind}
                 sourceType={sourceConfig.name}
-                placeholder={field.placeholder}
-                caption={field.caption}
-                multiple={field.multiple}
+                placeholder={field.placeholder ?? undefined}
+                caption={field.caption ?? undefined}
+                multiple={field.multiple ?? undefined}
                 legacySingleField={legacySingleField}
                 oauthBranch={findOauthBranch(sourceConfig.fields, field.integrationField)}
             />
@@ -380,7 +381,7 @@ export const sourceFieldToElement = (
                     <div className="bg-fill-input p-2 border rounded-[var(--radius)]">
                         <LemonFileInput
                             value={value}
-                            accept={field.fileFormat.format}
+                            accept={field.fileFormat.format ?? '.json'}
                             multiple={false}
                             onChange={onChange}
                         />
@@ -401,19 +402,24 @@ export const sourceFieldToElement = (
         )
     }
 
+    // Every other field type returned above, so what is left renders as a plain input.
+    const inputField = field
+
     return (
         <LemonField
-            key={field.name}
-            name={field.name}
-            label={field.label}
-            help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            key={inputField.name}
+            name={inputField.name}
+            label={inputField.label}
+            help={
+                inputField.caption ? <LemonMarkdown className="text-xs">{inputField.caption}</LemonMarkdown> : undefined
+            }
         >
             {({ value, onChange }) => (
                 <LemonInput
                     className="ph-ignore-input"
-                    data-attr={field.name}
-                    placeholder={field.placeholder}
-                    type={field.type as 'text'}
+                    data-attr={inputField.name}
+                    placeholder={inputField.placeholder}
+                    type={inputField.type as 'text'}
                     value={value || ''}
                     onChange={onChange}
                 />

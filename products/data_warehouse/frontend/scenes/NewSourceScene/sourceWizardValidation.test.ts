@@ -1,4 +1,4 @@
-import type { SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 
 import { findOauthBranch, normalizeMultiValue } from '../../shared/components/forms/IntegrationAccountSelector'
 import { getErrorsForFields } from './sourceWizardLogic'

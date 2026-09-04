@@ -9,7 +9,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceFieldToElement } from './SourceForm'
 
@@ -28,7 +29,7 @@ export interface WebhookCreateResult {
 
 interface WebhookSetupFormProps {
     sourceName: string
-    sourceConfig?: SourceConfig | null
+    sourceConfig?: SourceConfigResponseApi | null
     webhookTables?: { name: string; label?: string | null }[]
     webhookResult?: WebhookCreateResult | null
     webhookCreating: boolean

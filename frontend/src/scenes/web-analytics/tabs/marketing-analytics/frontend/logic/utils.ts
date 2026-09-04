@@ -4,7 +4,6 @@ import {
     AttributionMode,
     ConversionGoalFilter,
     DataWarehouseNode,
-    ExternalDataSourceType,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -16,9 +15,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
+import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { NativeSource } from './marketingAnalyticsLogic'
 
-export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
+export type NonNativeMarketingSource = Extract<ExternalDataSourceTypeEnumApi, 'BigQuery'>
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
