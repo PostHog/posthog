@@ -857,6 +857,35 @@ class TestPollForTurnTerminalDrain:
             with pytest.raises(RuntimeError, match="terminal status"):
                 await poll_for_turn(fake_task_run, skip_lines=skip)
 
+    @parameterized.expand(
+        [
+            ("completed", True),
+            ("failed", False),
+            ("cancelled", False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_drain_marks_only_completed_as_retryable(self, status: str, retryable: bool):
+        """A COMPLETED run with no message is the empty-turn path — the row flipped terminal
+        before the final message reached S3 — so the drain must raise the retryable error.
+        FAILED and CANCELLED carry a real cause and stay fatal."""
+        log = "\n".join([_user_message_line("prompt"), _usage_update_line(0)])
+        fake_task_run = FakeTaskRun(status=status, error_message="sandbox killed")
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert isinstance(exc_info.value, EmptyAgentTurnError) is retryable
+        if retryable:
+            assert exc_info.value.run_terminal is True  # type: ignore[attr-defined]
+            assert exc_info.value.total_lines == 2  # type: ignore[attr-defined]
+
     @pytest.mark.asyncio
     async def test_terminal_status_recovers_mid_turn_agent_message(self):
         """The original commit's intent must still hold: when the agent emitted an
@@ -1167,6 +1196,29 @@ class TestMultiTurnSessionRetry:
         assert session.printed_lines == 10
 
     @pytest.mark.asyncio
+    async def test_terminal_empty_turn_repolls_without_resending(self):
+        """When the run row already went terminal the agent is gone, so the retry must re-read
+        the log rather than signal a followup that has nowhere to land."""
+        session = self._make_session()
+        agent_response = json.dumps({"value": "landed-late"})
+
+        poll_mock = AsyncMock(
+            side_effect=[
+                EmptyAgentTurnError("terminal", total_lines=12, printed_lines=7, run_terminal=True),
+                TurnPollResult(last_message=agent_response, full_log=None, total_lines=20, printed_lines=10),
+            ]
+        )
+        with patch(
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=poll_mock,
+        ):
+            result = await session.send_followup("dedupe these", _Resp, label="dedupe")
+
+        assert result == _Resp(value="landed-late")
+        assert poll_mock.await_count == 2
+        assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
     async def test_raises_after_two_consecutive_empty_turns(self):
         session = self._make_session()
 
@@ -1264,6 +1316,37 @@ class TestMultiTurnSessionRetry:
             await session.send_followup("x", _Resp, label="priority")
 
         assert captured_skip_lines == [5, 99]
+
+    @pytest.mark.asyncio
+    async def test_short_terminal_drain_does_not_rewind_offsets(self):
+        """Regression: a terminal drain reports a raw line count from a fresh S3 read, which
+        eventual consistency can return shorter than the poll already saw. That count must not
+        rewind log_lines_seen below the turn-start cursor, which would re-read the previous turn
+        and return its message as this turn's answer."""
+        session = self._make_session()
+        session.log_lines_seen = 40
+        session.printed_lines = 20
+        agent_response = json.dumps({"value": "ok"})
+
+        captured_skip_lines: list[int] = []
+
+        async def fake_poll(task_run, *, skip_lines=0, printed_lines=0, **kwargs):
+            captured_skip_lines.append(skip_lines)
+            if len(captured_skip_lines) == 1:
+                # Terminal drain read fewer lines than the turn-start cursor.
+                raise EmptyAgentTurnError("terminal", total_lines=12, printed_lines=7, run_terminal=True)
+            return TurnPollResult(last_message=agent_response, full_log=None, total_lines=50, printed_lines=25)
+
+        with patch(
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=fake_poll,
+        ):
+            await session.send_followup("x", _Resp, label="priority")
+
+        # The terminal retry re-polls from the turn-start cursor, never below it.
+        assert captured_skip_lines == [40, 40]
+        # run_terminal re-polls without signaling a follow-up to the closed workflow.
+        assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
 
 
 @pytest.mark.django_db(transaction=True)

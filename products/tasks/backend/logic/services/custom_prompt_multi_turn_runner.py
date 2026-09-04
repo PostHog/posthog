@@ -48,6 +48,8 @@ class MultiTurnSession:
     # dropped-finalization salvage can fire before the activity is cancelled.
     max_poll_seconds: int | None = None
     _workflow_handle: WorkflowHandle | None = field(default=None, repr=False)
+    # True when the last turn ended empty because the run row had already gone terminal.
+    _last_turn_run_terminal: bool = field(default=False, repr=False)
 
     @classmethod
     async def start(
@@ -271,9 +273,15 @@ class MultiTurnSession:
         started_at = time.monotonic()
         last_message = await self._send_and_poll(message, label=label, attempt=1)
         if last_message is None:
-            # First attempt was an empty end_turn. Resend with a small nudge to keep the agent going
-            retry_message = message + _EMPTY_TURN_RETRY_NUDGE
-            last_message = await self._send_and_poll(retry_message, label=label, attempt=2)
+            if self._last_turn_run_terminal:
+                # The run already reached a terminal status, so the agent is gone and a resend has
+                # nowhere to land. Poll once more instead: the final message often reaches S3 just
+                # after the row flips.
+                last_message = await self._poll_turn(label=label, attempt=2)
+            else:
+                # First attempt was an empty end_turn. Resend with a small nudge to keep the agent going
+                retry_message = message + _EMPTY_TURN_RETRY_NUDGE
+                last_message = await self._send_and_poll(retry_message, label=label, attempt=2)
             if last_message is None:
                 # If the follow-up didn't help - raise
                 raise EmptyAgentTurnError(
@@ -299,6 +307,10 @@ class MultiTurnSession:
             label,
             attempt,
         )
+        return await self._poll_turn(label=label, attempt=attempt)
+
+    async def _poll_turn(self, *, label: str, attempt: int) -> str | None:
+        """Poll for the current turn's response. Returns None on empty end_turn."""
         try:
             turn = await poll_for_turn(
                 self.task_run,
@@ -314,9 +326,13 @@ class MultiTurnSession:
             return turn.last_message
         # Catch empty turns, raise everything else
         except EmptyAgentTurnError as e:
-            # Advance log offsets to read from the current tail instead of re-reading the empty-turn lines
-            self.log_lines_seen = e.total_lines
+            # Advance offsets to read from the current tail, not the empty-turn lines. Clamp against a
+            # rewind: the terminal drain reports a raw line count from a fresh S3 read, which eventual
+            # consistency can return shorter than the poll already saw. A cursor below the turn-start
+            # boundary would re-read the previous turn and return its message as this turn's answer.
+            self.log_lines_seen = max(self.log_lines_seen, e.total_lines)
             self.printed_lines = e.printed_lines
+            self._last_turn_run_terminal = e.run_terminal
             logger.exception(
                 "multi_turn: empty end_turn run=%s label=%s attempt=%d — will %s",
                 self.task_run.id,
