@@ -785,6 +785,7 @@ class TestModalSandboxAgentServer:
         mock_sandbox.write_file = MagicMock(
             return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
         )
+
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
             if ENV_DISABLE_BUNDLED_SKILLS in command:
                 return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
