@@ -24,14 +24,15 @@ import {
     type CellTagBlock,
 } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 import { getNotebookWidgetTagNames, getNotebookWidgetViewError } from './widgetCatalog'
 
 /** The cell header renders a title on a single ellipsized line, so anything longer is cut off anyway. */
 const CELL_TITLE_MAX_LENGTH = 120
 
-export const NotebooksAddCellSchema = z
+const AddCellInputSchema = z
     .object({
-        notebook_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
+        notebook_id: z.string().describe(NOTEBOOK_SHORT_ID_DESCRIPTION),
         cell_type: z
             .enum(['sql', 'python', 'markdown', 'saved_insight', 'component'])
             .describe(
@@ -76,6 +77,8 @@ export const NotebooksAddCellSchema = z
             .describe('Insert after this cell (node_id from a previous add). Defaults to the end of the document.'),
     })
     .strict()
+
+export const NotebooksAddCellSchema = z.preprocess(notebookIdAliases('notebook_id'), AddCellInputSchema)
 
 export interface AddCellResult {
     node_id?: string
