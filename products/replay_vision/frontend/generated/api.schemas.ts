@@ -742,6 +742,20 @@ export interface VisionSpendSeriesApi {
 }
 
 /**
+ * * `ai` - AI draft
+ * * `template` - Template
+ * * `scratch` - From scratch
+ */
+export type ScannerCreationMethodEnumApi =
+    (typeof ScannerCreationMethodEnumApi)[keyof typeof ScannerCreationMethodEnumApi]
+
+export const ScannerCreationMethodEnumApi = {
+    Ai: 'ai',
+    Template: 'template',
+    Scratch: 'scratch',
+} as const
+
+/**
  * * `focused` - Focused
  * * `balanced` - Balanced
  * * `comprehensive` - Comprehensive
@@ -850,6 +864,12 @@ export interface ReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+     *
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch */
+    creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -968,6 +988,12 @@ export interface PatchedReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+     *
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch */
+    creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
