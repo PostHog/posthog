@@ -383,6 +383,7 @@ def list_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    owner_team: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
@@ -392,6 +393,7 @@ def list_team_ci_health(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        owner_team=owner_team,
     )
 
 
@@ -500,8 +502,9 @@ def get_dora_overview(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    environment: str | None = None,
+    environments: list[str] | None = None,
     github_team: str | None = None,
+    granularity: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -510,8 +513,9 @@ def get_dora_overview(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
-        environment=environment,
+        environments=environments,
         github_team=github_team,
+        granularity=granularity,
     )
 
 

@@ -398,17 +398,19 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
             ]
 
+        strategy = (
+            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+            if response == pre_aggregated_response
+            else WebAnalyticsPreComputeStrategy.LIVE
+        )
+
         return WebOverviewQueryResponse(
             results=results,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            preComputeStrategy=(
-                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-                if response == pre_aggregated_response
-                else WebAnalyticsPreComputeStrategy.LIVE
-            ),
-            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
+            preComputeStrategy=strategy,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
         )
 
     @cached_property

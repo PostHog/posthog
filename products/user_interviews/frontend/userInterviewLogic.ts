@@ -20,7 +20,7 @@ import {
     userInterviewTopicsTestLinkRetrieve,
     userInterviewsList,
 } from './generated/api'
-import { ClassificationsEnumApi } from './generated/api.schemas'
+import { UserInterviewClassificationEnumApi } from './generated/api.schemas'
 import type {
     IntervieweeContextApi,
     InterviewLinkApi,
@@ -385,7 +385,7 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                     // Mirror the backend `has_replied` rule: an abandoned partial (e.g. a mid-call
                     // refresh) is not a reply, so it must not mark the invitee responded — otherwise
                     // the topic page and the public link disagree on who still needs chasing.
-                    if (interview.classifications?.includes(ClassificationsEnumApi.Abandoned)) {
+                    if (interview.classifications?.includes(UserInterviewClassificationEnumApi.Abandoned)) {
                         continue
                     }
                     if (interview.transcript || interview.summary) {

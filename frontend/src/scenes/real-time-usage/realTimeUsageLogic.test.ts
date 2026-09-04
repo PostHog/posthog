@@ -37,13 +37,11 @@ describe('real-time usage logic', () => {
             [
                 {
                     project: { id: 1, name: 'First project' },
-                    rows: response([['ingestion', 'events', 'events', 2]]),
-                    timeSeries: response([[bucket, 'ingestion: events (events)', 2]]),
+                    usage: response([[bucket, 'ingestion', 'events', 'events', 2]]),
                 },
                 {
                     project: { id: 2, name: 'Second project' },
-                    rows: response([['ingestion', 'events', 'events', 3]]),
-                    timeSeries: response([[bucket, 'ingestion: events (events)', 3]]),
+                    usage: response([[bucket, 'ingestion', 'events', 'events', 3]]),
                 },
             ],
             '1d',

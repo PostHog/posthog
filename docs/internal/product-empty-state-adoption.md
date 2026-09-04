@@ -56,15 +56,20 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | on master             |
 | Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | on master             |
 | Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | on master             |
-| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | in review             |
-| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | in review             |
-| Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | in review             |
-| Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | in review             |
-| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | in review             |
+| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | on master             |
+| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | on master             |
+| Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | on master             |
+| Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | on master             |
+| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | on master             |
 | Actions                | `products/actions/frontend/pages/Actions.tsx`                                       | on master             |
 | Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`                                   | on master             |
 | Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                           | on master             |
 | Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                           | on master             |
+| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`                              | on master             |
+| Notebooks              | `frontend/src/scenes/notebooks/NotebooksScene.tsx`                                  | on master             |
+| Alerts                 | `products/alerts/frontend/AlertsScene.tsx`                                          | on master             |
+| Data catalog           | `products/data_catalog/frontend/DataCatalogScene.tsx`                               | on master             |
+| Subscriptions          | `products/subscriptions/frontend/scenes/SubscriptionsScene.tsx`                     | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -78,10 +83,9 @@ do not have one yet.
 
 These are the scenes a new user is most likely to land on before they have data.
 
-| Product                | Scene                                                       | Shows instead                                                                          |
-| ---------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`      | `SavedInsightsEmptyState`, plus a bespoke `SampleDataState` and `sampleDataStateLogic` |
-| Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction`                                                                  |
+| Product                | Scene                                                       | Shows instead         |
+| ---------------------- | ----------------------------------------------------------- | --------------------- |
+| Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction` |
 
 ### Tier 2: cheap, or actively misleading today
 
@@ -100,21 +104,20 @@ deeper, so the product is half-migrated.
 | Parent product     | Sub-surface                                                                                                 |
 | ------------------ | ----------------------------------------------------------------------------------------------------------- |
 | Workflows          | `Channels/MessageChannels.tsx`, `OptOuts/OptOutCategories.tsx`, `TemplateLibrary/MessageTemplatesTable.tsx` |
-| Logs               | `components/LogsAlerting/LogsAlertList.tsx`                                                                 |
 | Replay vision      | `replay_scanners/components/VisionActionsTab.tsx`                                                           |
 | Customer analytics | `components/CustomerJourneys/CustomerJourneysEmptyState.tsx`                                                |
 
 ### Tier 4: everything else
 
-Still on `ProductIntroduction`: alerts (`products/alerts/frontend/views/InsightAlerts.tsx`),
-subscriptions, pulse, data catalog, engineering analytics, comments, ingestion warnings (v1 and v2),
+Still on `ProductIntroduction`: pulse, engineering analytics,
+comments, ingestion warnings (v1 and v2),
 Max conversation history, and data pipelines destinations and transformations
 (`frontend/src/scenes/data-pipelines/DataPipelinesHogFunctions.tsx` covers the last two).
 
 Hand-rolled empty states: review hog, streamlit apps, groups (`GroupsIntroduction`), persons, and
 the LLM analytics sessions and evaluations tabs.
 
-Bare string or nothing: notebooks, the data warehouse overview scene, SQL editor, data modeling,
+Bare string or nothing: the data warehouse overview scene, SQL editor, data modeling,
 heatmaps, business knowledge, legal documents, MCP gateway, visual review, live debugger, batch
 exports, experiments shared metrics, skills community, and several LLM analytics sub-tabs.
 

@@ -12,6 +12,11 @@ from products.web_analytics.backend.api.web_analytics_filter_preset import WebAn
 from products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions import (
     WebAnalyticsPathCleaningSuggestionViewSet,
 )
+from products.web_analytics.backend.presentation.views.content_autopilot import (
+    ContentAutopilotProposalViewSet,
+    ContentAutopilotRunViewSet,
+    ContentAutopilotSiteProfileViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -28,6 +33,24 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"web_analytics", WebAnalyticsViewSet, "project_web_analytics", ["team_id"])
+    routers.projects.register(
+        r"web_analytics_content_autopilot_profiles",
+        ContentAutopilotSiteProfileViewSet,
+        "project_web_analytics_content_autopilot_profiles",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_runs",
+        ContentAutopilotRunViewSet,
+        "project_web_analytics_content_autopilot_runs",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_proposals",
+        ContentAutopilotProposalViewSet,
+        "project_web_analytics_content_autopilot_proposals",
+        ["team_id"],
+    )
     routers.projects.register(
         r"web_analytics_achievements",
         WebAnalyticsAchievementsViewSet,

@@ -5,9 +5,9 @@ import { Counter } from 'prom-client'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogPropertiesSizeError } from '~/common/personhog/persons'
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
+import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
+import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
@@ -15,9 +15,8 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
-import { FlushResult, PersonsStore } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
-import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export const personhogStoreFlushCounter = new Counter({
     name: 'personhog_store_flush_ops_total',
@@ -304,9 +303,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
 
         // A local projection for the caller: the same application the
-        // Postgres world would perform, so the processor returns a
+        // Postgres backend would perform, so the processor returns a
         // sensible person. The leader's application at flush remains the
-        // authoritative one for this world.
+        // authoritative one for this backend.
         const refined = refineEventOps(ops, person.properties ?? {}, this.options.updateAllProperties, false)
         const [projected] = applyEventPropertyUpdates(refined, person)
         const scalarUpdates = computeOpsScalarUpdates(ops, projected)
@@ -349,108 +348,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         return Promise.resolve([projected, []])
     }
 
-    // Deletes exist only to destroy the losing persons of a merge, and
-    // the shadow gates merge events off this store; once merges move to
-    // personhog, the merge saga owns those deletions end to end, so no
-    // store-level delete path will ever be needed here.
-    /**
-     * The personhog world has no Postgres transactions; transaction
-     * semantics for routed deployments live in the routing store, which
-     * never delegates this member. Reaching it is a wiring bug.
-     */
-    inTransaction<T>(_description: string, _transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
-        return Promise.reject(new PersonhogPendingRpcError('inTransaction', 'merge saga'))
+    get backend(): PersonsBackend {
+        return 'personhog'
     }
 
-    // Merge execution is the merge saga's once it lands; until then every
-    // mutation in the family is a loud placeholder.
-
-    updatePersonForMerge(
-        _person: InternalPerson,
-        _update: Partial<InternalPerson>,
-        _distinctId: string,
-        _batchId: number,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return Promise.reject(new PersonhogPendingRpcError('updatePersonForMerge', 'merge saga'))
-    }
-
-    claimLifecycleMarks(
-        _opId: string,
-        _teamId: number,
-        _persons: LifecycleMarkPerson[],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.reject(new PersonhogPendingRpcError('claimLifecycleMarks', 'merge saga'))
-    }
-
-    releaseLifecycleMarks(
-        _opId: string,
-        _teamId: number,
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.reject(new PersonhogPendingRpcError('releaseLifecycleMarks', 'merge saga'))
-    }
-
-    isPersonLive(_person: InternalPerson, _distinctId: string, _tx?: PersonRepositoryTransaction): Promise<boolean> {
-        return Promise.reject(new PersonhogPendingRpcError('isPersonLive', 'merge saga'))
-    }
-
-    addDistinctId(
-        _person: InternalPerson,
-        _distinctId: string,
-        _version: number,
-        _tx: PersonRepositoryTransaction | undefined,
-        _batchId: number
-    ): Promise<PersonMessage[]> {
-        return Promise.reject(new PersonhogPendingRpcError('addDistinctId', 'merge saga'))
-    }
-
-    moveDistinctIds(
-        _source: InternalPerson,
-        _target: InternalPerson,
-        _distinctId: string,
-        _limit: number | undefined,
-        _tx: PersonRepositoryTransaction,
-        _batchId: number
-    ): Promise<MoveDistinctIdsResult> {
-        return Promise.reject(new PersonhogPendingRpcError('moveDistinctIds', 'merge saga'))
-    }
-
-    moveDistinctIdsFromPersons(
-        _sources: InternalPerson[],
-        _target: InternalPerson,
-        _distinctId: string,
-        _tx: PersonRepositoryTransaction,
-        _batchId: number
-    ): Promise<MoveDistinctIdsResult> {
-        return Promise.reject(new PersonhogPendingRpcError('moveDistinctIdsFromPersons', 'merge saga'))
-    }
-
-    // Postgres bookkeeping with nothing to answer in this world: shadow
-    // teams are fresh, so no cohort rows or hash-key overrides exist to
-    // fix up.
-
-    updateCohortsAndFeatureFlagsForMerge(
-        _teamID: Team['id'],
-        _sourcePersonID: InternalPerson['id'],
-        _targetPersonID: InternalPerson['id'],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.resolve()
-    }
-
-    updateCohortsAndFeatureFlagsForMergeBatch(
-        _teamID: Team['id'],
-        _sourcePersonIDs: InternalPerson['id'][],
-        _targetPersonID: InternalPerson['id'],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.resolve()
+    mergePersons(_request: MergePersonsRequest, _batchId: number): Promise<MergePersonsResult> {
+        return Promise.reject(new PersonhogPendingRpcError('mergePersons', 'merge saga'))
     }
 
     /** The leader enforces the size ceiling at admission; there is nothing to measure here. */
@@ -468,22 +371,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             cacheEntryCount += memo.size
         }
         return { dirtyEntryCount, referencedBatchCount: this.lanes.size, cacheEntryCount }
-    }
-
-    deletePersons(
-        _persons: InternalPerson[],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<PersonMessage[]> {
-        return Promise.reject(new PersonhogPendingRpcError('deletePersons', 'merge saga'))
-    }
-
-    deletePerson(
-        _person: InternalPerson,
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<PersonMessage[]> {
-        return Promise.reject(new PersonhogPendingRpcError('deletePerson', 'merge saga'))
     }
 
     /**
@@ -526,7 +413,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (!updated) {
             return [person, [], false]
         }
-        // No ClickHouse message: the leader's changelog is this world's
+        // No ClickHouse message: the leader's changelog is this backend's
         // person feed, so emitting here would double-publish.
         return [updated, [], false]
     }

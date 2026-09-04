@@ -40,6 +40,17 @@ if [ -x .github/scripts/check-product-scaffold.sh ]; then
     .github/scripts/check-product-scaffold.sh || true
 fi
 
+# Same deal for hooks under .claude/ and for quill sources changed without their
+# consumer guide. A warn-only check has to run here rather than as a lint-staged
+# task, because lint-staged discards the output of every task that exits 0.
+if [ -x .github/scripts/check-claude-hooks.sh ]; then
+    .github/scripts/check-claude-hooks.sh || true
+fi
+
+if [ -x .github/scripts/check-quill-agents-md.sh ]; then
+    .github/scripts/check-quill-agents-md.sh || true
+fi
+
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
 if command -v flox > /dev/null 2>&1 && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then

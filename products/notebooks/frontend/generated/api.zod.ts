@@ -739,13 +739,18 @@ export const NotebooksWidgetCancelBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const notebooksWidgetGenerateBodyPromptMax = 20000
+export const notebooksWidgetGenerateBodyPromptMax = 50000
 
 export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
 export const notebooksWidgetGenerateBodyGenerationOperationDefault = `regenerate`
 
 export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
-    prompt: zod.string().max(notebooksWidgetGenerateBodyPromptMax).describe('Instructions for the generated widget.'),
+    prompt: zod
+        .string()
+        .max(notebooksWidgetGenerateBodyPromptMax)
+        .describe(
+            'Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.'
+        ),
     generation_id: zod.uuid().describe('Idempotency key for this generation job.'),
     model: zod
         .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
@@ -763,6 +768,10 @@ export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
         ),
+    expected_current_version_id: zod
+        .uuid()
+        .optional()
+        .describe('Current widget version the improvement is based on. Required for improve operations.'),
 })
 
 /**

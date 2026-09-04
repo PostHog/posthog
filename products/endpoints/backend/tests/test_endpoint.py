@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -857,6 +858,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.last_executed_at)
         self.assertIsNotNone(version.last_executed_at)
 
+    def test_api_key_run_that_times_out_still_stamps_last_executed_at(self):
+        create_endpoint_with_version(
+            name="slow_query",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.logic.execution.process_query_model",
+            side_effect=ClickHouseQueryTimeOut(),
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/endpoints/slow_query/run/",
+                headers={"authorization": f"Bearer {self.api_key}"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+        endpoint = Endpoint.objects.get(name="slow_query", team=self.team)
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        self.assertIsNotNone(endpoint.last_executed_at)
+        self.assertIsNotNone(version.last_executed_at)
+
     def test_last_execution_times_is_endpoint_level_only(self):
         """last_execution_times returns endpoint-level rows only — per-version data is not exposed."""
         endpoint = create_endpoint_with_version(
@@ -1265,6 +1290,12 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
                 self.var_id_2: {"variableId": self.var_id_2, "code_name": "end_ts", "value": "2024-02-01"},
             },
         }
+        v2_dag_ids_patcher = mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+        )
+        v2_dag_ids_patcher.start()
+        self.addCleanup(v2_dag_ids_patcher.stop)
 
     def _create_endpoint_with_variables(self, name="range-endpoint"):
         from products.product_analytics.backend.facade.models import InsightVariable

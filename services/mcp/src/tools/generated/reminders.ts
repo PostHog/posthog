@@ -2,23 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    RemindersCreateBody,
-    RemindersDestroyParams,
-    RemindersListQueryParams,
-    RemindersPartialUpdateBody,
-    RemindersPartialUpdateParams,
-    RemindersRetrieveParams,
-} from '@/generated/reminders/api'
+import * as orvalSchemas from '@/generated/reminders/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ReminderCreateSchema = RemindersCreateBody
+const ReminderCreateSchema = () => {
+    const RemindersCreateBody = orvalSchemas.RemindersCreateBody()
+    return RemindersCreateBody
+}
 
-const reminderCreate = (): ToolBase<typeof ReminderCreateSchema, Schemas.Reminder> => ({
+const reminderCreate = (): ToolBase<ReturnType<typeof ReminderCreateSchema>, Schemas.Reminder> => ({
     name: 'reminder-create',
-    schema: ReminderCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ReminderCreateSchema>) => {
+    schema: ReminderCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReminderCreateSchema>>) => {
         const body: Record<string, unknown> = {}
         if (params.organization !== undefined) {
             body['organization'] = params.organization
@@ -62,12 +58,15 @@ const reminderCreate = (): ToolBase<typeof ReminderCreateSchema, Schemas.Reminde
     },
 })
 
-const ReminderDeleteSchema = RemindersDestroyParams
+const ReminderDeleteSchema = () => {
+    const RemindersDestroyParams = orvalSchemas.RemindersDestroyParams()
+    return RemindersDestroyParams
+}
 
-const reminderDelete = (): ToolBase<typeof ReminderDeleteSchema, Schemas.Reminder> => ({
+const reminderDelete = (): ToolBase<ReturnType<typeof ReminderDeleteSchema>, Schemas.Reminder> => ({
     name: 'reminder-delete',
-    schema: ReminderDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ReminderDeleteSchema>) => {
+    schema: ReminderDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReminderDeleteSchema>>) => {
         const result = await context.api.request<Schemas.Reminder>({
             method: 'PATCH',
             path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
@@ -77,12 +76,15 @@ const reminderDelete = (): ToolBase<typeof ReminderDeleteSchema, Schemas.Reminde
     },
 })
 
-const ReminderGetSchema = RemindersRetrieveParams
+const ReminderGetSchema = () => {
+    const RemindersRetrieveParams = orvalSchemas.RemindersRetrieveParams()
+    return RemindersRetrieveParams
+}
 
-const reminderGet = (): ToolBase<typeof ReminderGetSchema, Schemas.Reminder> => ({
+const reminderGet = (): ToolBase<ReturnType<typeof ReminderGetSchema>, Schemas.Reminder> => ({
     name: 'reminder-get',
-    schema: ReminderGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ReminderGetSchema>) => {
+    schema: ReminderGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReminderGetSchema>>) => {
         const result = await context.api.request<Schemas.Reminder>({
             method: 'GET',
             path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
@@ -91,12 +93,16 @@ const reminderGet = (): ToolBase<typeof ReminderGetSchema, Schemas.Reminder> => 
     },
 })
 
-const ReminderUpdateSchema = RemindersPartialUpdateParams.extend(RemindersPartialUpdateBody.shape)
+const ReminderUpdateSchema = () => {
+    const RemindersPartialUpdateBody = orvalSchemas.RemindersPartialUpdateBody()
+    const RemindersPartialUpdateParams = orvalSchemas.RemindersPartialUpdateParams()
+    return RemindersPartialUpdateParams.extend(RemindersPartialUpdateBody.shape)
+}
 
-const reminderUpdate = (): ToolBase<typeof ReminderUpdateSchema, Schemas.Reminder> => ({
+const reminderUpdate = (): ToolBase<ReturnType<typeof ReminderUpdateSchema>, Schemas.Reminder> => ({
     name: 'reminder-update',
-    schema: ReminderUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ReminderUpdateSchema>) => {
+    schema: ReminderUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReminderUpdateSchema>>) => {
         const body: Record<string, unknown> = {}
         if (params.organization !== undefined) {
             body['organization'] = params.organization
@@ -140,12 +146,18 @@ const reminderUpdate = (): ToolBase<typeof ReminderUpdateSchema, Schemas.Reminde
     },
 })
 
-const RemindersListSchema = RemindersListQueryParams
+const RemindersListSchema = () => {
+    const RemindersListQueryParams = orvalSchemas.RemindersListQueryParams()
+    return RemindersListQueryParams
+}
 
-const remindersList = (): ToolBase<typeof RemindersListSchema, WithPostHogUrl<Schemas.PaginatedReminderList>> => ({
+const remindersList = (): ToolBase<
+    ReturnType<typeof RemindersListSchema>,
+    WithPostHogUrl<Schemas.PaginatedReminderList>
+> => ({
     name: 'reminders-list',
-    schema: RemindersListSchema,
-    handler: async (context: Context, params: z.infer<typeof RemindersListSchema>) => {
+    schema: RemindersListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof RemindersListSchema>>) => {
         const result = await context.api.request<Schemas.PaginatedReminderList>({
             method: 'GET',
             path: `/api/reminders/`,

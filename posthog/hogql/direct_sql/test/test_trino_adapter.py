@@ -24,10 +24,31 @@ def test_raw_trino_queries_accept_single_select(sql: str) -> None:
     assert ensure_read_only_raw_trino_statement(sql) == sql
 
 
-def test_execute_returns_rows_and_types() -> None:
+@pytest.mark.parametrize(
+    ("request_sql", "request_values", "expected_execute_args"),
+    [
+        ("SELECT id, active FROM users", None, ("SELECT id, active FROM users",)),
+        (
+            "SELECT id, active FROM users -- %(unbound)s",
+            None,
+            ("SELECT id, active FROM users -- %(unbound)s",),
+        ),
+        (
+            "SELECT id, active FROM users WHERE id = %(id)s AND active = %(active)s",
+            {"active": True, "id": 1},
+            ("SELECT id, active FROM users WHERE id = ? AND active = ?", [1, True]),
+        ),
+    ],
+)
+def test_execute_returns_rows_and_types(
+    request_sql: str,
+    request_values: dict[str, object] | None,
+    expected_execute_args: tuple[object, ...],
+) -> None:
     adapter = TrinoAdapter()
     request = MagicMock()
-    request.sql = "SELECT id, active FROM users"
+    request.sql = request_sql
+    request.values = request_values
     request.team.pk = 1
     request.source.id = "source-id"
     request.settings.max_execution_time = 30
@@ -50,7 +71,7 @@ def test_execute_returns_rows_and_types() -> None:
     ):
         result = adapter.execute(request)
 
-    cursor.execute.assert_called_once_with(request.sql)
+    cursor.execute.assert_called_once_with(*expected_execute_args)
     cursor.fetchmany.assert_called_once_with(1_000_001)
     assert result.results == [(1, True)]
     assert result.print_columns == ["id", "active"]

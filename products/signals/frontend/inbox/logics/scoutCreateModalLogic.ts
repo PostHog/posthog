@@ -8,6 +8,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
+import { hashCodeForString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { MCPServiceAccountServerApi } from 'products/mcp_store/frontend/generated/api.schemas'
@@ -22,12 +24,16 @@ import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import {
     dailyCronToTime,
+    dayTimeToWeeklyCron,
     DEFAULT_SCOUT_DAILY_TIME,
+    DEFAULT_SCOUT_WEEKLY_DAY,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
+    SCOUT_WEEKLY_ON_SCHEDULE_MODE,
     SIGNALS_SCOUT_SKILL_PREFIX,
     stripScoutPrefix,
     timeToDailyCron,
+    weeklyCronToDayTime,
 } from '../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
 import { scoutMcpServersLogic } from './scoutMcpServersLogic'
@@ -42,7 +48,10 @@ type ScoutCreateConfigFormValues = Required<
 
 export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'> & {
     config: ScoutCreateConfigFormValues
+    /** Run time for both the daily and the weekly mode, so switching between them keeps it. */
     dailyTime: string
+    /** Cron day-of-week the weekly mode runs on. */
+    weeklyDay: string
 }
 
 export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
@@ -61,6 +70,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
     description: '',
     body: '',
     dailyTime: DEFAULT_SCOUT_DAILY_TIME,
+    weeklyDay: DEFAULT_SCOUT_WEEKLY_DAY,
     config: {
         enabled: true,
         emit: true,
@@ -91,8 +101,35 @@ export function getScoutCreateFormValues(
             ? stripScoutPrefix((initialValues?.name ?? '').trim())
             : (initialValues?.name ?? SIGNALS_SCOUT_SKILL_PREFIX),
         config,
-        dailyTime: dailyCronToTime(config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME,
+        dailyTime:
+            dailyCronToTime(config.run_cron_schedule) ??
+            weeklyCronToDayTime(config.run_cron_schedule)?.time ??
+            DEFAULT_SCOUT_DAILY_TIME,
+        weeklyDay: weeklyCronToDayTime(config.run_cron_schedule)?.day ?? DEFAULT_SCOUT_WEEKLY_DAY,
     }
+}
+
+/**
+ * A stable logic key per opening context. The blank create form gets one draft; each prefilled
+ * template keeps its own. The draft is persisted keyed by this, so it must not change between mounts
+ * of the same context — `useId()` would mint a new key each mount and lose the draft.
+ */
+export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues | undefined): string {
+    const name = initialValues?.name?.trim()
+    if (name) {
+        return name
+    }
+    const description = initialValues?.description?.trim()
+    const body = initialValues?.body?.trim()
+    if (description || body) {
+        // A prefilled template can omit a valid name, because the deep-link decoder drops an invalid
+        // one. Keying on name alone then returns 'new' for that template, the same key the blank
+        // create form uses, so their persisted drafts share one slot and each overwrites the other.
+        // Key a name-less prefill by a stable hash of its content instead, so every opening context
+        // keeps its own draft. Hash the two fields apart so a description/body split cannot collide.
+        return `template-${hashCodeForString(description ?? '')}-${hashCodeForString(body ?? '')}`
+    }
+    return 'new'
 }
 
 /**
@@ -105,6 +142,20 @@ export function scoutSkillNameFromInput(name: string): string {
 
 function isValidScoutDailyTime(dailyTime: string): boolean {
     return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)
+}
+
+function isWeeklySchedule(config: ScoutCreateConfigFormValues): boolean {
+    return weeklyCronToDayTime(config.run_cron_schedule) !== null
+}
+
+/**
+ * The day the weekly mode writes. A draft persisted before that mode existed carries no day of its
+ * own — kea-localstorage restores the stored object over the whole default rather than merging new
+ * fields — so read the saved cron first and fall back to the default.
+ */
+function scoutWeeklyDay(form: ScoutCreateFormValues): string {
+    const day = weeklyCronToDayTime(form.config.run_cron_schedule)?.day ?? form.weeklyDay
+    return day && /^[0-6]$/.test(day) ? day : DEFAULT_SCOUT_WEEKLY_DAY
 }
 
 function scoutNameError(name: string, redesign: boolean): string | undefined {
@@ -166,6 +217,9 @@ export interface scoutCreateModalLogicActions {
     markMcpServersDefaulted: () => {
         value: true
     }
+    resetMcpServersDefaulted: () => {
+        value: true
+    }
     resetScoutCreateForm: (values?: ScoutCreateFormValues) => {
         values?: ScoutCreateFormValues
     }
@@ -187,6 +241,9 @@ export interface scoutCreateModalLogicActions {
     }
     setScoutCreateScheduleMode: (scheduleMode: string) => {
         scheduleMode: string
+    }
+    setScoutCreateWeeklyDay: (weeklyDay: string) => {
+        weeklyDay: string
     }
     submitScoutCreateForm: () => {
         value: boolean
@@ -238,14 +295,24 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     actions({
         setScoutCreateScheduleMode: (scheduleMode: string) => ({ scheduleMode }),
         setScoutCreateDailyTime: (dailyTime: string) => ({ dailyTime }),
+        setScoutCreateWeeklyDay: (weeklyDay: string) => ({ weeklyDay }),
         markMcpServersDefaulted: true,
+        resetMcpServersDefaulted: true,
     }),
     reducers(({ props: logicProps }) => ({
-        // A caller that passes explicit server ids opts out of the "all servers" default.
+        // A caller that passes explicit server ids opts out of the "all servers" default. Persisted
+        // alongside the draft so a restored draft keeps the user's server selection, rather than the
+        // "all servers" default re-applying on the next open. Scoped to the user and project so the
+        // marker cannot suppress another project's default selection. Discarding the draft resets it
+        // to the initial value, so the next open re-applies the default rather than opening with every
+        // server switched off. The defaulting subscription calls `resetScoutCreateForm`, so the reset
+        // is a separate action rather than tied to the form reset.
         mcpServersDefaulted: [
             logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
+            buildUserScopedPersistenceConfig(),
             {
                 markMcpServersDefaulted: () => true,
+                resetMcpServersDefaulted: () => logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
             },
         ],
     })),
@@ -270,7 +337,9 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                           : undefined,
                     body: !body.trim() ? 'Instructions are required' : undefined,
                     dailyTime:
-                        dailyCronToTime(config.run_cron_schedule) !== null && !isValidScoutDailyTime(dailyTime)
+                        (dailyCronToTime(config.run_cron_schedule) !== null ||
+                            weeklyCronToDayTime(config.run_cron_schedule) !== null) &&
+                        !isValidScoutDailyTime(dailyTime)
                             ? 'Run time is required'
                             : undefined,
                     config:
@@ -296,6 +365,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                     })
 
                     actions.resetScoutCreateForm()
+                    actions.resetMcpServersDefaulted()
                     lemonToast.success(
                         scout.created ? 'Scout created' : 'Scout already exists. Its settings were updated.'
                     )
@@ -314,6 +384,19 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 }
             },
         },
+    })),
+    // Persist the draft so it survives navigating away or reloading. kea-localstorage keys it by the
+    // logic path plus the logic key, so each opening context keeps its own draft (see
+    // `scoutCreateModalLogicKey`). Scope the key to the user and project so a draft from one project
+    // cannot restore in another and submit that project's server or integration ids to the wrong one.
+    // The default and handlers already come from the form above; this only attaches the persistence
+    // option to those same reducers. Persist the changed flag alongside the draft, and with the same
+    // scope, so a restored draft keeps the unsaved-input guard. kea-forms resets the flag to false on
+    // a fresh mount, so without this a restored draft would open unguarded and one backdrop click
+    // would discard it.
+    reducers(() => ({
+        scoutCreateForm: [DEFAULT_SCOUT_CREATE_FORM_VALUES, buildUserScopedPersistenceConfig(), {}],
+        scoutCreateFormChanged: [false, buildUserScopedPersistenceConfig(), {}],
     })),
     // The team's servers load asynchronously, so the default is applied once they arrive
     // rather than in the form defaults. Applying it once keeps a later reload from
@@ -343,15 +426,20 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
             if (scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
                 return
             }
-            if (scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE) {
+            if (scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE || scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE) {
                 const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
                     ? values.scoutCreateForm.dailyTime
                     : DEFAULT_SCOUT_DAILY_TIME
+                const weeklyDay = scoutWeeklyDay(values.scoutCreateForm)
                 actions.setScoutCreateFormValues({
                     dailyTime,
+                    weeklyDay,
                     config: {
                         ...values.scoutCreateForm.config,
-                        run_cron_schedule: timeToDailyCron(dailyTime),
+                        run_cron_schedule:
+                            scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE
+                                ? dayTimeToWeeklyCron(weeklyDay, dailyTime)
+                                : timeToDailyCron(dailyTime),
                     },
                 })
                 return
@@ -378,7 +466,22 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 dailyTime,
                 config: {
                     ...values.scoutCreateForm.config,
-                    run_cron_schedule: timeToDailyCron(dailyTime),
+                    run_cron_schedule: isWeeklySchedule(values.scoutCreateForm.config)
+                        ? dayTimeToWeeklyCron(scoutWeeklyDay(values.scoutCreateForm), dailyTime)
+                        : timeToDailyCron(dailyTime),
+                },
+            })
+        },
+        setScoutCreateWeeklyDay: ({ weeklyDay }) => {
+            const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
+                ? values.scoutCreateForm.dailyTime
+                : DEFAULT_SCOUT_DAILY_TIME
+            actions.setScoutCreateFormValues({
+                weeklyDay,
+                dailyTime,
+                config: {
+                    ...values.scoutCreateForm.config,
+                    run_cron_schedule: dayTimeToWeeklyCron(weeklyDay, dailyTime),
                 },
             })
         },

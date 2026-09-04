@@ -150,9 +150,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated caps indexed by tier. Both lists must be the same length.
     EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
-    // ISO date. When set, only teams created on or after it are capped, so enforcement can start
-    // with new projects and leave established ones alone. Empty means every team.
-    EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -345,7 +342,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
         EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
-        EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

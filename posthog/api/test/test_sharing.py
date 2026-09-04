@@ -2319,8 +2319,22 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
         }
 
-    def test_query_update_allowed_when_not_shared(self):
+    @parameterized.expand([("no_share",), ("deleted_tile",)])
+    def test_query_update_allowed_when_not_shared(self, coverage: str):
         self._deny_editor()
+        if coverage == "deleted_tile":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            # The shared dashboard also carries a live tile for another insight. A share lookup
+            # that matched the deleted tile and the live tile as two separate rows would report
+            # this insight as shared.
+            other_insight = Insight.objects.create(
+                team=self.team,
+                query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2 AS two"}},
+                created_by=self.user,
+            )
+            DashboardTile.objects.create(dashboard=dashboard, insight=other_insight)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight, deleted=True)
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
 
         response = self._patch_insight_query()
 

@@ -199,6 +199,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
     personal_api_key_source: Optional[str] = None
+    # Set once the key is validated, so rate limiting can identify the key without re-reading the
+    # request body. See `hashed_personal_api_key_for_throttling` in posthog/rate_limit.py.
+    personal_api_key_hash: Optional[str] = None
 
     # Normalized source identifiers returned by find_key_with_source
     SOURCE_HEADER = "header"
@@ -306,7 +309,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             if not personal_api_key_with_source:
                 return None
 
-            _, source = personal_api_key_with_source
+            key_value, source = personal_api_key_with_source
             span.set_attribute("auth.source", source)
 
             personal_api_key_object = self.validate_key(personal_api_key_with_source)
@@ -338,6 +341,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
+            self.personal_api_key_hash = hash_key_value(key_value)
 
             return personal_api_key_object.user, None
 
