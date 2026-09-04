@@ -3,6 +3,7 @@ import { api } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
@@ -105,6 +106,10 @@ describe('experimentLogic', () => {
             },
         })
         initKeaTests()
+        // The jest posthog-js mock never fires onFeatureFlags, so receivedFeatureFlags stays false and
+        // refreshExperimentResults would defer forever. Simulate the real flag arrival so refreshes run.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
         logic = experimentLogic()
         logic.mount()
         await expectLogic(userLogic).toFinishAllListeners()
@@ -276,6 +281,35 @@ describe('experimentLogic', () => {
             // Verify loading states are properly reset after refresh completes
             expect(logic.values.primaryMetricsResultsLoading).toBe(false)
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
+        })
+
+        it('defers the refresh until feature flags arrive, then replays it once', async () => {
+            // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). The outer beforeEach
+            // marks flags received; here a refresh must not choose a branch yet, since reading the flag as
+            // off would run the failing legacy loaders.
+            logic.unmount()
+            initKeaTests()
+            logic = experimentLogic()
+            logic.mount()
+            await expectLogic(userLogic).toFinishAllListeners()
+
+            logic.actions.setExperiment(experiment)
+
+            // The refresh is deferred: it never starts while flags are unresolved.
+            await expectLogic(logic, () => {
+                logic.actions.refreshExperimentResults(true, 'manual')
+            }).toNotHaveDispatchedActions(['markRefreshStarted'])
+
+            // Once flags arrive, the deferred refresh replays with its original arguments.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.refreshExperimentResults &&
+                    action.payload.forceRefresh === true &&
+                    action.payload.triggeredBy === 'manual',
+                'markRefreshStarted',
+            ])
         })
     })
 
