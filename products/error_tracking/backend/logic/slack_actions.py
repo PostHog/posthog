@@ -87,15 +87,25 @@ def _authorized_issue(
     return issue, moved
 
 
+def _claim_key(issue: ErrorTrackingIssue, action: str) -> str:
+    return f"error_tracking:slack_action:{issue.id}:{action}"
+
+
 def _claim_click(issue: ErrorTrackingIssue, action: str) -> bool:
     try:
-        return bool(
-            get_client().set(f"error_tracking:slack_action:{issue.id}:{action}", "1", nx=True, ex=CLICK_CLAIM_SECONDS)
-        )
+        return bool(get_client().set(_claim_key(issue, action), "1", nx=True, ex=CLICK_CLAIM_SECONDS))
     except Exception:
         # The claim only dedupes double clicks; without Redis the click still counts.
         logger.exception("error_tracking_slack_action_claim_failed", issue_id=str(issue.id))
         return True
+
+
+def _release_click(issue: ErrorTrackingIssue, action: str) -> None:
+    # A failed mutation must not block an immediate retry for the rest of the window.
+    try:
+        get_client().delete(_claim_key(issue, action))
+    except Exception:
+        logger.exception("error_tracking_slack_action_release_failed", issue_id=str(issue.id))
 
 
 def resolve_issue_from_slack(
@@ -113,13 +123,17 @@ def resolve_issue_from_slack(
     if issue.status == ErrorTrackingIssue.Status.RESOLVED or not _claim_click(issue, "resolve"):
         return "already"
     # No transaction around this: the mutation syncs ClickHouse after its own commit.
-    issue_mutations.update_issue(
-        issue.team_id,
-        issue.id,
-        fields={"status": ErrorTrackingIssue.Status.RESOLVED},
-        user=user,
-        was_impersonated=False,
-    )
+    try:
+        issue_mutations.update_issue(
+            issue.team_id,
+            issue.id,
+            fields={"status": ErrorTrackingIssue.Status.RESOLVED},
+            user=user,
+            was_impersonated=False,
+        )
+    except Exception:
+        _release_click(issue, "resolve")
+        raise
     return "ok_moved" if moved else "ok"
 
 
@@ -138,7 +152,11 @@ def assign_issue_to_user_from_slack(
     already_assigned = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id, user_id=user.id).exists()
     if already_assigned or not _claim_click(issue, f"assign:{user.id}"):
         return "already"
-    issue_mutations.assign_issue(
-        issue.team_id, issue.id, {"type": "user", "id": user.id}, user=user, was_impersonated=False
-    )
+    try:
+        issue_mutations.assign_issue(
+            issue.team_id, issue.id, {"type": "user", "id": user.id}, user=user, was_impersonated=False
+        )
+    except Exception:
+        _release_click(issue, f"assign:{user.id}")
+        raise
     return "ok_moved" if moved else "ok"
