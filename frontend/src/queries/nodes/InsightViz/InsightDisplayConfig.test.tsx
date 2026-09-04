@@ -260,6 +260,15 @@ describe('InsightDisplayConfig', () => {
                 },
             ],
             [
+                'stickiness area graph',
+                makeStickinessQuery(ChartDisplayType.ActionsAreaGraph),
+                {
+                    sections: ['Display', 'Line style'],
+                    // Same shared axis as the trends area graph, so it drops "Show multiple Y-axes".
+                    displayItems: ['Show values on series', 'Show legendBottom'],
+                },
+            ],
+            [
                 'lifecycle',
                 makeLifecycleQuery(),
                 {
