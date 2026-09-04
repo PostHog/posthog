@@ -18,6 +18,7 @@ export type DashboardFilterChange = DashboardSettingsChange
 
 function formatVariableValue(variable: { isNull?: boolean; value?: unknown } | undefined): string[] {
     if (variable?.isNull) {
+        // SQL NULL is an explicit value in the changes UI. An empty array represents an unset variable.
         return ['null']
     }
     if (variable?.value == null) {
