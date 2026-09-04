@@ -117,38 +117,27 @@ pub struct ConsumerConfig {
 
     pub kafka_consumer_max_partition_fetch_bytes: Option<u32>,
 
-    // Static group membership (KIP-345): set to a stable identity so a member can
-    // leave and rejoin within session.timeout.ms without triggering a rebalance.
+    // Static group membership (KIP-345): a stable identity lets a member leave and
+    // rejoin within session.timeout.ms without a rebalance.
     //
-    // Only worth setting where the identity really is stable across restarts,
-    // i.e. a StatefulSet ordinal. Do NOT use a Deployment pod name: those change
-    // on every rollout, so the rebalance is triggered anyway, and librdkafka
-    // suppresses the LeaveGroup request for a terminating static member
-    // (rdkafka_cgrp.c, `rd_kafka_cgrp_leave_maybe`), leaving that member's
-    // partitions assigned to a pod that no longer exists until the session
-    // timeout expires. Pair it with a session.timeout.ms large enough to cover
-    // the restart it is meant to mask.
+    // Only set this where the identity survives a restart, e.g. a StatefulSet
+    // ordinal. A Deployment pod name does not: it changes on every rollout, so the
+    // rebalance happens anyway. librdkafka also sends no LeaveGroup for a static
+    // member that stops, so its partitions stay assigned until the session expires.
     pub kafka_consumer_group_instance_id: Option<String>,
 
     // Override partition assignment strategy, e.g. "cooperative-sticky" for
     // incremental rebalancing instead of the default eager "range,roundrobin".
     //
-    // Must name exactly one protocol family. librdkafka refuses to construct a
-    // consumer whose assignor list mixes eager and cooperative strategies —
-    // `rd_kafka_assignor_rebalance_protocol_check` returns ERR__CONFLICT and
-    // client creation fails with "online migration between assignors with
-    // different protocol types is not supported" — so the Java client's
-    // two-phase "range,cooperative-sticky" then drop-"range" upgrade does not
-    // work here.
+    // Name exactly one protocol family. librdkafka rejects a list that mixes eager
+    // and cooperative strategies, and consumer creation fails. The Java client's
+    // two-phase "range,cooperative-sticky" upgrade does not work here.
     //
-    // Migrating an existing group therefore means one hard switch. While old
-    // (eager-only) and new (cooperative-only) members coexist, the group has no
-    // protocol common to all of them, the coordinator returns
-    // INCONSISTENT_GROUP_PROTOCOL, and the group consumes nothing until the last
-    // old member is gone. librdkafka retries the join on an interval rather than
-    // failing, so it recovers on its own — but plan for a lag spike, and keep the
-    // mixed window short. A group shared with another service cannot be migrated
-    // at all until that service moves too.
+    // Migrating a live group is one hard switch. Old and new members share no
+    // common protocol, so the group consumes nothing until the last old member
+    // leaves. librdkafka retries the join instead of failing, so it recovers on its
+    // own. Expect a lag spike. A group shared with another service cannot migrate
+    // until that service moves too.
     pub kafka_consumer_partition_strategy: Option<String>,
 
     // WarpStream recommends "0" so the kernel auto-tunes TCP buffers.
