@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import React, { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconSend } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
@@ -104,6 +104,7 @@ export function PersonsModal({
         searchTerm,
         actorLabel,
         isCohortModalOpen,
+        cohortRedirectsToWorkflow,
         isModalOpen,
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
@@ -384,14 +385,25 @@ export function PersonsModal({
                                 </LemonButton>
                             )}
                             {actors.length > 0 && !isGroupType(actors[0]) && !hasSessions && (
-                                <LemonButton
-                                    onClick={() => setIsCohortModalOpen(true)}
-                                    type="secondary"
-                                    data-attr="person-modal-save-as-cohort"
-                                    disabled={!actors.length}
-                                >
-                                    Save as cohort
-                                </LemonButton>
+                                <>
+                                    <LemonButton
+                                        onClick={() => setIsCohortModalOpen(true)}
+                                        type="secondary"
+                                        data-attr="person-modal-save-as-cohort"
+                                        disabled={!actors.length}
+                                    >
+                                        Save as cohort
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={() => setIsCohortModalOpen(true, true)}
+                                        type="secondary"
+                                        icon={<IconSend />}
+                                        data-attr="person-modal-email-actors"
+                                        disabled={!actors.length}
+                                    >
+                                        Email these {actorLabel.plural}
+                                    </LemonButton>
+                                </>
                             )}
                         </div>
                         <div className="flex gap-2">
@@ -429,6 +441,10 @@ export function PersonsModal({
                 onSave={(title) => saveAsCohort(title)}
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
+                title={cohortRedirectsToWorkflow ? `Save these ${actorLabel.plural} as a cohort` : undefined}
+                description={
+                    cohortRedirectsToWorkflow ? 'Your new workflow will message everyone in this cohort.' : undefined
+                }
             />
         </>
     )

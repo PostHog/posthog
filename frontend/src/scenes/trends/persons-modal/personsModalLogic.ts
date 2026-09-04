@@ -61,6 +61,8 @@ import {
     UniversalFilterValue,
 } from '~/types'
 
+import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
+
 import type { Noun } from '../../../models/groupsModel'
 import type { InsightQueryNode } from '../../../queries/schema/schema-general'
 import type { GroupType, GroupTypeIndex } from '../../../types'
@@ -179,6 +181,7 @@ export interface personsModalLogicValues {
     insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null
     insightActorsQueryOptionsLoading: boolean
     insightEventsQueryUrl: string | null
+    cohortRedirectsToWorkflow: boolean
     isCohortModalOpen: boolean
     isModalOpen: boolean
     missingActorsCount: number
@@ -268,8 +271,12 @@ export interface personsModalLogicActions {
     saveAsCohort: (cohortName: string) => {
         cohortName: string
     }
-    setIsCohortModalOpen: (isOpen: boolean) => {
+    setIsCohortModalOpen: (
+        isOpen: boolean,
+        redirectToWorkflow?: boolean
+    ) => {
         isOpen: boolean
+        redirectToWorkflow: boolean
     }
     setSearchTerm: (search: string) => {
         search: string
@@ -324,7 +331,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
         saveAsCohort: (cohortName: string) => ({ cohortName }),
         resetActors: () => true,
         closeModal: () => true,
-        setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setIsCohortModalOpen: (isOpen: boolean, redirectToWorkflow: boolean = false) => ({
+            isOpen,
+            redirectToWorkflow,
+        }),
         loadActors: ({ url, clear, offset }: { url?: string | null; clear?: boolean; offset?: number }) => ({
             url,
             clear,
@@ -522,6 +532,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 closeModal: () => false,
             },
         ],
+        cohortRedirectsToWorkflow: [
+            false,
+            {
+                setIsCohortModalOpen: (_, { redirectToWorkflow }) => redirectToWorkflow,
+                closeModal: () => false,
+            },
+        ],
     })),
 
     listeners(({ actions, values, props }) => ({
@@ -543,6 +560,27 @@ export const personsModalLogic = kea<personsModalLogicType>([
             }
             const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
             cohortsModel.actions.cohortCreated(cohort)
+            if (values.cohortRedirectsToWorkflow) {
+                actions.setIsCohortModalOpen(false)
+                actions.closeModal()
+                router.actions.push(
+                    urlForNewWorkflowWithTrigger({
+                        type: 'batch',
+                        filters: {
+                            properties: [
+                                {
+                                    key: 'id',
+                                    type: PropertyFilterType.Cohort,
+                                    value: cohort.id,
+                                    operator: PropertyOperator.In,
+                                    cohort_name: cohort.name,
+                                },
+                            ],
+                        },
+                    })
+                )
+                return
+            }
             lemonToast.success('Cohort saved', {
                 toastId: `cohort-saved-${cohort.id}`,
                 button: {
