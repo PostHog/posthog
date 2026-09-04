@@ -2872,7 +2872,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if not connection.sandbox_url:
             return Response(
-                TaskRunErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "runtime_unavailable",
+                        "code": "sandbox_not_ready",
+                        "error": "No active sandbox for this task run",
+                    }
+                ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
