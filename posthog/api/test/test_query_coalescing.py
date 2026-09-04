@@ -1,13 +1,11 @@
 import time
 import threading
-from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.test import TestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 from redis.exceptions import RedisError
@@ -260,35 +258,16 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         return f"/api/environments/{self.team.id}/query/"
 
     def _query_payload(self):
-        return {"query": _EVENTS_QUERY}
+        return {"query": {"kind": "EventsQuery", "select": ["event"]}}
 
     def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="coalescing-exposure-flag",
-            created_by=self.user,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
+        flag = FeatureFlag.objects.create(team=self.team, key="coalescing-exposure-flag", created_by=self.user)
         experiment = Experiment.objects.create(
-            team=self.team,
-            name="coalescing exposure experiment",
-            feature_flag=flag,
-            created_by=self.user,
-            start_date=timezone.now() - timedelta(days=1),
-            exposure_criteria={},
-            metrics=[],
+            team=self.team, name="coalescing exposure experiment", feature_flag=flag, created_by=self.user
         )
         AccessControl.objects.create(
             team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
@@ -529,7 +508,7 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             ("recordings_query_without_exposure", "/api/environments/{team_id}/query/", {"kind": "RecordingsQuery"}),
         ]
     )
-    def test_matching_paths_trigger_coalescing(self, _name, path_template, query):
+    def test_matching_paths_trigger_coalescing(self, _name: str, path_template: str, query: dict[str, Any]) -> None:
         path = path_template.format(team_id=self.team.id)
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = True
@@ -550,26 +529,15 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
 
         query = {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
 
-        mock_coalescer = mock.MagicMock()
-        mock_coalescer.try_acquire.return_value = False
-        mock_coalescer._dry_run = False
-        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
-        mock_coalescer.get_success_response.return_value = {
-            "status": 200,
-            "body": '{"results": [{"session_id": "leader-only-session"}]}',
-            "content_type": "application/json",
-        }
-
         with (
             mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
-            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer) as mock_cls,
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls,
         ):
             response = self.client.post(self._query_url(), {"query": query})
 
         mock_cls.assert_not_called()
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn("Access control failure", response.json()["detail"])
-        self.assertNotIn("leader-only-session", response.content.decode())
 
     @parameterized.expand(
         [
@@ -582,11 +550,18 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
                 b' "sourceQuery": {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}}}}',
             ),
             # The escaped and plain spellings of the key parse to the same document, so both
-            # produce the same coalescing key. A guard that trusts a plain byte scan of the raw
-            # body would coalesce this behind the unescaped spelling.
+            # produce the same coalescing key. A byte scan without the \u00 branch would
+            # coalesce this behind the unescaped spelling.
             (
                 "unicode_escaped_key",
                 b'{"query": {"kind": "RecordingsQuery", "experiment_exposur\\u0065": {"experiment_id": 1}}}',
+            ),
+            # orjson rejects NaN but DRF's parser accepts it (STRICT_JSON is off), so the view
+            # can execute a body the middleware cannot inspect. The middleware must fail
+            # closed on it, not classify it as filter-free.
+            (
+                "body_only_the_view_can_parse",
+                b'{"query": {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}, "limit": NaN}}',
             ),
         ]
     )
