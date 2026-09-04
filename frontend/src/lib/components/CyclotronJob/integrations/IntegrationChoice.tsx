@@ -8,6 +8,7 @@ import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { IntegrationAccessNotice } from 'lib/integrations/IntegrationAccessNotice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -188,16 +189,18 @@ export function IntegrationChoice({
         <>
             {integrationKind ? (
                 <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
-            ) : valueIsMissing ? (
+            ) : (
                 <div className="flex flex-col gap-2">
-                    <LemonBanner type="warning">
-                        The previously selected {kindName} connection (ID: {value}) is no longer available. Pick a
-                        different connection or clear the selection — this connection will fail at runtime otherwise.
-                    </LemonBanner>
+                    <IntegrationAccessNotice kind={kind} />
+                    {valueIsMissing && (
+                        <LemonBanner type="warning">
+                            The previously selected {kindName} connection (ID: {value}) is no longer available. Pick a
+                            different connection or clear the selection — this connection will fail at runtime
+                            otherwise.
+                        </LemonBanner>
+                    )}
                     {button}
                 </div>
-            ) : (
-                button
             )}
 
             {/* Render only this picker's own-kind modal, and only while this picker is the opener.
