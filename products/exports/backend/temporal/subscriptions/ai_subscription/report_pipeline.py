@@ -12,6 +12,8 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
+from posthog.hogql.errors import InternalHogQLError
+
 from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.exceptions_capture import capture_exception
@@ -137,6 +139,7 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
     has_retryable_error = False
     has_unknown_query_status_error = False
     has_unclassified_error = False
+    has_internal_hogql_error = False
     for current in iter_exception_chain(exc):
         if isinstance(current, MaxToolRetryableError):
             has_retryable_error = True
@@ -145,6 +148,8 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
                 has_unknown_query_status_error = True
             else:
                 categories.add(current.error_category)
+        if isinstance(current, InternalHogQLError):
+            has_internal_hogql_error = True
         if isinstance(current, Exception):
             category = classify_query_error(current)
             if category is not QueryErrorCategory.ERROR:
@@ -173,6 +178,10 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         return QueryRepairDecision(repair_hint=safe_message, invalidates_plan=True)
     if QueryErrorCategory.USER_ERROR in categories:
         return QueryRepairDecision(repair_hint=_ASYNC_USER_QUERY_REPAIR_HINT, invalidates_plan=True)
+    # A HogQL engine failure means the generated query is wrong, so a rewrite can still recover the
+    # step. The message is not user-safe, so send the generic hint instead of it.
+    if has_internal_hogql_error:
+        return QueryRepairDecision(repair_hint=_GENERIC_QUERY_REPAIR_HINT, invalidates_plan=True)
     if has_unknown_query_status_error or has_unclassified_error:
         return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
     # A cancellation says nothing about the query text, so a rewrite would drift a valid metric. The

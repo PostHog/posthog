@@ -8,7 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    InternalHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+    QueryError,
+    ResolutionError,
+)
 
 from posthog.errors import (
     CHQueryErrorUnknownFunction,
@@ -543,6 +549,27 @@ async def test_run_steps_classifies_async_user_error_code_as_plan_invalidating(
     assert mock_fix.await_args.kwargs["error_message"] == (
         "The query was rejected because its structure is invalid. Rewrite it using valid HogQL."
     )
+    assert execution.plan_invalidating_failed_count == 1
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_repairs_internal_hogql_error_without_forwarding_raw_text(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+) -> None:
+    error = MaxToolRetryableError("Query validation failed")
+    error.__context__ = HogQLNotImplementedError("Lambdas are not implemented for unsupported_construct")
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert mock_fix.await_args is not None
+    repair_message = mock_fix.await_args.kwargs["error_message"]
+    assert repair_message == "The query failed with an adjusted-input error. Rewrite it using valid HogQL."
+    assert "unsupported_construct" not in repair_message
     assert execution.plan_invalidating_failed_count == 1
 
 
