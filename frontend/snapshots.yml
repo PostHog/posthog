@@ -9040,6 +9040,10 @@ snapshots:
         hash: v1.k794b7964.701369c8815572e230847194697a10af64fbe3238b5ec2b97fb1ca472e921cb4.04vlOGhscYZQvQ0MZeCyfvHFER2HIhLpiFcH7AmsHrg
     scenes-other-account-connected--invalid-link--light:
         hash: v1.k794b7964.a339eb77db0b616ec64e77e675da285d292381ded8eb0daa201eb575dffa8e26.RETEKLpQHdGlg32dKsJCmtN5amqXJKpNRGo8i4c7RZU
+    scenes-other-authenticatedshellfallback--stuck-shell--dark:
+        hash: v1.k794b7964.701361424acc0289fd034abc12c8207144f480e0bdd22c0359465d4e7e51c7f0.qntozIS4u0U1agy-cU_rVXwzkp8CxJdr1wIPErK3gts
+    scenes-other-authenticatedshellfallback--stuck-shell--light:
+        hash: v1.k794b7964.64b80f73cd4551df9c88fa50f78d43b3a7eb89071afa6e170ef66c6844457260.EkrA0BMFtb6eGMjAeUgHv1rNiPEbAPlIBTFCz8Upt5Q
     scenes-other-billing--billing--dark:
         hash: v1.k794b7964.3aeba40d04a6226aeae25c8200dfc1bb74f34ba545f1294dab4293a63d7896c9.ANAwCdWwZqiMOI2A2gxChSERhIOiXhGfgnkygj1g1fo
     scenes-other-billing--billing--light:
