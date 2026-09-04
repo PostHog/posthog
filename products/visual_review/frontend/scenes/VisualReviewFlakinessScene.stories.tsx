@@ -84,6 +84,7 @@ const overview: FlakinessOverviewApi = {
             quarantine: {
                 id: '00000000-0000-0000-0000-0000000000c1',
                 reason: 'Non-deterministic rendering (animations, timestamps)',
+                source: 'human',
                 expires_at: '2026-06-07T00:00:00Z',
                 created_at: '2026-05-08T00:00:00Z',
                 created_by: { id: 1, first_name: 'Julian', email: 'julian@posthog.com' },

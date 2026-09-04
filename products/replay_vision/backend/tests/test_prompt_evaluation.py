@@ -16,8 +16,8 @@ from products.replay_vision.backend.models.replay_observation_label import Repla
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
@@ -81,7 +81,7 @@ class TestPromptEvaluation(_VisionAPITestCase):
             "team": self.team,
             "suggested_prompt": "Did the user place an order? Only answer yes on a confirmation page.",
             "base_prompt": "did the user check out?",
-            "status": SuggestionStatus.PENDING,
+            "status": PromptSuggestionStatus.PENDING,
             "scanner_version": 1,
         }
         defaults.update(overrides)
@@ -398,7 +398,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             "scanner": self.scanner,
             "team": self.team,
             "suggested_prompt": "new prompt",
-            "status": SuggestionStatus.PENDING,
+            "status": PromptSuggestionStatus.PENDING,
             "scanner_version": 1,
         }
         defaults.update(overrides)
@@ -586,7 +586,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             scanner=other_scanner,
             team=self.team,
             suggested_prompt="p",
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=1,
             evaluation={
                 "status": "running",
@@ -605,13 +605,13 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     def test_in_flight_reservation_prices_from_the_frozen_model(self) -> None:
         # Receipts bill the model frozen at workflow start. Pricing the reservation from the scanner's
         # current model instead lets an edit mid-run silently re-price committed spend.
-        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        expensive, cheap = ScannerModel.GEMINI_3_8_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
         scanner = self._create_scanner(name="frozen-model", model=expensive)
         ReplayScannerPromptSuggestion.objects.create(
             scanner=scanner,
             team=self.team,
             suggested_prompt="p",
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=1,
             evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
         )
@@ -624,13 +624,13 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
     def test_per_scanner_reservation_prices_from_the_frozen_model(self) -> None:
         # The per-scanner split must price like the org total: from the model frozen at workflow start.
-        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        expensive, cheap = ScannerModel.GEMINI_3_8_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
         scanner = self._create_scanner(name="frozen-model-per-scanner", model=expensive)
         ReplayScannerPromptSuggestion.objects.create(
             scanner=scanner,
             team=self.team,
             suggested_prompt="p",
-            status=SuggestionStatus.PENDING,
+            status=PromptSuggestionStatus.PENDING,
             scanner_version=1,
             evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
         )
@@ -654,7 +654,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("not_pending", {"status": SuggestionStatus.DISMISSED}, ScannerType.MONITOR, True),
+            ("not_pending", {"status": PromptSuggestionStatus.DISMISSED}, ScannerType.MONITOR, True),
             ("no_ratings", {}, ScannerType.MONITOR, False),
         ]
     )

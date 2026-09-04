@@ -13,6 +13,7 @@ describe("inboxSignalsFilterStore", () => {
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
+      reportStateFilter: ["review_and_merge", "needs_decision"],
       prFilter: "all",
     });
   });
@@ -24,6 +25,10 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.searchQuery).toBe("");
     expect(state.sourceProductFilter).toEqual([]);
     expect(state.priorityFilter).toEqual([]);
+    expect(state.reportStateFilter).toEqual([
+      "review_and_merge",
+      "needs_decision",
+    ]);
   });
 
   it("setSort updates field and direction", () => {
@@ -127,6 +132,7 @@ describe("inboxSignalsFilterStore", () => {
     store.setSearchQuery("hello");
     store.toggleSourceProduct("github");
     store.setPriorityFilter(["P0", "P1"]);
+    store.toggleReportState("resolved");
 
     useInboxSignalsFilterStore.getState().resetFilters();
 
@@ -134,6 +140,10 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.searchQuery).toBe("");
     expect(state.sourceProductFilter).toEqual([]);
     expect(state.priorityFilter).toEqual([]);
+    expect(state.reportStateFilter).toEqual([
+      "review_and_merge",
+      "needs_decision",
+    ]);
   });
 
   it("resetFilters preserves sort preferences", () => {
@@ -195,7 +205,27 @@ describe("inboxSignalsFilterStore", () => {
     },
   );
 
-  it("migrates pre-v2 localStorage by dropping the dead filter slots", () => {
+  it("treats a changed report state selection as an active report filter", () => {
+    useInboxSignalsFilterStore.getState().toggleReportState("resolved");
+
+    expect(
+      hasActiveInboxFilters(useInboxSignalsFilterStore.getState(), {
+        includeReportStateFilter: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores a saved source filter when the surface hides that control", () => {
+    useInboxSignalsFilterStore.getState().toggleSourceProduct("github");
+
+    expect(
+      hasActiveInboxFilters(useInboxSignalsFilterStore.getState(), {
+        includeSourceFilter: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("migrates old localStorage by dropping dead slots and adding report states", () => {
     localStorage.setItem(
       "inbox-signals-filter-storage",
       JSON.stringify({
@@ -218,6 +248,10 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.sortField).toBe("created_at");
     expect(state.priorityFilter).toEqual(["P1"]);
     expect(state.sourceProductFilter).toEqual(["github"]);
+    expect(state.reportStateFilter).toEqual([
+      "review_and_merge",
+      "needs_decision",
+    ]);
     expect(
       (state as unknown as Record<string, unknown>).statusFilter,
     ).toBeUndefined();

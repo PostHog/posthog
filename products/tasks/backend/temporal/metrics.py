@@ -8,6 +8,8 @@ import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
+from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
+
 Attributes = dict[str, str | int | float | bool]
 
 TASKS_LATENCY_HISTOGRAM_METRICS = (
@@ -50,6 +52,19 @@ TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     25_000_000.0,
     50_000_000.0,
     100_000_000.0,
+]
+
+TASKS_RUN_TURNS_HISTOGRAM_METRICS = ("tasks_run_turns",)
+TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
+    1.0,
+    2.0,
+    4.0,
+    8.0,
+    16.0,
+    32.0,
+    64.0,
+    128.0,
+    256.0,
 ]
 
 _RUN_TOKEN_KINDS = {
@@ -108,6 +123,13 @@ def _runtime_adapter_label(value: str | None) -> str:
     if not value:
         return "unknown"
     return value if value in _ALLOWED_RUNTIME_ADAPTERS else "other"
+
+
+def _model_label(value: str | None) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "unknown"
+    normalized = value.strip().lower()
+    return normalized if runtime_adapter_for(normalized) else "other"
 
 
 def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool) -> str:
@@ -196,6 +218,8 @@ def record_run_token_usage(
     origin_product: str | None,
     run_environment: str | None,
     rtk_enabled: bool | None,
+    benjamin_enabled: bool | None,
+    model: str | None,
     runtime_adapter: str | None,
     status: str | None,
 ) -> None:
@@ -208,6 +232,8 @@ def record_run_token_usage(
             "origin_product": origin_product or "unknown",
             "run_environment": run_environment or "unknown",
             "rtk_enabled": _bool_label(rtk_enabled),
+            "benjamin_enabled": _bool_label(benjamin_enabled),
+            "model": _model_label(model),
             "runtime_adapter": _runtime_adapter_label(runtime_adapter),
             "status": status or "unknown",
         }
@@ -218,12 +244,14 @@ def record_run_token_usage(
                     "tasks_run_tokens_total",
                     "Token expenditure of terminal task runs, by token kind",
                 ).add(int(value))
-        total = usage.get("total_tokens")
-        if isinstance(total, int | float) and not isinstance(total, bool) and total > 0:
-            _metric_meter(base_attributes).create_histogram(
-                "tasks_run_total_tokens",
-                "Total tokens spent per terminal task run",
-            ).record(int(total))
+        meter = _metric_meter(base_attributes)
+        for name, description, key in (
+            ("tasks_run_total_tokens", "Total tokens spent per terminal task run", "total_tokens"),
+            ("tasks_run_turns", "Agent turns per terminal task run", "turns"),
+        ):
+            value = usage.get(key)
+            if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+                meter.create_histogram(name, description).record(int(value))
     except Exception:
         pass
 
@@ -323,6 +351,36 @@ def record_agent_server_session_init_ms(
             "Latency for get_sandbox_for_repository sub-steps",
             unit="ms",
         ).record(dt.timedelta(milliseconds=session_init_ms))
+    except Exception:
+        pass
+
+
+def record_agent_server_step_ms(
+    step: str,
+    duration_ms: int,
+    boot_path: str,
+    *,
+    status: str = "COMPLETED",
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    try:
+        attributes: Attributes = {
+            "step": step,
+            "used_snapshot": _bool_label(used_snapshot),
+            "status": status,
+            "boot_path": boot_path,
+        }
+        if origin_product is not None:
+            attributes["origin_product"] = origin_product
+        if runtime is not None:
+            attributes["runtime"] = runtime
+        _metric_meter(attributes).create_histogram_timedelta(
+            "tasks_process_sandbox_step_latency",
+            "Latency for get_sandbox_for_repository sub-steps",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
         pass
 

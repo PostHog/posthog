@@ -71,7 +71,7 @@ export const renderTooltipContent = (
                     {isBaseline ? (
                         <em className="text-muted-alt">Baseline</em>
                     ) : (
-                        <span className={winning ? 'text-success' : 'text-danger'}>
+                        <span className={winning === undefined ? undefined : winning ? 'text-success' : 'text-danger'}>
                             {formatDeltaPercent(variantResult)}
                         </span>
                     )}

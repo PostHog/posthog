@@ -6,8 +6,10 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import (
     LLMSkill,
     LLMSkillFile,
@@ -111,6 +113,11 @@ class LLMSkillEditError(Exception):
 
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+@frozen
+class LLMSkillDescriptionTooLongError(Exception):
+    max_length: int
 
 
 @dataclass
@@ -299,6 +306,10 @@ def publish_skill_version(
         if current_latest.version >= MAX_SKILL_VERSION:
             raise LLMSkillVersionLimitError(max_version=MAX_SKILL_VERSION)
 
+        resolved_description = description if description is not None else current_latest.description
+        if len(resolved_description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
         if edits is not None:
             resolved_body = apply_skill_body_edits(current_latest.body, edits)
         else:
@@ -312,7 +323,7 @@ def publish_skill_version(
         published_skill = LLMSkill.objects.create(
             team=team,
             name=current_latest.name,
-            description=_carry_forward(description, current_latest.description),
+            description=resolved_description,
             body=resolved_body,
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
@@ -402,6 +413,9 @@ def create_skill(
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
 ) -> LLMSkill:
+    if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     if files and len(files) > MAX_SKILL_FILE_COUNT:
         raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
 
@@ -488,6 +502,8 @@ def duplicate_skill(
 
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
+        if len(source_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
 
         # A duplicate is a brand-new, user-authored skill under a new name, so it inherits nothing
         # from the source's provenance or classification: the harness seed marker is dropped, and
@@ -555,6 +571,9 @@ def _create_next_version_with_files(
     current_latest: LLMSkill,
     next_files: list[LLMSkillFile],
 ) -> LLMSkill:
+    if len(current_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     LLMSkill.objects.filter(pk=current_latest.pk).update(is_latest=False)
     next_skill = LLMSkill.objects.create(
         team=team,

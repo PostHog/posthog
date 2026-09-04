@@ -1373,6 +1373,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Account field',
                     },
                     {
+                        name: 'Account relationships',
+                        searchPlaceholder: 'account relationships',
+                        type: TaxonomicFilterGroupType.AccountRelationships,
+                        getIcon: getAccountFieldDefinitionIcon,
+                        getName: (option: PropertyDefinition) => option.name,
+                        getValue: (option: PropertyDefinition) => option.id,
+                        getPopoverHeader: () => 'Account relationship',
+                    },
+                    {
                         name: 'Account custom properties',
                         searchPlaceholder: 'account custom properties',
                         type: TaxonomicFilterGroupType.AccountCustomProperties,

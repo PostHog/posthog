@@ -8,11 +8,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_forking_enabled,
-    is_slack_app_home_enabled,
-    is_slack_app_model_classifier_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_turn_feedback_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -25,6 +21,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     reply_footer_block,
     slack_message_exists,
+    turn_feedback_block,
     viewer_has_code_access,
 )
 
@@ -147,8 +144,8 @@ class SlackThreadHandler:
         self._integration: Integration | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
-        self._footer_flag: bool | None = None
         self._fork_flag: bool | None = None
+        self._feedback_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -163,63 +160,42 @@ class SlackThreadHandler:
             self._client = SlackIntegration(integration).client
         return self._client
 
-    def footer_enabled(self) -> bool:
-        """Whether this workspace shows run provenance.
-
-        Shares the model-classifier flag: choosing a model in a mention and being told
-        which model ran are two halves of one feature. Public so a caller can skip the
-        work of describing a run nobody will be shown, and memoized because that caller
-        and the footer builder both ask.
-        """
-        if self._footer_flag is None:
-            self._footer_flag = is_slack_app_model_classifier_enabled(self._get_integration())
-        return bool(self._footer_flag)
-
     def viewer_can_open_code_links(self) -> bool:
-        """Whether this reply's reader can open a PostHog Code link. Memoized: the cards
-        ask for their buttons and the footer asks again for its own links."""
+        """Whether this reply's reader passes the PostHog Desktop access check. Memoized:
+        the cards ask for their buttons and the footer asks again for its desktop link."""
         if self._code_access is None:
             self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
         return bool(self._code_access)
 
     def reader_footer(self) -> RunFooter:
-        """`run_footer` as this reply's reader may see it, links withheld where they can't
-        open them.
+        """`run_footer` with the desktop link withheld where this reply's reader can't
+        open it.
 
-        The one place that answers this, so a card's buttons and the footer's links can't
-        disagree about the same reader. A footer carrying no links asks nothing, which
-        keeps a plain answer off the identity lookup behind the access check.
+        The web task link is never withheld: the task page enforces access itself, so at
+        worst it asks the reader to sign in. The one place that answers this, so a card's
+        buttons and the footer's links can't disagree about the same reader. A footer
+        carrying no desktop link asks nothing, which keeps a plain answer off the
+        identity lookup behind the access check.
         """
-        if not (self.run_footer.task_url or self.run_footer.desktop_url):
+        if not self.run_footer.desktop_url:
             return self.run_footer
         if self.viewer_can_open_code_links():
             return self.run_footer
-        return replace(self.run_footer, task_url=None, desktop_url=None)
+        return replace(self.run_footer, desktop_url=None)
 
     def reader_task_url(self) -> str | None:
-        """The task page this reply's reader may open, or `None` where they may not."""
-        return self.reader_footer().task_url
+        """The task page behind this reply, or `None` when the run has no task. Shown to
+        every reader; the page enforces access itself."""
+        return self.run_footer.task_url
 
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
-        """This handler's footer, or `None` when the workspace isn't in the rollout.
-
-        "Configure" points at the Home tab, so it only appears where that tab exists — a
-        workspace outside the Home rollout would land on an empty one. The Home flag is
-        only consulted once there is actually something to gate.
-        """
-        # A handler with nothing to describe can't produce a footer, so it never pays for
-        # the flag lookups.
+        """This handler's footer, or `None` when there is nothing to describe."""
         if not self.run_footer.has_content():
-            return None
-        if not self.footer_enabled():
             return None
         footer = self.reader_footer()
         if not include_task_url:
             footer = replace(footer, task_url=None)
-        integration = self._get_integration()
-        configure_url = app_home_url(integration)
-        if configure_url and not is_slack_app_home_enabled(integration):
-            configure_url = None
+        configure_url = app_home_url(self._get_integration())
         return reply_footer_block(footer, configure_url)
 
     def _fork_menu(self) -> dict[str, Any] | None:
@@ -238,25 +214,48 @@ class SlackThreadHandler:
             return None
         return fork_menu_element(integration.id)
 
-    def _append_fork_menu(self, ts: str) -> None:
-        """Add the fork menu to a streamed reply, which has no section to hang it on.
+    def _feedback_block(self) -> dict[str, Any] | None:
+        """The thumbs for this reply, or `None` when there is nothing to rate.
 
-        Its own call on purpose: Slack documents no block-type restriction on a streamed
-        `blocks` chunk but does not confirm interactive blocks are allowed either, and
-        the answer rides the append before this one — a rejected request must cost the
-        menu, never the reply.
+        A reply with no run behind it — a note, a card posted before the run existed —
+        has nothing a rating could be attributed to, which is what keeps those replies
+        off the flag lookup here.
         """
+        run_id = self.run_footer.run_id
+        if not run_id:
+            return None
+        integration = self._get_integration()
+        if self._feedback_flag is None:
+            self._feedback_flag = is_slack_app_turn_feedback_enabled(integration)
+        if not self._feedback_flag:
+            return None
+        return turn_feedback_block(integration.id, run_id)
+
+    def _append_trailing_blocks(self, ts: str) -> None:
+        """Add the fork menu and the thumbs to a streamed reply, which has no section to
+        hang either on.
+
+        One append per block, and both after the answer's: a request Slack rejects must
+        cost that control alone, never the reply and never its sibling.
+        """
+        for block, failure in (
+            (self._fork_menu_actions_block(), "slack_app_fork_menu_append_failed"),
+            (self._feedback_block(), "slack_app_feedback_buttons_append_failed"),
+        ):
+            if not block:
+                continue
+            try:
+                self._get_client().chat_appendStream(
+                    channel=self.context.channel,
+                    ts=ts,
+                    chunks=[{"type": "blocks", "blocks": [block]}],
+                )
+            except Exception as e:
+                logger.warning(failure, error=str(e))
+
+    def _fork_menu_actions_block(self) -> dict[str, Any] | None:
         menu = self._fork_menu()
-        if not menu:
-            return
-        try:
-            self._get_client().chat_appendStream(
-                channel=self.context.channel,
-                ts=ts,
-                chunks=[{"type": "blocks", "blocks": [fork_menu_actions_block(menu)]}],
-            )
-        except Exception as e:
-            logger.warning("slack_app_fork_menu_append_failed", error=str(e))
+        return fork_menu_actions_block(menu) if menu else None
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -427,7 +426,7 @@ class SlackThreadHandler:
             except Exception as e:
                 logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
         if footer:
-            self._append_fork_menu(ts)
+            self._append_trailing_blocks(ts)
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
@@ -570,6 +569,9 @@ class SlackThreadHandler:
         menu = self._fork_menu()
         if menu:
             blocks.append(fork_menu_actions_block(menu))
+        feedback = self._feedback_block()
+        if feedback:
+            blocks.append(feedback)
         try:
             self._post_in_thread(text=footer["elements"][0]["text"], blocks=blocks)
         except Exception as e:
@@ -584,7 +586,9 @@ class SlackThreadHandler:
         ordinary message stays a plain-text post.
         """
         # A section block caps at 3000 characters; over that, dropping the footer costs a
-        # line of provenance, while keeping it would cost the whole message.
+        # line of provenance, while keeping it would cost the whole message. The menu and
+        # the thumbs go with it: an answer that long can only be posted as plain text,
+        # which carries no blocks at all.
         footer = self._footer_block() if with_footer and len(text) <= _SECTION_TEXT_LIMIT else None
         # No footer means no blocks at all, so an ordinary message stays the plain-text
         # post it has always been. `expand` keeps the answer fully visible: a section
@@ -599,6 +603,11 @@ class SlackThreadHandler:
             if menu:
                 answer["accessory"] = menu
             blocks = [answer, footer]
+            # The thumbs close the message, below the footer, where a reader of any other
+            # AI app already looks for them.
+            feedback = self._feedback_block()
+            if feedback:
+                blocks.append(feedback)
         try:
             self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:

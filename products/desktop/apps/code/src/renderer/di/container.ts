@@ -208,7 +208,8 @@ const browserTabsClient: BrowserTabsClient = {
   reset: () => trpcClient.browserTabs.reset.mutate(),
   openTab: (input) => trpcClient.browserTabs.openTab.mutate(input),
   setTabTarget: (input) => trpcClient.browserTabs.setTabTarget.mutate(input),
-  close: (tabId) => trpcClient.browserTabs.close.mutate({ tabId }),
+  close: (tabId, newTabId) =>
+    trpcClient.browserTabs.close.mutate({ tabId, newTabId }),
   closeMany: (input) => trpcClient.browserTabs.closeMany.mutate(input),
   setOrder: (input) => trpcClient.browserTabs.setOrder.mutate(input),
   setActiveTab: (input) => trpcClient.browserTabs.setActiveTab.mutate(input),
@@ -488,7 +489,3 @@ container.bind(TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT).toConstantValue({
 container
   .bind(TITLE_GENERATOR_LOGGER)
   .toConstantValue(logger.scope("title-generator"));
-
-export function get<T>(token: symbol): T {
-  return container.get<T>(token);
-}

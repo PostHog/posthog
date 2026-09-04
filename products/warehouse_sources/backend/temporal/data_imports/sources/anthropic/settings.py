@@ -1,6 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -23,7 +25,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class AnthropicEndpointConfig:
     name: str
     path: str
@@ -47,8 +49,7 @@ class AnthropicEndpointConfig:
     # Re-read window (seconds) applied to the incremental watermark by the pipeline before it reaches
     # the source, so each run re-pulls recently-restated buckets. Merge dedupes them on the primary key.
     default_incremental_lookback_seconds: Optional[int] = None
-    # workspace_members / service_accounts have no org-wide list endpoint; they fan out one request
-    # per workspace.
+    # workspace_members has no org-wide list endpoint, so it fans out one request per workspace.
     fan_out_over_workspaces: bool = False
     # Claude Code analytics takes a single `starting_at` day per request, so it fans out one windowed
     # request per calendar day from the watermark (or launch floor) to today.
@@ -140,16 +141,9 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         primary_keys=["workspace_id", "user_id"],
         fan_out_over_workspaces=True,
     ),
-    # Like workspace_members, service accounts are workspace-scoped with no org-wide list. Their ids
-    # resolve the `service_account_id` dimension on the usage report.
-    "service_accounts": AnthropicEndpointConfig(
-        name="service_accounts",
-        path="/v1/organizations/workspaces/{workspace_id}/service_accounts",
-        pagination=PaginationType.CURSOR,
-        primary_keys=["workspace_id", "id"],
-        partition_key="created_at",
-        fan_out_over_workspaces=True,
-    ),
+    # No service_accounts endpoint: Anthropic serves service accounts only to an org:admin OAuth
+    # token and rejects the Admin API key this source authenticates with, so the table can never
+    # sync. `service_account_id` still resolves as a usage_report group_by dimension below.
     "usage_report": AnthropicEndpointConfig(
         name="usage_report",
         path="/v1/organizations/usage_report/messages",
@@ -212,6 +206,10 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(ANTHROPIC_ENDPOINTS.keys())
+
+# Raised when a schema row names an endpoint the catalog no longer has, and matched by
+# `get_non_retryable_errors` so the sync retires the row rather than retrying.
+ENDPOINT_RETIRED_ERROR = "Table no longer available from Anthropic"
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in ANTHROPIC_ENDPOINTS.items()

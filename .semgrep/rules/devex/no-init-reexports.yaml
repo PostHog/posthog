@@ -66,7 +66,7 @@ rules:
               - 'posthog/dags/common/__init__.py'
               - 'products/managed_warehouse/backend/logic/verification/__init__.py'
               - 'posthog/helpers/__init__.py'
-              - 'posthog/hogql_queries/insights/funnels/__init__.py'
+              - 'products/product_analytics/backend/hogql_queries/funnels/__init__.py'
               - 'posthog/plugins/__init__.py'
               - 'posthog/queries/properties_timeline/__init__.py'
               - 'products/ai_observability/backend/api/__init__.py'

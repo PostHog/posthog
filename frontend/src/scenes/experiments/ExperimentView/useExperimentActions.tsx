@@ -20,7 +20,6 @@ import { LemonMenuItemLeafCallback } from 'lib/lemon-ui/LemonMenu'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { isExperimentExposureFrozen, isExperimentPaused } from 'scenes/experiments/experimentStatus'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -36,7 +35,9 @@ import {
     confirmFreezeExposure,
     confirmResetExperiment,
     confirmUnfreezeExposure,
-} from '../experimentActions'
+} from 'products/experiments/frontend/experimentActions'
+import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
@@ -117,7 +118,6 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
         isExperimentLaunched &&
             (exposureCohortId
                 ? {
-                      // TODO: add custom back button to the destination page
                       label: 'View exposure cohort',
                       icon: <IconPeople />,
                       sideIcon: <IconExternal />,

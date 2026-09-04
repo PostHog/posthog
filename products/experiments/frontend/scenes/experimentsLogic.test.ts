@@ -4,12 +4,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import {
-    getExperimentStatus,
-    hasEnded,
-    isExperimentExposureFrozen,
-    isExperimentPaused,
-} from 'scenes/experiments/experimentStatus'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +11,12 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
+import {
+    getExperimentStatus,
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+} from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsLogic,
     getExperimentStatusColor,

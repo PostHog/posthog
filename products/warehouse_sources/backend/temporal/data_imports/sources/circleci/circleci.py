@@ -230,6 +230,49 @@ def _jobs_for_workflow(
             yield jobs
 
 
+def _workflow_rows(
+    fetch_page: FetchPageFn, pipelines: list[dict[str, Any]], logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    for pipeline in pipelines:
+        yield from _workflows_for_pipeline(fetch_page, pipeline["id"], logger)
+
+
+def _job_rows(
+    fetch_page: FetchPageFn, pipelines: list[dict[str, Any]], logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    for pipeline in pipelines:
+        for workflows in _workflows_for_pipeline(fetch_page, pipeline["id"], logger):
+            for workflow in workflows:
+                for jobs in _jobs_for_workflow(fetch_page, workflow["id"], logger):
+                    # Job rows only carry project_slug natively; inject parent identifiers
+                    # plus the workflow's created_at as a stable partition key (jobs expose
+                    # no creation timestamp of their own, and started_at is null for
+                    # unstarted/approval jobs).
+                    yield [
+                        {
+                            **job,
+                            "pipeline_id": pipeline["id"],
+                            "workflow_id": workflow["id"],
+                            "workflow_created_at": workflow.get("created_at"),
+                        }
+                        for job in jobs
+                    ]
+
+
+def _project_rows(
+    fetch_page: FetchPageFn, pipelines: list[dict[str, Any]], seen_project_slugs: set[str]
+) -> Iterator[list[dict[str, Any]]]:
+    # v2 has no "list projects in org" endpoint, so distinct project slugs are discovered
+    # from the pipelines scan and resolved via GET /project/{slug}.
+    for pipeline in pipelines:
+        project_slug = pipeline.get("project_slug")
+        if not project_slug or project_slug in seen_project_slugs:
+            continue
+        seen_project_slugs.add(project_slug)
+        project = fetch_page(_build_url(f"/project/{quote(project_slug, safe='/')}"))
+        yield [project]
+
+
 def get_rows(
     api_token: str,
     org_slug: str,
@@ -256,37 +299,11 @@ def get_rows(
             if pipelines:
                 yield pipelines
         elif endpoint == "workflows":
-            for pipeline in pipelines:
-                for workflows in _workflows_for_pipeline(fetch_page, pipeline["id"], logger):
-                    yield workflows
+            yield from _workflow_rows(fetch_page, pipelines, logger)
         elif endpoint == "jobs":
-            for pipeline in pipelines:
-                for workflows in _workflows_for_pipeline(fetch_page, pipeline["id"], logger):
-                    for workflow in workflows:
-                        for jobs in _jobs_for_workflow(fetch_page, workflow["id"], logger):
-                            # Job rows only carry project_slug natively; inject parent
-                            # identifiers plus the workflow's created_at as a stable
-                            # partition key (jobs expose no creation timestamp of their
-                            # own, and started_at is null for unstarted/approval jobs).
-                            yield [
-                                {
-                                    **job,
-                                    "pipeline_id": pipeline["id"],
-                                    "workflow_id": workflow["id"],
-                                    "workflow_created_at": workflow.get("created_at"),
-                                }
-                                for job in jobs
-                            ]
+            yield from _job_rows(fetch_page, pipelines, logger)
         elif endpoint == "projects":
-            # v2 has no "list projects in org" endpoint, so distinct project slugs are
-            # discovered from the pipelines scan and resolved via GET /project/{slug}.
-            for pipeline in pipelines:
-                project_slug = pipeline.get("project_slug")
-                if not project_slug or project_slug in seen_project_slugs:
-                    continue
-                seen_project_slugs.add(project_slug)
-                project = fetch_page(_build_url(f"/project/{quote(project_slug, safe='/')}"))
-                yield [project]
+            yield from _project_rows(fetch_page, pipelines, seen_project_slugs)
 
         # Save state after the page's rows (and any fan-out children) have been yielded, so a
         # crash re-yields the in-progress page instead of skipping it.

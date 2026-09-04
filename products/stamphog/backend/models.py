@@ -12,6 +12,7 @@ from __future__ import annotations
 from django.db import models
 from django.db.models import Q
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
@@ -28,7 +29,7 @@ from .facade.enums import (
 # Lives on a separate product database (see products/db_routing.yaml), so it
 # inherits ProductTeamModel: team_id is a plain BigIntegerField (no cross-DB FK
 # to Team) and the manager is fail-closed. See posthog/models/scoping/README.md.
-class StamphogRepoConfig(ProductTeamModel):
+class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # SCM provider this config talks to. GitHub is the only implemented provider
     # today, but the installation/repository identity is provider-scoped so the
@@ -116,7 +117,9 @@ class PullRequest(ProductTeamModel):
     # when the engine predates the field; the digest falls back to the PR title.
     summary_line = models.CharField(max_length=200, blank=True, default="")
     digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="pull_requests")
-    # The sticky comment is a PR-level artifact, upserted per PR across review runs.
+    # Historical: the sticky comment a verdict used to be written into. Verdicts are reviews now, so
+    # nothing writes this any more — it holds the last comment id from before that change. Kept
+    # because it is on the facade contract; drop both together.
     posted_comment_id = models.BigIntegerField(null=True)
     # The PR's own pull_request.updated_at from the last payload we applied. GitHub can redeliver or
     # fan out an older snapshot after a newer one; this field is the monotonic clock that lets the task
@@ -170,8 +173,9 @@ class PullRequestAudience(ProductTeamModel):
     # it to tell "this changed in your area" from a sweep that grazed two of your files, which it
     # cannot judge from the PR alone. Empty for an authored audience or an engine without the field.
     owned_files = models.JSONField(default=list)
-    # How many of the PR's changed files this team owns. Not len(owned_files) — that list is a
-    # capped sample, and a team owning most of a large change must not read as grazed by it.
+    # How many of the PR's changed files this team owns, counting only what a person edited. Not
+    # len(owned_files) — that list is a capped sample, and a team owning most of a large change must
+    # not read as grazed by it. A file a build step wrote is not a stake, so it is not counted here.
     owned_file_count = models.IntegerField(default=0)
     digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="audiences")
     created_at = models.DateTimeField(auto_now_add=True)

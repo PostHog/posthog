@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Endpoint to fetch spend data (proxy to billing service).
  */
-export const BillingSpendRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const BillingSpendRetrieveQueryParams = () => zod.object({
     breakdowns: zod
         .string()
         .nullish()
@@ -35,7 +35,7 @@ export const BillingSpendRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const BillingUsageRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const BillingUsageRetrieveQueryParams = () => zod.object({
     breakdowns: zod
         .string()
         .nullish()

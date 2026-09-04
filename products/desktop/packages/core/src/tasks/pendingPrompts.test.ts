@@ -3,6 +3,7 @@ import {
   buildPendingPromptKey,
   capPendingPrompts,
   listPendingPromptsNewestFirst,
+  pendingPromptToContent,
 } from "./pendingPrompts";
 
 describe("pending prompts", () => {
@@ -31,5 +32,25 @@ describe("pending prompts", () => {
     [null, 123, "abc", "pending-123-abc"],
   ])("builds a portable pending key", (uuid, timestamp, entropy, expected) => {
     expect(buildPendingPromptKey(uuid, timestamp, entropy)).toBe(expected);
+  });
+});
+
+describe("pendingPromptToContent", () => {
+  it("restores file chips from serialized content so attachments survive recovery", () => {
+    const content = pendingPromptToContent({
+      contentXml: 'fix <file path="src/a.ts" />',
+      promptText: "fix @a.ts",
+    });
+    expect(content.segments).toContainEqual({
+      type: "chip",
+      chip: { type: "file", id: "src/a.ts", label: "src/a.ts" },
+    });
+  });
+
+  it("falls back to plain text for records saved before content was captured", () => {
+    const content = pendingPromptToContent({ promptText: "just text" });
+    expect(content).toEqual({
+      segments: [{ type: "text", text: "just text" }],
+    });
   });
 });

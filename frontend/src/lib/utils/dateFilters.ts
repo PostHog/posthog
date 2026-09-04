@@ -220,6 +220,32 @@ export function dateFilterToText(
     return defaultValue
 }
 
+const RELATIVE_DATE_VALUE_RE = /^([+-]?)(\d+)([hdwmqyMs])$/
+const RELATIVE_DATE_UNIT_LABELS: Record<string, string> = {
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    m: 'month',
+    q: 'quarter',
+    y: 'year',
+    M: 'minute',
+    s: 'second',
+}
+
+export function formatRelativeDateValue(value: string): string | null {
+    const match = RELATIVE_DATE_VALUE_RE.exec(value)
+    if (!match) {
+        return null
+    }
+    const [, sign, rawAmount, rawUnit] = match
+    const amount = Number.parseInt(rawAmount, 10)
+    if (amount === 0) {
+        return 'now'
+    }
+    const unit = RELATIVE_DATE_UNIT_LABELS[rawUnit]
+    return `${amount} ${unit}${amount === 1 ? '' : 's'} ${sign === '-' ? 'ago' : 'from now'}`
+}
+
 // Converts a dateFrom string ("-2w") into english: "2 weeks"
 export function dateFromToText(dateFrom: string): string | undefined {
     const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] =

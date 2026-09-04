@@ -13,7 +13,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
-from .. import logic, weekly_digest
+from .. import logic, weekly_digest, weekly_digest_delivery
 from ..logic import external_references, rules
 from ..models import (
     ErrorTrackingIssue,
@@ -244,11 +244,12 @@ def list_spike_events(
     order_by: str | None = None,
     limit: int | None = None,
     offset: int = 0,
+    include_total_count: bool = True,
 ) -> tuple[list[contracts.ErrorTrackingSpikeEvent], int]:
     qs = logic.list_spike_events(
         team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
     )
-    total = qs.count()
+    total = qs.count() if include_total_count else 0
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_spike_event(event) for event in rows], total
 
@@ -767,8 +768,8 @@ def build_team_digest_data(team: Any) -> dict[str, Any] | None:
 
 
 def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
-    return weekly_digest.build_team_section_payload(data)
+    return weekly_digest_delivery.build_team_section_payload(data)
 
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
-    weekly_digest.send_digest_to_workflow(digest, distinct_id)
+    weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)

@@ -29,6 +29,8 @@ import type {
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
     AccountsSupportTicketMessagesListParams,
+    AccountsTableQueryRequestApi,
+    AccountsTableQueryResponseApi,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -98,6 +100,7 @@ import type {
     PatchedFeatureRequestProductAreaApi,
     PatchedFeatureRequestUpdateApi,
     PatchedGroupUsageMetricApi,
+    QueryStatusResponseApi,
     SupportTicketApi,
 } from './api.schemas'
 
@@ -597,6 +600,22 @@ export const accountsRelationshipsCreate = async (
     })
 }
 
+export const getAccountsRelationshipsDestroyUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/relationships/${id}/`
+}
+
+export const accountsRelationshipsDestroy = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountsRelationshipsDestroyUrl(projectId, accountId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAccountsRelationshipsEndCreateUrl = (projectId: string, accountId: string, id: string) => {
     return `/api/projects/${projectId}/accounts/${accountId}/relationships/${id}/end/`
 }
@@ -844,6 +863,29 @@ export const accountsSupportTicketMessagesList = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getCustomerAnalyticsAccountsTableQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/accounts_table_query/`
+}
+
+/**
+ * Run a Customer Analytics accounts table query.
+ */
+export const customerAnalyticsAccountsTableQueryCreate = async (
+    projectId: string,
+    accountsTableQueryRequestApi: AccountsTableQueryRequestApi,
+    options?: RequestInit
+): Promise<AccountsTableQueryResponseApi | QueryStatusResponseApi> => {
+    return apiMutator<AccountsTableQueryResponseApi | QueryStatusResponseApi>(
+        getCustomerAnalyticsAccountsTableQueryCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(accountsTableQueryRequestApi),
         }
     )
 }

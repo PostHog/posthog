@@ -608,7 +608,12 @@ def google_ads_source(
     # incremental pipeline persists a cursor between runs, and the bounded windowed drain below is
     # only sound when it does.
     pipeline_is_incremental = should_use_incremental_field
-    if table.requires_filter and not should_use_incremental_field:
+    # Report tables can only ever be windowed by segments.date, so force it here — both when a
+    # full-refresh schema reaches the incremental path, and when a schema flagged incremental
+    # arrives without an incremental field (a config that would otherwise crash the drain below).
+    if table.requires_filter and (
+        not should_use_incremental_field or incremental_field is None or incremental_field_type is None
+    ):
         should_use_incremental_field = True
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date

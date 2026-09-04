@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
-vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+vi.mock("@posthog/ui/features/browser-tabs/useSpacesTabs", () => ({
   useSpacesTabs: () => mocks.spacesTabs,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useStarredChannelSlots", () => ({

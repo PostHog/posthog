@@ -13,7 +13,6 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
 import { MetricBreakdowns } from 'scenes/experiments/MetricBreakdowns/MetricBreakdowns'
@@ -56,6 +55,10 @@ import {
 } from '~/scenes/experiments/MetricsView/shared/utils'
 import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
+import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
+
 import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
@@ -68,10 +71,8 @@ import {
     VIEW_BOX_WIDTH,
 } from './constants'
 import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
 interface CollapsibleBreakdownSectionProps {
@@ -618,6 +619,22 @@ export function MetricRowGroup({
             clearTooltipCloseTimer()
         }
     }, [])
+
+    // The tooltip is fixed-positioned from coordinates captured on hover, so it
+    // doesn't track the page on scroll — dismiss it instead, like native tooltips.
+    useEffect(() => {
+        if (!tooltipState.isVisible) {
+            return
+        }
+        const handleScroll = (): void => {
+            clearTooltipCloseTimer()
+            hideTooltipState()
+        }
+        // Capture phase so scrolls of any ancestor scroll container are caught, not just the window
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', handleScroll, { capture: true })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tooltipState.isVisible])
 
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 

@@ -25,6 +25,7 @@ import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
+import { TRACING_DATE_TIME_FORMAT } from './dateFormats'
 import {
     type TracingDurationHistogramData,
     type TracingLatencyHeatmapData,
@@ -116,7 +117,7 @@ export function TracingSparkline({
         (label: string): string => {
             const d = displayTimezone ? dayjs(label).tz(displayTimezone) : dayjs(label)
             const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, d.toDate()) ?? 'Local')
-            return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
+            return `${d.format(TRACING_DATE_TIME_FORMAT)} ${tz}`
         },
         [displayTimezone]
     )

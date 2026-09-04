@@ -1,7 +1,14 @@
 import { PlatformSupportConfig } from 'lib/components/SupportedPlatforms/types'
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { AccessControlLevel, AccessControlResourceType, Realm, TeamPublicType, TeamType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    Realm,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -45,6 +52,8 @@ export type SettingSectionId =
     | 'environment-revenue-analytics'
     | 'environment-secret-api-keys'
     | 'environment-surveys'
+    | 'environment-task-agents'
+    | 'environment-tracing'
     | 'environment-web-analytics'
     | 'environment-workflows'
     | 'environment-danger-zone'
@@ -71,6 +80,7 @@ export type SettingSectionId =
     | 'organization-oauth-apps'
     | 'organization-proxy'
     | 'organization-roles'
+    | 'organization-access-resolution'
     | 'organization-security'
     | 'organization-startup-program'
     | 'organization-danger-zone'
@@ -121,6 +131,7 @@ export type SettingId =
     | 'core-memory'
     | 'correlation-analysis'
     | 'csp-reporting'
+    | 'custom-bot-definitions'
     | 'customer-analytics-accounts'
     | 'customer-analytics-calendar-sync'
     | 'customer-analytics-dashboard-events'
@@ -166,6 +177,7 @@ export type SettingId =
     | 'feature-flag-default-evaluation-contexts'
     | 'feature-flag-default-release-conditions'
     | 'feature-flag-evaluation-context-suggestions'
+    | 'feature-flag-require-tags'
     | 'feature-flag-require-evaluation-contexts'
     | 'feature-flag-secure-api-key'
     | 'feature-flags-interface'
@@ -200,11 +212,13 @@ export type SettingId =
     | 'mcp-hints'
     | 'mcp-servers-manage'
     | 'members'
+    | 'member-notifications'
     | 'notifications'
     | 'optout'
     | 'organization-admin-notice'
     | 'organization-ai-consent'
     | 'organization-ai-training-opt-out'
+    | 'organization-desktop-beta-terms'
     | 'organization-cimd-verification-tokens-list'
     | 'organization-default-role'
     | 'organization-delete'
@@ -216,6 +230,7 @@ export type SettingId =
     | 'organization-oauth-apps-list'
     | 'organization-proxy'
     | 'organization-roles'
+    | 'organization-access-resolution-preview'
     | 'organization-security'
     | 'organization-mcp-access'
     | 'organization-personal-api-keys'
@@ -232,6 +247,7 @@ export type SettingId =
     | 'reminders'
     | 'persons-on-events'
     | 'posthog-mcp-configure'
+    | 'profile-picture'
     | 'project-delete'
     | 'project-move'
     | 'realtime-notifications'
@@ -251,6 +267,8 @@ export type SettingId =
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
+    | 'saml-configuration'
+    | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
     | 'sidebar-auto-suggest'
@@ -261,7 +279,11 @@ export type SettingId =
     | 'snippet-v2'
     | 'surveys-default-appearance'
     | 'surveys-interface'
+    | 'task-agent-my-preference'
+    | 'task-agent-project-default'
     | 'theme'
+    | 'tracing-distinct-id-attribute-keys'
+    | 'tracing-session-id-attribute-keys'
     | 'user-delete'
     | 'user-groups'
     | 'variables'
@@ -273,6 +295,7 @@ export type SettingId =
     | 'web-vitals-autocapture'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
+    | 'xaa-configuration'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -332,6 +355,13 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     searchValue?: string
 
     /**
+     * Additional search terms that help users find this section and the settings inside it
+     * (e.g. ['usage', 'invoice'] on Billing). A section that is a top-level link has no settings
+     * to carry keywords of its own, so this is the only way to make it answer to a synonym.
+     */
+    keywords?: string[]
+
+    /**
      * If the setting is restricted, the resource type and minimum access level
      * that are required to access the setting
      */
@@ -360,4 +390,21 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * re-auth modal reactively when a write is attempted.
      */
     requiresReauthentication?: boolean
+
+    /**
+     * Gate every setting in the section behind one billing feature. The section renders a single
+     * upsell when the feature is unavailable. Use this instead of a `PayGateMini` inside each
+     * setting's component, which stacks one identical upsell card per setting on the page.
+     */
+    payGate?: SettingSectionPayGate
+}
+
+export interface SettingSectionPayGate {
+    feature: AvailableFeature
+
+    /** Identifies this surface in pay gate analytics, since one feature can gate several places. */
+    featureDetail?: string
+
+    /** When true, impersonated staff see the settings rather than the upsell. */
+    bypassForImpersonation?: boolean
 }

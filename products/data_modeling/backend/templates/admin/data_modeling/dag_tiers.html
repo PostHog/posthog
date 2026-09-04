@@ -1,7 +1,6 @@
 {% extends "admin/base_site.html" %}
-
 {% block content %}
-<style>
+    <style>
   .tier-summary { border-collapse: collapse; margin-bottom: 24px; }
   .tier-summary th, .tier-summary td { padding: 6px 12px; border-bottom: 1px solid #ddd; text-align: left; }
   .tier-nodes { border-collapse: collapse; width: 100%; margin-bottom: 32px; font-size: 12px; }
@@ -18,91 +17,117 @@
   .pill-not_materializing { background: #f5f5f5; color: #888; }
   .tier-heading { margin-bottom: 4px; }
   .tier-meta { color: #666; margin: 0 0 10px; }
-</style>
-
-<p class="tier-meta">
-  DAG <code>{{ dag.id }}</code> ·
-  team <a href="{% url 'admin:posthog_team_change' dag.team_id %}">{{ dag.team.name }} ({{ dag.team_id }})</a> ·
-  DAG interval {{ dag.sync_frequency_interval|default:"—" }}
-</p>
-
-<table class="tier-summary">
-  <tr>
-    <th>Tier</th><th>Schedule</th><th>Declared</th><th>Ran</th>
-    <th>OK</th><th>Failed</th><th>Running</th><th>Cancelled</th><th>Suspended</th><th>Blocked</th><th>No job</th>
-    <th>Non-materializing</th><th>Last run</th>
-  </tr>
-  {% for tier in tiers %}
-  <tr>
-    <td><a href="#tier-{{ tier.slug }}"><strong>{{ tier.label }}</strong></a></td>
-    <td>
-      {% if temporal_ui_host %}
-        <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/execute-dag-{{ tier.schedule_id }}" target="_blank" rel="noreferrer">schedule ↗</a>
-      {% else %}—{% endif %}
-    </td>
-    <td>{{ tier.declared }}</td>
-    <td>{{ tier.ran }}</td>
-    <td>{{ tier.counts.ok }}</td>
-    <td>{{ tier.counts.failed }}</td>
-    <td>{{ tier.counts.running }}</td>
-    <td>{{ tier.counts.cancelled }}</td>
-    <td>{{ tier.counts.suspended }}</td>
-    <td>{{ tier.counts.blocked }}</td>
-    <td>{{ tier.counts.missing }}</td>
-    <td>{{ tier.counts.not_materializing }}</td>
-    <td>
-      {% if tier.parent_workflow_id %}
-        {% if tier.run_is_legacy %}<strong>legacy</strong> {% endif %}{{ tier.started_at }}
-        {% if temporal_ui_host %}
-          <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ tier.parent_workflow_id }}" target="_blank" rel="noreferrer">↗</a>
-        {% endif %}
-      {% else %}never ran{% endif %}
-    </td>
-  </tr>
-  {% empty %}
-  <tr><td colspan="13">No node on this DAG declares a freshness target, so it has no tiers.</td></tr>
-  {% endfor %}
-</table>
-
-{% for tier in tiers %}
-<h2 class="tier-heading" id="tier-{{ tier.slug }}">{{ tier.label }} — {{ tier.declared }} materializing node{{ tier.declared|pluralize }}</h2>
-<p class="tier-meta">
-  {% if tier.run_is_legacy %}
-    This DAG has no schedule for this tier. The statuses below come from its pre-tier
-    <strong>single DAG-wide schedule</strong>, <code>{{ tier.parent_workflow_id }}</code>, started
-    {{ tier.started_at }} — so the nodes may well be materializing, just not on a per-tier schedule.
-  {% elif tier.parent_workflow_id %}
-    Last run <code>{{ tier.parent_workflow_id }}</code> started {{ tier.started_at }}.
-  {% else %}
-    This tier has never produced a job. Either its schedule does not exist or it has not fired yet.
-  {% endif %}
-</p>
-<table class="tier-nodes">
-  <tr><th>Node</th><th>Type</th><th>Status</th><th>Detail</th><th>Run</th></tr>
-  {% for node in tier.nodes %}
-  <tr>
-    <td>{{ node.name }}</td>
-    <td>{{ node.node_type }}</td>
-    <td><span class="pill pill-{{ node.status }}">{{ node.status }}</span></td>
-    <td class="detail">{{ node.detail }}</td>
-    <td>
-      {% if node.workflow_id and temporal_ui_host %}
-        <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ node.workflow_id }}/{{ node.workflow_run_id }}" target="_blank" rel="noreferrer">workflow ↗</a>
-      {% else %}—{% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-{% endfor %}
-
-{% if untargeted %}
-<h2>No declared target ({{ untargeted|length }})</h2>
-<p class="tier-meta">These nodes belong to no tier, so no schedule fires them. Source tables are expected here; a matview or endpoint is not.</p>
-<table class="tier-nodes">
-  <tr><th>Node</th><th>Type</th></tr>
-  {% for node in untargeted %}
-  <tr><td>{{ node.name }}</td><td>{{ node.type }}</td></tr>
-  {% endfor %}
-</table>
-{% endif %}
+    </style>
+    <p class="tier-meta">
+        DAG <code>{{ dag.id }}</code> ·
+        team <a href="{% url 'admin:posthog_team_change' dag.team_id %}">{{ dag.team.name }} ({{ dag.team_id }})</a> ·
+        DAG interval {{ dag.sync_frequency_interval|default:"—" }}
+    </p>
+    <table class="tier-summary">
+        <tr>
+            <th>Tier</th>
+            <th>Schedule</th>
+            <th>Declared</th>
+            <th>Ran</th>
+            <th>OK</th>
+            <th>Failed</th>
+            <th>Running</th>
+            <th>Cancelled</th>
+            <th>Suspended</th>
+            <th>Blocked</th>
+            <th>No job</th>
+            <th>Non-materializing</th>
+            <th>Last run</th>
+        </tr>
+        {% for tier in tiers %}
+            <tr>
+                <td><a href="#tier-{{ tier.slug }}"><strong>{{ tier.label }}</strong></a></td>
+                <td>
+                    {% if temporal_ui_host %}
+                        <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/execute-dag-{{ tier.schedule_id }}"
+                           target="_blank"
+                           rel="noreferrer">schedule ↗</a>
+        {% else %}—{% endif %}
+            </td>
+            <td>{{ tier.declared }}</td>
+            <td>{{ tier.ran }}</td>
+            <td>{{ tier.counts.ok }}</td>
+            <td>{{ tier.counts.failed }}</td>
+            <td>{{ tier.counts.running }}</td>
+            <td>{{ tier.counts.cancelled }}</td>
+            <td>{{ tier.counts.suspended }}</td>
+            <td>{{ tier.counts.blocked }}</td>
+            <td>{{ tier.counts.missing }}</td>
+            <td>{{ tier.counts.not_materializing }}</td>
+            <td>
+                {% if tier.parent_workflow_id %}
+                    {% if tier.run_is_legacy %}<strong>legacy</strong> {% endif %}{{ tier.started_at }}
+                    {% if temporal_ui_host %}
+                        <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ tier.parent_workflow_id }}"
+                           target="_blank"
+                           rel="noreferrer">↗</a>
+                    {% endif %}
+        {% else %}never ran{% endif %}
+            </td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="13">No node on this DAG declares a freshness target, so it has no tiers.</td>
+            </tr>
+        {% endfor %}
+    </table>
+    {% for tier in tiers %}
+        <h2 class="tier-heading" id="tier-{{ tier.slug }}">{{ tier.label }} — {{ tier.declared }} materializing node{{ tier.declared|pluralize }}</h2>
+        <p class="tier-meta">
+            {% if tier.run_is_legacy %}
+                This DAG has no schedule for this tier. The statuses below come from its pre-tier
+                <strong>single DAG-wide schedule</strong>, <code>{{ tier.parent_workflow_id }}</code>, started
+                {{ tier.started_at }} — so the nodes may well be materializing, just not on a per-tier schedule.
+            {% elif tier.parent_workflow_id %}
+                Last run <code>{{ tier.parent_workflow_id }}</code> started {{ tier.started_at }}.
+            {% else %}
+                This tier has never produced a job. Either its schedule does not exist or it has not fired yet.
+            {% endif %}
+        </p>
+        <table class="tier-nodes">
+            <tr>
+                <th>Node</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Detail</th>
+                <th>Run</th>
+            </tr>
+            {% for node in tier.nodes %}
+                <tr>
+                    <td>{{ node.name }}</td>
+                    <td>{{ node.node_type }}</td>
+                    <td><span class="pill pill-{{ node.status }}">{{ node.status }}</span></td>
+                    <td class="detail">{{ node.detail }}</td>
+                    <td>
+                        {% if node.workflow_id and temporal_ui_host %}
+                            <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ node.workflow_id }}/{{ node.workflow_run_id }}"
+                               target="_blank"
+                               rel="noreferrer">workflow ↗</a>
+            {% else %}—{% endif %}
+                </td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% endfor %}
+    {% if untargeted %}
+        <h2>No declared target ({{ untargeted|length }})</h2>
+        <p class="tier-meta">These nodes belong to no tier, so no schedule fires them. Source tables are expected here; a matview or endpoint is not.</p>
+        <table class="tier-nodes">
+            <tr>
+                <th>Node</th>
+                <th>Type</th>
+            </tr>
+            {% for node in untargeted %}
+                <tr>
+                    <td>{{ node.name }}</td>
+                    <td>{{ node.type }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% endif %}
 {% endblock %}

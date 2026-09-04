@@ -14,10 +14,10 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { formatUnitByQuantity } from '~/scenes/experiments/utils'
 import { Experiment, InsightType } from '~/types'
 
+import { DEFAULT_MDE } from 'products/experiments/frontend/constants'
 import { legacyExperimentLogic, getInsightType } from 'products/experiments/frontend/legacy'
 
 const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | null => {

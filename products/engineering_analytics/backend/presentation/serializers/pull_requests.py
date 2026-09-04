@@ -200,7 +200,7 @@ class CIStatusRollupSerializer(DataclassSerializer):
         extra_kwargs = {
             "runs": {"help_text": "Distinct workflows run on the PR's head SHA."},
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
-            "failing": {"help_text": "Latest runs that completed with conclusion 'failure' or 'timed_out'."},
+            "failing": {"help_text": "Latest runs that ended in failure, timeout, startup failure, or staleness."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
             "failing_workflows": {
                 "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
@@ -221,7 +221,7 @@ class PushCISampleSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "failed": {
-                "help_text": "True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.",
+                "help_text": "True when any latest-per-workflow run on this push ended in a decisive failure.",
             },
             "pending": {"help_text": "True when any latest-per-workflow run on this push hasn't completed yet."},
         }

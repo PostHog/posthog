@@ -861,7 +861,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
     def test_forbids_wildcard_scope_for_internal_required_scope_on_public_viewset(self):
         """Regression: when a viewset's `scope_object` is public (e.g. `signal_scout`) but a
         specific action's `required_scopes` targets an INTERNAL_API_SCOPE_OBJECTS object
-        (e.g. `signal_scout_internal:write`), `*` must NOT satisfy that action. Otherwise
+        (e.g. `signal_scratchpad_internal:write`), `*` must NOT satisfy that action. Otherwise
         a user-consented `*` token could write durable scout memory or emit findings —
         bypassing the threat model that those scopes are sandbox-only.
         """
@@ -873,12 +873,12 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
             data={"key": "noop"},
         )
         self.assertEqual(response.status_code, 403)
-        self.assertIn("signal_scout_internal:write", response.json()["detail"])
+        self.assertIn("signal_scratchpad_internal:write", response.json()["detail"])
 
     def test_allows_explicit_internal_write_scope_on_public_viewset(self):
-        """Sibling to the above: a token with explicit `signal_scout_internal:write` reaches
+        """Sibling to the above: a token with explicit `signal_scratchpad_internal:write` reaches
         the same endpoint (validated_data parses, the forget tool reports deleted=false)."""
-        self.access_token.scope = "signal_scout_internal:write"
+        self.access_token.scope = "signal_scratchpad_internal:write"
         self.access_token.save()
         response = self._do_request(
             f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
@@ -890,7 +890,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
 
     def test_session_auth_cannot_satisfy_internal_write_scope(self):
         """Session auth must NOT bypass an internal-scope requirement. A logged-in team member
-        POSTing to a scout internal-write action (`signal_scout_internal:write`) via browser
+        POSTing to a scratchpad internal-write action (`signal_scratchpad_internal:write`) via browser
         session is denied — otherwise any member could write durable scout scratchpad, which is
         read verbatim into the scout's prompt. No bearer token here, so SessionAuthentication is
         the successful authenticator and must hit the internal-scope guard."""

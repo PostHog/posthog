@@ -916,6 +916,33 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
+    // name must never be offered as "not seen yet".
+    describe('the "not seen yet" option and excluded names', () => {
+        const EXCLUDED_EVENT = '$exception'
+
+        it.each([
+            [EXCLUDED_EVENT, false],
+            ['checkout_started', true],
+        ])('searching %p offers the option: %p', async (query, expected) => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `excluded-events-${query}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: [EXCLUDED_EVENT] },
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ showNonCapturedEventOption: expected })
+        })
+    })
+
     describe('data warehouse pin lifecycle', () => {
         beforeEach(() => {
             const databaseLogic = databaseTableListLogic()
@@ -1789,6 +1816,34 @@ describe('infiniteListLogic', () => {
                 .map((i) => (i as { name: string }).name)
             expect(names).not.toContain('message')
             expect(names).toContain('level')
+        })
+
+        it('hides a pinned value that is excluded for its source group', () => {
+            // A pin outlives the picker it was made in, so without this the Pinned tab is a second
+            // door to selecting a value the exclusion forbids.
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', '$exception', {
+                name: '$exception',
+            })
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'checkout_started', {
+                name: 'checkout_started',
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'pinned-excluded-test',
+                listGroupType: TaxonomicFilterGroupType.PinnedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PinnedFilters],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$exception'] },
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredPinnedItems
+                .filter((i) => 'name' in i)
+                .map((i) => (i as { name: string }).name)
+            expect(names).not.toContain('$exception')
+            expect(names).toContain('checkout_started')
         })
 
         it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {

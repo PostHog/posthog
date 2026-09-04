@@ -19,12 +19,16 @@ PERSON_EMAIL_PROPERTY_NAME = "email"
 
 def effective_project_id_expr() -> Coalesce:
     """
-    The project scope this table is indexed by, for `.alias(effective_project_id=...)`.
+    The project scope the taxonomy tables are indexed by, for `.alias(effective_project_id=...)`.
 
     It has to stay identical to the leading column of `posthog_propdef_proj_uniq` and of
     `index_property_def_query_proj` below, or a filter on it stops being a seek and becomes a
-    range walk. Keep it next to those index definitions for that reason. `EventProperty` carries
-    the same pair of columns and the same expression indexes, so it uses this too.
+    range walk. Keep it next to those index definitions for that reason. `EventProperty` and
+    `EventDefinition` carry the same pair of columns, and `event_definition_proj_uniq` leads with
+    the same expression, so they use this too.
+
+    Always prefer this to `Q(project_id=X) | Q(project_id__isnull=True, team_id=X)`. The two select
+    the same rows, but no index covers the OR form, so Postgres bitmap-ORs its way through instead.
 
     Returns a new expression per call, so callers never share one instance across querysets.
     """
@@ -128,6 +132,18 @@ class PropertyDefinition(UUIDTModel):
                 fields=["name"],
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
+            # `is_feature_flag=true` lists filter on `name LIKE '$feature/%'`. Without this index the
+            # planner answers that prefix from the trigram GIN above, which is not scoped by project and
+            # visits every `$feature/` row across all teams. The condition must stay identical to the
+            # filter in `QueryContext.with_feature_flags`, or the planner cannot prove the index applies.
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("name"),
+                condition=models.Q(name__startswith="$feature/"),
+                name="index_propdef_feature_flag",
+            ),
         ]
         constraints = [
             models.CheckConstraint(

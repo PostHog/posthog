@@ -12,7 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
+from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -78,8 +78,104 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             },
             "entryHtml": "index.html",
             "dependencies": {},
-            "canvasSdkVersion": "0.1.0",
+            "canvasSdkVersion": canvas_sdk_version(),
         }
+
+    def _notebook_project(self, source: str, frame_names: list[str] | None = None) -> dict[str, Any]:
+        project = self._project(source)
+        project["capabilities"] = {
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": ["user"],
+                "notebookFrames": frame_names or [],
+            },
+            "network": {"origins": []},
+        }
+        return project
+
+    def test_notebook_runtime_is_isolated_from_generated_source(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame"))
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        generated = "\n".join(
+            file["content"]
+            for file in result["files"]
+            if file["path"].endswith(".js") and file["path"] != "assets/canvas-runtime.js"
+        )
+        self.assertIn('type:"notebook-connect"', runtime)
+        self.assertIn("__posthog_notebook_frame__:", runtime)
+        self.assertIn("blockNavigation", runtime)
+        self.assertNotIn("notebook-connect", generated)
+
+    def test_notebook_runtime_keeps_navigation_blocked_after_source_mutates_event_prototype(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame"))
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = { postMessage: () => {} };",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.Element = class {};",
+                "globalThis.Event = class { preventDefault() { this.defaultPrevented = true; } };",
+                "globalThis.MessageEvent = class { constructor(_type, init) { Object.assign(this, init); } };",
+                "globalThis.navigation = { addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); } };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.dispatchEvent = () => {};",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "Event.prototype.preventDefault = () => {};",
+                "const event = new Event();",
+                "for (const listener of listeners.navigate) listener(event);",
+                'if (!event.defaultPrevented) { console.error("navigation was not prevented"); process.exit(1); }',
+                'if (open("https://example.com") !== null) { console.error("open did not return null"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_notebook_runtime_hides_state_and_enforces_allowed_frame_names(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame", ["public_df"]))
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = { postMessage: () => {} };",
+                'globalThis.document = { readyState: "complete", documentElement: { classList: { toggle: () => {} }, style: {} }, body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.Element = class {};",
+                "globalThis.Event = class { preventDefault() {} };",
+                "globalThis.MessageEvent = class { constructor(_type, init) { Object.assign(this, init); } };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.dispatchEvent = () => {};",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                'if ("state" in ph) { console.error("state remained public"); process.exit(1); }',
+                'try { ph.readFrame("private_df"); console.error("private frame was allowed"); process.exit(1); } catch {}',
+                'try { ph.readFrame("public_" + "df"); } catch { console.error("allowed frame was blocked"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
 
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
@@ -107,6 +203,40 @@ class TestCanvasCloudBuilder(SimpleTestCase):
 
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         validate_builder_output(result)
+
+    def test_bundles_the_canvas_sdk_import_inline(self) -> None:
+        payload = synthetic_source_project(
+            'import React from "react"; import { ph } from "@posthog/canvas-sdk"; '
+            "export default function Canvas() { return <div>{typeof ph}</div> }"
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        javascript = "\n".join(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertIn("globalThis.ph", javascript)
+
+    @parameterized.expand(
+        [
+            ("persisted_before_the_bump", "0.1.0", "ready", []),
+            ("never_issued", "0.0.1", "failed", ["unsupported_sdk"]),
+        ]
+    )
+    def test_sdk_version_admission(
+        self, _name: str, version: str, expected_status: str, expected_codes: list[str]
+    ) -> None:
+        # Stored sources keep the canvasSdkVersion they were scaffolded with, so
+        # every version the platform ever issued must keep building.
+        payload = {
+            **synthetic_source_project('import React from "react"; export default () => <div/>'),
+            "canvasSdkVersion": version,
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], expected_status, result["diagnostics"])
+        self.assertEqual([entry["code"] for entry in result["diagnostics"]], expected_codes)
 
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))

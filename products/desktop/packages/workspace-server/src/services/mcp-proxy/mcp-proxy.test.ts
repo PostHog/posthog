@@ -305,6 +305,26 @@ describe("McpProxyService", () => {
       expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
     });
 
+    it("does not refresh on a 403 with a generic auth failure body", async () => {
+      // A refresh cannot add permissions, and each forced one rotates the
+      // refresh token and rebuilds the whole desktop session.
+      authServiceMock.authenticatedFetch.mockResolvedValue(
+        new Response('{"error":"Invalid API key"}', {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await service.start();
+      const proxyUrl = service.register("alpha", "https://upstream.example");
+
+      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+
+      expect(res.status).toBe(403);
+      expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
+      expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
+    });
+
     it("does not retry when the body looks healthy", async () => {
       authServiceMock.authenticatedFetch.mockResolvedValue(
         new Response('{"ok":true}', {

@@ -34,12 +34,9 @@ import type {
     PaginatedReplayScannerBackfillListApi,
     PaginatedReplayScannerListApi,
     PaginatedReplayScannerPromptSuggestionListApi,
-    PaginatedVisionActionListApi,
-    PaginatedVisionActionRunListListApi,
     PaginatedVisionAlertConfigurationListApi,
     PaginatedVisionAlertEventListApi,
     PatchedReplayScannerApi,
-    PatchedVisionActionApi,
     PatchedVisionAlertConfigurationApi,
     ReplayObservationApi,
     ReplayObservationLabelApi,
@@ -47,7 +44,6 @@ import type {
     ReplayScannerBackfillApi,
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
-    RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
     ScannerScoutCreateApi,
@@ -57,10 +53,6 @@ import type {
     ScoutReportApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
-    VisionActionApi,
-    VisionActionRunApi,
-    VisionActionsListParams,
-    VisionActionsRunsListParams,
     VisionAlertConfigurationApi,
     VisionAlertCreateDestinationApi,
     VisionAlertDeleteDestinationApi,
@@ -78,6 +70,7 @@ import type {
     VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
+    VisionSpendSeriesApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -96,186 +89,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getVisionActionsListUrl = (projectId: string, params?: VisionActionsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/actions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/actions/`
-}
-
-/**
- * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
- */
-export const visionActionsList = async (
-    projectId: string,
-    params?: VisionActionsListParams,
-    options?: RequestInit
-): Promise<PaginatedVisionActionListApi> => {
-    return apiMutator<PaginatedVisionActionListApi>(getVisionActionsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getVisionActionsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/actions/`
-}
-
-/**
- * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
- */
-export const visionActionsCreate = async (
-    projectId: string,
-    visionActionApi: NonReadonly<VisionActionApi>,
-    options?: RequestInit
-): Promise<VisionActionApi> => {
-    return apiMutator<VisionActionApi>(getVisionActionsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(visionActionApi),
-    })
-}
-
-export const getVisionActionsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/actions/${id}/`
-}
-
-/**
- * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
- */
-export const visionActionsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<VisionActionApi> => {
-    return apiMutator<VisionActionApi>(getVisionActionsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getVisionActionsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/actions/${id}/`
-}
-
-/**
- * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
- */
-export const visionActionsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedVisionActionApi?: NonReadonly<PatchedVisionActionApi>,
-    options?: RequestInit
-): Promise<VisionActionApi> => {
-    return apiMutator<VisionActionApi>(getVisionActionsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedVisionActionApi),
-    })
-}
-
-export const getVisionActionsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/actions/${id}/`
-}
-
-/**
- * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
- */
-export const visionActionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getVisionActionsRunCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/actions/${id}/run/`
-}
-
-/**
- * Run this summary now, without waiting for its schedule — synthesizes a group summary over the
- * observations since the last summary (or the last 24h). The recurring schedule is untouched: the
- * engine advances next_run_at only at scheduled claim time, never in the run itself.
- */
-export const visionActionsRunCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<RunActionResponseApi> => {
-    return apiMutator<RunActionResponseApi>(getVisionActionsRunCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getVisionActionsRunsListUrl = (
-    projectId: string,
-    visionActionId: string,
-    params?: VisionActionsRunsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/`
-}
-
-/**
- * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
- */
-export const visionActionsRunsList = async (
-    projectId: string,
-    visionActionId: string,
-    params?: VisionActionsRunsListParams,
-    options?: RequestInit
-): Promise<PaginatedVisionActionRunListListApi> => {
-    return apiMutator<PaginatedVisionActionRunListListApi>(
-        getVisionActionsRunsListUrl(projectId, visionActionId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getVisionActionsRunsRetrieveUrl = (projectId: string, visionActionId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/${id}/`
-}
-
-/**
- * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
- */
-export const visionActionsRunsRetrieve = async (
-    projectId: string,
-    visionActionId: string,
-    id: string,
-    options?: RequestInit
-): Promise<VisionActionRunApi> => {
-    return apiMutator<VisionActionRunApi>(getVisionActionsRunsRetrieveUrl(projectId, visionActionId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
 
 export const getVisionAlertsListUrl = (projectId: string, params?: VisionAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -663,6 +476,20 @@ export const environmentVisionQuotaRetrieve = async (
     })
 }
 
+export const getEnvironmentVisionQuotaSpendSeriesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/quota/spend_series/`
+}
+
+export const environmentVisionQuotaSpendSeriesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<VisionSpendSeriesApi> => {
+    return apiMutator<VisionSpendSeriesApi>(getEnvironmentVisionQuotaSpendSeriesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersListUrl = (projectId: string, params?: VisionScannersListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -806,6 +633,29 @@ export const visionScannersBulkObserveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkObserveRequestApi),
+    })
+}
+
+export const getVisionScannersDuplicateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/duplicate/`
+}
+
+/**
+ * Copy a scanner into a new disabled scanner named "<name> (copy)".
+ *
+ * Copies the stored model row rather than the serializer's read representation, so a query
+ * that no longer validates survives the copy; duplicating through the create endpoint would
+ * silently drop it. Experiment targeting is the exception and follows the read path instead.
+ * Unlike create, no digest is provisioned: the copy starts disabled and unreviewed.
+ */
+export const visionScannersDuplicateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerApi> => {
+    return apiMutator<ReplayScannerApi>(getVisionScannersDuplicateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

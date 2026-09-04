@@ -642,7 +642,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Flag-gated (revamped-py-notebooks).
  */
 export const notebooksSqlV2RunCreateBodyNodeTypeDefault = `hogql`
 export const notebooksSqlV2RunCreateBodyOutputNameDefault = ``
@@ -727,4 +727,57 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells.'
         ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetCancelBody = /* @__PURE__ */ zod.object({
+    generation_id: zod.uuid().describe('Generation job to cancel.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetGenerateBodyPromptMax = 50000
+
+export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
+export const notebooksWidgetGenerateBodyGenerationOperationDefault = `regenerate`
+
+export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .string()
+        .max(notebooksWidgetGenerateBodyPromptMax)
+        .describe(
+            'Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.'
+        ),
+    generation_id: zod.uuid().describe('Idempotency key for this generation job.'),
+    model: zod
+        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
+        .describe(
+            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        )
+        .default(notebooksWidgetGenerateBodyModelDefault)
+        .describe(
+            'AI model used to generate the widget.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        ),
+    generation_operation: zod
+        .enum(['initial', 'regenerate', 'improve'])
+        .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
+        .default(notebooksWidgetGenerateBodyGenerationOperationDefault)
+        .describe(
+            'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
+        ),
+    expected_current_version_id: zod
+        .uuid()
+        .optional()
+        .describe('Current widget version the improvement is based on. Required for improve operations.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetRevertBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Earlier version to restore as a new version.'),
+    expected_current_version_id: zod.uuid().describe('Current version used for optimistic concurrency.'),
 })

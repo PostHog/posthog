@@ -76,7 +76,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
@@ -181,6 +181,26 @@ class AlertConfigField(serializers.JSONField):
 @extend_schema_field(DetectorConfig)  # type: ignore[arg-type]
 class DetectorConfigField(serializers.JSONField):
     pass
+
+
+@extend_schema_field(
+    {
+        "oneOf": [{"type": "integer"}, {"type": "string"}],
+        "description": "Numeric insight ID or saved insight short ID.",
+    }
+)
+class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
+    """Resolve an insight by its database ID or its user-facing short ID."""
+
+    def to_internal_value(self, data: object) -> Insight:
+        if isinstance(data, bool) or not isinstance(data, (str, int)):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+
+        insight = resolve_insight_by_id_or_short_id(self.get_queryset(), data)
+        if insight is not None:
+            return insight
+
+        self.fail("does_not_exist", pk_value=data)
 
 
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
@@ -445,11 +465,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     )
     investigation_agent_enabled = serializers.BooleanField(
         required=False,
-        help_text="When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
+        help_text="When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.",
     )
     investigation_gates_notifications = serializers.BooleanField(
         required=False,
-        help_text="When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.",
+        help_text="When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.",
     )
     investigation_inconclusive_action = serializers.ChoiceField(
         choices=[("notify", "Notify"), ("suppress", "Suppress")],
@@ -875,12 +895,22 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
 
 class AlertSimulateSerializer(serializers.Serializer):
-    insight = TeamScopedPrimaryKeyRelatedField(
+    insight = TeamScopedInsightReferenceField(
         queryset=Insight.objects.all(),
-        help_text="Insight ID to simulate the detector on.",
+        help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
     )
     detector_config = DetectorConfigField(
-        help_text="Detector configuration to simulate.",
+        required=False,
+        default=lambda: {
+            "type": "zscore",
+            "threshold": 0.95,
+            "window": 90,
+            "preprocessing": {"diffs_n": 1},
+        },
+        help_text=(
+            "Detector configuration to simulate. Omit it to use the default daily z-score detector "
+            "(threshold 0.95, window 90, first-difference preprocessing)."
+        ),
     )
     # TODO: fold series_index and date_from into a per-kind range on `config` once a second insight
     # kind needs a range knob. They stay flat today because date_from is a preview-only range with
@@ -914,9 +944,6 @@ class AlertSimulateSerializer(serializers.Serializer):
         return value
 
     def validate_detector_config(self, value):
-        if value is None:
-            raise ValidationError("detector_config is required.")
-
         import pydantic
 
         try:

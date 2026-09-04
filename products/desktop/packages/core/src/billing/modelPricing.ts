@@ -30,7 +30,7 @@ export const MODEL_COST_BASELINE_NAME = "Claude Sonnet 5";
 const BASELINE: ModelListPrice = { inputPerMtok: 2, outputPerMtok: 10 };
 
 // Matched by lowercase substring, first hit wins, so keep specific ids
-// (gpt-5.6-*, sonnet-4) ahead of their broader families.
+// (gpt-5.6-*, glm-5.3-flash, sonnet-4) ahead of their broader families.
 const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["fable", { inputPerMtok: 10, outputPerMtok: 50 }],
   ["mythos", { inputPerMtok: 10, outputPerMtok: 50 }],
@@ -43,6 +43,7 @@ const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["gpt-5.6-luna", { inputPerMtok: 1, outputPerMtok: 6 }],
   ["gpt-5.5", { inputPerMtok: 5, outputPerMtok: 30 }],
   ["kimi", { inputPerMtok: 3, outputPerMtok: 15 }],
+  ["glm-5.3-flash", { inputPerMtok: 0.15, outputPerMtok: 0.5 }],
   ["glm", { inputPerMtok: 1.4, outputPerMtok: 4.4 }],
   ["deepseek", { inputPerMtok: 0.13, outputPerMtok: 0.26 }],
 ];
@@ -116,20 +117,11 @@ export function modelCostInfo(modelId: string): ModelCostInfo | null {
   };
 }
 
-/**
- * Per-token rate of `toModelId` relative to `fromModelId`, e.g. "0.2×", for
- * the switch dialog, whose copy already frames it as approximate ("about").
- * Null when either model has no known list price, or when the rates match.
- */
-export function relativeCostLabel(
-  fromModelId: string,
-  toModelId: string,
-): string | null {
-  const from = modelListPrice(fromModelId);
-  const to = modelListPrice(toModelId);
-  if (!from || !to) return null;
-  const { blended, approximate } = blendedRatio(to, from);
-  // Same list price reads as no line at all, not "1×".
-  if (!approximate && Math.abs(blended - 1) < 0.001) return null;
-  return formatMultiplier(blended, false);
+export function estimateUncachedInputCost(
+  modelId: string,
+  inputTokens: number,
+): number | null {
+  const price = modelListPrice(modelId);
+  if (!price || inputTokens <= 0) return null;
+  return (inputTokens / 1_000_000) * price.inputPerMtok;
 }

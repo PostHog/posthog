@@ -7,10 +7,7 @@ import type { TaskContextInput } from "@posthog/agent/pi/task-system-prompt";
 
 export interface PiRpcClientFactory {
   create(
-    input: Pick<
-      PiRpcClientOptions,
-      "model" | "sessionFile" | "projectTrusted"
-    > & {
+    input: Pick<PiRpcClientOptions, "model" | "sessionFile"> & {
       taskContext: TaskContextInput;
     },
   ): Promise<PiRpcClient>;

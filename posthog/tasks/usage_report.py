@@ -43,6 +43,7 @@ from posthog.models.utils import namedtuplefetchall
 from posthog.schema_enums import AIEventType
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
@@ -74,7 +75,8 @@ from products.tasks.backend.facade.billing import (
     get_task_sandbox_usage_by_team,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
+from products.warehouse_sources.backend.models.external_data_job import billable_destination_multiplier
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -109,6 +111,9 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     "survey shown",
     "survey dismissed",
     "$exception",
+    # Emitted server-side on each prompt fetch. Prompt management is free, so the event is an
+    # artifact of using the product rather than customer instrumentation.
+    LLM_PROMPT_FETCHED_EVENT,
     *AI_EVENTS,
     *CONVERSATIONS_EVENTS,
 ]
@@ -162,7 +167,9 @@ USAGE_REPORT_PARENT_TASK_KWARGS = {
 }
 
 
-@dataclasses.dataclass
+# Mutable: `_add_team_report_to_org_reports` accumulates each team's counters into the org's
+# `OrgReport` field by field with `setattr`.
+@dataclasses.dataclass(frozen=False)
 class UsageReportCounters:
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int
@@ -335,7 +342,13 @@ class UsageReportCounters:
     workflow_sms_sent_in_period: int
     workflow_billable_invocations_in_period: int
 
-    # Logs
+    # Logs and traces share one billing product, one meter and one free tier, so the billable metric is
+    # the combined MB. It is floored once off the summed bytes, so it can come out 1 MB above
+    # logs_mb_in_period + apm_tracing_mb_in_period, which each drop their own sub-MB remainder.
+    logs_and_traces_mb_in_period: int
+
+    # Logs. The per-signal MB is report-only — it exists so we can see the logs/traces split without
+    # billing the two apart.
     logs_bytes_in_period: int
     logs_records_in_period: int
     logs_mb_in_period: int
@@ -355,7 +368,7 @@ class UsageReportCounters:
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
 
-    # Distributed Tracing (APM)
+    # Distributed Tracing (APM). apm_tracing_mb_in_period is report-only, like logs_mb_in_period.
     apm_tracing_bytes_in_period: int
     apm_tracing_spans_in_period: int
     apm_tracing_mb_in_period: int
@@ -2034,6 +2047,38 @@ def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> in
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
 dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
+# A source's first week of syncing is free.
+NEW_SOURCE_FREE_WINDOW = timedelta(days=7)
+
+
+def _rows_synced_totals(
+    begin: datetime,
+    end: datetime,
+    source_age: Literal["any", "new_only", "established_only"],
+) -> list:
+    """Rows synced per team, counted once per destination the run delivered to.
+
+    A run is complete only once every destination has taken every batch, so multiplying by
+    the destination count snapshotted on the run is exact. Runs that predate destinations
+    carry a count of 1 and bill exactly as they did before.
+    """
+    filters = Q(
+        finished_at__gte=begin,
+        finished_at__lte=end,
+        billable=True,
+        status=ExternalDataJob.Status.COMPLETED,
+    )
+
+    if source_age != "any":
+        is_new = Q(pipeline__created_at__gte=end - NEW_SOURCE_FREE_WINDOW)
+        filters &= is_new if source_age == "new_only" else ~is_new
+
+    return list(
+        ExternalDataJob.objects.filter(filters)
+        .values("team_id")
+        .annotate(total=Sum(F("rows_synced") * billable_destination_multiplier()))
+    )
+
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
@@ -2044,28 +2089,9 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
     if begin >= dwh_pricing_free_period_end:
         # after the free period, don't include rows reported in the free historical period
-        return list(
-            ExternalDataJob.objects.filter(
-                ~Q(pipeline__created_at__gte=end - timedelta(days=7)),
-                finished_at__gte=begin,
-                finished_at__lte=end,
-                billable=True,
-                status=ExternalDataJobStatus.COMPLETED,
-            )
-            .values("team_id")
-            .annotate(total=Sum("rows_synced"))
-        )
+        return _rows_synced_totals(begin, end, source_age="established_only")
 
-    return list(
-        ExternalDataJob.objects.filter(
-            finished_at__gte=begin,
-            finished_at__lte=end,
-            billable=True,
-            status=ExternalDataJobStatus.COMPLETED,
-        )
-        .values("team_id")
-        .annotate(total=Sum("rows_synced"))
-    )
+    return _rows_synced_totals(begin, end, source_age="any")
 
 
 @timed_log()
@@ -2073,28 +2099,9 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
         # during the free period, all rows get reported as free historical rows synced
-        return list(
-            ExternalDataJob.objects.filter(
-                finished_at__gte=begin,
-                finished_at__lte=end,
-                billable=True,
-                status=ExternalDataJobStatus.COMPLETED,
-            )
-            .values("team_id")
-            .annotate(total=Sum("rows_synced"))
-        )
+        return _rows_synced_totals(begin, end, source_age="any")
 
-    return list(
-        ExternalDataJob.objects.filter(
-            finished_at__gte=begin,
-            finished_at__lte=end,
-            billable=True,
-            status=ExternalDataJobStatus.COMPLETED,
-            pipeline__created_at__gte=end - timedelta(days=7),
-        )
-        .values("team_id")
-        .annotate(total=Sum("rows_synced"))
-    )
+    return _rows_synced_totals(begin, end, source_age="new_only")
 
 
 @timed_log()
@@ -3144,6 +3151,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
         team.id, 0
     )
+    logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
+    apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
@@ -3328,9 +3337,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
             team.id, 0
         ),
-        logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
+        logs_and_traces_mb_in_period=int((logs_bytes_in_period + apm_tracing_bytes_in_period) // 1_000_000),
+        logs_bytes_in_period=logs_bytes_in_period,
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
-        logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
+        logs_mb_in_period=int(logs_bytes_in_period // 1_000_000),
         logs_retention_14d_mb_in_period=int(
             all_data["teams_with_logs_retention_14d_bytes_in_period"].get(team.id, 0) // 1_000_000
         ),
@@ -3346,9 +3356,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
-        apm_tracing_bytes_in_period=all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0),
+        apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
-        apm_tracing_mb_in_period=int(all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0) // 1_000_000),
+        apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
     )
 
 

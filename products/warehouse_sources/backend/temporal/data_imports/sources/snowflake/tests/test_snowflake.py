@@ -914,6 +914,9 @@ class TestSnowflakeSourceNonRetryableErrors:
         [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
+            # 502 proxy failure exhausting the connector's internal retry budget — transient, not a
+            # user config error; the retry count varies so only the stable prefix is matched.
+            "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -954,6 +957,14 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
+
+    def test_backend_connection_failure_after_retries_is_retryable(self, source):
+        # The real shape from production: the connector exhausted its 11-attempt login retry budget
+        # after a proxy returned 502 Bad Gateway. The attempt count is volatile; the stable prefix is matched.
+        error_msg = "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Proxy-502 backend-connection failure should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:

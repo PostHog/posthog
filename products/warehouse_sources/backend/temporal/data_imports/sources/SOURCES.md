@@ -594,6 +594,7 @@ the row lists both.
 | rki_covid                        | HTTP                        | requests                                                        | ✅                          |
 | roark                            | HTTP                        | requests                                                        | ✅                          |
 | rocketlane                       | HTTP                        | requests                                                        | ✅                          |
+| rokt_ads                         | HTTP                        | requests                                                        | ✅                          |
 | rollbar                          | HTTP                        | requests                                                        | ✅                          |
 | rootly                           | HTTP                        | requests                                                        | ✅                          |
 | rss                              | HTTP                        | requests                                                        | ✅                          |
@@ -847,6 +848,7 @@ doesn't conflict with concurrent PRs.
 - amazon_sqs
 - anodot_cost
 - anomalo
+- anvil
 - apaleo
 - appcues
 - appdirect
@@ -961,6 +963,7 @@ doesn't conflict with concurrent PRs.
 - conta_azul
 - contentsquare
 - convonite
+- coolify
 - copper
 - cosmosdb
 - couchbase
@@ -975,6 +978,7 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deelflows
+- demodesk
 - deno_deploy
 - depot
 - deputy
@@ -1166,8 +1170,10 @@ doesn't conflict with concurrent PRs.
 - mantle
 - manychat
 - mastodon
+- medusa
 - meetup
 - memberful
+- membrain
 - mendeley
 - mercado_ads
 - mercado_pago
@@ -1294,6 +1300,7 @@ doesn't conflict with concurrent PRs.
 - raygun
 - rb2b
 - rd_station_marketing
+- recall_ai
 - reddit
 - redis
 - redpanda_cloud
@@ -1367,6 +1374,7 @@ doesn't conflict with concurrent PRs.
 - smartwaiver
 - smokeball
 - snovio
+- socialpilot
 - soda_cloud
 - solarwinds_service_desk
 - sonar_cloud
@@ -1379,6 +1387,7 @@ doesn't conflict with concurrent PRs.
 - starburst
 - statsig
 - stockx
+- strato
 - strava
 - streamlabs
 - sumsub

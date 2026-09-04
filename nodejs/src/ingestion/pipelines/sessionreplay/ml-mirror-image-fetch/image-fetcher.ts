@@ -1,5 +1,6 @@
 import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed } from '~/common/utils/request'
 
+import type { ImageFetchBlockReason } from './block-reason'
 import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
@@ -53,6 +54,7 @@ export interface ImageFetchResult {
     /** Set by a 429 or a 503 that named a period. The caller holds the registrable domain for that period. */
     retryAfterMs?: number
     schedulingReason?: RequestScheduleBlockReason
+    schedulingBlockingReason?: ImageFetchBlockReason
     schedulingWaitMs?: number
     policyTransient?: boolean
     /** Where a redirect this lane did not follow points. The caller republishes it rather than fetching it. */
@@ -60,6 +62,7 @@ export interface ImageFetchResult {
 }
 
 export interface ImageFetchOptions {
+    sourcePartitions?: readonly number[]
     maxBytes: number
     /** Covers the redirect chain as a whole, so a chain of slow hops cannot outlive one hop's budget. */
     timeoutMs: number
@@ -68,7 +71,15 @@ export interface ImageFetchOptions {
         url: URL,
         deadlineMs: number,
         request: () => Promise<T>
-    ) => Promise<{ ran: true; value: T } | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }>
+    ) => Promise<
+        | { ran: true; value: T }
+        | {
+              ran: false
+              reason: RequestScheduleBlockReason
+              blockingReason: ImageFetchBlockReason
+              waitMs: number
+          }
+    >
     checkRedirectPolicy: (url: string) => Promise<RedirectTargetPolicy>
     isDifferentOrigin: (url: URL) => boolean
     cache?: HttpCacheMetadata
@@ -128,7 +139,12 @@ export class HttpImageFetcher implements ImageFetcher {
             }
             let scheduled:
                 | { ran: true; value: HopResult }
-                | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }
+                | {
+                      ran: false
+                      reason: RequestScheduleBlockReason
+                      blockingReason: ImageFetchBlockReason
+                      waitMs: number
+                  }
             try {
                 scheduled = await options.scheduleRequest(new URL(target), deadlineMs, () =>
                     this.hop(
@@ -136,7 +152,8 @@ export class HttpImageFetcher implements ImageFetcher {
                         Math.max(1, deadlineMs - Date.now()),
                         options.maxBytes,
                         currentCache,
-                        tdmrepReservation
+                        tdmrepReservation,
+                        options.sourcePartitions
                     )
                 )
             } catch (error) {
@@ -148,6 +165,7 @@ export class HttpImageFetcher implements ImageFetcher {
                     redirects,
                     currentUrl: target,
                     schedulingReason: scheduled.reason,
+                    schedulingBlockingReason: scheduled.blockingReason,
                     schedulingWaitMs: scheduled.waitMs,
                 }
             }
@@ -202,7 +220,8 @@ export class HttpImageFetcher implements ImageFetcher {
         timeoutMs: number,
         maxBytes: number,
         previousCache: HttpCacheMetadata | undefined,
-        tdmrepReservation: boolean
+        tdmrepReservation: boolean,
+        sourcePartitions: readonly number[] | undefined
     ): Promise<HopResult> {
         const requestTimeMs = Date.now()
         const canonical = canonicalizeUrl(url)
@@ -273,7 +292,11 @@ export class HttpImageFetcher implements ImageFetcher {
             return { kind: 'done', result: { outcome: 'ok', status, bytes, contentType, contentEncoding, cache } }
         } finally {
             if (canonical) {
-                ImageFetchRequestMetrics.observeRequest(requestOutcome, (Date.now() - requestTimeMs) / 1000)
+                ImageFetchRequestMetrics.observeRequest(
+                    requestOutcome,
+                    (Date.now() - requestTimeMs) / 1000,
+                    sourcePartitions
+                )
             }
         }
     }

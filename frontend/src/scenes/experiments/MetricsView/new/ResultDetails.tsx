@@ -170,6 +170,8 @@ export function ResultDetails({
             title: result.variant_results?.[0]
                 ? `${getIntervalLabel(result.variant_results[0])} (95%)`
                 : 'Confidence interval (95%)',
+            tooltip:
+                "The range that likely contains the true effect. When it doesn't cross 0%, the result is significant.",
             render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === baselineKey) {
                     return '—'

@@ -47,7 +47,6 @@ from posthog.api.oauth.cimd import (
     CIMDFetchError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
-    get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
@@ -102,7 +101,7 @@ EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
 # Clients for which we must NOT issue refresh tokens. The token response will omit
 # "refresh_token" and no OAuthRefreshToken row will be created. Entries are matched
-# against the app's cimd_metadata_url for CIMD clients, and against client_id otherwise.
+# against the app's client_id, which for a CIMD client is its metadata-document URL.
 CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
     {
         # PostHog Wizard CLI (CIMD) — short-lived auth, no persistent session needed.
@@ -193,7 +192,7 @@ def _oauth_app_event_properties(application: OAuthApplication) -> dict:
         "registration_type": _registration_type(application),
         "is_verified": application.is_verified,
         "is_first_party": application.is_first_party,
-        **({"cimd_url": application.cimd_metadata_url} if application.is_cimd_client else {}),
+        **({"cimd_url": application.client_id} if application.is_cimd_client else {}),
     }
 
 
@@ -371,23 +370,15 @@ class OAuthValidator(OAuth2Validator):
         if self._get_impersonator_id(request) is not None:
             return True
 
-        # CIMD clients expose their canonical id via cimd_metadata_url (the model's
-        # client_id is an auto-generated UUID for those). Gate on is_cimd_client so
-        # a stray cimd_metadata_url on a non-CIMD app can't flip the behavior.
         client_key: str | None = None
-        if not hasattr(request, "client") or not request.client:
-            client_key = None
-        elif getattr(request.client, "is_cimd_client", False):
-            client_key = getattr(request.client, "cimd_metadata_url", None)
-        else:
+        if hasattr(request, "client") and request.client:
             client_key = getattr(request.client, "client_id", None)
         return bool(client_key and client_key in CLIENT_IDS_WITHOUT_REFRESH_TOKEN)
 
     def _load_application(self, client_id, request):
         """
-        Load the application from the database, supporting CIMD URL-form client_ids.
+        Load the application from the database.
 
-        For URL-format client_ids, looks up by cimd_metadata_url.
         Does NOT fetch metadata — that only happens in validate_client_id().
         """
 
@@ -397,12 +388,10 @@ class OAuthValidator(OAuth2Validator):
         if request.client:
             return request.client
 
-        # CIMD URLs are looked up by cimd_metadata_url, not the auto-generated client_id UUID
-        app: OAuthApplication | None = None
-        if is_cimd_client_id(client_id):
-            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
-        else:
-            app = OAuthApplication.objects.filter(client_id=client_id).first()
+        if not client_id:
+            return None
+
+        app = OAuthApplication.objects.filter(client_id=client_id).first()
 
         if app is None or not app.is_usable(request):
             return None
@@ -452,8 +441,8 @@ class OAuthValidator(OAuth2Validator):
         app = self._credentialless_cimd_private_key_jwt_client(request)
         if app is None:
             return False
-        if app.cimd_metadata_url:
-            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, app.client_id)
+        if app.is_cimd_client:
+            self._enqueue_cimd_metadata_refresh(app.client_id)
         return True
 
     def _credentialless_cimd_private_key_jwt_client(self, request) -> OAuthApplication | None:
@@ -496,13 +485,13 @@ class OAuthValidator(OAuth2Validator):
         return super().authenticate_client(request, *args, **kwargs)
 
     @staticmethod
-    def _enqueue_cimd_metadata_refresh(cimd_metadata_url: str, client_id: str) -> None:
+    def _enqueue_cimd_metadata_refresh(client_id: str) -> None:
         """Token and refresh exchanges never pass through validate_client_id, which is
         where a CIMD document is normally re-read, so a client living on refresh grants
         alone would otherwise keep a stale auth method or key source forever.
         Best-effort: a broker outage must not fail an otherwise valid exchange."""
         try:
-            enqueue_cimd_refresh_if_stale(cimd_metadata_url)
+            enqueue_cimd_refresh_if_stale(client_id)
         except Exception as e:
             logger.warning(
                 "oauth_cimd_refresh_enqueue_error",
@@ -531,8 +520,8 @@ class OAuthValidator(OAuth2Validator):
         if app is None or not app.jwks_uri:
             return False
 
-        if app.is_cimd_client and app.cimd_metadata_url:
-            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, assertion.client_id)
+        if app.is_cimd_client:
+            self._enqueue_cimd_metadata_refresh(app.client_id)
 
         try:
             verify_client_assertion(
@@ -1298,7 +1287,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Must happen here (not in the OAuthValidator) because the validator
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(client_id=client_id).exists():
             for throttle_cls in CIMD_THROTTLE_CLASSES:
                 throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
@@ -1320,7 +1309,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             client_id = request.query_params.get("client_id")
             if client_id:
                 try:
-                    error_application = get_application_by_client_id(client_id)
+                    error_application = OAuthApplication.objects.get(client_id=client_id)
                 except OAuthApplication.DoesNotExist:
                     pass
             return self.error_response(error, application=error_application, state=request.query_params.get("state"))
@@ -1331,7 +1320,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # Get application and scope details
         try:
-            application = get_application_by_client_id(credentials["client_id"])
+            application = OAuthApplication.objects.get(client_id=credentials["client_id"])
         except OAuthApplication.DoesNotExist:
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1456,7 +1445,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            application = get_application_by_client_id(serializer.validated_data["client_id"])
+            application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
             logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1733,7 +1722,7 @@ class OAuthTokenView(TokenView):
             **(get_region_info() or {}),
         }
         try:
-            application = get_application_by_client_id(client_id)
+            application = OAuthApplication.objects.get(client_id=client_id)
         except (OAuthApplication.DoesNotExist, DatabaseError):
             pass
         else:
@@ -2008,6 +1997,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     if a confidential client's client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
+    Either way a caller only sees tokens issued to its own application. The scope
+    grants the capability; it does not widen which tokens the capability reaches.
+
     Self-introspection: An access token can always introspect itself without
     requiring the `introspection` scope. This allows MCP clients to discover
     their own token's scopes and permissions during initialization. Refresh
@@ -2054,11 +2046,15 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             bearer_token = request.headers.get("Authorization", "")[7:]
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
-                OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                request.oauth_caller_access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
             except OAuthAccessToken.DoesNotExist:
                 return False, request
             return True, request
-        return super().verify_request(request)
+
+        valid, oauth_request = super().verify_request(request)
+        if valid:
+            request.oauth_caller_access_token = getattr(oauth_request, "access_token", None)
+        return valid, oauth_request
 
     def authenticate_client(self, request):
         """Authenticate the client and record which application was verified.
@@ -2080,7 +2076,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         return True
 
     def _client_credentials_client_id(self, request) -> str | None:
-        """The effective_client_id the server verified via client credentials, or None.
+        """The client_id the server verified via client credentials, or None.
 
         None means the request reached us through the bearer-token path instead (self-
         introspection or the `introspection` scope), where ClientProtectedResourceMixin.dispatch
@@ -2092,7 +2088,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             return None
 
         client = getattr(request, "oauth_authenticated_client", None)
-        return client.effective_client_id if client is not None else None
+        return client.client_id if client is not None else None
 
     def get_token_response(self, request, token_value=None):
         """
@@ -2111,13 +2107,23 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         credential_client_id = self._client_credentials_client_id(request)
 
-        # The bearer path (self-introspection or the `introspection` scope) is governed by
-        # scope, not by client identity, and never reaches here. On the client-credentials
-        # path, treating an unidentifiable caller as exempt from the ownership check below
-        # would be indistinguishable from disclosing any token to anyone.
+        # The bearer path identifies its caller through `oauth_caller_access_token` below and
+        # never reaches here. On the client-credentials path, treating an unidentifiable caller
+        # as exempt from the ownership check below would be indistinguishable from disclosing
+        # any token to anyone.
         is_client_credentials = not hasattr(request, "resource_owner")
         if is_client_credentials and credential_client_id is None:
             return JsonResponse({"active": False}, status=200)
+
+        # The bearer caller is identified by the application its own token belongs to. The
+        # `introspection` scope says a caller may introspect, not whose tokens it may read,
+        # and `/oauth/register/` hands the scope to anyone, so the scope alone would let one
+        # client read back every other client's tokens.
+        caller_token = None
+        if not is_client_credentials:
+            caller_token = getattr(request, "oauth_caller_access_token", None)
+            if caller_token is None:
+                return JsonResponse({"active": False}, status=200)
 
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
@@ -2129,16 +2135,28 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if access_token:
             # A client-credentials caller may only introspect its own tokens. Being
             # confidential is not a meaningful barrier on its own, since /oauth/register/
-            # issues a confidential client_id and secret to anyone who asks. Compared against
-            # effective_client_id, not client_id, since a CIMD client's wire identity is its
-            # metadata URL, never the opaque client_id column.
-            if (
-                credential_client_id
-                and getattr(access_token.application, "effective_client_id", None) != credential_client_id
+            # issues a confidential client_id and secret to anyone who asks.
+            if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
+            # `application_id` is nullable, so the primary-key match is what keeps the
+            # self-introspection carve-out in verify_request working for a token that
+            # carries no application.
+            if caller_token is not None and not (
+                access_token.pk == caller_token.pk
+                or (
+                    caller_token.application_id is not None
+                    and access_token.application_id == caller_token.application_id
+                )
             ):
                 return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
+                return JsonResponse({"active": False}, status=200)
+            # Deactivating a user drops their login sessions but leaves their OAuth tokens
+            # intact, and callers that authorize on this response rather than merely describe a
+            # token (the Streamlit proxy is one) would keep letting them in until it expires.
+            # `user` is null for a client-credentials grant, which has no resource owner.
+            if access_token.user is not None and not access_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
             data = {
                 "active": True,
@@ -2161,10 +2179,15 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             refresh_token = None
 
         if refresh_token:
-            if (
-                credential_client_id
-                and getattr(refresh_token.application, "effective_client_id", None) != credential_client_id
+            if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
+            # A refresh token is never the caller: it cannot be presented as a Bearer
+            # credential, so it has no self-introspection case to preserve.
+            if caller_token is not None and (
+                caller_token.application_id is None or refresh_token.application_id != caller_token.application_id
             ):
+                return JsonResponse({"active": False}, status=200)
+            if not refresh_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available

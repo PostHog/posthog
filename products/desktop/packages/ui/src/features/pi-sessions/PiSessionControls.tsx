@@ -1,10 +1,5 @@
-import {
-  CaretDown,
-  Lightning,
-  PiIcon,
-  Spinner,
-  Stack,
-} from "@phosphor-icons/react";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -30,7 +25,9 @@ import {
   ModelCostChip,
   ModelCostFooter,
 } from "@posthog/ui/features/sessions/components/ModelCostChip";
+import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 
 type PiModelOption = PiModelSelection & { name?: string };
@@ -45,6 +42,13 @@ interface PiModelSelectorProps {
   onChange: (model: PiModelSelection) => void;
   onThinkingLevelChange?: (level: PiThinkingLevel) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
+  /**
+   * The full provider-grouped catalog, so the Pi menu offers the same model
+   * list as the other harnesses. Picks report the gateway model id and the
+   * caller decides whether the pick stays on Pi.
+   */
+  modelOption?: SessionConfigOption;
+  onGatewayModelSelect?: (modelId: string) => void;
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
 }
@@ -77,12 +81,18 @@ export function PiModelSelector({
   onChange,
   onThinkingLevelChange,
   onHarnessChange,
+  modelOption,
+  onGatewayModelSelect,
   menuOpen,
   onMenuOpenChange,
 }: PiModelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
   const open = menuOpen ?? internalMenuOpen;
   const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
+  const gatewayModelSelect =
+    modelOption?.type === "select" && onGatewayModelSelect
+      ? modelOption
+      : undefined;
 
   if (models.length === 0) {
     if (isLoading) {
@@ -97,7 +107,7 @@ export function PiModelSelector({
                 <span className="text-muted-foreground">
                   <PiIcon size={14} weight="bold" className="translate-y-px" />
                 </span>
-                <Spinner size={12} className="animate-spin" />
+                <Spinner size={12} />
                 Loading...
               </Button>
             }
@@ -108,6 +118,10 @@ export function PiModelSelector({
             sideOffset={6}
             className="min-w-[230px]"
           >
+            <DropdownMenuItem disabled>
+              <Spinner size={12} />
+              Loading models...
+            </DropdownMenuItem>
             {onHarnessChange && (
               <HarnessSubmenu
                 value="pi"
@@ -120,10 +134,6 @@ export function PiModelSelector({
                 }}
               />
             )}
-            <DropdownMenuItem disabled>
-              <Spinner size={12} className="animate-spin" />
-              Loading models...
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       );
@@ -177,6 +187,52 @@ export function PiModelSelector({
         sideOffset={6}
         className="min-w-[230px]"
       >
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span>Model</span>
+            <span className="flex-1 text-right text-muted-foreground">
+              {currentLabel}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="min-w-[220px]">
+            {gatewayModelSelect ? (
+              <ModelSelectList
+                options={gatewayModelSelect.options}
+                currentValue={selectedModel?.id}
+                onGated={() => setOpen(false)}
+                onSelect={(value) => onGatewayModelSelect?.(value)}
+              />
+            ) : (
+              <>
+                <DropdownMenuRadioGroup
+                  value={currentValue}
+                  onValueChange={(value) => {
+                    const model = models.find(
+                      (candidate) => modelKey(candidate) === value,
+                    );
+                    if (model) {
+                      onChange(model);
+                    }
+                  }}
+                >
+                  {models.map((model) => (
+                    <DropdownMenuRadioItem
+                      key={modelKey(model)}
+                      value={modelKey(model)}
+                      closeOnClick={false}
+                    >
+                      <span className="whitespace-nowrap">
+                        {modelLabel(model)}
+                      </span>
+                      <ModelCostChip modelId={model.id} />
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <ModelCostFooter />
+              </>
+            )}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {onHarnessChange && (
           <HarnessSubmenu
             value="pi"
@@ -189,39 +245,6 @@ export function PiModelSelector({
             }}
           />
         )}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <span>Model</span>
-            <span className="flex-1 text-right text-muted-foreground">
-              {currentLabel}
-            </span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="min-w-[220px]">
-            <DropdownMenuRadioGroup
-              value={currentValue}
-              onValueChange={(value) => {
-                const model = models.find(
-                  (candidate) => modelKey(candidate) === value,
-                );
-                if (model) {
-                  onChange(model);
-                }
-              }}
-            >
-              {models.map((model) => (
-                <DropdownMenuRadioItem
-                  key={modelKey(model)}
-                  value={modelKey(model)}
-                  closeOnClick={false}
-                >
-                  <span className="whitespace-nowrap">{modelLabel(model)}</span>
-                  <ModelCostChip modelId={model.id} />
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <ModelCostFooter />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
         {thinkingLevel &&
           onThinkingLevelChange &&
           thinkingLevels.length > 0 && (

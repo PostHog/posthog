@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -51,6 +51,52 @@ describe('LemonTable', () => {
             />
         )
         expect(renderedOrder()).toEqual(expectedOrder)
+    })
+
+    it('resizes columns and locks sibling widths', () => {
+        const onResize = jest.fn()
+        const onSecondColumnResize = jest.fn()
+        const onResizeEnd = jest.fn()
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        dataIndex: 'value',
+                        resizable: true,
+                        onResize,
+                        onResizeEnd,
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        dataIndex: 'name',
+                        resizable: true,
+                        onResize: onSecondColumnResize,
+                    },
+                ]}
+            />
+        )
+        jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+            function (this: HTMLElement): DOMRect {
+                return { width: this.textContent === 'Value' ? 150 : 100 } as DOMRect
+            }
+        )
+        jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+            callback(0)
+            return 1
+        })
+
+        fireEvent.mouseDown(screen.getAllByLabelText('Resize column')[0], { button: 0, clientX: 100 })
+        fireEvent.mouseMove(window, { clientX: 175 })
+        fireEvent.mouseUp(window)
+
+        expect(onResize).toHaveBeenLastCalledWith(225)
+        expect(onSecondColumnResize).toHaveBeenCalledWith(100)
+        expect(onResizeEnd).toHaveBeenCalledTimes(1)
     })
 
     it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {

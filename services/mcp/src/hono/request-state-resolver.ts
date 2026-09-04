@@ -112,6 +112,17 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 
 // ─── Resolver ───
 
+// Task origins whose sandbox mounts every shared gateway server as its own MCP server
+// (`mcp__<server>__<tool>`). Surfacing the same tools through `exec` as `<slug>__<tool>` gives
+// those agents a second, member-scoped name for each tool — one that resolves for a person
+// running the task interactively and comes back empty for the service account the scheduled
+// run uses, so instructions learned on one path silently fail on the other.
+const DIRECT_GATEWAY_MOUNT_ORIGINS: ReadonlySet<string> = new Set(['signals_scout'])
+
+function mountsGatewayServersDirectly(taskOriginProduct: string | undefined): boolean {
+    return taskOriginProduct !== undefined && DIRECT_GATEWAY_MOUNT_ORIGINS.has(taskOriginProduct)
+}
+
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
@@ -250,7 +261,11 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
-            gatewayToolsEnabled: useSingleExec && !readOnly && mergedFlags[MCP_GATEWAY_FLAG] === true,
+            gatewayToolsEnabled:
+                useSingleExec &&
+                !readOnly &&
+                mergedFlags[MCP_GATEWAY_FLAG] === true &&
+                !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
             metadata,

@@ -49,7 +49,6 @@ jobs:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY }}
             POSTHOG_CODE_E2E_GATEWAY_URL: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
-            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
     # Desktop counterpart of the migration/service separation check (see the
     # script header for why). Lives here rather than pr-housekeeping so the
@@ -67,7 +66,7 @@ jobs:
                 github.event.pull_request.head.repo.full_name == github.repository &&
                 startsWith(github.head_ref, 'trunk-merge/')
             )
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Checkout gate scripts
@@ -96,7 +95,7 @@ jobs:
         name: Desktop Tests Pass
         needs: [build, quality, typecheck, test, backend-coupling]
         if: always()
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Check results

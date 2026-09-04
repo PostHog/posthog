@@ -36,12 +36,9 @@ from django.utils import timezone
 
 from posthog.models import Team, User
 
-from products.signals.backend.dismissal_notes import (
-    DERIVED_NOTE_TTL,
-    principal_may_steer_scouts,
-    resolve_report_scout_skill,
-)
+from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, principal_may_steer_scouts
 from products.signals.backend.models import SignalReport, SignalScoutNote
+from products.signals.backend.scout_authorship import resolve_report_scout_skill
 from products.signals.backend.scout_harness.tools.notes import leave_note
 
 logger = logging.getLogger(__name__)
@@ -59,7 +56,11 @@ _REQUIRED_NOTE_SCOPES = ("signal_scout:write", "llm_skill:write")
 # The kickoff prompt (frontend `buildDiscussReportPrompt`) prefixes the report URL on its own line,
 # then the user's question after a blank line. We forward just the question; matching is lenient so a
 # format change degrades to forwarding the whole prompt rather than dropping the note.
-_PROMPT_PREFIX = "let's discuss this posthog inbox report:"
+_PROMPT_PREFIXES = (
+    "let's discuss this posthog inbox report:",
+    "answer this question about the posthog inbox report at ",
+    "a user sent this about the posthog inbox report at ",
+)
 
 
 def forward_discussion_note(
@@ -172,7 +173,7 @@ def _extract_question(text: str) -> str:
     link line as if it were one would put pure noise in the steering channel.
     """
     stripped = text.strip()
-    if not stripped.lower().startswith(_PROMPT_PREFIX):
+    if not stripped.lower().startswith(_PROMPT_PREFIXES):
         return stripped
     _, _, question = stripped.partition("\n")
     return question.strip()

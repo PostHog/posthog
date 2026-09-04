@@ -109,6 +109,7 @@ export function ChecksTable({ columns, ...props }: ChecksTableProps): JSX.Elemen
                 },
                 {
                     title: 'Last run',
+                    tooltip: 'When the check last ran, not when the data was last synced.',
                     key: 'last_run_at',
                     render: (_, check) => (check.last_run_at ? <TZLabel time={check.last_run_at} /> : '-'),
                 },

@@ -102,7 +102,7 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
     return {report_id: pr.url for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids).items()}
 
 
-PrCloseReason = Literal["suppressed", "snoozed"]
+PrCloseReason = Literal["suppressed", "snoozed", "resolved"]
 
 # Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.
 _PR_CLOSE_COMMENT_TEMPLATE = (
@@ -113,6 +113,11 @@ _PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
     reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
     for reason in cast(tuple[PrCloseReason, ...], ("suppressed", "snoozed"))
 }
+# A resolved report never reopens, so the undo advice above does not apply to it.
+_PR_CLOSE_COMMENTS["resolved"] = (
+    "🔕 Closing this PR because the linked PostHog report was resolved without it.\n\n"
+    "If that wasn't intended, reopen this PR."
+)
 
 
 def close_implementation_pr_for_report(
@@ -123,7 +128,7 @@ def close_implementation_pr_for_report(
 ) -> bool:
     """Best-effort: comment on and close the GitHub PR opened for this report's implementation task.
 
-    Called when a report is suppressed or snoozed — the open PR shouldn't linger. Only acts on a PR
+    Called when a report is suppressed, snoozed, or resolved without its PR — the open PR shouldn't linger. Only acts on a PR
     that is still open: an already-closed or merged PR is left untouched (no comment, no close), so
     we never leave a confusing "closing this PR" note on a PR that shipped months ago. Leaves an
     explanatory comment, then closes the PR. Returns True when the PR was closed, False when there

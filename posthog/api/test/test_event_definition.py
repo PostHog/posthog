@@ -7,15 +7,18 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.event_definition import create_event_definitions_sql
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.constants import EventDefinitionType
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 
 from products.actions.backend.models.action import Action
@@ -377,6 +380,27 @@ class TestEventDefinitionAPI(APIBaseTest):
         detail = cast(dict[str, Any], activity_log.detail)
         assert detail["name"] == "my_custom_event"
 
+    @patch("posthog.api.event_definition.EE_AVAILABLE", False)
+    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "event_with_unsupported_metadata",
+                "description": "This cannot be stored without EE.",
+                "verified": True,
+                "hidden": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is not supported by this deployment.",
+            "attr": "description",
+        }
+        assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
+
     def test_create_event_definition_duplicate_name(self):
         """Test that creating an event with a duplicate name fails"""
         EventDefinition.objects.create(team=self.demo_team, name="existing_event")
@@ -626,6 +650,20 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
+
+
+class TestCreateEventDefinitionsSql(SimpleTestCase):
+    @parameterized.expand([("enterprise", True), ("open source", False)])
+    def test_selects_columns_in_a_stable_order(self, _name: str, is_enterprise: bool):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=is_enterprise)
+        select_clause = sql.split("SELECT ", 1)[1].split("FROM", 1)[0]
+        columns = [column.strip() for column in select_clause.split(",")]
+        assert columns == sorted(columns)
+
+    def test_joins_the_enterprise_table_with_a_left_join(self):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=True)
+        assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
+        assert "FULL OUTER JOIN" not in sql
 
 
 class TestEventDefinitionExcludeStale(APIBaseTest):

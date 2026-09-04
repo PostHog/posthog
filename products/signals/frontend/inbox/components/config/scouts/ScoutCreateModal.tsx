@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useId } from 'react'
 
 import {
     LemonButton,
@@ -17,12 +16,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
-import { SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
+import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
     ScoutCreateModalLogicProps,
     scoutCreateModalLogic,
+    scoutCreateModalLogicKey,
 } from '../../../logics/scoutCreateModalLogic'
 import {
     getScoutScheduleMode,
@@ -44,7 +44,7 @@ export interface ScoutCreateModalProps {
 
 export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: ScoutCreateModalProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const logicKey = useId()
+    const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated }
     const logic = scoutCreateModalLogic(logicProps)
@@ -56,7 +56,8 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
         scoutCreateFormTouches,
         showScoutCreateFormErrors,
     } = useValues(logic)
-    const { resetScoutCreateForm, setScoutCreateDailyTime, setScoutCreateScheduleMode } = useActions(logic)
+    const { resetScoutCreateForm, resetMcpServersDefaulted, setScoutCreateDailyTime, setScoutCreateScheduleMode } =
+        useActions(logic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const scheduleMode = getScoutScheduleMode(scoutCreateForm.config)
 
@@ -65,6 +66,9 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
             return
         }
         resetScoutCreateForm()
+        // Leaving the modal on purpose discards the draft, so clear the "servers defaulted" marker too.
+        // Otherwise its persisted `true` would make the next open skip the all-servers default.
+        resetMcpServersDefaulted()
         onClose()
     }
 
@@ -167,7 +171,7 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         <LemonTextArea
                             minRows={2}
                             maxRows={4}
-                            maxLength={4096}
+                            maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
                             placeholder="Investigates recurring checkout failures and reports meaningful changes."
                             data-attr="scout-create-description"
                         />

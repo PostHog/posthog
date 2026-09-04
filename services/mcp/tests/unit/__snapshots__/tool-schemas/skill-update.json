@@ -24,7 +24,7 @@
         },
         "description": {
             "description": "Updated description for the new version.",
-            "maxLength": 4096,
+            "maxLength": 1024,
             "type": "string"
         },
         "edits": {

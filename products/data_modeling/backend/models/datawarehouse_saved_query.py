@@ -67,12 +67,7 @@ def validate_saved_query_name(value):
 
 
 class V1SchedulingPathReached(Exception):
-    """Reported, never raised. Marks a caller that still mints a v1 per-query schedule.
-
-    v1 scheduling is being retired and the fleet no longer runs it, so this exists to find any
-    remaining path into it before the workflow type is deregistered — a schedule pointing at a
-    deregistered type does not fail loudly, it fires forever with failing workflow tasks.
-    """
+    """Raised when a saved query cannot be scheduled through v2."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -212,21 +207,19 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def schedule_materialization(
-        self, unpause: bool = False, reconcile: bool = True, trigger_immediate_run: bool = False
-    ):
+    def schedule_materialization(self, reconcile: bool = True, trigger_immediate_run: bool = False):
         """
-        It will schedule the saved query workflow to run at the configured frequency.
-        If unpause is True, it will unpause the saved query workflow if it already exists.
+        Put this saved query on the schedule that will materialize it, at the frequency in
+        sync_frequency_interval.
 
-        trigger_immediate_run is for callers enabling materialization: on v2 it starts the first
-        materialization right away instead of waiting for the next scheduled DAG tick, matching
-        v1 schedule creation (which triggers immediately). Callers merely updating frequency
-        must leave it False. Best-effort: a failed start never disables materialization, since
-        the DAG schedule still covers the query.
+        trigger_immediate_run is for callers enabling materialization: it starts the first
+        materialization right away instead of waiting for the node's cadence tier to fire.
+        Callers merely updating frequency must leave it False. The start is best effort, so a
+        failure to start never disables materialization, because the tier still covers the query.
 
-        If the workflow fails to schedule, it will disable materialization for this view.
-        This also guarantees model paths are properly created or updated.
+        A rejected frequency propagates to the caller. Any other failure disables
+        materialization, because the alternative is a query that reports itself materialized
+        while nothing is scheduled to materialize it.
         """
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
@@ -236,17 +229,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
-            dag_can_bootstrap_to_tiers,
-            tiered_schedules_enabled,
         )
         from products.data_modeling.backend.models.node import Node
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
-        from products.data_warehouse.backend.facade.api import (
-            saved_query_workflow_exists,
-            sync_saved_query_workflow,
-            unpause_saved_query_schedule,
-        )
 
+        node: Node | None = None
         try:
             # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
             # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
@@ -260,10 +247,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
             dag_to_bootstrap = None
             if not on_v2:
-                # Nothing creates a DAG's first v2 schedule outside the migration commands, so a
-                # brand-new team would fall through to v1 forever. Bootstrap it instead — declined
-                # unless the DAG has never been scheduled at all.
-                if node is not None and node.dag is not None and dag_can_bootstrap_to_tiers(node.dag):
+                # Nothing creates a DAG's first schedule outside the migration commands, so a
+                # brand-new team has nothing to materialize it. Bootstrap it onto tiers instead.
+                if node is not None and node.dag is not None:
                     dag_to_bootstrap = node.dag
                     on_v2 = True
 
@@ -275,11 +261,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     raise MissingDagNodeError(
                         f"Saved query {self.id} is on a v2 team but has no DAG node to schedule through"
                     )
-                # Tiered v2: the interval is one-shot transport for frequency intent — consume
-                # it into the node target(s) and reconcile. Validation raises before the
-                # nulling below, so a rejected frequency stays visible for retry. A call with
-                # no interval carries no frequency opinion and must not touch existing targets.
-                if tiered_schedules_enabled(self.team) and self.sync_frequency_interval is not None:
+                # The interval is one-shot transport for frequency intent — consume it into the
+                # node target(s) and reconcile. Validation raises before the nulling below, so a
+                # rejected frequency stays visible for retry. A call with no interval carries no
+                # frequency opinion and must not touch existing targets.
+                if self.sync_frequency_interval is not None:
                     # A bootstrap reconciles the whole DAG once below, once the target has landed,
                     # so asking for a second pass here would only repeat it.
                     apply_saved_query_frequency_target(
@@ -289,10 +275,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     # Last, so a frequency the validation above rejects leaves no seeded targets and
                     # no schedules behind: on_commit fires immediately for the callers that are not
                     # inside an atomic block, and two of the three are not.
-                    bootstrap_dag_to_tiers(dag_to_bootstrap)
-                # On any v2 flavor the interval must end up NULL: a lingering value would let
-                # a v1 per-query schedule be recreated, and on tiered teams the node target is
-                # the only durable store of frequency intent.
+                    bootstrap_dag_to_tiers(dag_to_bootstrap, requested_by=self)
+                # The interval must end up NULL: the node target is the only durable store of
+                # frequency intent.
                 if self.sync_frequency_interval is not None:
                     self.sync_frequency_interval = None
                     self.save(update_fields=["sync_frequency_interval"])
@@ -302,30 +287,21 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     transaction.on_commit(self._start_immediate_materialization)
                 return
 
-            # Both regions hold zero `data-modeling-run` schedules, so nothing should reach here.
-            # Report each arrival with the caller's context, but still schedule: a customer's
-            # materialization must not be what proves this path is dead.
-            capture_exception(
-                V1SchedulingPathReached(f"Saved query {self.id} scheduled through the v1 per-query path"),
-                {
-                    "saved_query_id": str(self.id),
-                    "team_id": self.team_id,
-                    "dag_id": str(node.dag_id) if node is not None else None,
-                },
-            )
-
-            self.setup_model_paths()
-
-            schedule_exists = saved_query_workflow_exists(self)
-            if schedule_exists and unpause:
-                unpause_saved_query_schedule(self)
-            sync_saved_query_workflow(self, create=not schedule_exists)
+            raise V1SchedulingPathReached(f"Saved query {self.id} has no v2 schedule")
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The query is fine — the requested frequency is not. Surface it to the caller
             # instead of silently disabling materialization.
             raise
         except Exception as e:
-            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            capture_exception(
+                e,
+                {
+                    "saved_query_id": self.id,
+                    "saved_query_name": self.name,
+                    "team_id": self.team_id,
+                    "dag_id": str(node.dag_id) if node is not None else None,
+                },
+            )
             logger.exception(
                 "failed_to_schedule_saved_query",
                 team_id=self.team_id,
@@ -352,10 +328,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
 
     def revert_materialization(self):
-        from products.data_modeling.backend.logic.schedule_reconcile import (
-            apply_saved_query_frequency_target,
-            tiered_schedules_enabled,
-        )
+        from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
         from products.data_warehouse.backend.facade.api import delete_saved_query_schedule
 
@@ -384,8 +357,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         # materialized on tiered v2. Best-effort like the schedule delete above — the
         # revert itself already succeeded.
         try:
-            if tiered_schedules_enabled(self.team):
-                apply_saved_query_frequency_target(self, None)
+            apply_saved_query_frequency_target(self, None)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(

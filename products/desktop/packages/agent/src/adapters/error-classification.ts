@@ -5,12 +5,19 @@ export type AgentErrorClassification =
   | "upstream_connection_error"
   | "upstream_timeout"
   | "upstream_provider_failure"
+  | "content_block_rejection"
   | "turn_ended_without_response"
+  | "subscription_usage_limit"
   | "agent_error";
 
 const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
   /\[ede_diagnostic\]\s+result_type=user\b/i;
+// Anthropic's exact CLI wording for a Claude Pro/Max own-subscription limit
+// isn't pinned anywhere we can check offline, so this matches the phrase
+// loosely rather than a fixed string. Update this if the real wording turns
+// out to differ.
+const SUBSCRIPTION_USAGE_LIMIT_PATTERN = /usage limit/i;
 
 /**
  * Classify error strings surfaced by agent adapters. Transient upstream
@@ -53,8 +60,14 @@ export function classifyAgentError(
   if (UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text)) {
     return "upstream_provider_failure";
   }
+  if (/API Error:\s*Content block\b/i.test(text)) {
+    return "content_block_rejection";
+  }
   if (TURN_ENDED_WITHOUT_RESPONSE_PATTERN.test(text)) {
     return "turn_ended_without_response";
+  }
+  if (SUBSCRIPTION_USAGE_LIMIT_PATTERN.test(text)) {
+    return "subscription_usage_limit";
   }
   return "agent_error";
 }

@@ -27,7 +27,7 @@ export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
 
 export const llmSkillsCreateBodyNameMax = 64
 
-export const llmSkillsCreateBodyDescriptionMax = 4096
+export const llmSkillsCreateBodyDescriptionMax = 1024
 
 export const llmSkillsCreateBodyLicenseMax = 255
 
@@ -49,7 +49,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
         description: zod
             .string()
             .max(llmSkillsCreateBodyDescriptionMax)
-            .describe('What this skill does and when to use it. Max 4096 characters.'),
+            .describe('What this skill does and when to use it. Max 1024 characters.'),
         body: zod.string().describe('The SKILL.md instruction content (markdown).'),
         license: zod
             .string()
@@ -119,7 +119,7 @@ export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.
         ),
 })
 
-export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
+export const llmSkillsNamePartialUpdateBodyDescriptionMax = 1024
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
 
@@ -290,22 +290,29 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 64
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneMax = 64
 
-export const llmSkillsNamePublishCommunityCreateBodyDisplayNameRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameTwoMax = 0
+
 export const llmSkillsNamePublishCommunityCreateBodyTagsItemMax = 64
 
-export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax = 39
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneMax = 39
 
-export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp = new RegExp(
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneRegExp = new RegExp(
     '^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$'
 )
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleTwoMax = 0
 
 export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod
-        .string()
-        .max(llmSkillsNamePublishCommunityCreateBodyDisplayNameMax)
-        .regex(llmSkillsNamePublishCommunityCreateBodyDisplayNameRegExp)
+        .union([
+            zod
+                .string()
+                .max(llmSkillsNamePublishCommunityCreateBodyDisplayNameOneMax)
+                .regex(llmSkillsNamePublishCommunityCreateBodyDisplayNameOneRegExp),
+            zod.string().max(llmSkillsNamePublishCommunityCreateBodyDisplayNameTwoMax),
+        ])
         .optional()
         .describe(
             'Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.'
@@ -315,9 +322,13 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe("Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage']."),
     author_handle: zod
-        .string()
-        .max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax)
-        .regex(llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp)
+        .union([
+            zod
+                .string()
+                .max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneMax)
+                .regex(llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneRegExp),
+            zod.string().max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleTwoMax),
+        ])
         .optional()
         .describe(
             "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account."

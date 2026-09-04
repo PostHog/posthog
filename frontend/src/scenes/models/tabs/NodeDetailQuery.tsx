@@ -1,101 +1,114 @@
 import { useActions, useValues } from 'kea'
-import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
-import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
 
-const DEFAULT_EDITOR_HEIGHT = 500
-const MIN_EDITOR_HEIGHT = 300
-
-export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
-    const { savedQuery, savedQueryLoading } = useValues(nodeDetailSceneLogic({ id }))
-    const queryString = savedQuery?.query?.query ?? ''
-
-    const sqlEditorTabId = useMemo(() => `node-detail-query-${id}`, [id])
-    const { setQueryInput, setSourceQuery, runQuery } = useActions(
-        sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
-    )
-
-    useEffect(() => {
-        if (queryString) {
-            setQueryInput(queryString)
-            setSourceQuery({
-                kind: NodeKind.DataVisualizationNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: queryString,
-                },
-                display: ChartDisplayType.ActionsLineGraph,
-            })
-            runQuery(queryString)
-        }
-    }, [queryString]) // eslint-disable-line react-hooks/exhaustive-deps
-
-    if (savedQueryLoading) {
+function QueryAction({
+    node,
+    savedQuery,
+}: {
+    node: DataModelingNode
+    savedQuery: DataWarehouseSavedQuery
+}): JSX.Element {
+    if (node.type === 'endpoint') {
+        // An endpoint node carries the versioned view name (`my_endpoint_v3`), but the endpoint
+        // route resolves the plain name and takes the version as a search param.
+        const versionMatch = node.name.match(/^(.+)_v(\d+)$/)
+        const to = versionMatch
+            ? urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
+            : urls.endpoint(node.name)
         return (
-            <ResizableSQLEditorContainer>
-                <div className="flex items-center justify-center h-full">
-                    <Spinner />
-                </div>
-            </ResizableSQLEditorContainer>
+            <LemonButton type="secondary" size="small" to={to}>
+                Open endpoint
+            </LemonButton>
         )
     }
 
-    if (!savedQuery) {
-        return <div className="text-muted">No query available</div>
-    }
-
     return (
-        <ResizableSQLEditorContainer>
-            <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} />
-        </ResizableSQLEditorContainer>
+        <AccessControlAction
+            resourceType={AccessControlResourceType.WarehouseObjects}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={savedQuery.user_access_level}
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                to={urls.sqlEditor({ view_id: savedQuery.id })}
+                data-attr="node-detail-edit-in-sql-editor"
+            >
+                Edit in SQL editor
+            </LemonButton>
+        </AccessControlAction>
     )
 }
 
-function ResizableSQLEditorContainer({ children }: { children: ReactNode }): JSX.Element {
-    const [height, setHeight] = useState(DEFAULT_EDITOR_HEIGHT)
-    const containerRef = useRef<HTMLDivElement | null>(null)
+export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
+    const { node, savedQuery, savedQueryLoading, savedQueryError } = useValues(nodeDetailSceneLogic({ id }))
+    const { loadSavedQuery } = useActions(nodeDetailSceneLogic({ id }))
 
-    const startResizing = (event: ReactMouseEvent, startHeight: number): void => {
-        event.preventDefault()
-        const startY = event.clientY
-
-        const onMouseMove = (moveEvent: MouseEvent): void => {
-            setHeight(Math.max(MIN_EDITOR_HEIGHT, startHeight + (moveEvent.clientY - startY)))
-        }
-
-        const onMouseUp = (): void => {
-            window.removeEventListener('mousemove', onMouseMove)
-            window.removeEventListener('mouseup', onMouseUp)
-        }
-
-        window.addEventListener('mousemove', onMouseMove)
-        window.addEventListener('mouseup', onMouseUp)
+    if (savedQueryLoading && !savedQuery) {
+        return <LemonSkeleton className="h-64 w-full" />
     }
 
+    if (savedQueryError) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSavedQuery }}>
+                Couldn't load this model's query.
+            </LemonBanner>
+        )
+    }
+
+    const queryString = savedQuery?.query?.query
+    const columns = savedQuery?.columns ?? []
+
     return (
-        <div ref={containerRef} className="relative border rounded overflow-hidden" style={{ height }}>
-            {children}
-            <div
-                className="absolute bottom-0 left-0 h-2 w-full cursor-s-resize"
-                onMouseDown={(event) => {
-                    startResizing(event, containerRef.current?.clientHeight ?? height)
-                }}
-            />
-            <div
-                className="absolute bottom-0 right-0 z-10 h-5 w-5 cursor-se-resize"
-                onMouseDown={(event) => {
-                    startResizing(event, containerRef.current?.clientHeight ?? height)
-                }}
-            />
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <h3 className="mb-0">SQL</h3>
+                    {node && savedQuery && <QueryAction node={node} savedQuery={savedQuery} />}
+                </div>
+                {queryString ? (
+                    <CodeSnippet language={Language.SQL} maxLinesWithoutExpansion={20} compact thing="query">
+                        {queryString}
+                    </CodeSnippet>
+                ) : (
+                    <p className="mb-0 text-secondary">This model has no query.</p>
+                )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+                <h3 className="mb-0">Columns ({columns.length})</h3>
+                <LemonTable
+                    size="small"
+                    dataSource={columns}
+                    rowKey="name"
+                    nouns={['column', 'columns']}
+                    emptyState="Columns appear after the view runs."
+                    columns={[
+                        {
+                            title: 'Name',
+                            key: 'name',
+                            render: (_, column: DatabaseSchemaField) => (
+                                <span className="font-mono">{column.name}</span>
+                            ),
+                        },
+                        {
+                            title: 'Type',
+                            key: 'type',
+                            render: (_, column: DatabaseSchemaField) => column.type,
+                        },
+                    ]}
+                />
+            </div>
         </div>
     )
 }

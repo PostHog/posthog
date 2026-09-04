@@ -15,7 +15,10 @@ import type {
   AppServerRpc,
 } from "./app-server-client";
 import { AppServerRequestError } from "./app-server-client";
-import { CodexAppServerAgent } from "./codex-app-server-agent";
+import {
+  CodexAppServerAgent,
+  shouldAutoAcceptLocalApproval,
+} from "./codex-app-server-agent";
 import { sandboxPolicyFor } from "./session-config";
 
 // Required-field invariants the native codex app-server enforces on each request.
@@ -103,6 +106,68 @@ function makeFakeClient(
 }
 
 const init = { protocolVersion: 1 } as unknown as InitializeRequest;
+
+describe("shouldAutoAcceptLocalApproval", () => {
+  type AutoApprovalInput = Parameters<typeof shouldAutoAcceptLocalApproval>[0];
+  const workspaceWrite = {
+    type: "workspaceWrite" as const,
+    networkAccess: false,
+  };
+  const base: AutoApprovalInput = {
+    environment: "local" as const,
+    mode: "auto",
+    sandboxPolicy: workspaceWrite,
+    method: "item/commandExecution/requestApproval",
+    detail: {},
+    hasMcpToolCall: false,
+  };
+
+  const cases: Array<{
+    input: Partial<AutoApprovalInput>;
+    expected: boolean;
+  }> = [
+    { input: {}, expected: true },
+    {
+      input: { method: "item/fileChange/requestApproval" },
+      expected: true,
+    },
+    { input: { environment: "cloud" }, expected: false },
+    { input: { mode: "plan" }, expected: false },
+    {
+      input: { sandboxPolicy: { type: "dangerFullAccess" } },
+      expected: false,
+    },
+    { input: { hasMcpToolCall: true }, expected: false },
+    { input: { detail: { reason: "needs network" } }, expected: false },
+    {
+      input: { detail: { networkApprovalContext: {} } },
+      expected: false,
+    },
+    {
+      input: {
+        detail: {
+          additionalPermissions: { network: { enabled: true } },
+        },
+      },
+      expected: false,
+    },
+    {
+      input: { detail: { proposedNetworkPolicyAmendments: [{}] } },
+      expected: false,
+    },
+    {
+      input: {
+        method: "item/fileChange/requestApproval",
+        detail: { grantRoot: "/outside" },
+      },
+      expected: false,
+    },
+  ];
+
+  it.each(cases)("returns $expected for $input", ({ input, expected }) => {
+    expect(shouldAutoAcceptLocalApproval({ ...base, ...input })).toBe(expected);
+  });
+});
 
 describe("CodexAppServerAgent", () => {
   const tokenUsage = (last: Record<string, number>) => ({
@@ -641,6 +706,33 @@ describe("CodexAppServerAgent", () => {
         sessionUpdate: "user_message_chunk",
         content: { type: "text", text: "/goal" },
       },
+    });
+  });
+
+  it("reports a steered goal command as accepted so the host does not redeliver it", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+      "thread/goal/get": {
+        goal: { objective: "Ship the fix", status: "active" },
+      },
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    const result = await agent.prompt({
+      sessionId: "thr_1",
+      prompt: [{ type: "text", text: "/goal" }],
+      _meta: { steer: true },
+    } as unknown as PromptRequest);
+
+    expect(result).toMatchObject({ _meta: { steer: true } });
+    expect(stub.requests).toContainEqual({
+      method: "thread/goal/get",
+      params: { threadId: "thr_1" },
     });
   });
 
@@ -1793,7 +1885,10 @@ describe("CodexAppServerAgent", () => {
     });
     // Default mode is "auto" → editing allowed. A prior plan/read-only turn's
     // readOnly sandbox persists on the thread, so auto must state its sandbox.
-    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    await agent.newSession({
+      cwd: "/r",
+      _meta: { environment: "local" },
+    } as unknown as NewSessionRequest);
     const done = agent.prompt({
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
@@ -1804,9 +1899,11 @@ describe("CodexAppServerAgent", () => {
     const turnStart = stub.requests.find((r) => r.method === "turn/start");
     const params = turnStart?.params as {
       sandboxPolicy?: unknown;
+      approvalPolicy?: string;
       collaborationMode?: unknown;
     };
     expect(params.sandboxPolicy).toEqual(sandboxPolicyFor("auto"));
+    expect(params.approvalPolicy).toBe("on-request");
     // Default collaboration is pushed every turn so switching back from Plan reverts.
     expect(params.collaborationMode).toEqual({
       mode: "default",
@@ -1877,6 +1974,9 @@ describe("CodexAppServerAgent", () => {
     expect(
       (turnStart?.params as { sandboxPolicy?: unknown }).sandboxPolicy,
     ).toBeUndefined();
+    expect(
+      (turnStart?.params as { approvalPolicy?: string }).approvalPolicy,
+    ).toBe("on-request");
   });
 
   it("returns mode + model + thought_level configOptions and emits config_option_update", async () => {
@@ -2162,7 +2262,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
 
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
   });
 
@@ -2248,6 +2348,44 @@ describe("CodexAppServerAgent", () => {
         content: {
           type: "text",
           text: "This request was blocked by a safety policy. Revise the request and try again.",
+        },
+      },
+    });
+  });
+
+  it("renders ChatGPT's own usage-limit message instead of the generic fallback", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", {
+      willRetry: false,
+      error: {
+        message:
+          "You've hit your usage limit. To continue using Codex and get access to GPT-5.3-Codex, start a free trial of Plus today (https://chatgpt.com/explore/plus), or try again at Oct 2nd, 2026 9:53 AM.",
+        codexErrorInfo: "usageLimitExceeded",
+      },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    expect((await done).stopReason).toBe("refusal");
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "You've hit your usage limit. To continue using Codex and get access to GPT-5.3-Codex, start a free trial of Plus today (https://chatgpt.com/explore/plus), or try again at Oct 2nd, 2026 9:53 AM.",
         },
       },
     });
@@ -2372,6 +2510,183 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
+  it("keeps the retried cause when the retries run out", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // A retried error carries the only text; turn/completed has none of its own.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it("surfaces the completion's own fatal cause when it is the only one", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // codex reports the cause only on the completion — no error notification arrived.
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 502 Bad Gateway" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 502 Bad Gateway",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it("prefers the completion's terminal cause over a stale retry message", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // A retry reports one cause; the turn then dies for a different terminal reason.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 500 Internal Server Error" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 500 Internal Server Error",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it("does not attribute a pre-steer retry cause to a steered turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // turn_1 hits a transient provider error that codex will retry.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    // A steer rotates the active turn id to turn_2 (the continuation turn).
+    stub.emit("turn/started", { turn: { id: "turn_2" } });
+    // turn_2 then fails through a bare completion with no cause of its own.
+    stub.emit("turn/completed", {
+      turn: { id: "turn_2", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    // turn_1's transient cause must not be reported as turn_2's failure.
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request. Please try again.",
+        },
+      },
+    });
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
   it("does not let an ID-less failed completion refuse a later prompt", async () => {
     vi.useFakeTimers();
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
@@ -2391,7 +2706,7 @@ describe("CodexAppServerAgent", () => {
     });
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     await expect(first).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     const second = agent.prompt({
@@ -2543,7 +2858,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     stub.emit("turn/completed", { turn: { status: "failed" } });
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     // Structured output is gated on a clean end_turn: a failed turn records nothing.
@@ -2944,12 +3259,62 @@ describe("CodexAppServerAgent", () => {
     } as unknown as PromptRequest);
     await agent.cancel({ sessionId: "t" } as unknown as CancelNotification);
     await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
-    await expect(steer).resolves.toMatchObject({ _meta: { steer: false } });
+    await expect(steer).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
+    });
 
     const interrupted = stub.requests
       .filter((r) => r.method === "turn/interrupt")
       .map((r) => (r.params as { turnId?: string }).turnId);
     expect(interrupted).toContain("turn_2");
+  });
+
+  it("declines a steer that arrives while a cancel is still interrupting", async () => {
+    let starts = 0;
+    let releaseInterrupt: (() => void) | undefined;
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": () => {
+        starts += 1;
+        return { turn: { id: `turn_${starts}` } };
+      },
+      "turn/interrupt": () =>
+        new Promise((resolve) => {
+          releaseInterrupt = () => resolve({});
+        }),
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "write a long poem" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { threadId: "t", turn: { id: "turn_1" } });
+
+    const cancelling = agent.cancel({
+      sessionId: "t",
+    } as unknown as CancelNotification);
+    await vi.waitFor(() => expect(releaseInterrupt).toBeDefined());
+
+    await expect(
+      agent.prompt({
+        sessionId: "t",
+        prompt: [{ type: "text", text: "do this instead" }],
+        _meta: { steer: true },
+      } as unknown as PromptRequest),
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
+    });
+    expect(starts).toBe(1);
+
+    releaseInterrupt?.();
+    await cancelling;
+    await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
   });
 
   it("declines a second steer that overlaps the first's interrupt window", async () => {
@@ -2982,7 +3347,9 @@ describe("CodexAppServerAgent", () => {
     } as unknown as PromptRequest);
 
     await expect(steerA).resolves.toMatchObject({ _meta: { steer: true } });
-    await expect(steerB).resolves.toMatchObject({ _meta: { steer: false } });
+    await expect(steerB).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "steer_in_flight" },
+    });
     expect(stub.requests.filter((r) => r.method === "turn/start")).toHaveLength(
       2,
     );
@@ -3131,7 +3498,9 @@ describe("CodexAppServerAgent", () => {
         prompt: [{ type: "text", text: "lost steer" }],
         _meta: { steer: true },
       } as unknown as PromptRequest),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "continuation_failed" },
+    });
     expect(sessionUpdates).not.toContainEqual(
       expect.objectContaining({
         update: expect.objectContaining({
@@ -3234,7 +3603,9 @@ describe("CodexAppServerAgent", () => {
         prompt: [{ type: "text", text: "too late" }],
         _meta: { steer: true },
       } as unknown as PromptRequest),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "no_in_flight_turn" },
+    });
     expect(
       stub.requests.filter((request) => request.method === "turn/start"),
     ).toHaveLength(0);
@@ -3628,7 +3999,7 @@ describe("CodexAppServerAgent", () => {
     });
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     expect(

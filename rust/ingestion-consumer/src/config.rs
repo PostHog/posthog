@@ -1,12 +1,42 @@
+use std::str::FromStr;
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::discovery::DiscoveryMode;
-use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
-use crate::transports::TransportMode;
+use common_kafka_consumer::config::ConsumerConfigBuilder;
+
+/// Whether the consumer keeps an offset ledger, and whether that ledger
+/// observes the commit path or owns it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LedgerMode {
+    /// No ledger: commit the per-batch max offset as before. Nothing is
+    /// charged, settled, forgotten on rebalance, or reported.
+    Off,
+    /// Commit the per-batch max offset and compare the ledger frontier to it.
+    #[default]
+    Shadow,
+    /// Commit the ledger frontier after the comparison.
+    Commit,
+}
+
+impl FromStr for LedgerMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "off" => Ok(Self::Off),
+            "shadow" => Ok(Self::Shadow),
+            "commit" => Ok(Self::Commit),
+            other => Err(format!(
+                "unknown consumer offset ledger mode '{other}' (expected 'off', 'shadow' or 'commit')"
+            )),
+        }
+    }
+}
 
 /// Configuration for the ingestion consumer.
 ///
@@ -169,13 +199,13 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
-    /// Release a deferring key's next stashed group as soon as the send
-    /// blocking it resolves, instead of waiting for the owning batch to become
-    /// the oldest completed one. Breaks the deferral cascade where a hot key
-    /// re-stashes on every arriving batch faster than completion-paced flushes
-    /// drain it. The completion-time flush remains as backstop either way.
-    #[envconfig(from = "DISPATCHER_EAGER_DEFERRED_FLUSH", default = "false")]
-    pub dispatcher_eager_deferred_flush: bool,
+    /// The source of offset commits. `off` commits the per-batch max offset
+    /// and keeps no ledger. `shadow` commits the same offset and compares the
+    /// ledger frontier with it, reporting disagreements. `commit` commits the
+    /// ledger frontier after that comparison. Fall back to `off` only if the
+    /// ledger's accounting or metrics are implicated in a problem.
+    #[envconfig(from = "CONSUMER_OFFSET_LEDGER_MODE", default = "shadow")]
+    pub consumer_offset_ledger_mode: LedgerMode,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -205,57 +235,27 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
 
+    // ---- Offset ledger ----
     // ---- Worker transport ----
-    /// Comma-separated list of worker HTTP URLs
+    /// Comma-separated list of worker HTTP URLs. Readiness probes hit these
+    /// directly; each worker's gRPC stream address is derived from its URL's
+    /// host plus the gRPC port settings below.
     #[envconfig(default = "http://localhost:9001")]
     pub worker_addresses: String,
 
-    /// HTTP request timeout for worker calls (milliseconds)
-    #[envconfig(default = "30000")]
-    pub http_timeout_ms: u64,
-
-    /// Maximum number of retries for a failed worker call
-    #[envconfig(default = "3")]
-    pub max_retries: u32,
-
-    /// Soft cap on in-flight batches per worker, enforced by a per-worker
-    /// `Semaphore`. Ideally aligned with the worker's
-    /// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`
-    /// on the Node.js side) so the happy path backpressures by waiting for a
-    /// permit before the worker fills up. It need not match exactly: if the
-    /// worker still responds 503, the transport treats it as retriable
-    /// backpressure and retries with a longer, jittered backoff. Divergence
-    /// remains observable via `ingestion_api_batch_capacity_rejections_total`.
-    /// (A future adaptive-concurrency controller will replace this static cap.)
+    /// Cap on un-acked sub-batches per worker stream. Ideally aligned with the
+    /// worker's `BatchingPipeline.concurrentBatches`
+    /// (`INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side) so the
+    /// stream backpressures before the worker stalls its reads.
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
-    /// Gzip-compress /ingest request bodies (`Content-Encoding: gzip`). Batch
-    /// bodies are JSON wrapping JSON-text Kafka messages, so they compress
-    /// several-fold; the worker's Express body parser inflates transparently.
-    /// Kill switch in case compression CPU cost is ever implicated.
-    #[envconfig(from = "INGESTION_TRANSPORT_COMPRESSION_ENABLED", default = "true")]
-    pub transport_compression_enabled: bool,
-
-    /// Cap on the serialized JSON size of one /ingest request body (bytes).
-    /// Sub-batches above it are split into multiple sequential requests. Must
-    /// stay under the worker's HTTP body limit (20 MB) with headroom for the
-    /// size estimate; a request the worker still rejects with 413 is halved
-    /// and resent. Default 10 MiB.
+    /// Cap on the estimated serialized size of one sub-batch frame (bytes).
+    /// Sub-batches above it ride the worker stream as consecutive chunks. Must
+    /// stay under the worker's gRPC message limit with headroom for the size
+    /// estimate. Default 10 MiB.
     #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
     pub transport_max_body_bytes: usize,
-
-    /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
-    #[envconfig(default = "")]
-    pub internal_api_secret: String,
-
-    /// How sub-batches reach the workers: `http` (concurrent POST /ingest
-    /// requests) or `grpc` (one ordered WorkerIngest stream per worker, which
-    /// closes the wire-reordering window concurrent HTTP requests leave open).
-    /// The worker must serve the stream (`INGESTION_API_GRPC_ENABLED`) before
-    /// a consumer switches to `grpc`.
-    #[envconfig(from = "INGESTION_TRANSPORT", default = "http")]
-    pub ingestion_transport: TransportMode,
 
     /// The worker pods' gRPC port (`INGESTION_API_GRPC_PORT` on the Node.js
     /// side). Worker streams derive each worker's stream address from its HTTP URL's
@@ -502,5 +502,19 @@ impl Config {
         builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LedgerMode;
+    use std::str::FromStr;
+
+    #[test]
+    fn ledger_mode_parses_known_values() {
+        assert_eq!(LedgerMode::from_str("off"), Ok(LedgerMode::Off));
+        assert_eq!(LedgerMode::from_str(" SHADOW "), Ok(LedgerMode::Shadow));
+        assert_eq!(LedgerMode::from_str("commit"), Ok(LedgerMode::Commit));
+        assert!(LedgerMode::from_str("on").is_err());
     }
 }

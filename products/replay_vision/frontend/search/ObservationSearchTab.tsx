@@ -11,11 +11,30 @@ import { urls } from 'scenes/urls'
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
+import type { ReplayScanner } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
 import { observationSearchLogic } from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
 
-const EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
+const CROSS_SCANNER_EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
+
+// Examples should read like phrases the scanner type writes into observation content, which search matches semantically
+function exampleQueries(scanner: ReplayScanner | null): string[] {
+    switch (scanner?.scanner_type) {
+        case 'monitor':
+            return ['the most severe cases', 'sessions where the user recovered']
+        case 'classifier': {
+            const categories = scanner.scanner_config.tags.filter((tag) => tag.trim())
+            return categories.length > 0 ? categories.slice(0, 3) : CROSS_SCANNER_EXAMPLE_QUERIES
+        }
+        case 'scorer':
+            return ['sessions that struggled the most', 'sessions that went smoothly']
+        case 'summarizer':
+            return ['users who completed what they came to do', 'confusion and backtracking']
+        default:
+            return CROSS_SCANNER_EXAMPLE_QUERIES
+    }
+}
 
 function countLabel(count: number, truncated: boolean): string {
     if (truncated) {
@@ -83,11 +102,11 @@ function SearchResultCard({
     )
 }
 
-export function ObservationSearchTab({ scannerId }: { scannerId: string | null }): JSX.Element {
-    const logic = observationSearchLogic({ scannerId })
+export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | null }): JSX.Element {
+    const logic = observationSearchLogic({ scannerId: scanner?.id ?? null })
     const { query, results, searching, searchedQuery, strongMatchDistanceCutoff, truncated } = useValues(logic)
     const { setQuery, search } = useActions(logic)
-    const crossScanner = scannerId === null
+    const crossScanner = scanner === null
 
     return (
         <div className="w-full max-w-3xl mx-auto flex flex-col gap-4 pt-2">
@@ -128,7 +147,7 @@ export function ObservationSearchTab({ scannerId }: { scannerId: string | null }
                         </div>
                         <div className="flex items-center justify-center gap-2 flex-wrap">
                             <span>Try</span>
-                            {EXAMPLE_QUERIES.map((example) => (
+                            {exampleQueries(scanner).map((example) => (
                                 <LemonButton
                                     key={example}
                                     type="secondary"

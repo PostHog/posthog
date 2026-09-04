@@ -178,6 +178,20 @@ def _repo_overview() -> contracts.RepoOverview:
         open_to_merge_series_granularity="day",
         ready_to_merge_series=[],
         ready_to_merge_series_granularity="day",
+        delivery_pipeline=contracts.DeliveryPipeline(
+            merged_pr_count=38,
+            stages=[
+                contracts.DeliveryStageTiming(
+                    stage=contracts.DeliveryStage.OPEN_TO_GATE,
+                    median_seconds=58800.0,
+                    p90_seconds=180000.0,
+                    pr_count=36,
+                ),
+                contracts.DeliveryStageTiming(
+                    stage=contracts.DeliveryStage.GATE_TO_MERGE, median_seconds=1920.0, p90_seconds=11280.0, pr_count=36
+                ),
+            ],
+        ),
     )
 
 

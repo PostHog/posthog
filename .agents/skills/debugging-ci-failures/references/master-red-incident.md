@@ -20,6 +20,10 @@ Setting the workflow up is `master-red-workflow-setup.md` in this directory.
 The alert text, which names the failing workflows, how long each has been red, and the newest commit on master.
 It does not carry run ids, so start by resolving the alert's workflow names to their latest failing runs on master, then follow the parent skill from there.
 
+A name with a `(scheduled)` suffix is not a separate workflow.
+It is the cron-triggered master run of the workflow before the suffix, which the alerter tracks apart from that workflow's master-push runs because the two run different jobs.
+`Backend CI (scheduled)` means the hourly full test matrices, so resolve it to Backend CI's newest failing `schedule` run rather than its push runs.
+
 ## The verdict
 
 Classify with the parent skill's table, then reduce it to one of three answers a reader can act on: **infrastructure** (no code change fixes it), **flaky test**, or **real regression**.

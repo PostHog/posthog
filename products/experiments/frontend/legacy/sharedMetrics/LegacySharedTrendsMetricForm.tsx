@@ -15,10 +15,11 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '~/scenes/experiments/constants'
 import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { sharedMetricLogic } from '~/scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
+
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from 'products/experiments/frontend/constants'
 
 export function LegacySharedTrendsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)

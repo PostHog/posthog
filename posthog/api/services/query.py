@@ -24,6 +24,7 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
+from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -298,18 +299,20 @@ def process_query_model(
     result: dict | BaseModel | RawCachedQueryResponse
 
     if isinstance(query, HogQLAutocomplete):
-        _, database = resolve_database_for_connection(
-            team,
-            query.connectionId,
-            user=user,
-            error_factory=ValidationError,
-            modifiers=create_default_modifiers_for_team(team),
-        )
-        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+        with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
+            _, database = resolve_database_for_connection(
+                team,
+                query.connectionId,
+                user=user,
+                error_factory=ValidationError,
+                modifiers=create_default_modifiers_for_team(team),
+            )
+            return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
-        metadata_query = HogQLMetadata.model_validate(query)
-        return get_hogql_metadata(query=metadata_query, team=team, user=user)
+        with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
+            metadata_query = HogQLMetadata.model_validate(query)
+            return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
         return process_database_schema_query(team, query, user=user)

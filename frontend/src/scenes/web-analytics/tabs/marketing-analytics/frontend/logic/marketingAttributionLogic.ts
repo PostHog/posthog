@@ -12,6 +12,7 @@ import { BaseMathType, IntervalType } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { BREAKDOWN_LABELS, attributableConversionGoals } from './marketingBreakdown'
 
 /** Rows the table asks for. Sorting happens client side over this page, so it's also the sort scope. */
 export const ATTRIBUTION_ROW_LIMIT = 100
@@ -27,17 +28,6 @@ export const MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID = 'marketing-analytic
 
 /** The conversion paths length filter: an exact touchpoint count, "4 or more", or null for any. */
 export type PathTouchpointFilter = number | 'four_plus' | null
-
-export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, string> = {
-    [MarketingAnalyticsAttributionBreakdown.Channel]: 'Channel',
-    [MarketingAnalyticsAttributionBreakdown.Source]: 'Source',
-    [MarketingAnalyticsAttributionBreakdown.Campaign]: 'Campaign',
-    [MarketingAnalyticsAttributionBreakdown.Medium]: 'Medium',
-    [MarketingAnalyticsAttributionBreakdown.Content]: 'Content',
-    [MarketingAnalyticsAttributionBreakdown.Term]: 'Term',
-    [MarketingAnalyticsAttributionBreakdown.ReferringDomain]: 'Referring domain',
-    [MarketingAnalyticsAttributionBreakdown.LandingPage]: 'Landing page',
-}
 
 /**
  * How the row that "Exclude unattributed traffic" removes is labelled — only where that label is
@@ -236,10 +226,11 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
     selectors({
         attributableGoals: [
             (s) => [s.conversion_goals],
-            // Data warehouse goals are excluded: their conversions live in a warehouse table keyed by
-            // distinct id, so the events-based touchpoint query has nothing to join them on.
+            // Annotated rather than passing `attributableConversionGoals` straight through: typegen
+            // cannot infer a bare imported function's return, and silently drops the selector from the
+            // generated values when it can't.
             (conversion_goals: ConversionGoalFilter[]): ConversionGoalFilter[] =>
-                (conversion_goals || []).filter((goal) => goal.kind !== NodeKind.DataWarehouseNode),
+                attributableConversionGoals(conversion_goals),
         ],
         selectedGoalId: [
             (s) => [s.conversionGoalId, s.attributableGoals],

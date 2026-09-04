@@ -36,7 +36,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.cost import (
     PRCostAggregate,
-    render_is_billable_tier,
+    render_is_billable_job,
     runner_tier_descriptor,
 )
 from products.engineering_analytics.backend.logic.queries._buckets import (
@@ -51,12 +51,14 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     date_to_filter_clause,
     merge_queue_branch_predicate,
     run_scope_filter_clause,
+    run_windowed_job_created_floor_constant,
     window_pair_predicates,
 )
 
-# The billable-tier predicate over the cost source's classified columns — defined once in logic.cost
-# so 'depot'/'linux' never appear as literals here.
-_BILLABLE_TIER = render_is_billable_tier("c.provider", "c.os")
+# The billable-row predicate over the cost source's classified columns — defined once in logic.cost
+# so 'depot'/'linux' never appear as literals here. Row, not tier: a GitHub re-run copy sits on a
+# billable tier but never executed, so it belongs in excluded_jobs rather than in no bucket at all.
+_BILLABLE_ROW = render_is_billable_job("c.provider", "c.os", "c.is_rerun_copy")
 
 
 def _cost_aggregates(when: str = "1", suffix: str = "") -> str:
@@ -65,15 +67,15 @@ def _cost_aggregates(when: str = "1", suffix: str = "") -> str:
 
     ``billable_seconds`` sums ``greatest(elapsed, 0)`` over costed rows; ``cost_sum`` sums the rendered
     per-job dollar cost; ``costed_jobs`` counts rows with a non-NULL cost; ``unsettled_jobs`` and
-    ``excluded_jobs`` complete the three-bucket partition. ``costed_jobs`` is what tells "$0.00" apart
+    ``excluded_jobs`` complete the three-bucket partition (a re-run copy is excluded — it never ran). ``costed_jobs`` is what tells "$0.00" apart
     from "nothing to cost" downstream — a SQL sum can't.
     """
     return (
         f"sumIf(ifNull(c.billable_seconds, 0), {when}) AS billable_seconds{suffix}, "
         f"sumIf(c.estimated_cost_usd, c.estimated_cost_usd IS NOT NULL AND ({when})) AS cost_sum{suffix}, "
         f"countIf(c.estimated_cost_usd IS NOT NULL AND ({when})) AS costed_jobs{suffix}, "
-        f"countIf({_BILLABLE_TIER} AND c.duration_seconds IS NULL AND ({when})) AS unsettled_jobs{suffix}, "
-        f"countIf(NOT {_BILLABLE_TIER} AND ({when})) AS excluded_jobs{suffix}"
+        f"countIf({_BILLABLE_ROW} AND c.duration_seconds IS NULL AND ({when})) AS unsettled_jobs{suffix}, "
+        f"countIf(NOT {_BILLABLE_ROW} AND ({when})) AS excluded_jobs{suffix}"
     )
 
 
@@ -128,6 +130,13 @@ _EMPTY = PRCostSummary(
 # per-workflow, and per-run rollups all fold from these rows in Python (cost is linear). Filtering on
 # the cost source's run-attribution columns (pr_number is 0→NULL normalized) drops jobs whose run row
 # is missing, matching the legacy INNER JOIN population.
+#
+# The only two cost queries with no scan floor (see job_cost_source(created_floor=...)) are this one
+# and _LIST_COST_SELECT: both are keyed by PR number, not by a window, and a PR's created_at would
+# cost an extra round trip here (build_pr_cost is handed a number and a repo, nothing else) or be the
+# min across a whole page there — which for a page holding one old PR is no bound at all. Left
+# unfloored deliberately; if these ever get slow, thread the PR's created_at down and floor a day
+# below it rather than inventing a window.
 _PR_COST_SELECT = """
     SELECT
         c.workflow_name AS workflow_name,
@@ -257,10 +266,13 @@ def query_workflow_window_costs(
     run-level ``query_workflow_health`` (a job whose run is missing has a NULL run_started_at and is
     excluded by the window filter, matching the legacy INNER JOIN).
     """
-    cost_source = curated.job_cost_source()
+    cost_source = curated.job_cost_source(created_floor=True)
     if cost_source is None:
         return {}
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "job_created_floor": run_windowed_job_created_floor_constant(date_from),
+    }
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")
     run_scope_clause = run_scope_filter_clause(
@@ -308,12 +320,13 @@ def query_author_workflow_costs(
     author→runs link goes through their PR numbers (the one attribution rule, SPEC §6) — the cost
     source's normalized pr_number never matches on an unattributed (NULL) run.
     """
-    cost_source = curated.job_cost_source()
+    cost_source = curated.job_cost_source(created_floor=True)
     if cost_source is None:
         return []
     placeholders: dict[str, ast.Expr] = {
         "author": ast.Constant(value=author),
         "date_from": ast.Constant(value=date_from),
+        "job_created_floor": run_windowed_job_created_floor_constant(date_from),
     }
     date_to_clause = ""
     if date_to is not None:
@@ -374,12 +387,14 @@ def query_workflow_window_costs_with_prev(
     prior implementation), so a workflow present only in the other window doesn't create a phantom
     zero-cost entry.
     """
-    cost_source = curated.job_cost_source()
+    cost_source = curated.job_cost_source(created_floor=True)
     if cost_source is None:
         return _EMPTY_WINDOW_COSTS
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
+        # Floored off prev_from, the earlier of the two window starts — this scan carries both.
+        "job_created_floor": run_windowed_job_created_floor_constant(prev_from),
     }
     windows = window_pair_predicates("c.run_started_at", date_to=date_to)
     date_to_clause = ""
@@ -472,11 +487,14 @@ def query_cost_per_merge_series(
     there's no cost to divide, so the series is empty (the UI shows the same "sync jobs" state as
     the other cost surfaces).
     """
-    cost_source = curated.job_cost_source()
+    cost_source = curated.job_cost_source(created_floor=True)
     if cost_source is None:
         return []
 
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "job_created_floor": run_windowed_job_created_floor_constant(date_from),
+    }
     date_to_runs = ""
     date_to_merged = ""
     if date_to is not None:
@@ -563,7 +581,7 @@ def query_workflow_runner_costs(
     """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch),
     highest spend first. Empty when the jobs source isn't synced. Grouped by the rendered
     (provider, os, vcpu) tier and mapped to its display badge/label via ``runner_tier_descriptor``."""
-    cost_source = curated.job_cost_source()
+    cost_source = curated.job_cost_source(created_floor=True)
     if cost_source is None:
         return []
     placeholders: dict[str, ast.Expr] = {
@@ -571,6 +589,7 @@ def query_workflow_runner_costs(
         "repo_name": ast.Constant(value=repo_name),
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
+        "job_created_floor": run_windowed_job_created_floor_constant(date_from),
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")

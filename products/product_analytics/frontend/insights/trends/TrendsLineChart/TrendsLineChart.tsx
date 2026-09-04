@@ -6,6 +6,7 @@ import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { dayjs } from 'lib/dayjs'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
@@ -31,7 +32,6 @@ import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
-import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
@@ -155,20 +155,6 @@ export function TrendsLineChart({
             return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
         },
         [trendsFilter, isPercentStackView, baseCurrency]
-    )
-
-    const indexByResult = useMemo(() => {
-        const m = new Map<IndexedTrendResult, number>()
-        ;(indexedResults ?? []).forEach((r, i) => m.set(r, i))
-        return m
-    }, [indexedResults])
-
-    const getYAxisId = useCallback(
-        (r: IndexedTrendResult) => {
-            const idx = indexByResult.get(r) ?? 0
-            return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-        },
-        [indexByResult, showMultipleYAxes]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -299,6 +285,12 @@ export function TrendsLineChart({
             getTrendsColor,
             getLabel,
         ]
+    )
+
+    // Anomaly markers must read the same axis their series is scaled against.
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => series.find((s) => s.key === String(r.id))?.yAxisId ?? DEFAULT_Y_AXIS_ID,
+        [series]
     )
 
     const config = useChartConfig(

@@ -8,7 +8,8 @@ from django.db import models
 import structlog
 from temporalio import activity
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.helpers.slack_scopes import has_scopes
+from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.attachments import (
     PreparedSlackAttachments,
     build_slack_attachment_prompt_text,
@@ -37,7 +38,6 @@ _INITIATOR_PLACEHOLDER = "<original user message was here>"
 # Slack scopes the canvas/file living-artifact adapters check at delivery time.
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 _SLACK_ARTIFACT_DELIVERY_KEY = "slack_artifact_delivery"
-_SLACK_ARTIFACT_DELIVERY_NONE = "none"
 _SLACK_ARTIFACT_DELIVERY_MESSAGE = "message"
 _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE = "canvas_file"
 # Charts are a second key rather than a fourth mode: an agent build that predates them
@@ -125,28 +125,18 @@ def _artifact_delivery_state_updates(integration: Integration) -> dict[str, Any]
     """Run state telling the agent which Slack delivery routes this workspace has.
 
     The agent turns these into its delivery constraints, so the wording lives with the
-    agent and the gating stays here. Canvas and file delivery needs its own rollout flag
-    *and* the Slack scopes the adapters write with, so that the agent is never invited to
-    create an artifact delivery would reject. Charts are gated on the flag alone: they
-    post as an image block referencing a PostHog-hosted url, which needs no upload and so
-    no ``files:write``. That difference is the whole point of the separate key — a
-    workspace waiting on the in-review scopes can still deliver charts. Resolved when the
-    run is created, before the sandbox boots and reads the state.
+    agent and the gating stays here. Canvas and file delivery needs the Slack scopes the
+    adapters write with, so that the agent is never invited to create an artifact
+    delivery would reject. Charts need no scope: they post as an image block referencing
+    a PostHog-hosted url, which needs no upload and so no ``files:write`` — a workspace
+    still missing the adapter scopes can still deliver charts. Resolved when the run is
+    created, before the sandbox boots and reads the state.
     """
-    from products.slack_app.backend.feature_flags import (  # noqa: PLC0415
-        is_slack_app_canvas_file_artifacts_enabled,
-        is_slack_app_living_artifacts_enabled,
-    )
-
-    if not is_slack_app_living_artifacts_enabled(integration):
-        return {_SLACK_ARTIFACT_DELIVERY_KEY: _SLACK_ARTIFACT_DELIVERY_NONE, _SLACK_CHART_DELIVERY_KEY: False}
-
-    charts_enabled = is_slack_app_canvas_file_artifacts_enabled(integration)
-    if charts_enabled and not SlackIntegration(integration).missing_scopes(_SLACK_CANVAS_FILE_ADAPTER_SCOPES):
+    if has_scopes(integration, _SLACK_CANVAS_FILE_ADAPTER_SCOPES):
         mode = _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE
     else:
         mode = _SLACK_ARTIFACT_DELIVERY_MESSAGE
-    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode, _SLACK_CHART_DELIVERY_KEY: charts_enabled}
+    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode, _SLACK_CHART_DELIVERY_KEY: True}
 
 
 def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[str]:
@@ -650,7 +640,9 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    run_prefs = resolve_run_preferences(
+        integration, slack_user_id, override=model_override, team_id=integration.team_id, user_id=user_id
+    )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -1145,6 +1137,9 @@ def _run_preference_state(
     integration: Any,
     slack_user_id: str,
     model_override: SlackAppModelOverride | None,
+    *,
+    team_id: int | None = None,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """The run-state keys that pin a new run's harness, model and effort.
 
@@ -1155,7 +1150,9 @@ def _run_preference_state(
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
     from products.tasks.backend.facade.run_config import get_provider_for_runtime_adapter
 
-    prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    prefs = resolve_run_preferences(
+        integration, slack_user_id, override=model_override, team_id=team_id, user_id=user_id
+    )
     provider = get_provider_for_runtime_adapter(prefs.runtime_adapter) if prefs.runtime_adapter else None
     state = {
         "runtime_adapter": prefs.runtime_adapter,
@@ -1306,11 +1303,24 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
+    # Carry the PR authorship mode forward. Without it, get_pr_authorship_mode re-derives USER for a
+    # Slack-origin task, so a creator with no personal GitHub install dead-ends every follow-up at the
+    # token guard. The first run already resolved the mode (BOT when there is no install), and the
+    # successor must resume under the same identity, like the cloud resume path. A carried BOT is
+    # re-checked after create_run below, so a creator who connected GitHub in the meantime gets
+    # their identity back.
+    if previous_state.get("pr_authorship_mode"):
+        extra_state["pr_authorship_mode"] = previous_state["pr_authorship_mode"]
+
     # A successor launches its own agent server, so the whole triple is open again —
     # including the runtime a live run could never be moved onto. Resolved rather than
     # carried over, like the keys above: a preference changed since the previous run is
     # picked up too.
-    extra_state.update(_run_preference_state(integration, slack_user_id, model_override))
+    extra_state.update(
+        _run_preference_state(
+            integration, slack_user_id, model_override, team_id=mapping.task.team_id, user_id=run_actor.id
+        )
+    )
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
@@ -1340,7 +1350,12 @@ def _resume_task_with_new_run(
     extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
-        new_run = tasks_facade.create_run(mapping.task_id, mode="interactive", extra_state=extra_state)
+        # The replying user, not the task creator: the safety-net default resolution and
+        # its gated-model entitlement check inside `create_run` must run against whoever
+        # launches this follow-up.
+        new_run = tasks_facade.create_run(
+            mapping.task_id, mode="interactive", extra_state=extra_state, acting_user_id=run_actor.id
+        )
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",
@@ -1355,6 +1370,21 @@ def _resume_task_with_new_run(
             text=_RESUME_ERROR_MSG,
         )
         return True
+
+    # The carried mode can pin BOT after the creator connected GitHub, because the live-sandbox
+    # promotion in _refresh_sandbox_github never sees a successor's first turn. Re-check here so
+    # the run that follows the connection is the one that carries their identity. Best-effort:
+    # a failure leaves the run bot-authored, which still works.
+    try:
+        tasks_facade.promote_run_to_user_authorship(new_run.id, run_actor.id)
+    except Exception:
+        logger.exception(
+            "posthog_code_resume_authorship_promotion_failed",
+            channel=channel,
+            thread_ts=thread_ts,
+            task_id=str(mapping.task_id),
+            run_id=str(new_run.id),
+        )
 
     uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
         tasks_facade,
