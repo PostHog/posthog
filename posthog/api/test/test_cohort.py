@@ -4392,6 +4392,37 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.json())
         self.assertNotEqual(response.json()["id"], None)
 
+    @parameterized.expand(
+        [
+            ("icontains_single_list", "icontains", ["@example.com"], "@example.com"),
+            ("not_icontains_single_list", "not_icontains", ["@example.com"], "@example.com"),
+            ("startswith_single_list", "startswith", ["admin"], "admin"),
+            ("endswith_single_list", "endswith", [".com"], ".com"),
+            ("icontains_multi_list_kept", "icontains", ["@a.com", "@b.com"], ["@a.com", "@b.com"]),
+            ("icontains_plain_string_kept", "icontains", "@example.com", "@example.com"),
+            ("exact_single_list_kept", "exact", ["admin"], ["admin"]),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_single_value_operator_unwraps_single_element_list(
+        self, _name, operator, value, expected, patch_capture
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": f"cohort with {operator}",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [{"key": "email", "type": "person", "operator": operator, "value": value}],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertEqual(cohort.filters["properties"]["values"][0]["value"], expected)
+
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_cohort_filter(self, patch_capture):
         # First create a cohort to reference

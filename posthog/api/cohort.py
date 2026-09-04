@@ -326,6 +326,33 @@ class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 # Keep in sync with OperatorType in posthog/models/property/property.py
 DATE_OPERATORS = ("is_date_after", "is_date_before")
 
+# Operators that compare against exactly one string. A multi-value list is meaningful for
+# `icontains`/`not_icontains` in HogQL, which turns it into multiSearchAnyCaseInsensitive, so
+# only the single-element case is unwrapped here. See _single_value_operator_value.
+SINGLE_VALUE_STRING_OPERATORS = (
+    "icontains",
+    "not_icontains",
+    "is_date_after",
+    "is_date_before",
+    "startswith",
+    "not_startswith",
+    "endswith",
+    "not_endswith",
+)
+
+
+def _single_value_operator_value(operator: str | None, value: Any) -> Any:
+    """Unwrap `["x"]` to `"x"` for operators that compare against one string.
+
+    The two cohort readers disagree about a single-element list. HogQL unwraps it
+    (posthog/hogql/property.py), so the cohort lists the person, while the Rust flag evaluator
+    stringifies it and searches for the literal text `["x"]`, so the flag never matches. Storing
+    the unwrapped string is what both readers already agree on.
+    """
+    if operator in SINGLE_VALUE_STRING_OPERATORS and isinstance(value, list) and len(value) == 1:
+        return value[0]
+    return value
+
 
 class PersonValueValidationMixin(BaseModel):
     """Shared value/operator presence and date-value validation for the person and
@@ -335,6 +362,12 @@ class PersonValueValidationMixin(BaseModel):
 
     operator: str | None = None  # accept any legacy operator
     value: Any | None = None  # mostly likely it's list[str], str, or None
+
+    @model_validator(mode="after")
+    def _coerce_single_value_list(self):
+        # Runs before the date check below so that check sees the unwrapped value.
+        self.value = _single_value_operator_value(self.operator, self.value)
+        return self
 
     @model_validator(mode="after")
     def _missing_keys_check(self):
