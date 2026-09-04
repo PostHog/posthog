@@ -9,6 +9,7 @@ import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
 import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
 import { PrFilesChangedSection } from "@posthog/ui/features/pr-review/PrFilesChangedSection";
@@ -69,8 +70,11 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
           <>
             <InboxMetaSeparator />
             <ReportImplementationPrLink prUrl={prUrl} size="md" />
+            <ReportTrackerIssueLink report={report} />
           </>
-        ) : undefined
+        ) : (
+          <ReportTrackerIssueLink report={report} />
+        )
       }
       primaryAction={<ReportDetailActions report={report} prUrl={prUrl} />}
       summarySection={{ Icon: GitPullRequestIcon, title: "Summary" }}

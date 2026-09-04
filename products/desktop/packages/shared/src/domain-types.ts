@@ -742,6 +742,12 @@ export interface SignalReport {
    * its old PR must not read as reviewable or continuable.
    */
   implementation_pr_merged?: boolean;
+  /** Link to the tracker issue self-driving opened for this report's PR, when the project tracks issues. */
+  tracker_issue_url?: string | null;
+  /** How that issue reads in its provider, for example '#12' or 'ENG-123'. */
+  tracker_issue_reference?: string | null;
+  /** Why the tracker issue could not be opened, for a project that wants one. Null when it exists. */
+  tracker_issue_error?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */

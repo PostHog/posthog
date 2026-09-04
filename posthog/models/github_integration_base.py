@@ -1124,6 +1124,25 @@ class GitHubIntegrationBase:
 
         return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
 
+    def update_pull_request_body(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_patch(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            json_body={"body": body},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error updating pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to update pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True, "number": pr_number}
+
     def close_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
         """Close a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
         parsed = self.parse_pull_request_url(pr_url)

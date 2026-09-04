@@ -9,7 +9,9 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import User
+from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
@@ -26,6 +28,7 @@ from .models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportRefund,
+    SignalReportTrackerIssue,
     SignalReportWorkState,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -33,6 +36,7 @@ from .models import (
 )
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
+from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -184,6 +188,26 @@ MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker "
+            "issue in for each pull request it makes. Null turns tracker issues off, which is the "
+            "default."
+        ),
+    )
+    issue_tracking_config = serializers.DictField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        required=False,
+        help_text=(
+            "Where in the tracker the issues land. Required keys depend on the integration kind: "
+            "github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, "
+            "because its integration is already bound to one project. An optional 'label' is applied "
+            "to created GitHub issues."
+        ),
+    )
     autostart_base_branches = serializers.DictField(
         child=serializers.CharField(max_length=255, allow_blank=True),
         required=False,
@@ -249,6 +273,8 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
+            "issue_tracking_integration",
+            "issue_tracking_config",
             "max_reports_per_day",
             "reports_generated_today",
             "daily_report_limit_reached",
@@ -272,6 +298,42 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                 )
             },
         }
+
+    def validate_issue_tracking_integration(self, value: Integration | None) -> Integration | None:
+        if value is None:
+            return None
+        if not is_supported_external_issue_provider(value.kind):
+            raise serializers.ValidationError(
+                f"'{value.kind}' cannot track issues. Connect GitHub, GitLab, Linear, or Jira."
+            )
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        # The target only makes sense against an integration, and the two can arrive in either the
+        # same PATCH or separate ones, so fall back to what is already stored.
+        integration = (
+            attrs["issue_tracking_integration"]
+            if "issue_tracking_integration" in attrs
+            else getattr(self.instance, "issue_tracking_integration", None)
+        )
+        if integration is None:
+            return attrs
+        config = (
+            attrs["issue_tracking_config"]
+            if "issue_tracking_config" in attrs
+            else getattr(self.instance, "issue_tracking_config", None) or {}
+        )
+        missing = [
+            field
+            for field in TRACKER_TARGET_REQUIRED_FIELDS.get(integration.kind, ())
+            if not str(config.get(field) or "").strip()
+        ]
+        if missing:
+            raise serializers.ValidationError(
+                {"issue_tracking_config": f"Missing required fields for {integration.kind}: {', '.join(missing)}."}
+            )
+        return attrs
 
     def validate_autostart_base_branches(self, value: dict) -> dict:
         if len(value) > MAX_AUTOSTART_BASE_BRANCH_ENTRIES:
@@ -571,6 +633,24 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "resolved directly, without a merged PR."
         ),
     )
+    tracker_issue_url = serializers.SerializerMethodField(
+        help_text=(
+            "Link to the issue self-driving opened in the team's tracker for this report's pull "
+            "request. Null when the team tracks no issues, or the issue could not be opened."
+        ),
+    )
+    tracker_issue_reference = serializers.SerializerMethodField(
+        help_text=(
+            "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null "
+            "when there is no tracker issue."
+        ),
+    )
+    tracker_issue_error = serializers.SerializerMethodField(
+        help_text=(
+            "Why the tracker issue could not be opened, for a team that wants one. Null when the "
+            "issue exists or the team tracks no issues."
+        ),
+    )
     work_state = serializers.SerializerMethodField(
         help_text="Derived remediation state: unclaimed, working, in_review, or done.",
     )
@@ -615,6 +695,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "implementation_pr_url",
             "implementation_pr_state",
             "implementation_pr_merged",
+            "tracker_issue_url",
+            "tracker_issue_reference",
+            "tracker_issue_error",
             "work_state",
             "assignee",
             "refund",
@@ -748,6 +831,33 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return assignment.pr_merged
         merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
         return str(obj.id) in merged_report_ids if merged_report_ids is not None else False
+
+    @staticmethod
+    def _get_tracker_issue(obj: SignalReport) -> SignalReportTrackerIssue | None:
+        # Reverse OneToOne: RelatedObjectDoesNotExist subclasses AttributeError, so getattr
+        # degrades to None for reports with no tracker issue. The viewset select_related()s it.
+        return getattr(obj, "tracker_issue", None)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_tracker_issue_url(self, obj: SignalReport) -> str | None:
+        tracker = self._get_tracker_issue(obj)
+        if tracker is None or tracker.status != SignalReportTrackerIssue.Status.CREATED:
+            return None
+        return tracker.issue_url or None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_tracker_issue_reference(self, obj: SignalReport) -> str | None:
+        tracker = self._get_tracker_issue(obj)
+        if tracker is None or tracker.status != SignalReportTrackerIssue.Status.CREATED:
+            return None
+        return issue_reference(tracker)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_tracker_issue_error(self, obj: SignalReport) -> str | None:
+        tracker = self._get_tracker_issue(obj)
+        if tracker is None or tracker.status != SignalReportTrackerIssue.Status.FAILED:
+            return None
+        return tracker.failure_reason or "Could not open the tracker issue."
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:

@@ -57,6 +57,7 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     record_implementation_task,
 )
+from products.signals.backend.tracker_issues import branch_identifier, create_tracker_issue_for_report
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -194,7 +195,7 @@ _PR_DESCRIPTION_FORM_RULES = (
 SELF_DRIVING_HEAD_BRANCH_PREFIX = "posthog-self-driving/"
 
 
-def _generate_self_driving_head_branch(title: str) -> str:
+def _generate_self_driving_head_branch(title: str, tracker_identifier: str | None = None) -> str:
     """A unique, human-readable PR head branch for an implementation run.
 
     Generated server-side before the agent runs and stamped into PATCH-protected run state, so
@@ -202,12 +203,17 @@ def _generate_self_driving_head_branch(title: str) -> str:
     can write (see tasks' ``find_signal_implementation_run``). The slug keeps branch names
     readable; the random suffix is only there to prevent collisions between runs off similarly
     titled reports.
+
+    ``tracker_identifier`` is the team's tracker issue for this run, when it has one. Linear links
+    a pull request whose branch name carries the issue identifier, so carrying it here makes that
+    link without an API call.
     """
     slug = slugify(title)
     if len(slug) > 40:
         # Cut at a word boundary so the name doesn't end mid-word.
         slug = slug[:40].rsplit("-", 1)[0] if "-" in slug[:40] else slug[:40]
-    return f"{SELF_DRIVING_HEAD_BRANCH_PREFIX}{slug or 'implementation'}-{secrets.token_hex(3)}"
+    identifier_part = f"{slugify(tracker_identifier)}-" if tracker_identifier else ""
+    return f"{SELF_DRIVING_HEAD_BRANCH_PREFIX}{identifier_part}{slug or 'implementation'}-{secrets.token_hex(3)}"
 
 
 def _head_branch_instruction(head_branch: str) -> str:
@@ -397,7 +403,12 @@ def _create_implementation_task_if_absent(
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
 
-    head_branch = _generate_self_driving_head_branch(title)
+    # Also outside the lock: opening the tracker issue calls the provider. It runs before the
+    # branch name is chosen so a Linear identifier can go into that name, and it never raises, so
+    # a tracker that is down or misconfigured cannot stop the run.
+    tracker = create_tracker_issue_for_report(team_id=team_id, report_id=report_id, repository=repository)
+
+    head_branch = _generate_self_driving_head_branch(title, branch_identifier(tracker))
     description = description + _head_branch_instruction(head_branch)
 
     exempt_reason: str | None = None

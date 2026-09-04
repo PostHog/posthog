@@ -337,18 +337,21 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
 
 
 @pytest.mark.parametrize(
-    "title,expected_slug",
+    "title,tracker_identifier,expected_slug",
     [
-        ("Fix date filtering in weekly digests", "fix-date-filtering-in-weekly-digests"),
+        ("Fix date filtering in weekly digests", None, "fix-date-filtering-in-weekly-digests"),
         # slugify strips everything, so the fallback keeps the branch a valid git ref instead of
         # producing "posthog-self-driving/-<hex>".
-        ("🎉🎉", "implementation"),
+        ("🎉🎉", None, "implementation"),
         # A slug over 40 chars truncates at a word boundary, never mid-word or on a trailing hyphen.
-        ("date filtering breaks week over week comparisons badly", "date-filtering-breaks-week-over-week"),
+        ("date filtering breaks week over week comparisons badly", None, "date-filtering-breaks-week-over-week"),
+        # Linear links a PR off its identifier in the branch name, so the identifier leads and stays
+        # a valid git ref.
+        ("Fix date filtering", "ENG-123", "eng-123-fix-date-filtering"),
     ],
 )
-def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected_slug):
-    branch = _generate_self_driving_head_branch(title)
+def test_generate_self_driving_head_branch_is_readable_and_valid(title, tracker_identifier, expected_slug):
+    branch = _generate_self_driving_head_branch(title, tracker_identifier)
 
     assert re.fullmatch(rf"posthog-self-driving/{re.escape(expected_slug)}-[0-9a-f]{{6}}", branch)
 
