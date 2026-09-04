@@ -39,6 +39,11 @@ def begin_scan(inventory: ReaperInventory) -> None:
     inventory.save(update_fields=["status", "updated_at"])
 
 
+def abandon_scan(inventory: ReaperInventory) -> None:
+    inventory.status = InventoryStatus.IDLE
+    inventory.save(update_fields=["status", "updated_at"])
+
+
 def record_scan(
     inventory: ReaperInventory, drafts: Sequence[ClusterDraft], *, head_sha: str, now: datetime
 ) -> ScanOutcome:

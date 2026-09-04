@@ -1,4 +1,6 @@
 import re
+import shutil
+import tempfile
 import subprocess
 from collections.abc import Iterable, Sequence
 from datetime import datetime
@@ -50,10 +52,10 @@ class ReferenceCount:
 
 
 @frozen
-class GrepLine:
+class Match:
     path: str
     line_number: int
-    content: str
+    text: str
 
 
 class RepoIndex:
@@ -86,37 +88,55 @@ class RepoIndex:
                 keys[match.group(1)] = match.group(2)
         return keys
 
-    def grep(self, patterns: Sequence[str], *, excludes: Iterable[str] = DEFAULT_EXCLUDES) -> list[GrepLine]:
-        if not patterns:
+    def find_literals(
+        self, literals: Sequence[str], *, whole_words: bool, excludes: Iterable[str] = DEFAULT_EXCLUDES
+    ) -> list[Match]:
+        if not literals:
             return []
-        args = ["grep", "-n", "-I", "-w", "-F"]
-        for pattern in patterns:
-            args += ["-e", pattern]
-        args += ["--", "."]
-        args += [f":(exclude,glob){glob}" for glob in excludes]
-        lines: list[GrepLine] = []
-        for raw in self._git(*args).splitlines():
+        rg = shutil.which("rg")
+        if rg is None:
+            raise RuntimeError("ripgrep (rg) is required for reference scans")
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write("\n".join(literals) + "\n")
+            pattern_file = handle.name
+        args = [rg, "-n", "-o", "-F", "--no-messages", "-f", pattern_file]
+        if whole_words:
+            args.append("-w")
+        for glob in excludes:
+            args += ["--glob", f"!{glob}"]
+        try:
+            result = subprocess.run(args, cwd=self.root, capture_output=True, text=True, check=False)
+        finally:
+            Path(pattern_file).unlink(missing_ok=True)
+        if result.returncode not in (0, 1):
+            raise RuntimeError(f"rg failed: {result.stderr.strip()}")
+        matches: list[Match] = []
+        for raw in result.stdout.splitlines():
             path, _, rest = raw.partition(":")
-            number, _, content = rest.partition(":")
-            if not number.isdigit():
+            number, _, text = rest.partition(":")
+            if not (number.isascii() and number.isdigit()):
                 continue
-            lines.append(GrepLine(path=path, line_number=int(number), content=content))
-        return lines
+            matches.append(Match(path=path, line_number=int(number), text=text))
+        return matches
 
     def references_many(
-        self, patterns_by_key: dict[str, Sequence[str]], *, excludes: Iterable[str] = DEFAULT_EXCLUDES
+        self, literals_by_key: dict[str, Sequence[str]], *, excludes: Iterable[str] = DEFAULT_EXCLUDES
     ) -> dict[str, ReferenceCount]:
-        all_patterns = sorted({p for patterns in patterns_by_key.values() for p in patterns})
-        lines = self.grep(all_patterns, excludes=excludes)
-        files_by_key: dict[str, set[str]] = {key: set() for key in patterns_by_key}
-        totals: dict[str, int] = dict.fromkeys(patterns_by_key, 0)
-        for line in lines:
-            for key, patterns in patterns_by_key.items():
-                if any(_contains_word(line.content, pattern) for pattern in patterns):
-                    files_by_key[key].add(line.path)
-                    totals[key] += 1
+        key_by_literal = {literal: key for key, literals in literals_by_key.items() for literal in literals}
+        words = sorted(literal for literal in key_by_literal if _is_word(literal))
+        others = sorted(literal for literal in key_by_literal if not _is_word(literal))
+        matches = self.find_literals(words, whole_words=True, excludes=excludes)
+        matches += self.find_literals(others, whole_words=False, excludes=excludes)
+        files_by_key: dict[str, set[str]] = {key: set() for key in literals_by_key}
+        totals: dict[str, int] = dict.fromkeys(literals_by_key, 0)
+        for match in matches:
+            key = key_by_literal.get(match.text)
+            if key is None:
+                continue
+            files_by_key[key].add(match.path)
+            totals[key] += 1
         return {
-            key: ReferenceCount(files=tuple(sorted(files_by_key[key])), total=totals[key]) for key in patterns_by_key
+            key: ReferenceCount(files=tuple(sorted(files_by_key[key])), total=totals[key]) for key in literals_by_key
         }
 
     def last_real_commit(self, path: str, *, limit: int = 30) -> CommitStamp | None:
@@ -156,14 +176,5 @@ class RepoIndex:
 _SKIP_DIRS = frozenset({"node_modules", "__pycache__", "generated", "migrations", "__snapshots__", "dist", "build"})
 
 
-def _contains_word(haystack: str, needle: str) -> bool:
-    start = 0
-    while (index := haystack.find(needle, start)) != -1:
-        before = haystack[index - 1] if index else ""
-        after = haystack[index + len(needle) : index + len(needle) + 1]
-        starts_clean = not (_WORD.match(needle[0]) and _WORD.match(before))
-        ends_clean = not (_WORD.match(needle[-1]) and _WORD.match(after))
-        if starts_clean and ends_clean:
-            return True
-        start = index + 1
-    return False
+def _is_word(literal: str) -> bool:
+    return bool(literal) and _WORD.match(literal[0]) is not None and _WORD.match(literal[-1]) is not None
