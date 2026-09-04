@@ -75,7 +75,9 @@ Expiry: an entry is ACTIVE while ``today (UTC) <= expires``; past that it is
 inert — not an error — and the test blocks CI normally again. ``check`` is
 where staleness becomes a failure: entries expired for more than the grace
 period must be removed, and ``expires - added`` may not exceed
-``MAX_QUARANTINE_DAYS``.
+``MAX_QUARANTINE_DAYS``. ``check`` only tells whoever runs it, so ``report``
+(see ``report.py``) pushes the same verdict to each entry's ``owner`` from a
+scheduled CI run.
 
 Forward compatibility: readers warn on (and preserve) unknown entry fields,
 tolerate entries for unknown runners (filtered out by ``active_entries``,
@@ -94,6 +96,9 @@ from typing import Any
 SCHEMA_VERSION = 1
 MAX_QUARANTINE_DAYS = 30
 DEFAULT_GRACE_DAYS = 7
+# How long before `expires` an entry is called out as expiring soon. Only the
+# expiry reporter uses it; `check` stays silent until an entry actually lapses.
+DEFAULT_SOON_DAYS = 7
 PYTEST_RUNNER = "pytest"  # also the schema default when an entry omits `runner`
 JEST_RUNNER = "jest"
 PLAYWRIGHT_RUNNER = "playwright"
@@ -103,6 +108,14 @@ PLAYWRIGHT_RUNNER = "playwright"
 # kept but only informational; ``check`` warns, never errors.
 ADAPTED_RUNNERS = (PYTEST_RUNNER, JEST_RUNNER, PLAYWRIGHT_RUNNER)
 MODES = ("run", "skip")
+
+# Where an entry sits against its expiry date. `check` turns OVERDUE into a
+# violation and IN_GRACE into a warning; EXPIRING_SOON exists for the reporter,
+# which warns owners before the entry lapses.
+ACTIVE = "active"
+EXPIRING_SOON = "expiring-soon"
+IN_GRACE = "in-grace"
+OVERDUE = "overdue"
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 QUARANTINE_PATH = REPO_ROOT / ".test_quarantine.json"
@@ -223,6 +236,28 @@ def _parse_entry(raw: Any, index: int, result: LoadResult) -> Entry | None:
 
 def is_active(entry: Entry, today: date) -> bool:
     return today <= entry.expires
+
+
+def days_expired(entry: Entry, today: date) -> int:
+    """Days since ``expires``; negative while the entry is still active."""
+    return (today - entry.expires).days
+
+
+def lifecycle(
+    entry: Entry,
+    today: date,
+    grace_days: int = DEFAULT_GRACE_DAYS,
+    soon_days: int = DEFAULT_SOON_DAYS,
+) -> str:
+    """Where ``entry`` sits against its expiry date, as one of the states above."""
+    expired_for = days_expired(entry, today)
+    if expired_for > grace_days:
+        return OVERDUE
+    if expired_for > 0:
+        return IN_GRACE
+    if -expired_for <= soon_days:
+        return EXPIRING_SOON
+    return ACTIVE
 
 
 def active_entries(entries: list[Entry], runner: str, today: date) -> list[Entry]:
@@ -364,10 +399,11 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
         if entry.added > today:
             violations.append(f"{label}: added {entry.added} is in the future")
 
-        expired_for = (today - entry.expires).days
-        if expired_for > grace_days:
+        expired_for = days_expired(entry, today)
+        state = lifecycle(entry, today, grace_days)
+        if state == OVERDUE:
             violations.append(f"{label}: expired {expired_for} days ago (grace is {grace_days}) — remove or re-triage")
-        elif expired_for > 0:
+        elif state == IN_GRACE:
             days_left = grace_days - expired_for
             deadline = f"within {days_left} days" if days_left else "today — grace period ends"
             warnings.append(f"{label}: expired {expired_for} days ago — remove {deadline}")

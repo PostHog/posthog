@@ -1,14 +1,30 @@
 name: Test quarantine
 
+# Two lanes over the same contract. On a pull request, `check` lints the file
+# the author is editing. On a weekday cron, `report` tells the owners of entries
+# that are close to (or past) `expires`, because otherwise the only reader of
+# the expiry verdict is whoever already opened the file, and an entry nobody
+# revisits keeps a known-broken test out of CI for good.
+
 on:
     pull_request:
         paths:
             - .test_quarantine.json
             - tools/hogli-commands/hogli_commands/quarantine/**
             - .github/workflows/test-quarantine.yml
+    schedule:
+        - cron: '20 8 * * 1-5' # weekday mornings; the digest asks for work, so it waits for a work day
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print the report instead of touching the tracking issue'
+                type: boolean
+                default: true
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The cron gets its own group: sharing the ref group would let one run hold
+    # the slot while master pushes queue behind it.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -16,6 +32,7 @@ permissions:
 
 jobs:
     check-quarantine:
+        if: github.event_name == 'pull_request'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
@@ -36,3 +53,48 @@ jobs:
               # environment: the quarantine core is stdlib-only and the CLI needs
               # only click, so quarantine PRs stay decoupled from lockfile health.
               run: PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli check
+
+    report-expiry:
+        name: Report entries near expiry to their owners
+        # Only the canonical repo has the issue to reconcile. Manual dispatch is
+        # master-only so a branch cannot rewrite the report from a PR.
+        if: >-
+            github.event_name != 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            issues: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /.test_quarantine.json
+                      /tools/hogli-commands/
+                      /pyproject.toml
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+
+            - name: Report entries near expiry
+              # Same stdlib-plus-click invocation as the check above, so the
+              # digest never waits on lockfile health.
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  # Click reads this as the --dry-run flag, so 'false' stays false.
+                  QUARANTINE_REPORT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+                  WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/test-quarantine.yml
+              run: |
+                  PYTHONPATH=tools/hogli-commands uv run --no-project --with click \
+                      python -m hogli_commands.quarantine.cli report --workflow-url "$WORKFLOW_URL"

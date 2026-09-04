@@ -7,6 +7,7 @@ Schema contract and selector grammar: ``hogli_commands.quarantine.core``.
     hogli test:quarantine list [--json]
     hogli test:quarantine remove <id>
     hogli test:quarantine check [--grace-days 7]
+    hogli test:quarantine report [--repo owner/name] [--dry-run]
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ from pathlib import Path
 
 import click
 
-from hogli_commands.quarantine import core
+from hogli_commands.quarantine import (
+    core,
+    report as report_module,
+)
 
 
 @click.group(name="test:quarantine", help="Manage .test_quarantine.json — flaky tests that must not block CI.")
@@ -141,6 +145,60 @@ def check(path: Path, grace_days: int) -> None:
     if violations:
         raise SystemExit(1)
     click.echo(f"{path.name} OK ({len(result.entries)} entries).")
+
+
+@quarantine.command(
+    name="report", help="Report entries near or past expiry to their owners (used by the daily CI run)."
+)
+@click.option(
+    "--repo",
+    envvar="GITHUB_REPOSITORY",
+    default="",
+    help="GitHub repository ('owner/name') holding the tracking issue; defaults to $GITHUB_REPOSITORY.",
+)
+@click.option(
+    "--grace-days",
+    type=click.IntRange(min=0),
+    default=core.DEFAULT_GRACE_DAYS,
+    show_default=True,
+    help="Days an expired entry may linger before removal becomes mandatory.",
+)
+@click.option(
+    "--soon-days",
+    type=click.IntRange(min=0),
+    default=core.DEFAULT_SOON_DAYS,
+    show_default=True,
+    help="How long before expiry an entry is reported, so owners hear about it before it lapses.",
+)
+@click.option("--workflow-url", default="", help="Link back to the run that produced the report.")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    envvar="QUARANTINE_REPORT_DRY_RUN",
+    help="Print the report instead of editing the tracking issue; the issue is still read.",
+)
+@click.pass_obj
+def report(path: Path, repo: str, grace_days: int, soon_days: int, workflow_url: str, dry_run: bool) -> None:
+    if not repo:
+        raise click.ClickException("--repo (or $GITHUB_REPOSITORY) is required")
+    # A malformed file silently drops entries, so reporting "all clear" from it
+    # would be worse than saying nothing.
+    result = _load_for_writing(path)
+    built, action = report_module.run(
+        result.entries,
+        core.today_utc(),
+        repo=repo,
+        grace_days=grace_days,
+        soon_days=soon_days,
+        workflow_url=workflow_url,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        click.echo(built.body)
+        if built.comment is not None:
+            click.echo(f"\n--- comment ---\n{built.comment}")
+        return
+    click.echo(action)
 
 
 # Direct invocation needs only click + stdlib (used by test-quarantine.yml to
