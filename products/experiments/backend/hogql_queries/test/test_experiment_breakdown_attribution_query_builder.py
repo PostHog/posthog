@@ -5,6 +5,7 @@ from posthog.schema import (
     BreakdownAttributionType,
     BreakdownFilter,
     EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     StepOrderValue,
 )
@@ -271,6 +272,27 @@ class TestExperimentBreakdownAttributionQueryBuilder:
 
         try:
             builder.inject_funnel_breakdown_columns_optimized(query)
+            raise AssertionError("expected NotImplementedError")
+        except NotImplementedError:
+            pass
+
+    def test_data_warehouse_step_with_breakdown_is_rejected(self):
+        # A data-warehouse funnel step replaces the metric_events CTE with a UNION whose branches
+        # carry no breakdown column, so a breakdown attributed from metric_events would reference a
+        # column no branch produces and ClickHouse would fail on an unknown column. It must raise
+        # until integration adds a real design for breakdowns on warehouse rows.
+        metric = _funnel_metric(num_steps=2)
+        metric.series[1] = ExperimentDataWarehouseNode(
+            table_name="revenue_table",
+            timestamp_field="purchase_date",
+            data_warehouse_join_key="user_id",
+            events_join_key="properties.$user_id",
+        )
+        builder = _builder(metric)
+        query = _optimized_query()
+
+        try:
+            builder.inject_funnel_breakdown_columns(query)
             raise AssertionError("expected NotImplementedError")
         except NotImplementedError:
             pass

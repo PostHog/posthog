@@ -33,6 +33,20 @@ class ExperimentBreakdownAttributionQueryBuilder:
         """This builder attributes from the metric event, so the exposure query stays breakdown-free."""
         return False
 
+    def _reject_unsupported_combinations(self) -> None:
+        """Reject metric shapes this builder cannot attribute correctly yet.
+
+        A data-warehouse funnel step replaces the ``metric_events`` CTE with a UNION over the
+        events table and the warehouse tables. Those branches carry no breakdown column, so a
+        breakdown attributed from ``metric_events`` would reference a column no branch produces.
+        Attributing a breakdown off warehouse rows needs a design this builder does not have, so
+        the combination is rejected until integration adds it.
+        """
+        if self.context.has_data_warehouse_step():
+            raise NotImplementedError(
+                "breakdowns on data-warehouse funnel steps are not yet supported for experiment funnels"
+            )
+
     def build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
         """Returns (alias, expression) tuples reading each breakdown property off the metric event.
 
@@ -214,6 +228,7 @@ class ExperimentBreakdownAttributionQueryBuilder:
         """
         if not self.context.has_breakdown():
             return
+        self._reject_unsupported_combinations()
 
         aliases = self.context.breakdown_aliases()
         breakdown_exprs = self.build_breakdown_exprs(table_alias="")
@@ -239,6 +254,7 @@ class ExperimentBreakdownAttributionQueryBuilder:
         """Optimized 2-CTE path: base_events + entity_metrics (no exposures CTE)."""
         if not self.context.has_breakdown():
             return
+        self._reject_unsupported_combinations()
 
         aliases = self.context.breakdown_aliases()
         breakdown_exprs = self.build_breakdown_exprs(table_alias="")

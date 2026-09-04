@@ -14,7 +14,13 @@ Scope: funnel metrics only, for now. The context and the builder replace the
 old injector once every metric type migrates to metric-event breakdowns.
 """
 
-from posthog.schema import Breakdown, BreakdownAttributionType, ExperimentFunnelMetric, StepOrderValue
+from posthog.schema import (
+    Breakdown,
+    BreakdownAttributionType,
+    ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
+    StepOrderValue,
+)
 
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 
@@ -47,6 +53,9 @@ class ExperimentBreakdownAttributionContext:
 
     def has_breakdown(self) -> bool:
         return len(self.breakdowns) > 0
+
+    def has_data_warehouse_step(self) -> bool:
+        return any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
 
     def breakdown_aliases(self) -> list[str]:
         return [f"breakdown_value_{i + 1}" for i in range(len(self.breakdowns))]
