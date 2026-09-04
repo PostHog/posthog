@@ -40,6 +40,9 @@ permissions:
 
 env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
 
 jobs:
     # Job to decide if we should run frontend ci
@@ -1206,7 +1209,7 @@ jobs:
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - run: exit 0
             - name: Check outcomes
