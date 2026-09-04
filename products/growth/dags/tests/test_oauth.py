@@ -3,6 +3,7 @@ from datetime import timedelta
 import unittest.mock
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.db.models import Q
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -86,7 +87,13 @@ class TestBatchDeleteFunctionality(TestCase):
             algorithm="RS256",
         )
 
-    @override_settings(CLEAR_EXPIRED_TOKENS_BATCH_SIZE=2, CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL=0.01)
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 2,
+            "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 0,
+        }
+    )
     def test_batch_delete_model_with_small_batches(self):
         """Test batch deletion with small batch sizes."""
         # Create multiple expired tokens
@@ -107,11 +114,14 @@ class TestBatchDeleteFunctionality(TestCase):
         queryset = OAuthAccessToken.objects.filter(query)
         context = dagster.build_op_context()
 
-        deleted_count = batch_delete_model(queryset, query, context, "test_tokens")
+        # One pause per batch, so the call count shows the configured batch size is in force.
+        with unittest.mock.patch("products.growth.dags.oauth.time.sleep") as mock_sleep:
+            deleted_count = batch_delete_model(queryset, context, "test_tokens")
 
         # Verify all tokens were deleted
         self.assertEqual(deleted_count, 5)
         self.assertEqual(OAuthAccessToken.objects.count(), 0)
+        self.assertEqual(mock_sleep.call_count, 3)
 
     def test_batch_delete_model_with_no_tokens(self):
         """Test batch deletion when no tokens match the query."""
@@ -119,7 +129,7 @@ class TestBatchDeleteFunctionality(TestCase):
         queryset = OAuthAccessToken.objects.filter(query)
         context = dagster.build_op_context()
 
-        deleted_count = batch_delete_model(queryset, query, context, "test_tokens")
+        deleted_count = batch_delete_model(queryset, context, "test_tokens")
 
         self.assertEqual(deleted_count, 0)
 
