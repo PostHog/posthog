@@ -216,6 +216,7 @@ export function HogFlowTreeNode({
                             />
                         )}
                     </CollapsibleContent>
+                    <div className="h-2 group-data-[open]/collapsible:hidden" aria-hidden="true" />
                 </Collapsible>
             )}
         </div>
