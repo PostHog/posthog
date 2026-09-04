@@ -170,6 +170,21 @@ def increment_report_run_deferred(reason: str) -> None:
     ).add(1)
 
 
+STRANDED_OUTCOME_FAILED = "failed"
+STRANDED_OUTCOME_SKIPPED_RUNNING = "skipped_running"
+STRANDED_OUTCOME_SKIPPED_CHANGED = "skipped_changed"
+
+
+def increment_stranded_report_reconciled(outcome: str) -> None:
+    """Count an `in_progress` report the stranded-report reconciler examined, by what it did with it."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"outcome": outcome}).create_counter(
+        "signals_stranded_reports_reconciled_total",
+        "In-progress signal reports examined by the stranded-report reconciler, by outcome",
+    ).add(1)
+
+
 def increment_scout_run(status: str) -> None:
     """Count a scout run by terminal status."""
     if not _in_temporal_context():
