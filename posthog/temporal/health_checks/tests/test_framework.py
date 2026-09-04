@@ -20,6 +20,7 @@ def _registration(**overrides: Any) -> HealthCheckRegistration:
         "active_since_days": 90,
         "product": None,
         "remediation": None,
+        "access_controlled_resource": None,
     }
     fields.update(overrides)
     return HealthCheckRegistration(**fields)
