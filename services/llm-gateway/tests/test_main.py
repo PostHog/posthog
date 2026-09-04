@@ -19,6 +19,7 @@ _EXPORTED_ENV_VARS = (
     "AWS_REGION",
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
+    "OPENAI_ORGANIZATION",
     "OPENAI_ORG_ID",
     "OPENROUTER_API_KEY",
     "FIREWORKS_API_KEY",
@@ -38,6 +39,13 @@ class TestExportProviderCredentials:
     @pytest.mark.parametrize(
         "setting_name,setting_value,expected_env,expected_value",
         [
+            pytest.param(
+                "openai_organization",
+                "org-test-fixture",
+                "OPENAI_ORGANIZATION",
+                "org-test-fixture",
+                id="openai_organization_to_OPENAI_ORGANIZATION",
+            ),
             pytest.param(
                 "openai_organization",
                 "org-test-fixture",
@@ -126,19 +134,19 @@ class TestExportProviderCredentials:
         # If LLM_GATEWAY_OPENAI_ORGANIZATION is not set, an org id that was
         # already present in the environment (e.g. set by the runtime) must
         # survive untouched.
-        monkeypatch.setenv("OPENAI_ORG_ID", "org-preset-by-runtime")
+        monkeypatch.setenv("OPENAI_ORGANIZATION", "org-preset-by-litellm")
+        monkeypatch.setenv("OPENAI_ORG_ID", "org-preset-by-sdk")
         settings = Settings()
 
         export_provider_credentials(settings)
 
-        assert os.environ["OPENAI_ORG_ID"] == "org-preset-by-runtime"
+        assert os.environ["OPENAI_ORGANIZATION"] == "org-preset-by-litellm"
+        assert os.environ["OPENAI_ORG_ID"] == "org-preset-by-sdk"
 
     def test_settings_picks_up_env_prefixed_organization(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # End-to-end: LLM_GATEWAY_OPENAI_ORGANIZATION → Settings.openai_organization
-        # → OPENAI_ORG_ID, which is what litellm / the OpenAI SDK read.
         monkeypatch.setenv("LLM_GATEWAY_OPENAI_ORGANIZATION", "org-test-fixture")
         get_settings.cache_clear()
 
@@ -146,6 +154,7 @@ class TestExportProviderCredentials:
         assert settings.openai_organization == "org-test-fixture"
 
         export_provider_credentials(settings)
+        assert os.environ["OPENAI_ORGANIZATION"] == "org-test-fixture"
         assert os.environ["OPENAI_ORG_ID"] == "org-test-fixture"
 
     def test_settings_picks_up_env_prefixed_base_url(

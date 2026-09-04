@@ -159,6 +159,7 @@ def export_provider_credentials(settings: Settings) -> None:
     if settings.openai_api_base_url:
         os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
     if settings.openai_organization:
+        os.environ["OPENAI_ORGANIZATION"] = settings.openai_organization
         os.environ["OPENAI_ORG_ID"] = settings.openai_organization
     if settings.openrouter_api_key:
         os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key

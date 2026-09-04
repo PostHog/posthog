@@ -167,15 +167,18 @@ The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's mod
 
 Set `LLM_GATEWAY_OPENAI_ORGANIZATION` to attribute all outbound OpenAI traffic
 to a specific OpenAI organization (e.g. a HIPAA-covered organization with
-Zero Data Retention enabled). The gateway exports this as `OPENAI_ORG_ID` at
-startup so the OpenAI SDK (via litellm) forwards it on every request.
+Zero Data Retention enabled). The gateway exports this as both
+`OPENAI_ORGANIZATION` and `OPENAI_ORG_ID` at startup. This makes the explicit
+gateway setting authoritative for both litellm and the OpenAI SDK. The Responses
+route also sends the resolved organization as an `OpenAI-Organization` header.
 
 When `LLM_GATEWAY_OPENAI_ORGANIZATION` is unset, the gateway preserves an
-ambient `OPENAI_ORG_ID`. When neither variable is set, OpenAI infers the
-organization from the API key.
+ambient `OPENAI_ORGANIZATION` or `OPENAI_ORG_ID`, in that order. When neither
+variable is set, OpenAI infers the organization from the API key.
 
-The `organization` field is also in `FORBIDDEN_REQUEST_PARAMS`, so caller-supplied
-values are stripped — only the gateway-configured organization reaches OpenAI.
+Provider credential fields and header containers are in `FORBIDDEN_REQUEST_PARAMS`,
+so callers cannot override the server-selected key or organization through the
+request body.
 
 ### Startup credential check
 
@@ -189,11 +192,12 @@ request to OpenAI.
 
 The check uses the OpenAI SDK with the same effective key, organization, and
 base URL as live requests. This includes ambient `OPENAI_API_KEY`,
-`OPENAI_ORG_ID`, and `OPENAI_BASE_URL` values when the matching
-`LLM_GATEWAY_*` setting is not set. It sends one `GET /v1/models` request. Only
-a `401` stops the pod from booting. A `403` from an edge or proxy in front of
-OpenAI, any other error status, an unreachable provider, and a reply the gateway
-cannot read are all treated as inconclusive and let the pod start.
+`OPENAI_ORGANIZATION`, `OPENAI_ORG_ID`, `OPENAI_BASE_URL`, and `OPENAI_API_BASE`
+values when the matching `LLM_GATEWAY_*` setting is not set. It sends one
+`GET /v1/models` request. Only a `401` stops the pod from booting. A `403` from
+an edge or proxy in front of OpenAI, any other error status, an unreachable
+provider, and a reply the gateway cannot read are all treated as inconclusive
+and let the pod start.
 
 Set `LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED=false` to skip the check, for
 example when an operator must start a pod that OpenAI rejects. The gateway also

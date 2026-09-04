@@ -4,8 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import openai
 import pytest
+from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
-from llm_gateway.openai_credentials import OpenAICredentialError, verify_openai_credentials
+from llm_gateway.openai_credentials import (
+    OpenAICredentialError,
+    make_openai_responses_call,
+    verify_openai_credentials,
+)
 
 
 def _make_settings(**overrides: Any) -> MagicMock:
@@ -57,7 +62,13 @@ def _patch_real_client(content: bytes, content_type: str, status: int = 200) -> 
 
 @pytest.fixture(autouse=True)
 def _isolate_openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for variable in ("OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_BASE_URL"):
+    for variable in (
+        "OPENAI_API_KEY",
+        "OPENAI_ORGANIZATION",
+        "OPENAI_ORG_ID",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+    ):
         monkeypatch.delenv(variable, raising=False)
 
 
@@ -68,7 +79,9 @@ class TestVerifyOpenAICredentials:
         with client_patch, pytest.raises(OpenAICredentialError, match="invalid_organization"):
             await verify_openai_credentials(_make_settings())
 
-    async def test_uses_the_effective_sdk_configuration(self) -> None:
+    async def test_uses_the_effective_sdk_configuration(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_ORGANIZATION", "org-ambient")
+        monkeypatch.setenv("OPENAI_API_BASE", "https://ambient.example.com/v1")
         client_patch, client = _patch_client()
         settings = _make_settings(openai_api_base_url="https://eu.api.openai.com/v1")
 
@@ -83,8 +96,8 @@ class TestVerifyOpenAICredentials:
 
     async def test_uses_ambient_sdk_configuration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-ambient")
-        monkeypatch.setenv("OPENAI_ORG_ID", "org-ambient")
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://proxy.example.com/v1")
+        monkeypatch.setenv("OPENAI_ORGANIZATION", "org-ambient")
+        monkeypatch.setenv("OPENAI_API_BASE", "https://proxy.example.com/v1")
         client_patch, _ = _patch_client()
 
         with client_patch as client_class:
@@ -95,6 +108,22 @@ class TestVerifyOpenAICredentials:
         assert client_class.call_args.kwargs["api_key"] == "sk-ambient"
         assert client_class.call_args.kwargs["organization"] == "org-ambient"
         assert client_class.call_args.kwargs["base_url"] == "https://proxy.example.com/v1"
+
+    async def test_matches_litellm_environment_precedence(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-ambient")
+        monkeypatch.setenv("OPENAI_ORGANIZATION", "org-litellm")
+        monkeypatch.setenv("OPENAI_ORG_ID", "org-sdk")
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://primary.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_BASE", "https://legacy.example.com/v1")
+        client_patch, _ = _patch_client()
+
+        with client_patch as client_class:
+            await verify_openai_credentials(
+                _make_settings(openai_api_key=None, openai_organization=None, openai_api_base_url=None)
+            )
+
+        assert client_class.call_args.kwargs["organization"] == "org-litellm"
+        assert client_class.call_args.kwargs["base_url"] == "https://primary.example.com/v1"
 
     @pytest.mark.parametrize(
         "answer",
@@ -146,3 +175,51 @@ class TestVerifyOpenAICredentials:
             await verify_openai_credentials(settings)
 
         client_class.assert_not_called()
+
+
+class TestOpenAIResponsesCall:
+    async def test_uses_server_credentials_on_the_outbound_request(self) -> None:
+        requests: list[httpx.Request] = []
+        response_body = {
+            "id": "resp_test",
+            "object": "response",
+            "created_at": 1,
+            "status": "completed",
+            "model": "gpt-4.1",
+            "output": [],
+            "parallel_tool_calls": True,
+            "tools": [],
+            "metadata": {},
+            "usage": {
+                "input_tokens": 1,
+                "input_tokens_details": {"cached_tokens": 0},
+                "output_tokens": 1,
+                "output_tokens_details": {"reasoning_tokens": 0},
+                "total_tokens": 2,
+            },
+        }
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json=response_body)
+
+        http_handler = AsyncHTTPHandler()
+        await http_handler.client.aclose()
+        http_handler.client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+
+        try:
+            llm_call = make_openai_responses_call(_make_settings(openai_api_base_url="https://proxy.example.com/v1"))
+            await llm_call(
+                model="openai/gpt-4.1",
+                input="Hello",
+                headers={"Authorization": "Bearer attacker"},
+                extra_headers={"OpenAI-Organization": "org-attacker"},
+                client=http_handler,
+            )
+        finally:
+            await http_handler.client.aclose()
+
+        assert len(requests) == 1
+        assert requests[0].url == "https://proxy.example.com/v1/responses"
+        assert requests[0].headers["Authorization"] == "Bearer sk-test"
+        assert requests[0].headers["OpenAI-Organization"] == "org-test"

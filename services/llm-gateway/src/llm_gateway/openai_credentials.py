@@ -1,6 +1,9 @@
 import os
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
+import litellm
 import openai
 import structlog
 
@@ -16,6 +19,37 @@ class OpenAICredentialError(RuntimeError):
     pass
 
 
+def resolve_openai_api_key(settings: Settings) -> str | None:
+    return settings.openai_api_key or os.environ.get("OPENAI_API_KEY")
+
+
+def resolve_openai_organization(settings: Settings) -> str | None:
+    return settings.openai_organization or os.environ.get("OPENAI_ORGANIZATION") or os.environ.get("OPENAI_ORG_ID")
+
+
+def resolve_openai_base_url(settings: Settings) -> str | None:
+    return settings.openai_api_base_url or os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE")
+
+
+def make_openai_responses_call(settings: Settings) -> Callable[..., Awaitable[Any]]:
+    api_key = resolve_openai_api_key(settings)
+    organization = resolve_openai_organization(settings)
+    base_url = resolve_openai_base_url(settings)
+
+    async def llm_call(**kwargs: Any) -> Any:
+        kwargs.pop("headers", None)
+        kwargs.pop("extra_headers", None)
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["api_base"] = base_url
+        if organization:
+            kwargs["extra_headers"] = {"OpenAI-Organization": organization}
+        return await litellm.aresponses(**kwargs)
+
+    return llm_call
+
+
 async def verify_openai_credentials(settings: Settings) -> None:
     """Reject startup when OpenAI returns 401 for the effective SDK credentials.
 
@@ -28,12 +62,12 @@ async def verify_openai_credentials(settings: Settings) -> None:
     if not settings.openai_credential_check_enabled:
         return
 
-    api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY")
+    api_key = resolve_openai_api_key(settings)
     if not api_key:
         return
 
-    organization = settings.openai_organization or os.environ.get("OPENAI_ORG_ID")
-    base_url = settings.openai_api_base_url or os.environ.get("OPENAI_BASE_URL")
+    organization = resolve_openai_organization(settings)
+    base_url = resolve_openai_base_url(settings)
 
     try:
         async with openai.AsyncOpenAI(
