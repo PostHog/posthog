@@ -176,11 +176,11 @@ pub async fn query_detail(
              AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5))
              AND kind NOT IN ('parse', 'bind')),
          r AS (
-           SELECT bucket, duration_ms, w, sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw,
+           SELECT bucket, duration_ms, sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw,
                   sum(w) OVER (PARTITION BY bucket) AS tw
            FROM d)
          SELECT bucket, count(*)::bigint AS samples,
-                count(*) FILTER (WHERE w > 1 OR $6::float8 <= 0)::bigint AS sampled,
+                count(*) FILTER (WHERE duration_ms < $6::float8 OR $6::float8 <= 0)::bigint AS sampled,
                 min(duration_ms) FILTER (WHERE cw >= 0.5 * tw)::float8 AS p50,
                 min(duration_ms) FILTER (WHERE cw >= 0.9 * tw)::float8 AS p90,
                 min(duration_ms) FILTER (WHERE cw >= 0.95 * tw)::float8 AS p95,
