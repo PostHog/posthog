@@ -342,7 +342,6 @@ export interface dashboardLogicValues {
     filterEditModeActive: boolean
     filtersDirty: boolean
     filtersOverrideForLoad: DashboardFilter
-    hasIntermittentFilters: boolean
     hasInvalidDashboardId: boolean
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
@@ -352,7 +351,6 @@ export interface dashboardLogicValues {
     initialDashboardSettingsOverride: DashboardSettings
     initialVariablesLoaded: boolean
     insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
-    intermittentFilters: DashboardFilter
     isPinned: boolean
     isRefreshing: (id: string) => boolean
     isRefreshingQueued: (id: string) => boolean
@@ -446,9 +444,6 @@ export interface dashboardLogicActions {
             widgetType: string
         }[]
     }
-    applyFilters: () => {
-        value: true
-    }
     applyPendingInsertion: () => {
         value: true
     }
@@ -520,9 +515,6 @@ export interface dashboardLogicActions {
         value: true
     }
     discardDashboardChanges: () => {
-        value: true
-    }
-    discardDashboardFilters: () => {
         value: true
     }
     discardLayoutChanges: () => {
@@ -717,20 +709,12 @@ export interface dashboardLogicActions {
     requestScrollToBottom: () => {
         value: true
     }
-    resetIntermittentFilters: () => boolean
     resetInterval: () => {
         value: true
     }
     resetUrlFilters: () => boolean
     resetUrlVariables: () => {
         value: true
-    }
-    restoreDashboardFilters: (
-        filters: DashboardFilter,
-        expectedFilters?: DashboardFilter
-    ) => {
-        expectedFilters: DashboardFilter | undefined
-        filters: DashboardFilter
     }
     restoreTemporaryColorState: (
         colors: BreakdownColorConfig[],
@@ -758,15 +742,6 @@ export interface dashboardLogicActions {
     }
     saveDashboardColorChanges: () => {
         value: true
-    }
-    saveDashboardFilters: () => {
-        value: true
-    }
-    saveDashboardFiltersFailure: (error: string) => {
-        error: string
-    }
-    saveDashboardFiltersSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
     saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
@@ -1106,7 +1081,6 @@ export interface dashboardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
-        hasIntermittentFilters: (intermittentFilters: DashboardFilter) => boolean
         hasUrlFilters: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             externalFilters: DashboardFilter,
@@ -1467,18 +1441,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveLayoutChanges: true,
         discardLayoutChanges: true,
         saveEditModeChanges: (scope: DashboardEditSaveScope) => ({ scope }),
-        saveDashboardFilters: true,
-        saveDashboardFiltersSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
-        saveDashboardFiltersFailure: (error: string) => ({ error }),
-        discardDashboardFilters: true,
         saveLayout: true,
         resetUrlFilters: () => true,
-        resetIntermittentFilters: () => true,
-        restoreDashboardFilters: (filters: DashboardFilter, expectedFilters?: DashboardFilter) => ({
-            filters,
-            expectedFilters,
-        }),
-        applyFilters: true,
         resetUrlVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
@@ -1624,7 +1588,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardStreaming: async ({ action }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action)
                     await breakpoint(200)
-                    actions.resetIntermittentFilters()
                     let metadataReceived = false
 
                     const disposeStream = await api.dashboards.streamTiles(
@@ -1971,9 +1934,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardFiltersSaving: [
             false,
             {
-                saveDashboardFilters: () => true,
-                saveDashboardFiltersSuccess: () => false,
-                saveDashboardFiltersFailure: () => false,
                 saveDashboardChanges: () => true,
                 saveDashboardChangesSuccess: () => false,
                 saveDashboardChangesFailure: () => false,
@@ -2004,7 +1964,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 overrideVariableValue: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
-                applyFilters: () => true,
                 previewDashboardChanges: () => true,
                 finishPreviewDashboardChanges: () => false,
             },
@@ -2209,8 +2168,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
                 },
-                saveDashboardFiltersSuccess: (state, { dashboard }) =>
-                    state && dashboard ? { ...state, persisted_filters: dashboard.persisted_filters } : state,
                 saveDashboardChangesSuccess: (state, { dashboard }) =>
                     state && dashboard
                         ? {
@@ -2572,50 +2529,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
 
-        intermittentFilters: [
-            {
-                date_from: undefined,
-                date_to: undefined,
-                properties: undefined,
-                breakdown_filter: undefined,
-                explicitDate: undefined,
-                interval: undefined,
-                filterTestAccounts: undefined,
-            } as DashboardFilter,
-            {
-                setDates: (state, { dateFrom, dateTo, explicitDate }) => ({
-                    ...state,
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                    explicitDate,
-                }),
-                setProperties: (state, { properties }) => ({
-                    ...state,
-                    properties,
-                }),
-                setBreakdownFilter: (state, { breakdown_filter }) => ({
-                    ...state,
-                    breakdown_filter,
-                }),
-                setInterval: (state, { interval }) => ({
-                    ...state,
-                    interval,
-                }),
-                setFilterTestAccounts: (state, { filterTestAccounts }) => ({
-                    ...state,
-                    filterTestAccounts,
-                }),
-                resetIntermittentFilters: () => ({
-                    date_from: undefined,
-                    date_to: undefined,
-                    properties: undefined,
-                    breakdown_filter: undefined,
-                    explicitDate: undefined,
-                    interval: undefined,
-                    filterTestAccounts: undefined,
-                }),
-            },
-        ],
         isSavingTags: [
             false,
             {
@@ -2747,11 +2660,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // so count insight tiles only — not text, button, or widget tiles.
                 return insightTiles.length < limit
             },
-        ],
-        hasIntermittentFilters: [
-            (s) => [s.intermittentFilters],
-            (intermittentFilters: DashboardFilter) =>
-                Object.values(intermittentFilters).some((filter) => filter !== undefined),
         ],
         // An override that constrains nothing still has keys — clearing the last property filter leaves
         // `{"properties":[]}` in the URL. Counting keys reads that as an active override, so the dashboard
@@ -4324,7 +4232,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     )
 
                     await breakpoint()
-                    actions.resetIntermittentFilters()
 
                     actions.abortAnyRunningQuery()
                     cache.abortController = new AbortController()
@@ -4646,96 +4553,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         discardLayoutChanges: () => {
             actions.cancelLayoutEdit()
         },
-        saveDashboardFilters: async () => {
-            if (!values.dashboard || !values.filtersDirty) {
-                actions.saveDashboardFiltersSuccess(null)
-                return
-            }
-
-            try {
-                const previousFilters = values.dashboard.persisted_filters || {}
-                const filtersToSave = values.persistableDashboardFilters
-                const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
-                    filters: filtersToSave,
-                })
-                if (
-                    previousFilters.date_from !== filtersToSave.date_from ||
-                    previousFilters.date_to !== filtersToSave.date_to
-                ) {
-                    eventUsageLogic.actions.reportDashboardDateRangeChanged(
-                        values.dashboard,
-                        filtersToSave.date_from,
-                        filtersToSave.date_to
-                    )
-                }
-                if (JSON.stringify(previousFilters.properties) !== JSON.stringify(filtersToSave.properties)) {
-                    eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
-                }
-                actions.saveDashboardFiltersSuccess(getQueryBasedDashboard(dashboard))
-                const filtersChangedWhileSaving = !equal(values.persistableDashboardFilters, filtersToSave)
-                if (!filtersChangedWhileSaving) {
-                    actions.resetIntermittentFilters()
-                    actions.resetUrlFilters()
-                }
-                if (!values.canAutoPreview && !filtersChangedWhileSaving) {
-                    actions.refreshDashboardItems({
-                        action: RefreshDashboardItemsAction.Preview,
-                        forceRefresh: false,
-                    })
-                }
-                if (!values.layoutEditMode && !filtersChangedWhileSaving) {
-                    actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
-                }
-                lemonToast.success('Dashboard filters saved', {
-                    button: {
-                        label: 'Undo',
-                        dataAttr: 'undo-save-dashboard-filters',
-                        action: () => actions.restoreDashboardFilters(previousFilters, filtersToSave),
-                    },
-                })
-            } catch (e) {
-                actions.saveDashboardFiltersFailure(String(e))
-                lemonToast.error('Could not save dashboard filters: ' + String(e))
-            }
-        },
-        restoreDashboardFilters: async ({ filters, expectedFilters }) => {
-            try {
-                if (expectedFilters && !equal(values.dashboard?.persisted_filters || {}, expectedFilters)) {
-                    lemonToast.info('Filters changed after this save. Undo is unavailable.')
-                    return
-                }
-                const filtersBeforeRestore = values.persistableDashboardFilters
-                const hadUnsavedFilterEdits = !equal(filtersBeforeRestore, values.dashboard?.persisted_filters || {})
-                const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
-                    filters,
-                })
-                actions.saveDashboardFiltersSuccess(getQueryBasedDashboard(dashboard))
-                const filtersChangedWhileRestoring = !equal(values.persistableDashboardFilters, filtersBeforeRestore)
-                if (!hadUnsavedFilterEdits && !filtersChangedWhileRestoring) {
-                    actions.resetIntermittentFilters()
-                    actions.resetUrlFilters()
-                }
-                if (!hadUnsavedFilterEdits && !filtersChangedWhileRestoring) {
-                    actions.refreshDashboardItems({
-                        action: RefreshDashboardItemsAction.Preview,
-                        forceRefresh: false,
-                    })
-                }
-                lemonToast.success('Dashboard filters restored')
-            } catch (e) {
-                lemonToast.error('Could not restore dashboard filters: ' + String(e))
-            }
-        },
-        discardDashboardFilters: () => {
-            actions.resetIntermittentFilters()
-            actions.resetUrlFilters()
-            if (values.canAutoPreview) {
-                actions.refreshDashboardItems({
-                    action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
-                })
-            }
-        },
         saveLayout: () => {
             actions.saveEditModeChanges('layout')
             actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
@@ -5001,12 +4818,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insights_fetched_cached: 0,
             })
         },
-        applyFilters: () => {
-            actions.refreshDashboardItems({
-                action: RefreshDashboardItemsAction.Preview,
-                forceRefresh: false,
-            })
-        },
         previewDashboardChanges: () => {
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
@@ -5260,22 +5071,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        applyFilters: () => {
-            const { currentLocation } = router.values
-
-            const urlFilters = parseURLFilters(currentLocation.searchParams)
-            const newUrlFilters: DashboardFilter = combineDashboardFilters(urlFilters, values.intermittentFilters)
-
-            return [
-                currentLocation.pathname,
-                searchParamsWithUrlFilters(
-                    currentLocation.searchParams,
-                    newUrlFilters,
-                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
-                ),
-                currentLocation.hashParams,
-            ]
-        },
         setProperties: ({ properties }) => {
             if (!values.canAutoPreview) {
                 return

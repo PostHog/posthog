@@ -548,7 +548,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedColorChanges).toBe(true)
         })
 
-        it('saves filters only when requested', async () => {
+        it('saves dashboard settings only when requested', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const successToast = jest.spyOn(lemonToast, 'success')
 
@@ -562,40 +562,19 @@ describe('dashboardLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
+                logic.actions.saveDashboardChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
             expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
                 filters: expect.objectContaining({ date_from: '-7d' }),
+                variables: {},
             })
             expect(logic.values.dashboard?.persisted_filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
-            expect(successToast).toHaveBeenCalledWith(
-                'Dashboard filters saved',
-                expect.objectContaining({ button: expect.objectContaining({ label: 'Undo' }) })
-            )
+            expect(successToast).toHaveBeenCalledWith('Dashboard changes saved')
         })
 
-        it('restores filters saved before the most recent filter save', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-            const savedFilters = { date_from: '-7d' }
-
-            jest.spyOn(api, 'update').mockResolvedValue({
-                ...logic.values.dashboard!,
-                persisted_filters: savedFilters,
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.restoreDashboardFilters(savedFilters)
-            }).toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                filters: savedFilters,
-            })
-            expect(logic.values.dashboard?.persisted_filters).toEqual(savedFilters)
-        })
-
-        it('clears temporary filters without clearing temporary variables', async () => {
+        it('clears URL filter overrides without clearing URL variable overrides', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
@@ -604,35 +583,6 @@ describe('dashboardLogic', () => {
                 .toDispatchActions(['resetUrlFilters'])
                 .toNotHaveDispatchedActions(['resetUrlVariables'])
                 .toFinishAllListeners()
-        })
-
-        it('does not restore stale filters after a later filter save', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-            const updateSpy = jest.spyOn(api, 'update')
-
-            await expectLogic(logic, () => {
-                logic.actions.setDates('-7d', null)
-            }).toFinishAllListeners()
-            updateSpy.mockResolvedValueOnce({ ...logic.values.dashboard!, persisted_filters: { date_from: '-7d' } })
-            await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
-            }).toFinishAllListeners()
-
-            await expectLogic(logic, () => {
-                logic.actions.setDates('-1d', null)
-            }).toFinishAllListeners()
-            updateSpy.mockResolvedValueOnce({ ...logic.values.dashboard!, persisted_filters: { date_from: '-1d' } })
-            await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
-            }).toFinishAllListeners()
-
-            updateSpy.mockClear()
-            await expectLogic(logic, () => {
-                logic.actions.restoreDashboardFilters({}, { date_from: '-7d' })
-            }).toFinishAllListeners()
-
-            expect(updateSpy).not.toHaveBeenCalled()
-            expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-1d' })
         })
 
         it('counts each added property filter', async () => {
@@ -678,7 +628,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsState).toBe('saved')
 
             await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
+                logic.actions.saveDashboardChanges()
             }).toFinishAllListeners()
 
             expect(api.update).not.toHaveBeenCalled()
@@ -767,7 +717,7 @@ describe('dashboardLogic', () => {
                 logic.actions.setDates('-7d', null)
             }).toFinishAllListeners()
 
-            expect(logic.values.intermittentFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
 
             await expectLogic(logic, () => {
                 logic.actions.cancelLayoutEdit()
@@ -788,9 +738,9 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
+                logic.actions.saveDashboardChanges()
             })
-                .toDispatchActions(['saveDashboardFilters', 'saveDashboardFiltersSuccess'])
+                .toDispatchActions(['saveDashboardChanges', 'saveDashboardChangesSuccess'])
                 .toFinishAllListeners()
         })
 
@@ -932,7 +882,7 @@ describe('dashboardLogic', () => {
                 logic.actions.setBreakdownFilter({ breakdown: '$browser', breakdown_type: 'event' })
             }).toFinishAllListeners()
 
-            expect(logic.values.intermittentFilters).toEqual(
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
                 expect.objectContaining({
                     date_from: '-7d',
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
@@ -940,10 +890,10 @@ describe('dashboardLogic', () => {
             )
 
             await expectLogic(logic, () => {
-                logic.actions.applyFilters()
+                logic.actions.previewDashboardChanges()
             }).toFinishAllListeners()
 
-            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.currentDashboardSettings.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
 
             await expectLogic(logic, () => {
                 logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
@@ -979,7 +929,7 @@ describe('dashboardLogic', () => {
                 persisted_filters: logic.values.effectiveEditBarFilters,
             })
             await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
+                logic.actions.saveDashboardChanges()
             }).toFinishAllListeners()
 
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
@@ -1001,15 +951,7 @@ describe('dashboardLogic', () => {
             )
             expect(logic.values.dashboard?.persisted_filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
             expect(logic.values.urlFilters).toEqual({})
-            expect(logic.values.intermittentFilters).toEqual({
-                date_from: undefined,
-                date_to: undefined,
-                properties: undefined,
-                breakdown_filter: undefined,
-                explicitDate: undefined,
-                interval: undefined,
-                filterTestAccounts: undefined,
-            })
+            expect(logic.values.dashboardSettingsDraft).toBeNull()
 
             autoPreviewLimitSpy.mockRestore()
         })
@@ -2552,7 +2494,7 @@ describe('dashboardLogic', () => {
                 try {
                     ;(api.update as jest.Mock).mockClear()
 
-                    // forceRefresh: true so every insight tile hits getInsightWithRetry (applyFilters/preview can skip fresh tiles)
+                    // forceRefresh: true so every insight tile hits getInsightWithRetry because preview can skip fresh tiles
                     const refreshDone = expectLogic(logic, () => {
                         logic.actions.triggerDashboardRefresh()
                     }).toFinishAllListeners()
