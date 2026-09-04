@@ -1402,6 +1402,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         else:
             author_name = "Support"
 
+        # Only the server writes this key, and it leaves the author empty. A key on an authored
+        # comment is client input, which the comments API accepted before it reserved the field.
+        internal_note_key = item_context.get("internal_note_key") if comment.created_by_id is None else None
+
         return {
             "id": comment.id,
             "content": comment.content,
@@ -1411,7 +1415,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "has_full_email_content": item_context.get("has_full_email_content") is True,
-            "internal_note_key": item_context.get("internal_note_key") or None,
+            "internal_note_key": internal_note_key or None,
             "version": comment.version,
             "created_at": comment.created_at,
         }
