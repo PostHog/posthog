@@ -114,9 +114,9 @@ export interface observationSearchLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         pageCount: (results: ObservationSearchResultApi[] | null) => number
-        pageEndIndex: (pageStartIndex: number, pageResults: ObservationSearchResultApi[]) => number
         pageResults: (results: ObservationSearchResultApi[] | null, page: number) => ObservationSearchResultApi[]
         pageStartIndex: (page: number) => number
+        pageEndIndex: (pageStartIndex: number, pageResults: ObservationSearchResultApi[]) => number
         strongMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
     }
 }
