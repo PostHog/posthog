@@ -17,7 +17,13 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 
-from .utils import bind_data_modeling_log_context, clear_node_suspension, update_node_system_properties
+from .utils import (
+    bind_data_modeling_log_context,
+    clear_node_suspension,
+    has_newer_terminal_job,
+    update_node_system_properties,
+    update_saved_query_latest_error,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -84,44 +90,48 @@ def _succeed_node_and_data_modeling_job(
     inputs: SucceedMaterializationInputs,
 ) -> SucceedNodeAndJobOutcome:
     node: Node | None = None
-    if inputs.update_node:
-        with transaction.atomic():
-            # of=("self",) + select_related: skip the extra node.saved_query query without locking the joined row.
-            node = (
-                Node.objects.select_for_update(of=("self",))
-                .select_related("saved_query")
-                .get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+    replayed_completed_job = False
+    with transaction.atomic():
+        job = DataModelingJob.objects.select_for_update().get(id=inputs.job_id)
+        if job.status in (
+            DataModelingJobStatus.FAILED,
+            DataModelingJobStatus.CANCELLED,
+            DataModelingJobStatus.COMPLETED,
+        ):
+            replayed_completed_job = (
+                inputs.update_node and job.status == DataModelingJobStatus.COMPLETED and not has_newer_terminal_job(job)
             )
-            status = DataModelingJobStatus.COMPLETED
-            update_node_system_properties(
-                node,
-                status=status,
-                job_id=inputs.job_id,
-                rows=inputs.row_count,
-                duration_seconds=inputs.duration_seconds,
-            )
-            clear_node_suspension(node, engine=DataModelingJobEngine.CLICKHOUSE)
-            node.save()
+        else:
+            if inputs.update_node:
+                # of=("self",) + select_related: skip the extra node.saved_query query without locking the joined row.
+                locked_node = (
+                    Node.objects.select_for_update(of=("self",))
+                    .select_related("saved_query")
+                    .get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+                )
+                if not has_newer_terminal_job(job):
+                    node = locked_node
+                    update_node_system_properties(
+                        node,
+                        status=DataModelingJobStatus.COMPLETED,
+                        job_id=inputs.job_id,
+                        rows=inputs.row_count,
+                        duration_seconds=inputs.duration_seconds,
+                    )
+                    clear_node_suspension(node, engine=DataModelingJobEngine.CLICKHOUSE)
+                    node.save()
 
-    enrichment_needed, enrichment_saved_query_id = _view_enrichment_needed(node)
+            job.status = DataModelingJobStatus.COMPLETED
+            job.rows_materialized = inputs.row_count
+            job.last_run_at = dt.datetime.now(dt.UTC)
+            job.error = None
+            job.save()
 
-    job = DataModelingJob.objects.get(id=inputs.job_id)
-
-    # if the job is already in a terminal state, don't overwrite it
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
-        return SucceedNodeAndJobOutcome(
-            node=node,
-            job=job,
-            enrichment_needed=enrichment_needed,
-            enrichment_saved_query_id=enrichment_saved_query_id,
+    if replayed_completed_job:
+        node = Node.objects.select_related("saved_query").get(
+            id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
         )
-
-    job.status = DataModelingJobStatus.COMPLETED
-    job.rows_materialized = inputs.row_count
-    job.last_run_at = dt.datetime.now(dt.UTC)
-    job.error = None
-    job.save()
-
+    enrichment_needed, enrichment_saved_query_id = _view_enrichment_needed(node)
     return SucceedNodeAndJobOutcome(
         node=node,
         job=job,
@@ -136,6 +146,7 @@ async def succeed_materialization_activity(inputs: SucceedMaterializationInputs)
     logger = LOGGER.bind()
 
     outcome = await _succeed_node_and_data_modeling_job(inputs)
+    await update_saved_query_latest_error(outcome.job.id)
 
     if outcome.job.saved_query_id is not None:
         bind_data_modeling_log_context(inputs.team_id, outcome.job.saved_query_id)

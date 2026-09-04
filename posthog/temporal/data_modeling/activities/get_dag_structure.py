@@ -7,7 +7,7 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.models import DataModelingJobEngine, Edge, Node, NodeType
 
-from .utils import is_node_suspended, is_suspension_enforced
+from .utils import is_node_suspended, is_node_suspension_always_enforced, is_suspension_enforced
 
 LOGGER = get_logger(__name__)
 
@@ -55,13 +55,16 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
         .filter(team_id=team_id, dag_id=dag_id)
         .exclude(source__type=NodeType.TABLE)
     )
-    if is_suspension_enforced(team_id):
-        suspended_nodes = {
-            engine.value: [str(n.id) for n in executable_nodes if is_node_suspended(n, engine)]
-            for engine in DataModelingJobEngine
-        }
-    else:
-        suspended_nodes = {engine.value: [] for engine in DataModelingJobEngine}
+    suspension_enforced = is_suspension_enforced(team_id)
+    suspended_nodes = {
+        engine.value: [
+            str(node.id)
+            for node in executable_nodes
+            if is_node_suspended(node, engine)
+            and (suspension_enforced or is_node_suspension_always_enforced(node, engine))
+        ]
+        for engine in DataModelingJobEngine
+    }
     # ids are uuid objects by default. primitives are probably better
     return DAG(
         nodes=[str(n.id) for n in nodes],

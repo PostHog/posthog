@@ -7,7 +7,13 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import temporalio.workflow
-from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAlreadyStartedError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    CancelledError,
+    ChildWorkflowError,
+    WorkflowAlreadyStartedError,
+)
 
 from posthog.temporal.data_modeling.activities import (
     DuckgresShadowEligibilityInputs,
@@ -19,6 +25,10 @@ from posthog.temporal.data_modeling.activities import (
     fail_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
+from posthog.temporal.data_modeling.errors import (
+    INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
+    INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+)
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     ACCOUNT_PROPERTY_S3_SYNC_PATCH,
     ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH,
@@ -87,6 +97,7 @@ class TestQualityGateBranching:
             stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
             if shadow_handle is not None:
                 stack.enter_context(patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle))
+            self._last_execute_activity = execute_activity
             for metric in (
                 "get_node_finished_metric",
                 "get_node_duration_metric",
@@ -104,6 +115,37 @@ class TestQualityGateBranching:
                 stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
             result = await MaterializeViewWorkflow().run(_inputs())
         return result, execute_activity
+
+    async def test_dedicated_timeout_forces_suspension_during_finalization(self):
+        activity_error = ActivityError(
+            "materialize failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker",
+            activity_type="materialize_view_activity",
+            activity_id="activity-1",
+            retry_state=None,
+        )
+        activity_error.__cause__ = ApplicationError(
+            INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+            type=INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
+            non_retryable=True,
+        )
+
+        with pytest.raises(ApplicationError) as error:
+            await self._run([False, "job-1", activity_error, None], {})
+
+        assert error.value.type == INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE
+        assert error.value.non_retryable is True
+        fail_call = next(
+            call
+            for call in self._last_execute_activity.await_args_list
+            if call.args[0] is fail_materialization_activity
+        )
+        payload = fail_call.args[1]
+        assert isinstance(payload, FailMaterializationInputs)
+        assert payload.error == INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE
+        assert payload.suspend_immediately is True
 
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [

@@ -45,21 +45,36 @@ def is_node_suspended(node: Node, engine: str) -> bool:
     return bool(suspension_state(node).get(str(engine)))
 
 
+def is_node_suspension_always_enforced(node: Node, engine: str) -> bool:
+    return suspension_state(node).get(str(engine), {}).get("enforce_without_flag") is True
+
+
 def suspension_reset_at(node: Node, engine: str) -> str | None:
     """Failures before this point no longer count toward suspension."""
     return ((_system(node).get(RESET_KEY) or {}).get(str(engine)) or {}).get("at")
 
 
-def mark_node_suspended(node: Node, *, engine: str, reason: str, job_id: str, fingerprint: str | None = None) -> None:
+def mark_node_suspended(
+    node: Node,
+    *,
+    engine: str,
+    reason: str,
+    job_id: str,
+    fingerprint: str | None = None,
+    enforce_without_flag: bool = False,
+) -> None:
     properties: dict = node.properties or {}
     system = properties.setdefault("system", {})
     suspended = system.setdefault(SUSPENDED_KEY, {})
-    suspended[str(engine)] = {
+    state: dict[str, object] = {
         "at": _now(),
         "reason": reason,
         "job_id": job_id,
         "query_fingerprint": fingerprint,
     }
+    if enforce_without_flag:
+        state["enforce_without_flag"] = True
+    suspended[str(engine)] = state
     # A fresh suspension supersedes the resume that preceded it.
     (system.get(RESET_KEY) or {}).pop(str(engine), None)
     node.properties = properties

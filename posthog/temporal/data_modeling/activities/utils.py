@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Exists, Q
 
 from structlog.contextvars import bind_contextvars
 
@@ -16,6 +17,7 @@ from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_
 from products.data_modeling.backend.facade.api import (
     clear_node_suspension,
     is_node_suspended,
+    is_node_suspension_always_enforced,
     mark_node_suspended,
     query_fingerprint,
     suspension_reset_at,
@@ -37,14 +39,18 @@ __all__ = [
     "clear_node_suspension_for_engine",
     "count_leading_failures",
     "get_previous_jobs",
+    "has_newer_job",
+    "has_newer_terminal_job",
     "is_externally_aborted",
     "is_node_suspended",
+    "is_node_suspension_always_enforced",
     "is_suspension_enforced",
     "mark_node_suspended",
     "maybe_suspend_node_for_engine",
     "starts_a_failure_streak",
     "strip_hostname_from_error",
     "update_node_system_properties",
+    "update_saved_query_latest_error",
 ]
 
 if TYPE_CHECKING:
@@ -76,16 +82,41 @@ def get_previous_jobs(
             engine=DataModelingJobEngine.CLICKHOUSE,
             created_at__lt=current_job.created_at,
         )
-        # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
-        # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
+        # A skipped run never executed, so it is evidence of neither health nor failure.
         .exclude(status=DataModelingJobStatus.SKIPPED)
     )
     if ignore_inconclusive:
         # Neither status says whether the query recovered: a cancel is our doing (preemption, a
         # deploy), and a run still marked running either is one, or was abandoned by a dead worker.
-        # The timeout counter keeps treating both as a break, deliberately.
+        # The failure counter keeps treating both as a break, deliberately.
         jobs = jobs.exclude(status__in=(DataModelingJobStatus.CANCELLED, DataModelingJobStatus.RUNNING))
     return jobs.order_by("-created_at")[:count]
+
+
+def _newer_jobs(job: DataModelingJob) -> "QuerySet[DataModelingJob]":
+    if job.saved_query_id is None:
+        return DataModelingJob.objects.none()
+    return DataModelingJob.objects.filter(saved_query_id=job.saved_query_id, engine=job.engine).filter(
+        Q(created_at__gt=job.created_at) | Q(created_at=job.created_at, id__gt=job.id)
+    )
+
+
+def has_newer_job(job: DataModelingJob) -> bool:
+    return _newer_jobs(job).exists()
+
+
+def has_newer_terminal_job(job: DataModelingJob) -> bool:
+    return (
+        _newer_jobs(job)
+        .filter(
+            status__in=(
+                DataModelingJobStatus.CANCELLED,
+                DataModelingJobStatus.COMPLETED,
+                DataModelingJobStatus.FAILED,
+            )
+        )
+        .exists()
+    )
 
 
 def starts_a_failure_streak(saved_query_id: UUID, current_job: DataModelingJob) -> bool:
@@ -189,6 +220,32 @@ def update_node_system_properties(
     node.properties = properties
 
 
+@database_sync_to_async_pool
+def update_saved_query_latest_error(job_id: UUID | str) -> bool:
+    visible_statuses = (DataModelingJobStatus.COMPLETED, DataModelingJobStatus.FAILED)
+    job = DataModelingJob.objects.filter(
+        id=job_id,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        status__in=visible_statuses,
+    ).first()
+    if job is None or job.saved_query_id is None:
+        return False
+
+    newer_visible_jobs = DataModelingJob.objects.filter(
+        saved_query_id=job.saved_query_id,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        status__in=visible_statuses,
+    ).filter(Q(created_at__gt=job.created_at) | Q(created_at=job.created_at, id__gt=job.id))
+
+    latest_error = strip_hostname_from_error(job.error or "") if job.status == DataModelingJobStatus.FAILED else None
+    return bool(
+        DataWarehouseSavedQuery.objects.exclude(deleted=True)
+        .filter(id=job.saved_query_id)
+        .filter(~Exists(newer_visible_jobs))
+        .update(latest_error=latest_error)
+    )
+
+
 def count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
     jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine)).exclude(
         # a skipped node never ran, so it is evidence of neither health nor failure. Counting it
@@ -230,10 +287,14 @@ def maybe_suspend_node_for_engine(
         fingerprint = query_fingerprint(
             DataWarehouseSavedQuery.objects.filter(id=saved_query_id).values_list("query", flat=True).first()
         )
-        mark_node_suspended(node, engine=engine, reason=reason, job_id=job_id, fingerprint=fingerprint)
+        mark_node_suspended(
+            node,
+            engine=engine,
+            reason=reason,
+            job_id=job_id,
+            fingerprint=fingerprint,
+        )
         node.save()
-    # Without enforcement the node keeps materializing every tick, so telling the customer it stopped
-    # would be false.
     if str(engine) == DataModelingJobEngine.CLICKHOUSE.value and is_suspension_enforced(team_id):
         job = DataModelingJob.objects.get(id=job_id)
         job.error = (

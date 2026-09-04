@@ -27,7 +27,12 @@ from posthog.temporal.data_modeling.activities.utils import (
     is_externally_aborted,
 )
 
-from products.data_modeling.backend.logic.node_suspension import resume_nodes, suspension_reset_at, suspension_state
+from products.data_modeling.backend.logic.node_suspension import (
+    is_node_suspension_always_enforced,
+    resume_nodes,
+    suspension_reset_at,
+    suspension_state,
+)
 from products.data_modeling.backend.models.node import Node
 
 RESUMED_BY = "suspension_recheck"
@@ -40,10 +45,11 @@ class Marker:
     engine: str
     reason: str
     failures: int
+    always_enforced: bool
 
     @property
     def earned(self) -> bool:
-        return self.failures >= CONSECUTIVE_FAILURES_TO_SUSPEND
+        return self.always_enforced or self.failures >= CONSECUTIVE_FAILURES_TO_SUSPEND
 
     @property
     def blamed_on_an_abort(self) -> bool:
@@ -52,7 +58,7 @@ class Marker:
     def still_unearned(self, node: Node) -> bool:
         """The sweep counts every marker before it clears any, and a model keeps failing while that
         runs, so the verdict is re-taken against the row we are about to write."""
-        return (
+        return not is_node_suspension_always_enforced(node, self.engine) and (
             count_leading_failures(self.saved_query_id, self.engine, since=suspension_reset_at(node, self.engine))
             < CONSECUTIVE_FAILURES_TO_SUSPEND
         )
@@ -113,4 +119,5 @@ class Command(BaseCommand):
                     engine=engine,
                     reason=entry.get("reason") or "",
                     failures=count_leading_failures(saved_query_id, engine, since=suspension_reset_at(node, engine)),
+                    always_enforced=is_node_suspension_always_enforced(node, engine),
                 )
