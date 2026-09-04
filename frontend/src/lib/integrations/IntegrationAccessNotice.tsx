@@ -9,8 +9,8 @@ const ACCESS_NOTICES: Record<string, JSX.Element> = {
                 for Google Ads, so PostHog cannot request less.
             </p>
             <p className="mb-0">
-                Importing your Google Ads data only reads campaign stats. PostHog writes to the account only if you set
-                up a conversions destination.
+                Importing your Google Ads data only reads from the account. PostHog writes to it only if you set up a
+                conversions destination.
             </p>
             <p className="mb-0">
                 To limit what PostHog can do, connect a Google account that has read-only access to the Google Ads

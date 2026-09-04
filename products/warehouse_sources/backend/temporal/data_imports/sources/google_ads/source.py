@@ -273,7 +273,7 @@ class GoogleAdsSource(
                 "Ensure you have granted PostHog access to your Google Ads account, learn how to do this in "
                 "[the docs](https://posthog.com/docs/cdp/sources/google-ads). Google publishes no read-only scope "
                 "for Google Ads, so the consent screen asks for write access even though this import only reads "
-                "your campaign stats."
+                "from your account."
             ),
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google-ads.png",
