@@ -66,6 +66,12 @@ class Command(BaseCommand):
             default=None,
             help="Cap the replay produce rate; unset means no limit",
         )
+        parser.add_argument(
+            "--max-message-bytes",
+            type=int,
+            default=None,
+            help="Largest record to produce, in bytes; unset uses KAFKA_<PROFILE>_PRODUCER_MAX_REQUEST_SIZE, then 1 MiB",
+        )
         parser.add_argument("--dry-run", action="store_true", help="Count without producing or committing")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -99,6 +105,7 @@ class Command(BaseCommand):
             security_protocol=options["security_protocol"],
             skip_team_ids=options["skip_team_ids"],
             max_messages_per_second=options["max_messages_per_second"],
+            max_message_bytes=options["max_message_bytes"],
             should_stop=lambda: stop_requested["value"],
             log=lambda message: self.stdout.write(message),
         )
