@@ -1193,6 +1193,8 @@ export interface sqlEditorLogicMeta {
         indexReportStale: (
             metadata: HogQLMetadataResponse | null,
             activeQueryText: string | null,
+            queryInput: string | null,
+            suggestedQueryInput: string,
             metadataLoading: boolean
         ) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
@@ -3397,11 +3399,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
         // A quickfix carries character offsets into the SQL the server analyzed, so it can only be
-        // applied while the editor still holds that exact text.
+        // applied while the editor still holds that exact text. The comparison mirrors the fallback
+        // in `codeEditorLogic`, which analyzes the whole editor text whenever there is no active
+        // statement; comparing against the active statement alone reads as stale forever there.
         indexReportStale: [
-            (s) => [s.metadata, s.activeQueryText, s.metadataLoading],
-            (metadata: HogQLMetadataResponse | null, activeQueryText: string | null, metadataLoading: boolean) =>
-                metadataLoading || metadata?.query !== activeQueryText,
+            (s) => [s.metadata, s.activeQueryText, s.queryInput, s.suggestedQueryInput, s.metadataLoading],
+            (
+                metadata: HogQLMetadataResponse | null,
+                activeQueryText: string | null,
+                queryInput: string | null,
+                suggestedQueryInput: string,
+                metadataLoading: boolean
+            ) => metadataLoading || metadata?.query !== (activeQueryText ?? (suggestedQueryInput || queryInput) ?? ''),
         ],
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],

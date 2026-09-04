@@ -24,6 +24,7 @@ import {
     DataTableNode,
     DataVisualizationNode,
     HogQLFilters,
+    HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -305,6 +306,45 @@ describe('sqlEditorLogic', () => {
         editorRootLogic = undefined
         logic?.unmount()
         databaseLogic?.unmount()
+    })
+
+    describe('indexReportStale', () => {
+        const mountLogic = (): void => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            logic.actions.setMetadataLoading(false)
+        }
+
+        it('is false when the report describes the whole editor text and there is no active statement', () => {
+            // `codeEditorLogic` analyzes the whole text when there is no active statement, so comparing
+            // against the active statement alone would report stale forever and disable every quickfix.
+            mountLogic()
+            logic.actions.setQueryInput('select 1')
+            logic.actions.setActiveQueryText(null, 0)
+
+            logic.actions.setMetadata({ query: 'select 1' } as HogQLMetadataResponse)
+
+            expect(logic.values.indexReportStale).toBe(false)
+        })
+
+        it('is false when the report describes the active statement', () => {
+            mountLogic()
+            logic.actions.setQueryInput('select 1;\nselect 2')
+            logic.actions.setActiveQueryText('select 2', 10)
+
+            logic.actions.setMetadata({ query: 'select 2' } as HogQLMetadataResponse)
+
+            expect(logic.values.indexReportStale).toBe(false)
+        })
+
+        it('is true once the editor text moves on from what the report describes', () => {
+            mountLogic()
+            logic.actions.setActiveQueryText(null, 0)
+            logic.actions.setMetadata({ query: 'select 1' } as HogQLMetadataResponse)
+            logic.actions.setQueryInput('select 2')
+
+            expect(logic.values.indexReportStale).toBe(true)
+        })
     })
 
     it('keeps configured filters when the filters placeholder is removed from the query text', () => {
