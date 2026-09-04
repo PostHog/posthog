@@ -849,12 +849,12 @@ def _query_flag_evaluations(
     exposure moments move to the branch path."""
     if not flag_key_windows:
         return {}
-    # One clause per flag key, each carrying that experiment's own timestamp range. The clip
-    # has to happen in SQL: the query returns min(timestamp) per (session, flag, variant), so a
-    # variant evaluated both before and during the run collapses into a single row with a
-    # pre-start timestamp, and dropping that row in Python would erase a variant the session
-    # really saw while the experiment ran. The clause count matches the flag-key list this
-    # query filtered to before, so it is bounded by the team's launched experiments.
+    # One clause per flag key, each carrying its own experiment's timestamp range. The clip has
+    # to happen in SQL, because the query returns min(timestamp) per (session, flag, variant): a
+    # variant evaluated both before and during the run collapses into a single row that carries
+    # the pre-start timestamp, so dropping that row afterwards would erase a variant the session
+    # really saw while the experiment ran. The clause count is one per overlapping experiment's
+    # flag key, which is the same set this query filters to.
     flag_key_clauses = [
         parse_expr(
             "properties.$feature_flag = {flag_key} AND timestamp >= {window_start} AND timestamp <= {window_end}",
