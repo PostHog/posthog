@@ -21,7 +21,7 @@ from posthog.schema import EventsScanWarning
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.property import has_aggregation, has_window_function
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.dataclasses import frozen
 
@@ -360,6 +360,8 @@ class _EventsScanVisitor(TraversingVisitor):
         if not references or _is_bounded_peek(node):
             return
         predicate = _row_predicate(node)
+        if predicate is not None:
+            predicate = _expand_select_aliases(predicate, node)
         fields = _PredicateFields.collect(predicate) if predicate is not None else _PredicateFields()
         all_aliases = {alias for alias, _ in references}
 
@@ -433,6 +435,41 @@ def _is_events_table(chain: list[str | int], database: "Database", cte_scopes: l
         # An unknown or inaccessible table is the resolver's error to report, not a scan
         return False
     return isinstance(table, EVENTS_TABLE_TYPES)
+
+
+class _SelectAliasExpander(CloningVisitor):
+    """Replace a bare name in a predicate with the select-list expression behind it.
+
+    HogQL resolves a name in a predicate against the select aliases before the table's columns, so
+    `SELECT toStartOfDay(timestamp) AS day FROM events WHERE day >= now() - INTERVAL 7 DAY` does
+    bound the read. The checks here read field chains, so an alias would hide the bound and the
+    query would be reported as unbounded when it is not.
+    """
+
+    def __init__(self, aliases: dict[str, ast.Expr]) -> None:
+        super().__init__(clear_types=False, clear_locations=False)
+        self.aliases = aliases
+        self.expanding: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if len(node.chain) != 1:
+            return super().visit_field(node)
+        name = str(node.chain[0])
+        # `SELECT x AS x`, and aliases that name each other, would expand forever
+        if name in self.expanding or name not in self.aliases:
+            return super().visit_field(node)
+        self.expanding.add(name)
+        try:
+            return self.visit(self.aliases[name])
+        finally:
+            self.expanding.discard(name)
+
+
+def _expand_select_aliases(predicate: ast.Expr, node: ast.SelectQuery) -> ast.Expr:
+    aliases = {expr.alias: expr.expr for expr in node.select or [] if isinstance(expr, ast.Alias)}
+    if not aliases:
+        return predicate
+    return _SelectAliasExpander(aliases).visit(predicate)
 
 
 def _row_predicate(node: ast.SelectQuery) -> ast.Expr | None:

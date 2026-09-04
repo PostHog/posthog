@@ -206,6 +206,27 @@ class TestFindEventsScans(TestCase):
                 "AND b.event = 'y' AND b.timestamp >= today() WHERE a.properties.plan = 'pro' AND a.timestamp >= today()",
                 [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT],
             ),
+            (
+                "a select alias carries the timestamp bound",
+                "SELECT toStartOfDay(timestamp) AS day, count() FROM events "
+                "WHERE day >= now() - INTERVAL 7 DAY AND event = 'a' GROUP BY day",
+                [],
+            ),
+            (
+                "a select alias carries the event name filter",
+                "SELECT event AS name, count() FROM events WHERE name = 'a' AND timestamp >= today() GROUP BY name",
+                [],
+            ),
+            (
+                "an alias that is not the timestamp does not bound the read",
+                "SELECT 1 AS day, count() FROM events WHERE day >= 0 AND event = 'a' GROUP BY day",
+                [EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "an alias that names itself does not loop",
+                "SELECT event AS event, count() FROM events WHERE event = 'a' AND timestamp >= today() GROUP BY event",
+                [],
+            ),
         ]
     )
     def test_reasons(self, _name: str, query: str, expected: list[EventsScanReason]) -> None:
@@ -226,6 +247,11 @@ class TestFindEventsScans(TestCase):
         (finding,) = find_events_scans(parse_select(query), DATABASE)
         self.assertEqual(query[finding.start : finding.end], "events")
         self.assertEqual(finding.property_names, ("plan", "tier"))
+
+        aliased = "SELECT properties.plan AS p, count() FROM events WHERE p = 'pro' AND timestamp >= today() GROUP BY p"
+        (from_alias,) = find_events_scans(parse_select(aliased), DATABASE)
+        self.assertEqual(from_alias.reason, EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT)
+        self.assertEqual(from_alias.property_names, ("plan",))
 
     @parameterized.expand(
         [
