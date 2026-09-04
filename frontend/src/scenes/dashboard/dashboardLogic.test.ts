@@ -2879,6 +2879,18 @@ describe('dashboardLogic', () => {
             expect(logic.values.filterChanges).toEqual([])
         })
 
+        it('shows filter edits as unsaved when a temporary variable override exists', async () => {
+            await mountDashboardWithVariable({ urlValue: 'url-val' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.filtersDirty).toBe(true)
+            expect(logic.values.isTemporaryFilterView).toBe(false)
+        })
+
         it('clears temporary filters without clearing URL variable overrides', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
             router.actions.push('/', {
