@@ -64,6 +64,8 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+/** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
+const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -229,17 +231,25 @@ async function executeQuery<N extends DataNode>(
         // A hidden tab holds pollForResults at waitForPageVisible without spending its deadline,
         // so a poll can arrive after the server has dropped the query's status. That ID can no
         // longer become anything, and the page has nothing to show for a query the user never
-        // saw fail, so ask the question again. The endpoint answers a fresh cached result
-        // straight away, which is the usual case, and recomputes only what has gone stale.
-        // Poll-only callers cannot: they were handed an ID and never had the query.
-        if (pollOnly || retriedAfterExpiry || e?.status !== 404) {
+        // saw fail, so ask the question again.
+        // Not every 404 is an expired status: a managed warehouse whose connection is down answers
+        // with one too, and its message is what the user needs to see.
+        // Poll-only callers cannot ask again, having been handed an ID and never the query.
+        if (pollOnly || retriedAfterExpiry || e?.status !== 404 || e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE) {
             throw e
         }
         return await executeQuery(
             queryNode,
             methodOptions,
-            refresh,
-            undefined,
+            // The first run already honoured a forced refresh and cached what it computed, so the
+            // retry reads that cache instead of paying for the same computation twice. Every other
+            // mode consults the cache already and recomputes only what has gone stale.
+            refresh === 'force_async' ? 'async' : refresh,
+            // Keep the ID the first run was filed under, so anything holding it - a cancel on
+            // abort, a query log lookup - still points at the run the user is waiting for. Safe
+            // because enqueue joins a record only while its run is going, so the expired one this
+            // retry is recovering from cannot short-circuit the new run.
+            queryId,
             setPollResponse,
             filtersOverride,
             variablesOverride,

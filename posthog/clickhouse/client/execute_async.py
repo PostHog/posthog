@@ -359,8 +359,9 @@ def enqueue_process_query_task(
             # Join a run that is still going, and only that. Reaching here means the cache already
             # decided this query has to run, so a record from a run that has finished answers a
             # question nobody asked: returning it replays that run's result or error and dispatches
-            # nothing, which holds the recompute back until the record expires. Whether a failed
-            # query may run again is the failure breaker's call in the query runner.
+            # nothing, which holds the recompute back until the record expires. Holding a query
+            # that keeps failing away from ClickHouse is the failure breaker's job in the query
+            # runner, which classifies what may run again instead of blocking every retry.
             in_flight = manager.get_query_status()
             if not in_flight.complete:
                 return in_flight

@@ -288,6 +288,10 @@ describe('query', () => {
         const submitted = (id: string): any => ({ query_status: { id, complete: false } })
         const forgotten = (): ApiError => new ApiError('Query not found', 404, undefined, { detail: 'Query not found' })
 
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it('runs the query again when its status has expired', async () => {
             const querySpy = jest
                 .spyOn(api, 'query')
@@ -300,8 +304,39 @@ describe('query', () => {
             })
 
             expect(querySpy).toHaveBeenCalledTimes(2)
-            // The second submission is a new query, not the ID the server no longer knows.
-            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBeUndefined()
+            // Same ID, so anything holding it still points at the run the user is waiting for.
+            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe('gone')
+        })
+
+        it('reads the cache on the retry rather than forcing the same work twice', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce(submitted('gone'))
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await performQuery(query, undefined, 'force_async')
+
+            // force_async disregards the cache, and the first run already cached what it computed.
+            expect(querySpy.mock.calls[0][1]?.refresh).toBe('force_async')
+            expect(querySpy.mock.calls[1][1]?.refresh).toBe('async')
+        })
+
+        it.each([
+            ['an error that is not a 404', new ApiError('boom', 500)],
+            [
+                'a warehouse whose connection is down',
+                new ApiError('unavailable', 404, undefined, { code: 'managed_warehouse_connection_unavailable' }),
+            ],
+        ])('does not resubmit on %s', async (_name, failure) => {
+            const querySpy = jest.spyOn(api, 'query').mockResolvedValueOnce(submitted('gone'))
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(failure)
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({
+                status: failure.status,
+            })
+
+            expect(querySpy).toHaveBeenCalledTimes(1)
         })
 
         it('gives up when the second attempt is forgotten too', async () => {
