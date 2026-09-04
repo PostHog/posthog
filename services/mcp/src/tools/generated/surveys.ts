@@ -254,7 +254,7 @@ const SurveyUpdateSchema = () => {
                 "Complete replacement question list. Existing question IDs are tied to response data and must be preserved. Before sending this field, fetch the survey first, modify the existing question objects in place, keep every unchanged or edited question's id, and include the complete intended ordered question list. New questions should omit id. Do not regenerate existing questions from scratch."
             ),
             conditions: SurveysPartialUpdateBody.shape['conditions'].describe(
-                'Complete replacement display conditions object. Do not provide this field unless changing display targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them.'
+                'Complete replacement display conditions object. Do not provide this field unless changing display targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve existing URL, selector, event, cancel event, action, device, wait-period, and linked flag variant conditions unless explicitly changing them.'
             ),
             targeting_flag_filters: SurveysPartialUpdateBody.shape['targeting_flag_filters'].describe(
                 "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms."

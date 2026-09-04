@@ -679,8 +679,44 @@ SURVEY_MATCH_TYPE_HELP_TEXT = (
 )
 
 
+class SurveyEventPropertyOperator(models.TextChoices):
+    EXACT = "exact", "exact"
+    IS_NOT = "is_not", "is_not"
+    ICONTAINS = "icontains", "icontains"
+    NOT_ICONTAINS = "not_icontains", "not_icontains"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+    GT = "gt", "gt"
+    GTE = "gte", "gte"
+    LT = "lt", "lt"
+    LTE = "lte", "lte"
+
+
+class SurveyEventPropertyFilterSchemaSerializer(serializers.Serializer):
+    values = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Values to compare the event property against. Positive operators like 'exact' match when the "
+            "property matches one of these values. Negative operators like 'is_not' match only when the "
+            "property matches none of them."
+        ),
+    )
+    operator = serializers.ChoiceField(
+        choices=list(SurveyEventPropertyOperator.values),
+        help_text="How to compare the event property against the values.",
+    )
+
+
 class SurveyConditionEventValueSchemaSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Event name that triggers the survey.")
+    propertyFilters = serializers.DictField(
+        required=False,
+        child=SurveyEventPropertyFilterSchemaSerializer(),
+        help_text=(
+            "Filters on the properties of the triggering event, keyed by property name. The survey only "
+            "shows if the event matches every filter. Leave this out to trigger on the event name alone."
+        ),
+    )
 
 
 class SurveyEventsConditionSchemaSerializer(serializers.Serializer):
@@ -691,7 +727,32 @@ class SurveyEventsConditionSchemaSerializer(serializers.Serializer):
     values = SurveyConditionEventValueSchemaSerializer(
         many=True,
         required=False,
-        help_text="Array of event names that trigger the survey.",
+        help_text="Events that trigger the survey, each with optional filters on the event properties.",
+    )
+
+
+class SurveyCancelEventsConditionSchemaSerializer(serializers.Serializer):
+    values = SurveyConditionEventValueSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Events that cancel a survey that waits to show, each with optional filters on the event properties.",
+    )
+
+
+class SurveyConditionActionValueSchemaSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of an action that triggers the survey.")
+    name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Name of the action. The survey stores the action by ID, so this value is ignored on write.",
+    )
+
+
+class SurveyActionsConditionSchemaSerializer(serializers.Serializer):
+    values = SurveyConditionActionValueSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Actions that trigger the survey.",
     )
 
 
@@ -709,6 +770,18 @@ class SurveyConditionsSchemaSerializer(serializers.Serializer):
         help_text=SURVEY_MATCH_TYPE_HELP_TEXT,
     )
     events = SurveyEventsConditionSchemaSerializer(required=False)
+    cancelEvents = SurveyCancelEventsConditionSchemaSerializer(
+        required=False,
+        help_text="Events that cancel a survey that waits to show.",
+    )
+    actions = SurveyActionsConditionSchemaSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Actions that trigger the survey. A write replaces the whole set, so send back every action "
+            "the survey should keep."
+        ),
+    )
     deviceTypes = serializers.ListField(
         required=False,
         child=serializers.ChoiceField(choices=SURVEY_DEVICE_TYPE_CHOICES),
