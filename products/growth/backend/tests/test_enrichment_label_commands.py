@@ -16,17 +16,26 @@ from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
+from products.growth.backend.enrichment.labels import SourceSpec
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
-_PAGES_MODULE = "products.growth.backend.enrichment.pages"
+_SOURCES_MODULE = "products.growth.backend.enrichment.sources"
+
+_FETCH_SOURCE = [{"key": "home", "kind": "fetch", "url": "https://{domain}"}]
+_SOURCE_OUTPUT_FIELDS = [
+    {"key": "is_ai", "type": "boolean", "description": ""},
+    {"key": "confidence", "type": "number", "description": ""},
+    {"key": "reasoning", "type": "string", "description": ""},
+    {"key": "evidence_url", "type": "string", "description": ""},
+]
 
 
 def _org_with_domain(name: str, domain: str) -> Organization:
     """An org whose earliest member's email resolves to `domain` via
-    labels.signup_domain_for_organization, so page-fetching code has a real domain to work with."""
+    labels.signup_domain_for_organization, so source-fetching code has a real domain to work with."""
     org = Organization.objects.create(name=name)
     user = User.objects.create_user(email=f"member@{domain}", password=None, first_name="t")
     OrganizationMembership.objects.create(organization=org, user=user)
@@ -476,19 +485,20 @@ class TestDryRunFixes(BaseTest):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
 
-class TestDryRunPagesFetching(BaseTest):
+class TestDryRunSourcesFetching(BaseTest):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig.objects.create(
             name="test_label",
             version="v1",
             prompt_text="... Email: {email}",
             model="gpt-5-mini",
-            input_fields=["name", "pages.home.markdown"],
-            output_fields=[*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+            input_fields=["name"],
+            sources=_FETCH_SOURCE,
+            output_fields=_SOURCE_OUTPUT_FIELDS,
             is_active=True,
         )
 
-    def test_pages_are_fetched_and_the_page_value_reaches_the_row(self):
+    def test_sources_are_fetched_and_the_source_value_reaches_the_row(self):
         self._config()
         OrganizationEnrichmentFetch.objects.create(
             organization=self.organization, provider="harmonic", payload={"name": "Acme"}
@@ -497,142 +507,152 @@ class TestDryRunPagesFetching(BaseTest):
         client.chat.completions.create.return_value = _response(
             json.dumps({"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://posthog.com"})
         )
-        page_store = {
+        source_store = {
             "home": {
+                "kind": "fetch",
                 "markdown": "We build developer tools.",
                 "url": "https://posthog.com",
-                "domain": "posthog.com",
+                "fetched_at": "x",
+                "source": "scrape",
             }
         }
         out = StringIO()
 
         with (
             patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_DRY_RUN_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store) as ensure_pages,
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.resolve_sources", return_value=source_store) as resolve,
         ):
             call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
 
-        ensure_pages.assert_called_once_with(self.organization.id, "posthog.com", {"home"})
+        resolve.assert_called_once_with(
+            self.organization.id,
+            domain="posthog.com",
+            name="Acme",
+            specs=[SourceSpec(key="home", kind="fetch", template="https://{domain}")],
+        )
         assert "https://posthog.com" in out.getvalue()
 
 
-class TestBatchCommandPagesFetching(_BatchCommandTestCase):
-    def _pages_config(self, **overrides: Any) -> EnrichmentPromptConfig:
-        params: dict[str, Any] = {
-            "input_fields": ["name", "pages.home.markdown"],
-            "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
-        }
+class TestBatchCommandSourcesFetching(_BatchCommandTestCase):
+    def _sources_config(self, **overrides: Any) -> EnrichmentPromptConfig:
+        params: dict[str, Any] = {"sources": _FETCH_SOURCE, "output_fields": _SOURCE_OUTPUT_FIELDS}
         params.update(overrides)
         return self._config(**params)
 
-    def _pages_response(self) -> MagicMock:
+    def _sources_response(self) -> MagicMock:
         # posthog.com matches self.organization's default signup domain, so evidence_url
-        # validation doesn't null it - see labels._reject_mismatched_evidence_url.
+        # validation doesn't null it - see labels._reject_unsupported_evidence_url.
         content = json.dumps(
             {"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://posthog.com"}
         )
         return _response(content)
 
-    def test_pages_are_fetched_before_classifying_and_passed_through(self):
-        self._pages_config()
+    def test_sources_are_fetched_before_classifying_and_passed_through(self):
+        self._sources_config()
         self._fetch()
         client = _mock_llm_client()
-        client.chat.completions.create.return_value = self._pages_response()
-        page_store = {"home": {"markdown": "We build developer tools.", "url": "https://acme.example"}}
+        client.chat.completions.create.return_value = self._sources_response()
+        source_store = {
+            "home": {"kind": "fetch", "markdown": "We build developer tools.", "url": "https://acme.example"}
+        }
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store) as ensure_pages,
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources", return_value=source_store) as resolve,
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
-        ensure_pages.assert_called_once_with(self.organization.id, "posthog.com", {"home"})
+        resolve.assert_called_once_with(
+            self.organization.id,
+            domain="posthog.com",
+            name="Acme",
+            specs=[SourceSpec(key="home", kind="fetch", template="https://{domain}")],
+        )
         result = EnrichmentLabelResult.objects.get(label_name="test_label")
-        assert result.inputs["fields"]["pages.home.markdown"] == "We build developer tools."
+        assert result.inputs["fields"]["sources.home.markdown"] == "We build developer tools."
 
-    def test_pages_are_not_fetched_when_the_config_has_no_pages_fields(self):
+    def test_sources_are_not_fetched_when_the_config_has_no_sources(self):
         self._config()
         self._fetch()
         client = _mock_llm_client()
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched") as ensure_pages,
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources") as resolve,
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
-        ensure_pages.assert_not_called()
+        resolve.assert_not_called()
 
-    def test_pages_are_not_fetched_for_an_org_with_no_usable_payload(self):
-        self._pages_config()
+    def test_sources_are_not_fetched_for_an_org_with_no_usable_payload(self):
+        self._sources_config()
         self._fetch(payload={"companyFound": False})
         client = _mock_llm_client()
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched") as ensure_pages,
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources") as resolve,
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
-        ensure_pages.assert_not_called()
+        resolve.assert_not_called()
 
-    def test_pages_scraped_cached_and_unreachable_counts_reach_the_summary(self):
-        self._pages_config()
+    def test_fetched_cached_and_failed_counts_reach_the_summary(self):
+        self._sources_config()
         self._fetch()
         client = _mock_llm_client()
-        client.chat.completions.create.return_value = self._pages_response()
-        page_store = {"home": {"markdown": None, "domain": "posthog.com", "fetched_at": "x", "error": "unreachable"}}
+        client.chat.completions.create.return_value = self._sources_response()
+        source_store = {"home": {"kind": "fetch", "fetched_at": "x", "source": "scrape", "error": "unreachable"}}
         out = StringIO()
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store),
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources", return_value=source_store),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
-        assert "pages_scraped 0" in out.getvalue()
-        assert "pages_cached 0" in out.getvalue()
-        assert "pages_unreachable 1" in out.getvalue()
-        assert "pages_deferred 0" in out.getvalue()
-        # A permanent page error proceeds to classification without that page, unlike a
-        # transient one - see TestPageDeferral below.
+        assert "sources_fetched 0" in out.getvalue()
+        assert "sources_cached 0" in out.getvalue()
+        assert "sources_failed 1" in out.getvalue()
+        assert "sources_deferred 0" in out.getvalue()
+        # A permanent source error proceeds to classification without that source, unlike a
+        # transient one - see TestSourceDeferral below.
         assert EnrichmentLabelResult.objects.filter(label_name="test_label").exists()
 
-    def test_an_unreachable_page_served_from_cache_counts_as_cached_not_unreachable(self):
-        self._pages_config()
+    def test_a_failed_source_served_from_cache_counts_as_cached_not_failed(self):
+        self._sources_config()
         self._fetch()
         client = _mock_llm_client()
-        client.chat.completions.create.return_value = self._pages_response()
-        page_store = {"home": {"domain": "posthog.com", "fetched_at": "x", "error": "unreachable", "source": "cache"}}
+        client.chat.completions.create.return_value = self._sources_response()
+        source_store = {
+            "home": {"kind": "fetch", "fetched_at": "x", "error": "unreachable", "source": "cache"},
+        }
         out = StringIO()
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store),
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources", return_value=source_store),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
-        assert "pages_scraped 0" in out.getvalue()
-        assert "pages_cached 1" in out.getvalue()
-        assert "pages_unreachable 0" in out.getvalue()
+        assert "sources_fetched 0" in out.getvalue()
+        assert "sources_cached 1" in out.getvalue()
+        assert "sources_failed 0" in out.getvalue()
 
 
-class TestPageDeferral(_BatchCommandTestCase):
-    """A transient page-fetch problem (busy/not_configured) must defer the whole org - no
+class TestSourceDeferral(_BatchCommandTestCase):
+    """A transient source-fetch problem (busy/not_configured) must defer the whole org - no
     classification, no result row, and no contribution to the circuit breaker - rather than
-    compute a permanent verdict against missing page content. See enrichment/pages.py's
-    TRANSIENT_PAGE_ERRORS and enrichment_label_batch.py's _process."""
+    compute a permanent verdict against missing source content. See enrichment/sources.py's
+    TRANSIENT_SOURCE_ERRORS and enrichment_label_batch.py's _process."""
 
-    def _pages_config(self, **overrides: Any) -> EnrichmentPromptConfig:
-        params: dict[str, Any] = {
-            "input_fields": ["name", "pages.home.markdown"],
-            "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
-        }
+    def _sources_config(self, **overrides: Any) -> EnrichmentPromptConfig:
+        params: dict[str, Any] = {"sources": _FETCH_SOURCE, "output_fields": _SOURCE_OUTPUT_FIELDS}
         params.update(overrides)
         return self._config(**params)
 
-    def test_a_busy_page_defers_the_org_without_writing_a_result(self):
-        self._pages_config()
+    def test_a_busy_source_defers_the_org_without_writing_a_result(self):
+        self._sources_config()
         org = _org_with_domain("acme", "acme.example")
         self._fetch(organization=org)
         client = _mock_llm_client()
@@ -640,17 +660,17 @@ class TestPageDeferral(_BatchCommandTestCase):
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
+            patch(f"{_SOURCES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         client.chat.completions.create.assert_not_called()
         assert EnrichmentLabelResult.objects.count() == 0
-        assert "pages_deferred 1" in out.getvalue()
+        assert "sources_deferred 1" in out.getvalue()
         assert "failed 0" in out.getvalue()
 
     def test_deferred_orgs_never_trip_the_circuit_breaker(self):
-        self._pages_config()
+        self._sources_config()
         orgs = [_org_with_domain(f"org-{i}", f"org-{i}.example") for i in range(3)]
         for org in orgs:
             self._fetch(organization=org)
@@ -659,7 +679,7 @@ class TestPageDeferral(_BatchCommandTestCase):
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
+            patch(f"{_SOURCES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
         ):
             # max_failures=1 would abort after a single genuine failure; a deferral must not
             # count as one, so all 3 orgs must be reached without a CommandError.
@@ -667,7 +687,7 @@ class TestPageDeferral(_BatchCommandTestCase):
 
         client.chat.completions.create.assert_not_called()
         assert EnrichmentLabelResult.objects.count() == 0
-        assert "pages_deferred 3" in out.getvalue()
+        assert "sources_deferred 3" in out.getvalue()
         assert "failed 0" in out.getvalue()
 
 
@@ -696,10 +716,10 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
             "attempted": 1,
             "succeeded": 1,
             "failed": 0,
-            "pages_scraped": 0,
-            "pages_cached": 0,
-            "pages_unreachable": 0,
-            "pages_deferred": 0,
+            "sources_fetched": 0,
+            "sources_cached": 0,
+            "sources_failed": 0,
+            "sources_deferred": 0,
         }
 
     def test_skips_outside_a_cloud_region(self):

@@ -8,9 +8,10 @@ an archived Harmonic payload plus a prompt config into a stamped verdict.
 import re
 import json
 import math
+import string
 from collections.abc import Callable
 from typing import Any, Literal, TypeIs, cast
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from django.db.models import QuerySet
 
@@ -19,14 +20,13 @@ from openai.types.chat import ChatCompletionMessageParam
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_random
 
 from posthog.dataclasses import frozen
+from posthog.egress.firecrawl.client import MAX_SEARCH_LIMIT
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 UNKNOWN: Literal["unknown"] = "unknown"
-
-PAGES_INPUT_PREFIX = "pages."
 
 # Keys the stored output dict uses for provenance (see classify_payload below).
 # validate_output_fields rejects any configured output field that shadows one of these.
@@ -62,6 +62,14 @@ MAX_OUTPUT_TOKENS = 4000
 MAX_PROMPT_TEXT_CHARS = 20_000
 MAX_OUTPUT_FIELDS = 20
 MAX_OUTPUT_FIELD_DESCRIPTION_CHARS = 400
+
+SOURCE_INPUT_PREFIX = "sources."
+SOURCE_KINDS: tuple[str, ...] = ("fetch", "search")
+MAX_SOURCES = 4
+DEFAULT_SEARCH_RESULTS = 5
+MAX_SEARCH_RESULTS = MAX_SEARCH_LIMIT
+MAX_SOURCE_QUERY_CHARS = 500  # Firecrawl's own query length limit
+TEMPLATE_VARIABLES = frozenset({"domain", "name"})
 
 _TRUNCATED_AT_MAX_DEPTH = "…(truncated: exceeded max input nesting depth)"
 
@@ -118,53 +126,22 @@ def to_domain(value: Any, depth: int = 0) -> Any:
 
 
 @frozen
-class PageInputPath:
-    page_type: str
+class SourceSpec:
     key: str
+    kind: Literal["fetch", "search"]
+    template: str  # url template for fetch, query template for search
+    limit: int = DEFAULT_SEARCH_RESULTS  # search only
 
 
-def pages_path(path: str) -> PageInputPath | None:
-    """Parses a `pages.<type>.<key>` input_fields path, or None if it doesn't match that shape."""
-    if not path.startswith(PAGES_INPUT_PREFIX):
-        return None
-    parts = path.split(".")
-    if len(parts) != 3 or not parts[1] or not parts[2]:
-        return None
-    return PageInputPath(page_type=parts[1], key=parts[2])
-
-
-def _page_field_value(pages: dict[str, Any] | None, path: str) -> Any:
-    parsed = pages_path(path)
-    if pages is None or parsed is None:
-        return None
-    page = pages.get(parsed.page_type)
-    return page.get(parsed.key) if isinstance(page, dict) else None
-
-
-def extract_input_fields(
-    payload: dict[str, Any], input_fields: list[str], pages: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    """Resolve dotted paths into the archived payload, or `pages.<type>.<key>` paths into `pages`.
+def extract_input_fields(payload: dict[str, Any], input_fields: list[str]) -> dict[str, Any]:
+    """Resolve dotted paths into the archived payload.
 
     Keyed by the full dotted path so the LLM prompt shows provenance. Missing paths,
     None values, and paths that traverse through a non-dict are omitted rather than
-    included as null — the prompt should only see what's actually known.
+    included as null: the prompt should only see what's actually known.
     """
     result: dict[str, Any] = {}
     for path in input_fields:
-        parsed = pages_path(path)
-        if parsed is not None:
-            page_value = _page_field_value(pages, path)
-            if page_value is not None:
-                # Page copy is public, so it skips the email reduction applied to Harmonic values below.
-                result[path] = page_value
-            if parsed.key == "markdown":
-                url_path = f"{PAGES_INPUT_PREFIX}{parsed.page_type}.url"
-                if url_path not in result:
-                    url_value = _page_field_value(pages, url_path)
-                    if url_value is not None:
-                        result[url_path] = url_value
-            continue
         value: Any = payload
         for part in path.split("."):
             if not isinstance(value, dict):
@@ -329,9 +306,6 @@ def validate_input_fields(config: EnrichmentPromptConfig) -> None:
             f"enrichment config declares {len(config.input_fields)} input fields, "
             f"more than the {MAX_INPUT_COLUMNS} that reach the prompt"
         )
-    for path in config.input_fields:
-        if path.startswith(PAGES_INPUT_PREFIX) and pages_path(path) is None:
-            raise PromptConfigError(f"enrichment input field {path!r} must have the form 'pages.<type>.<key>'")
 
 
 def validate_output_fields(config: EnrichmentPromptConfig) -> None:
@@ -363,13 +337,138 @@ def validate_output_fields(config: EnrichmentPromptConfig) -> None:
             if low > high:
                 raise PromptConfigError(f"enrichment output field {key!r} has min {low} above max {high}")
 
-    if any(path.startswith(PAGES_INPUT_PREFIX) for path in config.input_fields):
-        # A page-derived claim can't be checked without a link back to its source page.
-        evidence_field = next((field for field in config.output_fields if field.get("key") == "evidence_url"), None)
-        if evidence_field is None:
-            raise PromptConfigError("enrichment config reads pages.* input but declares no 'evidence_url' output field")
-        if evidence_field.get("type") != "string":
-            raise PromptConfigError("enrichment config's 'evidence_url' output field must be type 'string'")
+
+_SOURCE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+
+
+def parse_sources(config: EnrichmentPromptConfig) -> list[SourceSpec]:
+    """Validates and parses config.sources into typed specs. Raises PromptConfigError on any
+    malformed entry, checked once up front the same way validate_output_fields is."""
+    sources = config.sources
+    if not isinstance(sources, list):
+        raise PromptConfigError("enrichment config 'sources' must be a list")
+    if len(sources) > MAX_SOURCES:
+        raise PromptConfigError(
+            f"enrichment config declares {len(sources)} sources, more than the {MAX_SOURCES} allowed"
+        )
+    if len(config.input_fields) + 2 * len(sources) > MAX_INPUT_COLUMNS:
+        raise PromptConfigError(
+            f"enrichment config's input_fields plus sources would produce more than {MAX_INPUT_COLUMNS} input columns"
+        )
+
+    specs: list[SourceSpec] = []
+    seen_keys: set[str] = set()
+    for entry in sources:
+        if not isinstance(entry, dict):
+            raise PromptConfigError(f"enrichment source {entry!r} must be an object")
+        key = entry.get("key")
+        if not isinstance(key, str) or not _SOURCE_KEY_RE.fullmatch(key):
+            raise PromptConfigError(f"enrichment source key {key!r} must match {_SOURCE_KEY_RE.pattern!r}")
+        if key in seen_keys:
+            raise PromptConfigError(f"enrichment source key {key!r} is declared more than once")
+        seen_keys.add(key)
+
+        kind = entry.get("kind")
+        if kind not in SOURCE_KINDS:
+            raise PromptConfigError(f"enrichment source {key!r} has unknown kind {kind!r}")
+        kind = cast(Literal["fetch", "search"], kind)
+
+        if kind == "fetch":
+            url = entry.get("url")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                raise PromptConfigError(f"enrichment source {key!r} needs a 'url' starting with 'https://'")
+            template = url
+        else:
+            query = entry.get("query")
+            if not isinstance(query, str) or not query or len(query) > MAX_SOURCE_QUERY_CHARS:
+                raise PromptConfigError(
+                    f"enrichment source {key!r} needs a non-empty 'query' of at most "
+                    f"{MAX_SOURCE_QUERY_CHARS} characters"
+                )
+            template = query
+
+        limit = entry.get("limit", DEFAULT_SEARCH_RESULTS)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not (1 <= limit <= MAX_SEARCH_RESULTS):
+            raise PromptConfigError(f"enrichment source {key!r} has a 'limit' outside 1..{MAX_SEARCH_RESULTS}")
+
+        _validate_template(key, template)
+        specs.append(SourceSpec(key=key, kind=kind, template=template, limit=limit))
+
+    return specs
+
+
+def _validate_template(key: str, template: str) -> None:
+    try:
+        variables = [name for _, name, _, _ in string.Formatter().parse(template) if name is not None]
+    except ValueError as e:
+        raise PromptConfigError(f"enrichment source {key!r} has a malformed template: {e}") from e
+    unknown = [name for name in variables if name not in TEMPLATE_VARIABLES]
+    if unknown:
+        raise PromptConfigError(f"enrichment source {key!r} template references unknown variable {unknown[0]!r}")
+
+
+def validate_sources(config: EnrichmentPromptConfig) -> None:
+    """A source-derived claim can't be checked without a link back to what produced it."""
+    specs = parse_sources(config)
+    if not specs:
+        return
+    evidence_field = next((field for field in config.output_fields if field.get("key") == "evidence_url"), None)
+    if evidence_field is None:
+        raise PromptConfigError("enrichment config declares sources but no 'evidence_url' output field")
+    if evidence_field.get("type") != "string":
+        raise PromptConfigError("enrichment config's 'evidence_url' output field must be type 'string'")
+
+
+def render_template(template: str, *, domain: str | None, name: str | None) -> str | None:
+    """Fills {domain}/{name} into a source's url or query template. None when a referenced
+    variable is missing or empty, so a source with no signup domain is skipped rather than
+    resolved against a literal "{domain}"."""
+    values = {"domain": domain, "name": name}
+    for _, field_name, _, _ in string.Formatter().parse(template):
+        if field_name is not None and not values.get(field_name):
+            return None
+    return template.format_map(values)
+
+
+def source_inputs(sources: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """The "sources.<key>.<field>" input columns a set of resolved sources contributes to the
+    prompt. A source that errored, including a cache hit (always an unreachable error), contributes
+    nothing."""
+    inputs: dict[str, Any] = {}
+    for key, record in sources.items():
+        if not isinstance(record, dict) or "error" in record:
+            continue
+        if record.get("kind") == "fetch":
+            inputs[f"{SOURCE_INPUT_PREFIX}{key}.url"] = record.get("url")
+            inputs[f"{SOURCE_INPUT_PREFIX}{key}.markdown"] = record.get("markdown")
+        elif record.get("kind") == "search":
+            inputs[f"{SOURCE_INPUT_PREFIX}{key}.query"] = record.get("query")
+            inputs[f"{SOURCE_INPUT_PREFIX}{key}.results"] = record.get("results")
+    return inputs
+
+
+def presented_urls(sources: dict[str, dict[str, Any]]) -> set[str]:
+    """Every URL a resolved source actually showed the model: a fetched page plus every search
+    result link. classify_payload accepts an evidence_url only from this set or the signup domain."""
+    urls: set[str] = set()
+    for record in sources.values():
+        if not isinstance(record, dict) or "error" in record:
+            continue
+        if record.get("kind") == "fetch":
+            url = record.get("url")
+            if isinstance(url, str):
+                urls.add(_normalize_url(url))
+        elif record.get("kind") == "search":
+            for result in record.get("results") or []:
+                if isinstance(result, dict) and isinstance(result.get("url"), str):
+                    urls.add(_normalize_url(result["url"]))
+    return urls
+
+
+def _normalize_url(url: str) -> str:
+    parts = urlsplit(url)
+    normalized = urlunsplit(parts._replace(scheme=parts.scheme.lower(), netloc=parts.netloc.lower(), fragment=""))
+    return normalized[:-1] if normalized.endswith("/") else normalized
 
 
 def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -> dict[str, Any]:
@@ -500,23 +599,22 @@ def has_usable_payload(payload: dict[str, Any] | None) -> TypeIs[dict[str, Any]]
     return payload.get("companyFound") is not False
 
 
-def _evidence_url_matches_domain(url: str, signup_domain: str | None) -> bool:
-    host = urlsplit(url).hostname
-    if host is None or signup_domain is None:
-        return False
-    host = host.lower()
-    domain = signup_domain.lower()
-    return host == domain or host.endswith(f".{domain}")
-
-
-def _reject_mismatched_evidence_url(output: dict[str, Any], signup_domain: str | None, meta: dict[str, Any]) -> None:
-    """Nulls a page-derived evidence_url whose host isn't the signup domain or a subdomain, rather
-    than failing the whole verdict over one bad citation."""
+def _reject_unsupported_evidence_url(
+    output: dict[str, Any], signup_domain: str | None, presented: set[str], meta: dict[str, Any]
+) -> None:
+    """Nulls an evidence_url the model could not actually have seen: not a resolved source result
+    and not the signup domain itself, rather than failing the whole verdict over one bad citation."""
     evidence_url = output.get("evidence_url")
     if not evidence_url or not isinstance(evidence_url, str):
         return
-    if _evidence_url_matches_domain(evidence_url, signup_domain):
+    if _normalize_url(evidence_url) in presented:
         return
+    host = urlsplit(evidence_url).hostname
+    if host is not None and signup_domain is not None:
+        host = host.lower()
+        domain = signup_domain.lower()
+        if host == domain or host.endswith(f".{domain}"):
+            return
     meta["evidence_url_rejected"] = evidence_url
     output["evidence_url"] = None
 
@@ -527,23 +625,27 @@ def classify_payload(
     signup_domain: str | None,
     client: OpenAI,
     *,
-    pages: dict[str, Any] | None = None,
+    sources: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     validate_input_fields(config)
     validate_output_fields(config)
+    validate_sources(config)
     if not has_usable_payload(payload):
         return unknown_output(config, signup_domain, "missing or empty archived payload")
 
     # Checked after resolving, not before: a payload that's present but has none of the configured
     # paths would otherwise bill a call to ask the model about "Company data: {}".
-    extracted = extract_input_fields(payload, config.input_fields, pages=pages)
+    extracted = extract_input_fields(payload, config.input_fields)
+    # Source columns are public web text, so they bypass to_domain's email reduction by joining
+    # after it runs rather than through it.
+    extracted.update(source_inputs(sources or {}))
     inputs = bound_inputs(extracted)
     if not inputs:
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
     messages = build_messages(config, inputs, signup_domain)
     output, meta = _call_and_parse(config, messages, client)
-    _reject_mismatched_evidence_url(output, signup_domain, meta)
+    _reject_unsupported_evidence_url(output, signup_domain, presented_urls(sources or {}), meta)
     output["inputs"] = {"signup_domain": signup_domain, "fields": inputs}
     bounded = bounding_report(extracted, inputs)
     if bounded:

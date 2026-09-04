@@ -26,9 +26,11 @@ from products.growth.backend.enrichment.labels import (
     classify_payload,
     extract_input_fields,
     has_usable_payload,
+    parse_sources,
+    source_inputs,
     unknown_output,
 )
-from products.growth.backend.enrichment.pages import ensure_pages_fetched, page_types_from_input_fields
+from products.growth.backend.enrichment.sources import resolve_sources
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -103,8 +105,8 @@ def classify_fetch_for_run(
     # (nested in output["inputs"]) on success, and re-deriving it here - cheap, pure extraction,
     # no LLM call - is simpler than threading a partial result out of a caught exception. Without
     # it, a row that fails the LLM call would show an empty "inputs sent" despite having built one.
-    page_types = page_types_from_input_fields(config.input_fields)
-    pages: dict[str, Any] | None = None
+    specs = parse_sources(config)
+    sources: dict[str, dict[str, Any]] | None = None
     if not has_usable_payload(fetch.payload):
         inputs: dict[str, Any] = {}
     else:
@@ -121,10 +123,13 @@ def classify_fetch_for_run(
         if not ai_processing_approved(fetch.organization_id):
             output = unknown_output(config, signup_domain, "AI processing consent was revoked mid-run")
             return company, signup_domain, output, None, {}
-        if page_types and has_usable_payload(fetch.payload):
-            pages = ensure_pages_fetched(fetch.organization_id, signup_domain, page_types)
-            inputs = bound_inputs(extract_input_fields(fetch.payload, config.input_fields, pages=pages))
-        output = classify_payload(config, fetch.payload, signup_domain, client, pages=pages)
+        if specs and has_usable_payload(fetch.payload):
+            name = fetch.payload.get("name") if isinstance(fetch.payload.get("name"), str) else fetch.organization.name
+            sources = resolve_sources(fetch.organization_id, domain=signup_domain, name=name, specs=specs)
+            extracted = extract_input_fields(fetch.payload, config.input_fields)
+            extracted.update(source_inputs(sources))
+            inputs = bound_inputs(extracted)
+        output = classify_payload(config, fetch.payload, signup_domain, client, sources=sources)
     except Exception as e:
         return company, signup_domain, None, _run_error(config, e, "classify_fetch_for_run"), inputs
     finally:

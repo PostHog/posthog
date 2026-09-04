@@ -170,6 +170,9 @@ class EnrichmentPromptConfig(UUIDModel):
     model = models.CharField(max_length=128)
     # Dotted paths into the archived Harmonic payload fed to the prompt, e.g. ["name", "funding.fundingStage"].
     input_fields = models.JSONField(default=list)
+    # Web sources this config fetches per org and feeds to the prompt, e.g. [{"key": "pricing",
+    # "kind": "fetch", "url": "https://{domain}/pricing"}]. See enrichment/labels.py's SourceSpec.
+    sources = models.JSONField(default=list)
     # The classifier's entire output contract: list of {"key", "type"
     # ("boolean"|"number"|"string"), "description"}. These are the keys the prompt asks for and
     # the only keys a stored verdict carries — see enrichment/labels.py's build_messages /
@@ -199,7 +202,7 @@ class EnrichmentPromptConfig(UUIDModel):
 
     # Bumped whenever the set of fields below changes, or when this module changes how it
     # interprets one of them without changing the row itself.
-    CONTENT_HASH_VERSION = "v2"
+    CONTENT_HASH_VERSION = "v3"
 
     @property
     def content_hash(self) -> str:
@@ -211,6 +214,7 @@ class EnrichmentPromptConfig(UUIDModel):
                 "model": self.model,
                 "input_fields": self.input_fields,
                 "output_fields": self.output_fields,
+                "sources": self.sources,
             },
             sort_keys=True,
         )
