@@ -43,7 +43,7 @@ export function QueryIndexUsageFixActions({
         if (predicate.quickfix && onApplyQuickfix) {
             const quickfix = predicate.quickfix
             return (
-                <div>
+                <div className="flex">
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -59,7 +59,7 @@ export function QueryIndexUsageFixActions({
         if (predicate.ai_fix_prompt && onFixWithAI) {
             const prompt = predicate.ai_fix_prompt
             return (
-                <div>
+                <div className="flex">
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -82,7 +82,7 @@ export function QueryIndexUsageFixActions({
             return null
         }
         return (
-            <div>
+            <div className="flex">
                 <LemonButton
                     size="xsmall"
                     type="secondary"
@@ -99,7 +99,7 @@ export function QueryIndexUsageFixActions({
     // Materialization is a staff-only page, so everyone else keeps the prose and no dead link.
     if (predicate.fix_action === PredicateFixAction.Materialize && user?.is_staff) {
         return (
-            <div>
+            <div className="flex">
                 <LemonButton
                     size="xsmall"
                     type="secondary"

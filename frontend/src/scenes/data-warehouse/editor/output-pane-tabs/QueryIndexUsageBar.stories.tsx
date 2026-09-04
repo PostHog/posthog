@@ -28,7 +28,8 @@ const PREDICATES: PredicateIndexUsage[] = [
         physical_type: 'String',
         usable_indexes: ['bloom_filter'],
         verdict: PredicateIndexVerdict.Indexed,
-        message: "Event property '$browser' uses its bloom filter index, so this filter skips rows that cannot match.",
+        message:
+            "Event property '$browser' has a bloom filter index that covers this comparison. How much data it skips depends on how the values are spread across the table.",
     },
     {
         property_name: 'duration',
