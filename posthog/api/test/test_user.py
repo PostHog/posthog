@@ -2024,6 +2024,23 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.headers.get("location") is None
 
+    @parameterized.expand(
+        [
+            ("no_hostname", "null"),
+            ("unparseable", "https://[::1"),
+        ]
+    )
+    def test_redirect_to_site_error_page_stays_generic_without_a_hostname(self, _name: str, app_url: str) -> None:
+        self.team.app_urls = ["https://www.example.com"]
+        self.team.save()
+
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        body = response.content.decode()
+        assert "The hostname" not in body
+        assert "Add the domain of this site to your project" in body
+
     @parameterized.expand([("http", "http%3A%2F%2Fwww.example.com"), ("https", "https%3A%2F%2Fwww.example.com")])
     def test_redirect_to_site_accepts_a_fully_encoded_app_url(self, _name: str, encoded: str) -> None:
         # Some browsers encode the whole redirect target (#23504). The redirect has to go to the
