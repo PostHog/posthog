@@ -2,6 +2,7 @@ import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
     DashboardFilter,
     DataNode,
@@ -236,11 +237,18 @@ async function executeQuery<N extends DataNode>(
         // recomputing it. The query ID is reused, so cancels and log lookups still find the run;
         // safe because the server only joins a query that is still running.
         //
-        // A warehouse that is down also answers 404. Do not retry that one.
-        if (retriedAfterExpiry || e?.status !== 404 || e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE) {
+        // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
+        // view may only read, so it cannot submit at all; report the expired status rather than
+        // the permission error the server would answer with.
+        if (
+            retriedAfterExpiry ||
+            e?.status !== 404 ||
+            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
+            isSharedView()
+        ) {
             throw e
         }
-        return await resubmit(
+        return await executeQuery(
             queryNode,
             methodOptions,
             refresh === 'force_async' ? 'async' : refresh,
@@ -253,19 +261,6 @@ async function executeQuery<N extends DataNode>(
             acceptStaleCache,
             true
         )
-
-        async function resubmit(...args: Parameters<typeof executeQuery<N>>): Promise<NonNullable<N['response']>> {
-            try {
-                return await executeQuery(...args)
-            } catch (resubmitError: any) {
-                // A shared or exported dashboard is not allowed to start a query, so the retry is
-                // refused. Show the original error rather than the permission one.
-                if (resubmitError?.status === 401 || resubmitError?.status === 403) {
-                    throw e
-                }
-                throw resubmitError
-            }
-        }
     }
     return statusResponse.results
 }

@@ -290,6 +290,7 @@ describe('query', () => {
 
         afterEach(() => {
             jest.restoreAllMocks()
+            delete (window as any).POSTHOG_EXPORTED_DATA
         })
 
         it('runs the query again when its status has expired', async () => {
@@ -361,15 +362,16 @@ describe('query', () => {
             expect(querySpy).toHaveBeenCalledTimes(1)
         })
 
-        it('keeps the expired status when a view that may only read is refused', async () => {
-            jest.spyOn(api, 'query').mockRejectedValueOnce(new ApiError('forbidden', 403))
+        it('does not even try to resubmit from a shared or exported view', async () => {
+            const querySpy = jest.spyOn(api, 'query')
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+            ;(window as any).POSTHOG_EXPORTED_DATA = { type: 'embed' }
 
-            // A shared or exported dashboard is not allowed to start a query, so the original
-            // error is the one worth showing.
             await expect(
-                performQuery(query, undefined, 'async', 'shared', undefined, undefined, undefined, true)
+                performQuery(query, undefined, 'async', 'gone', undefined, undefined, undefined, true)
             ).rejects.toMatchObject({ status: 404 })
+
+            expect(querySpy).not.toHaveBeenCalled()
         })
     })
 
