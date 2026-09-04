@@ -13,8 +13,9 @@ import { hashCodeForString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { MCPServiceAccountServerApi } from 'products/mcp_store/frontend/generated/api.schemas'
-import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigUpdate, signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type {
+    SignalScoutConfigApi,
     SignalScoutConfigOptionsApi,
     SignalScoutCreateApi,
     SignalScoutCreateResponseApi,
@@ -62,6 +63,12 @@ export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name'
      * the form is persisted as a draft.
      */
     suggestionId?: string
+    /**
+     * The config of a scout that already exists, when the form opens to turn it on rather than
+     * create it. The name, description and body then show what the scout is and stay read-only;
+     * submitting patches this config with the run settings instead of creating a skill.
+     */
+    existingConfigId?: string
 }
 
 export interface ScoutCreateModalLogicProps {
@@ -69,6 +76,8 @@ export interface ScoutCreateModalLogicProps {
     initialValues?: ScoutCreateInitialValues
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
+    /** Called instead of `onCreated` when the form turned an existing scout on. */
+    onEnabled?: (config: SignalScoutConfigApi) => void
 }
 
 export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
@@ -102,7 +111,11 @@ export function getScoutCreateFormValues(
     }
     // `suggestionId` rides on the props, not the form: it is sent with the create but is nothing
     // the person edits, and the form values are persisted as a draft.
-    const { suggestionId: _suggestionId, ...editableInitialValues } = initialValues ?? {}
+    const {
+        suggestionId: _suggestionId,
+        existingConfigId: _existingConfigId,
+        ...editableInitialValues
+    } = initialValues ?? {}
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
         ...editableInitialValues,
@@ -361,6 +374,29 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 if (values.currentTeamId === null) {
                     lemonToast.error('Select a project before creating a scout')
                     throw new Error('No project selected')
+                }
+
+                const existingConfigId = logicProps.initialValues?.existingConfigId
+                if (existingConfigId) {
+                    // The scout exists already, so only its run settings are written. The name,
+                    // description and body were shown for the person to check, not to change.
+                    try {
+                        const { enabled: _enabled, ...runSettings } = formValues.config
+                        const config = await signalsScoutConfigUpdate(String(values.currentTeamId), existingConfigId, {
+                            ...runSettings,
+                            enabled: true,
+                        })
+                        actions.resetScoutCreateForm()
+                        actions.resetMcpServersDefaulted()
+                        lemonToast.success('Scout turned on')
+                        logicProps.onEnabled?.(config)
+                        logicProps.onClose()
+                    } catch (error) {
+                        const apiError = error instanceof ApiError ? error : null
+                        lemonToast.error(apiError?.detail ?? 'Could not turn the scout on')
+                        throw error
+                    }
+                    return
                 }
 
                 try {

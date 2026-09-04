@@ -7,8 +7,9 @@ import { suggestionToCreateValues } from '../../../utils/scoutSuggestions'
 import { ScoutCreateModalHost } from './ScoutCreateModalHost'
 
 /**
- * The create form opened from a custom suggestion, pre-filled with its draft. The form is the
- * "read the whole draft" surface too, so the name, cadence and body are all visible before the
+ * The create form opened from a suggestion. A custom draft pre-fills it; a canonical pick fills it
+ * from the scout that already exists, and submitting turns that scout on. Either way the form is
+ * the "read the whole thing" surface, so the name, cadence and body are all visible before the
  * scout starts running.
  */
 export function ScoutSuggestionCreateHost({ surface }: { surface: ScoutSuggestionSurface }): JSX.Element | null {
@@ -16,16 +17,23 @@ export function ScoutSuggestionCreateHost({ surface }: { surface: ScoutSuggestio
     const { closeCreateFromSuggestion, suggestionCreated } = useActions(scoutSuggestionsLogic)
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
 
+    const handleDone = (): void => {
+        if (createFromSuggestion) {
+            suggestionCreated(createFromSuggestion.item, surface)
+        }
+        loadScoutConfigs()
+    }
+
     return (
         <ScoutCreateModalHost
-            initialValues={createFromSuggestion ? suggestionToCreateValues(createFromSuggestion) : null}
+            initialValues={
+                createFromSuggestion
+                    ? suggestionToCreateValues(createFromSuggestion.item, createFromSuggestion.existing)
+                    : null
+            }
             onClose={closeCreateFromSuggestion}
-            onCreated={() => {
-                if (createFromSuggestion) {
-                    suggestionCreated(createFromSuggestion, surface)
-                }
-                loadScoutConfigs()
-            }}
+            onCreated={handleDone}
+            onEnabled={handleDone}
         />
     )
 }

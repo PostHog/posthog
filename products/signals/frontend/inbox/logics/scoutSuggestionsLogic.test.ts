@@ -23,11 +23,16 @@ import type {
     ScoutSuggestionSetApi,
     SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import { scoutFleetLogic } from './scoutFleetLogic'
 import { scoutSuggestionsLogic } from './scoutSuggestionsLogic'
 
 jest.mock('posthog-js')
+jest.mock('products/skills/frontend/generated/api', () => ({
+    llmSkillsNameArchiveCreate: jest.fn(),
+    llmSkillsNameRetrieve: jest.fn(),
+}))
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
@@ -54,6 +59,7 @@ const mockRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunc
     typeof signalsScoutRunsRecentPerScout
 >
 const mockRunsTokenCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<typeof signalsScoutRunsTokenCosts>
+const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
 
 const CANONICAL_ITEM: ScoutSuggestionItemApi = {
     id: 'suggestion-1',
@@ -138,6 +144,11 @@ describe('scoutSuggestionsLogic', () => {
         mockConfigUpdate.mockReset().mockResolvedValue({ ...CONFIG, enabled: true })
         mockRunsRecentPerScout.mockReset().mockResolvedValue([])
         mockRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
+        mockSkillRetrieve.mockReset().mockResolvedValue({
+            name: CANONICAL_ITEM.skill_name,
+            description: 'Watches web vitals.',
+            body: '# Web vitals\n\nCheck LCP on every run.',
+        } as Awaited<ReturnType<typeof llmSkillsNameRetrieve>>)
     })
 
     afterEach(() => {
@@ -205,19 +216,27 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.suggestions.map((item) => item.id)).toEqual([CANONICAL_ITEM.id, CUSTOM_ITEM.id])
     })
 
-    it('turns a canonical pick on through the roster config, and only drops it once it is on', async () => {
+    it('opens a canonical pick on the scout that exists, and only drops it once it is on', async () => {
         await mountWithBatch()
 
-        logic.actions.enableCanonicalSuggestion(CANONICAL_ITEM, 'strip')
+        logic.actions.openCreateFromSuggestion(CANONICAL_ITEM, 'strip')
         await expectLogic(logic).toFinishAllListeners()
 
-        // The card promised the proposed cadence, so the write carries it.
-        expect(mockConfigUpdate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), CONFIG.id, {
-            enabled: true,
-            emit: true,
-            run_cron_schedule: null,
-            run_interval_minutes: 1440,
+        // The form shows the existing scout's own text, not the pick's, and knows which config to turn on.
+        expect(mockSkillRetrieve).toHaveBeenCalledWith(String(MOCK_TEAM_ID), CANONICAL_ITEM.skill_name)
+        expect(logic.values.createFromSuggestion).toEqual({
+            item: CANONICAL_ITEM,
+            existing: {
+                configId: CONFIG.id,
+                description: 'Watches web vitals.',
+                body: '# Web vitals\n\nCheck LCP on every run.',
+            },
         })
+        expect(logic.values.busySuggestionIds).toEqual([])
+
+        // A draft needs no read, so its form opens at once.
+        logic.actions.openCreateFromSuggestion(CUSTOM_ITEM, 'strip')
+        expect(logic.values.createFromSuggestion).toEqual({ item: CUSTOM_ITEM, existing: null })
 
         // The roster rolls a failed write back, and the offer has to come back with it.
         scoutFleetLogic.actions.loadScoutConfigsSuccess([CONFIG])

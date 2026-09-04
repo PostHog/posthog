@@ -13,17 +13,19 @@ import type {
     MCPServiceAccountApi,
     MCPServiceAccountServerApi,
 } from 'products/mcp_store/frontend/generated/api.schemas'
-import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigUpdate, signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCOUT_DAILY_AT_SCHEDULE_MODE, SCOUT_WEEKLY_ON_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
 import { ScoutCreateModalLogicProps, scoutCreateModalLogic, scoutCreateModalLogicKey } from './scoutCreateModalLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    signalsScoutConfigUpdate: jest.fn(),
     signalsScoutCreate: jest.fn(),
 }))
 
 const mockSignalsScoutCreate = signalsScoutCreate as jest.MockedFunction<typeof signalsScoutCreate>
+const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 
 const CREATED_SCOUT: SignalScoutCreateResponseApi = {
     created: true,
@@ -195,6 +197,42 @@ describe('scoutCreateModalLogic', () => {
             },
         })
         expect(onCreated).toHaveBeenCalledWith(CREATED_SCOUT)
+        expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    // Opened on a scout that already exists, the form must not create a skill: the same name with the
+    // shown body would answer 200, but any edit would answer 409, and neither is what "Turn on" means.
+    it('turns an existing scout on with the run settings instead of creating it', async () => {
+        const onEnabled = jest.fn()
+        mockSignalsScoutConfigUpdate.mockResolvedValue({ ...CREATED_SCOUT.config, enabled: true })
+        logic = scoutCreateModalLogic({
+            logicKey: 'existing-scout',
+            initialValues: {
+                name: 'signals-scout-web-vitals',
+                description: 'Watches web vitals.',
+                body: '# Web vitals',
+                existingConfigId: 'config-1',
+                config: { emit: false, run_interval_minutes: 720, run_cron_schedule: null },
+            },
+            onClose,
+            onCreated,
+            onEnabled,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).not.toHaveBeenCalled()
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'config-1', {
+            enabled: true,
+            emit: false,
+            run_interval_minutes: 720,
+            run_cron_schedule: null,
+            mcp_gateway_server_ids: [],
+            tags: [],
+        })
+        expect(onEnabled).toHaveBeenCalledTimes(1)
+        expect(onCreated).not.toHaveBeenCalled()
         expect(onClose).toHaveBeenCalledTimes(1)
     })
 

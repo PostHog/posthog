@@ -4,7 +4,6 @@ import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import type { ScoutSuggestionItemApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -24,8 +23,8 @@ export interface ScoutSuggestionCardProps {
 /**
  * One suggested scout: what it would watch, why it was picked for this project, and the three ways
  * to act on it. Clicking the body expands it in place, so reading the whole draft never leaves the
- * roster. A canonical pick is a scout that already exists and is off, so its primary action flips
- * the switch; a custom pick is a draft, so its primary action opens the create form pre-filled.
+ * roster. Both kinds open the create form pre-filled: a custom pick with its draft, a canonical pick
+ * with the scout that already exists, so the person reads it before turning it on.
  */
 export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps): JSX.Element {
     const { busySuggestionIds, expandedSuggestionId } = useValues(scoutSuggestionsLogic)
@@ -90,52 +89,30 @@ function SuggestionTags({ item }: { item: ScoutSuggestionItemApi }): JSX.Element
 /** The card's primary action, which depends on its kind, next to the chat that refines it. */
 function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps & { isBusy: boolean }): JSX.Element {
     const { aiConsentDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
-    const { enableCanonicalSuggestion, refineSuggestionWithAi, openCreateFromSuggestion } =
-        useActions(scoutSuggestionsLogic)
-    // Turning an existing scout on is a config write, the same as the roster's switch, so only
-    // the paths that author a skill carry the editor gate.
+    const { refineSuggestionWithAi, openCreateFromSuggestion } = useActions(scoutSuggestionsLogic)
+    // A canonical pick opens the same form on the scout that already exists, so the person reads it
+    // before it runs, and submitting only writes the config. Creating a draft and refining with AI
+    // both end in a skill write, so those two carry the editor gate.
     const creationDisabledReason = useScoutCreateDisabledReason()
     const chatDisabledReason = isBusy
         ? 'Starting a task…'
         : runningChatType !== null
           ? 'Starting another task…'
           : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
+    const isCanonical = item.kind === 'canonical'
 
     return (
         <div className="flex flex-wrap items-center gap-1.5">
-            {item.kind === 'canonical' ? (
-                <>
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        loading={isBusy}
-                        onClick={() => enableCanonicalSuggestion(item, surface)}
-                        data-attr="scout-suggestion-turn-on"
-                    >
-                        Turn on
-                    </LemonButton>
-                    {/* The scout already exists on the project, so its own page is the place to
-                        read what it does and how it ran before deciding. */}
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        to={urls.inboxScout(item.skill_name)}
-                        data-attr="scout-suggestion-view"
-                    >
-                        View scout
-                    </LemonButton>
-                </>
-            ) : (
-                <LemonButton
-                    type="primary"
-                    size="xsmall"
-                    disabledReason={creationDisabledReason ?? undefined}
-                    onClick={() => openCreateFromSuggestion(item, surface)}
-                    data-attr="scout-suggestion-create"
-                >
-                    Create scout
-                </LemonButton>
-            )}
+            <LemonButton
+                type="primary"
+                size="xsmall"
+                loading={isBusy}
+                disabledReason={isCanonical ? undefined : (creationDisabledReason ?? undefined)}
+                onClick={() => openCreateFromSuggestion(item, surface)}
+                data-attr={isCanonical ? 'scout-suggestion-turn-on' : 'scout-suggestion-create'}
+            >
+                {isCanonical ? 'Turn on' : 'Create scout'}
+            </LemonButton>
             <LemonButton
                 type="secondary"
                 size="xsmall"

@@ -17,6 +17,7 @@ import {
     signalsScoutSuggestionsRefresh,
 } from 'products/signals/frontend/generated/api'
 import type { ScoutSuggestionItemApi, ScoutSuggestionSetApi } from 'products/signals/frontend/generated/api.schemas'
+import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import {
     captureScoutSuggestionClicked,
@@ -28,6 +29,7 @@ import {
     ScoutSuggestionSurface,
 } from '../inboxAnalytics'
 import type { ScoutChatType } from '../inboxAnalytics'
+import type { ExistingScoutForSuggestion } from '../utils/scoutSuggestions'
 import { scoutFleetLogic } from './scoutFleetLogic'
 import type { SignalScoutConfig } from './scoutFleetLogic'
 
@@ -45,13 +47,17 @@ export interface scoutSuggestionsLogicValues {
     aiConsentDisabledReason: string | null // scoutFleetLogic
     runningChatType: ScoutChatType | null // scoutFleetLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
+    currentProjectId: number | string // teamLogic
     currentTeamId: number | null // teamLogic
     batchAgeHours: number | null
     batchStatus: string
     busySuggestionIds: string[]
     collapsed: boolean
     collapsedOverride: boolean | null
-    createFromSuggestion: ScoutSuggestionItemApi | null
+    createFromSuggestion: {
+        existing: ExistingScoutForSuggestion | null
+        item: ScoutSuggestionItemApi
+    } | null
     expandedSuggestionId: string | null
     hasBatch: boolean
     hiddenSuggestionIds: string[]
@@ -74,11 +80,11 @@ export interface scoutSuggestionsLogicActions {
     } // featureFlagLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     startScoutChatTask: (
-        chatType: import('../inboxAnalytics').ScoutChatType,
+        chatType: ScoutChatType,
         taskLabel: string,
         suggestionId?: string | undefined
     ) => {
-        chatType: import('../inboxAnalytics').ScoutChatType
+        chatType: ScoutChatType
         suggestionId: string | undefined
         taskLabel: string
     } // scoutFleetLogic
@@ -98,14 +104,14 @@ export interface scoutSuggestionsLogicActions {
     closeCreateFromSuggestion: () => {
         value: true
     }
-    dismissSuggestion: (
+    createFromSuggestionReady: (
         item: ScoutSuggestionItemApi,
-        surface: ScoutSuggestionSurface
+        existing: ExistingScoutForSuggestion | null
     ) => {
+        existing: ExistingScoutForSuggestion | null
         item: ScoutSuggestionItemApi
-        surface: ScoutSuggestionSurface
     }
-    enableCanonicalSuggestion: (
+    dismissSuggestion: (
         item: ScoutSuggestionItemApi,
         surface: ScoutSuggestionSurface
     ) => {
@@ -223,7 +229,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             scoutFleetLogic,
             ['scoutConfigs', 'aiConsentDisabledReason', 'runningChatType'],
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentProjectId'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -243,9 +249,9 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
 
     actions({
         dismissSuggestion: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
-        enableCanonicalSuggestion: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({
+        createFromSuggestionReady: (item: ScoutSuggestionItemApi, existing: ExistingScoutForSuggestion | null) => ({
             item,
-            surface,
+            existing,
         }),
         refineSuggestionWithAi: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
         restoreSuggestion: (suggestionId: string) => ({ suggestionId }),
@@ -311,7 +317,9 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             [] as string[],
             {
                 dismissSuggestion: (state, { item }) => [...state, item.id],
-                enableCanonicalSuggestion: (state, { item }) => [...state, item.id],
+                // A canonical pick reads the existing scout before its form opens; a draft opens at once.
+                openCreateFromSuggestion: (state, { item }) =>
+                    item.kind === 'canonical' ? [...state, item.id] : state,
                 refineSuggestionWithAi: (state, { item }) => [...state, item.id],
                 suggestionActionFinished: (state, { suggestionId }) => state.filter((id) => id !== suggestionId),
             },
@@ -330,9 +338,9 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             },
         ],
         createFromSuggestion: [
-            null as ScoutSuggestionItemApi | null,
+            null as { item: ScoutSuggestionItemApi; existing: ExistingScoutForSuggestion | null } | null,
             {
-                openCreateFromSuggestion: (_, { item }) => item,
+                createFromSuggestionReady: (_, { item, existing }) => ({ item, existing }),
                 closeCreateFromSuggestion: () => null,
                 suggestionCreated: () => null,
             },
@@ -437,39 +445,6 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 actions.suggestionActionFinished(item.id)
             }
         },
-        enableCanonicalSuggestion: async ({ item, surface }) => {
-            captureScoutSuggestionClicked({
-                kind: suggestionKind(item),
-                skillName: item.skill_name,
-                target: 'turn_on',
-                surface,
-            })
-            const config = values.scoutConfigs?.find((candidate) => candidate.skill_name === item.skill_name)
-            if (!config) {
-                // The roster materializes the canonical fleet on open, so a missing row means the
-                // sync has not landed yet rather than that the scout does not exist.
-                lemonToast.error('This scout is still being set up on your project. Try again in a moment.')
-                actions.loadScoutConfigs()
-                actions.suggestionActionFinished(item.id)
-                return
-            }
-            // `updateScoutConfig` owns the optimistic patch, the toast on failure, and the retry, so
-            // the switch on the roster row and this button behave identically. The card shows the
-            // proposed cadence, so a pick that names one applies it; the disabled config's own
-            // schedule stays when the pick leaves it to the default.
-            const { emit, run_cron_schedule, run_interval_minutes } = item.proposed_config
-            actions.updateScoutConfig(config.id, {
-                enabled: true,
-                emit,
-                ...(run_cron_schedule
-                    ? { run_cron_schedule }
-                    : run_interval_minutes
-                      ? { run_cron_schedule: null, run_interval_minutes }
-                      : {}),
-            })
-            actions.suggestionCreated(item, surface)
-            actions.suggestionActionFinished(item.id)
-        },
         refineSuggestionWithAi: async ({ item, surface }) => {
             captureScoutSuggestionClicked({
                 kind: suggestionKind(item),
@@ -495,13 +470,44 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 cache.refiningSuggestionId = null
             }
         },
-        openCreateFromSuggestion: ({ item, surface }) => {
+        openCreateFromSuggestion: async ({ item, surface }) => {
             captureScoutSuggestionClicked({
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
-                target: 'create',
+                target: item.kind === 'canonical' ? 'turn_on' : 'create',
                 surface,
             })
+            if (item.kind !== 'canonical') {
+                actions.createFromSuggestionReady(item, null)
+                return
+            }
+            // The form opens on the scout as it exists, so the person reads what it does before it
+            // runs. Submitting then writes only its config, through the same update the roster uses.
+            const config = values.scoutConfigs?.find((candidate) => candidate.skill_name === item.skill_name)
+            const projectId = values.currentProjectId
+            if (!config || typeof projectId !== 'number') {
+                // The roster materializes the canonical fleet on open, so a missing row means the
+                // sync has not landed yet rather than that the scout does not exist.
+                lemonToast.error('This scout is still being set up on your project. Try again in a moment.')
+                actions.loadScoutConfigs()
+                actions.suggestionActionFinished(item.id)
+                return
+            }
+            try {
+                const skill = await llmSkillsNameRetrieve(String(projectId), item.skill_name)
+                actions.createFromSuggestionReady(item, {
+                    configId: config.id,
+                    description: skill.description,
+                    body: skill.body,
+                })
+            } catch (error) {
+                lemonToast.error(
+                    (error instanceof ApiError ? error.detail : null) ??
+                        'Could not load this scout. Try again in a moment.'
+                )
+            } finally {
+                actions.suggestionActionFinished(item.id)
+            }
         },
         suggestionCreated: ({ item, surface }) => {
             // Both one-click paths land here — turning a canonical scout on, and a custom draft

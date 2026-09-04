@@ -26,12 +26,27 @@ export function suggestionMetaLine(config: ScoutSuggestionProposedConfigApi): st
     return `Runs ${suggestionCadenceLabel(config)} · ${output}`
 }
 
-/** A custom draft as the create form's starting point, so the person sees it before it runs. */
-export function suggestionToCreateValues(item: ScoutSuggestionItemApi): ScoutCreateInitialValues {
+/** The scout a canonical pick would turn on, as it exists on the project. */
+export interface ExistingScoutForSuggestion {
+    configId: string
+    description: string
+    body: string
+}
+
+/**
+ * A suggestion as the create form's starting point, so the person sees it before it runs. A custom
+ * draft brings its own text; a canonical pick shows the existing scout's, and submitting turns that
+ * scout on rather than creating one.
+ */
+export function suggestionToCreateValues(
+    item: ScoutSuggestionItemApi,
+    existing: ExistingScoutForSuggestion | null = null
+): ScoutCreateInitialValues {
     return {
         name: item.skill_name,
-        description: item.description,
-        body: item.draft_body,
+        description: existing?.description ?? item.description,
+        body: existing?.body ?? item.draft_body,
+        existingConfigId: existing?.configId,
         config: {
             emit: item.proposed_config.emit,
             run_cron_schedule: item.proposed_config.run_cron_schedule ?? null,
