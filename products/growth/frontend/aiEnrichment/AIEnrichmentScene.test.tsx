@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import type { ConfigVersionApi } from '../generated/api.schemas'
-import { AIEnrichmentVersionRail } from './AIEnrichmentScene'
+import { AIEnrichmentSaveControls, AIEnrichmentVersionRail } from './AIEnrichmentScene'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useActions: jest.fn(), useValues: jest.fn() }))
 jest.mock('@posthog/lemon-ui', () => ({
@@ -22,6 +22,7 @@ const ACTIVE_VERSION: ConfigVersionApi = {
     model: 'gpt-5-mini',
     input_fields: [],
     output_fields: [],
+    sources: [],
     is_active: true,
     created_by_email: null,
     created_at: '2024-01-01T00:00:00Z',
@@ -92,5 +93,51 @@ describe('AIEnrichmentVersionRail', () => {
 
         dialogConfig.primaryButton.onClick()
         expect(activateVersion).toHaveBeenCalledWith(DRAFT_VERSION.id)
+    })
+})
+
+describe('AIEnrichmentSaveControls', () => {
+    const saveVersion = jest.fn()
+    const openForm = LemonDialog.openForm as jest.Mock
+
+    afterEach(cleanup)
+
+    beforeEach(() => {
+        saveVersion.mockClear()
+        openForm.mockClear()
+        ;(useActions as jest.Mock).mockReturnValue({ saveVersion })
+    })
+
+    function renderSaveControls(editorSources: unknown[]): void {
+        ;(useValues as jest.Mock).mockReturnValue({
+            saveResultLoading: false,
+            selectedLabel: 'test_label',
+            isRunning: false,
+            editorInputFields: ['name'],
+            editorOutputFields: [{ key: 'verdict', type: 'boolean', description: '' }],
+            editorSources,
+            versions: [],
+        })
+        render(<AIEnrichmentSaveControls />)
+    }
+
+    it('disables Save with a reason when a web source is incomplete', () => {
+        renderSaveControls([{ key: '', kind: 'fetch', url: '' }])
+
+        const button = document.querySelector('[data-attr="ai-enrichment-save"]') as HTMLElement
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+
+        fireEvent.click(button)
+        expect(openForm).not.toHaveBeenCalled()
+    })
+
+    it('leaves Save enabled when every web source is complete', () => {
+        renderSaveControls([{ key: 'pricing', kind: 'fetch', url: 'https://{domain}/pricing' }])
+
+        const button = document.querySelector('[data-attr="ai-enrichment-save"]') as HTMLElement
+        expect(button).toHaveAttribute('aria-disabled', 'false')
+
+        fireEvent.click(button)
+        expect(openForm).toHaveBeenCalled()
     })
 })
