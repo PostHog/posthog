@@ -376,20 +376,22 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('vr-cli/products/visual_review/cli/package-lock.json') }}
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
                   restore-keys: npm-vr-cli-${{ runner.os }}-
 
             - name: Install VR CLI
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Save VR CLI npm cache
-              # vr-setup is the only writer because it precedes every other job that
-              # installs the CLI, and they all key on the same lockfile hash.
+              # The only writer for every VR CLI install, here and in
+              # ci-e2e-playwright.yml. They key on the same lockfile, so one entry serves
+              # them all and no two jobs save the same content at once. A job that finds
+              # no entry downloads the dependency tree instead.
               if: github.ref == 'refs/heads/master'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('vr-cli/products/visual_review/cli/package-lock.json') }}
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
 
             - name: Create VR run
               id: create
@@ -856,7 +858,7 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('vr-cli/products/visual_review/cli/package-lock.json') }}
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
                   restore-keys: npm-vr-cli-${{ runner.os }}-
 
             - name: Install VR CLI
