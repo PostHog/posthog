@@ -89,8 +89,10 @@ def list_run_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]
 def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID) -> bytes:
     run = run_store.get_run(team_id, run_id)
     stored_artifact = store.get_stored_git_diff_artifact(team_id, run.id, artifact_id)
+
     if stored_artifact is None:
         raise WizardRunArtifactNotFoundError
+
     if stored_artifact.size_bytes > MAX_GIT_DIFF_DOWNLOAD_BYTES:
         raise WizardRunArtifactTooLargeError
 
@@ -99,6 +101,7 @@ def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID)
         bucket=settings.WIZARD_RUN_ARTIFACTS_S3_BUCKET,
         missing_ok=True,
     )
+
     if content is None:
         raise WizardRunArtifactNotFoundError
 

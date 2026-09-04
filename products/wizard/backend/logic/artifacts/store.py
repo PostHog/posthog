@@ -41,9 +41,12 @@ def upsert_git_diff(
             "content_hash": content_hash,
         },
     )
+
     result = artifact_from_record(artifact)
+
     if not isinstance(result, WizardRunGitDiffArtifactDTO):
         raise ValueError("Expected a git diff artifact")
+
     return result
 
 
@@ -69,9 +72,12 @@ def upsert_pull_request(
             "content_hash": None,
         },
     )
+
     result = artifact_from_record(artifact)
+
     if not isinstance(result, WizardRunPullRequestArtifactDTO):
         raise ValueError("Expected a pull request artifact")
+
     return result
 
 
@@ -87,9 +93,13 @@ def get_stored_git_diff_artifact(team_id: int, run_id: UUID, artifact_id: UUID) 
         .values_list("storage_path", "content_hash", "size_bytes")
         .first()
     )
+
     if stored is None:
         return None
+
     storage_path, content_hash, size_bytes = stored
+
     if not isinstance(storage_path, str) or not isinstance(content_hash, str) or not isinstance(size_bytes, int):
         return None
+
     return StoredGitDiffArtifact(storage_path=storage_path, content_hash=content_hash, size_bytes=size_bytes)
