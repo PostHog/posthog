@@ -47,6 +47,28 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'order_by',
 ]
 
+/**
+ * The observations table's state as it lives in the scanner page URL: filters, sort, and page.
+ * Links into the Observations tab build from these keys, and an observation page carries them back
+ * so returning to the list restores the view the reader left.
+ */
+export const OBSERVATION_LIST_URL_PARAM_KEYS = [
+    'page',
+    'sort',
+    'status',
+    'triggered_by',
+    'verdict',
+    'tags',
+    'min_score',
+    'max_score',
+    'recording_subject',
+    'date_from',
+    'date_to',
+    'backfill_id',
+] as const
+
+export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
+
 export type EnabledFilter = 'enabled' | 'disabled'
 
 export type IneligibleKind =
