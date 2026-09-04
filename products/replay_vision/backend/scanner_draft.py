@@ -20,7 +20,7 @@ from django.db.models import Q
 
 import structlog
 import posthoganalytics
-from google.genai.types import GenerateContentConfig, GenerateContentResponse
+from google.genai.types import FinishReason, GenerateContentConfig, GenerateContentResponse
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
@@ -73,8 +73,11 @@ _SCALE_MAX_ALLOWED = 100
 _SCALE_SPAN_ALLOWED = 100
 # CoreMemory.text is model-capped at 10k chars; cap lower to keep the one-shot draft prompt lean.
 _MAX_BUSINESS_CONTEXT_CHARS = 5_000
-# Well above the largest plausible draft (a full config is a few hundred tokens); only caps runaway output.
-_MAX_OUTPUT_TOKENS = 4096
+# Thinking tokens are drawn from this same budget, and a vague goal makes the model deliberate far
+# longer than it writes: at 4096 the JSON was being cut off mid-object after only ~150 tokens of
+# answer. Doubling it clears that while staying well inside `_MODEL_CALL_TIMEOUT_MS` — a budget the
+# model cannot exhaust before the request times out just trades a quick failure for a slow one.
+_MAX_OUTPUT_TOKENS = 8192
 # Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
 _MAX_EXISTING_SCANNERS = 15
 _SCANNER_GIST_CHARS = 200
@@ -206,7 +209,16 @@ _GOAL_STOPWORDS = frozenset(
 
 
 class DraftError(Exception):
-    """Raised when the model call fails or returns nothing usable."""
+    """Raised when the model call fails or returns nothing usable.
+
+    `reason` is a stable slug carried into telemetry. The user-facing 503 is deliberately generic,
+    so it is the only thing that tells a provider outage apart from a draft the model got wrong.
+    """
+
+    def __init__(self, reason: str = "unknown", detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
 
 
 class _LlmDraft(BaseModel):
@@ -516,6 +528,14 @@ def draft_scanner_from_goal(
     return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=taxonomy.events, team_id=team.id)
 
 
+def _hit_output_cap(response: GenerateContentResponse) -> bool:
+    """Whether the model stopped because it ran out of output budget, leaving the JSON unfinished."""
+    for candidate in response.candidates or []:
+        if candidate.finish_reason == FinishReason.MAX_TOKENS:
+            return True
+    return False
+
+
 def _generate(
     *,
     user_content: str,
@@ -536,7 +556,7 @@ def _generate(
     except Exception as e:
         # A missing or malformed API key raises at construction. Wrap it so the API returns
         # the friendly 503 instead of a 500.
-        raise DraftError("model client unavailable") from e
+        raise DraftError("model_client_unavailable") from e
     config = GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
@@ -571,14 +591,19 @@ def _generate(
             response = call_model()
         except Exception as e:
             logger.exception("replay_vision.scanner_draft.generate_failed", team_id=team_id)
-            raise DraftError("model call failed") from e
+            raise DraftError("model_call_failed") from e
 
+    if _hit_output_cap(response):
+        # Truncated JSON parses as invalid, but the cause is our budget rather than the model
+        # writing nonsense — keep the two apart so a recurrence is recognizable.
+        logger.warning("replay_vision.scanner_draft.output_truncated", team_id=team_id, feature=feature)
+        raise DraftError("output_truncated")
     if not response.text:
-        raise DraftError("empty response")
+        raise DraftError("empty_response")
     try:
         return response_model.model_validate_json(response.text)
     except Exception as e:
-        raise DraftError("invalid response") from e
+        raise DraftError("invalid_response") from e
 
 
 def _grounded(proposed: list[str], allowed: Sequence[str], cap: int) -> list[str]:
@@ -642,7 +667,7 @@ def _normalized_config(parsed: _LlmDraft) -> dict[str, Any]:
     # (e.g. a classifier whose tags all slugified away).
     error = scanner_config_error(ScannerType(parsed.scanner_type), scanner_config)
     if error:
-        raise DraftError(f"draft config invalid: {error}")
+        raise DraftError("config_invalid", str(error))
     return scanner_config
 
 
@@ -656,7 +681,7 @@ def _finalize(
     """Normalize the model output into a draft the wizard form (and later the create endpoint) will accept."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
-        raise DraftError("draft missing name or prompt")
+        raise DraftError("missing_name_or_prompt")
     scanner_config = _normalized_config(parsed)
 
     screens = _grounded(
@@ -794,6 +819,10 @@ recordings of the user's product and produces one observation per recording. The
   Best when the goal is ranking sessions by intensity of something.
 - summarizer: writes a free-text summary of the session. Best when the goal is broad ("what are users
   doing?", "give me an overview") and doesn't fit one question, dimension, or vocabulary.
+
+A short or vague goal ("test", "help", "what's going on") is not a puzzle to work out. Draft a summarizer over
+the whole product with no filters and move on. The user reviews the draft in the wizard and narrows it
+there, so a broad draft is the right answer, not a guess at what they meant.
 
 Pick the single type that best fits the goal, then draft the scanner:
 - name: short and specific, under 8 words.
@@ -1344,7 +1373,7 @@ def _finalize_v2(
     """Normalize the v2 model output; costing is applied by the caller."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
-        raise DraftError("draft missing name or prompt")
+        raise DraftError("missing_name_or_prompt")
     scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
     # The briefing shows each page as "/billing (10)" for ranking, but the prompt tells the model to
