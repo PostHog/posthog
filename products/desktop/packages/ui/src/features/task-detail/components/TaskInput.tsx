@@ -152,7 +152,7 @@ interface TaskInputProps {
   /** Pending-prompt record to clear once this prefill is applied (interrupted-prompt recovery). */
   recoveredFromKey?: string;
   initialPromptKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   reportAssociation?: TaskInputReportAssociation;
@@ -513,7 +513,7 @@ export function TaskInput({
   } = useResolvedWorkspaceMode({
     hasGithubIntegration,
     isLoadingIntegrations,
-    pinCloud: !!initialCloudRepository,
+    pinCloud: initialCloudRepository !== undefined,
   });
   const localWorkspaceReady =
     isWorkspaceModeResolved && workspaceMode !== "cloud";
@@ -547,9 +547,9 @@ export function TaskInput({
   } = useUserGithubRepositories(cloudRepoSearchQuery, isCloudRepoPickerOpen);
   const [selectedRepository, setSelectedRepository] = useState<string | null>(
     () =>
-      initialCloudRepository?.toLowerCase() ??
-      lastUsedCloudRepository?.toLowerCase() ??
-      null,
+      initialCloudRepository === undefined
+        ? (lastUsedCloudRepository?.toLowerCase() ?? null)
+        : (initialCloudRepository?.toLowerCase() ?? null),
   );
   const selectedCloudRepository = useMemo(() => {
     if (!selectedRepository) return null;
@@ -665,9 +665,9 @@ export function TaskInput({
   );
 
   useEffect(() => {
-    if (!initialCloudRepository) return;
+    if (initialCloudRepository === undefined) return;
     overrideWorkspaceMode("cloud");
-    setSelectedRepository(initialCloudRepository.toLowerCase());
+    setSelectedRepository(initialCloudRepository?.toLowerCase() ?? null);
   }, [initialCloudRepository, overrideWorkspaceMode]);
 
   const handleRefreshRepositories = useCallback(() => {
@@ -768,12 +768,16 @@ export function TaskInput({
   const { folders, isLoaded: foldersLoaded } = useFolders();
 
   useEffect(() => {
-    if (selectedRepository || !lastUsedCloudRepository) {
+    if (
+      initialCloudRepository !== undefined ||
+      selectedRepository ||
+      !lastUsedCloudRepository
+    ) {
       return;
     }
 
     setSelectedRepository(lastUsedCloudRepository.toLowerCase());
-  }, [lastUsedCloudRepository, selectedRepository]);
+  }, [initialCloudRepository, lastUsedCloudRepository, selectedRepository]);
 
   useEffect(() => {
     // Clear `selectedRepository` only when the list has actually loaded AND the
