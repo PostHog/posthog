@@ -340,6 +340,9 @@ export const HogFlowSchema = z.object({
     // use epoch millis or an ISO string.
     email_sending_paused_at: z.union([z.number(), z.string(), z.date()]).optional().nullable(),
     email_sending_paused_reason: z.string().optional().nullable(),
+    // "auto" (deliverability detector) or "staff". Staff pauses are not customer-resumable, so the
+    // skip log tells the customer to contact support instead of pointing at the resume button.
+    email_sending_paused_by: z.string().optional().nullable(),
     actions: z.array(HogFlowActionSchema),
     // Secret function inputs, split out of `actions` and stored Fernet-encrypted at rest, keyed by
     // action id then input key. Decrypted by the manager and merged back into `action.config.inputs`

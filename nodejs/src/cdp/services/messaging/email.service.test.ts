@@ -807,6 +807,22 @@ describe('EmailService', () => {
                 expect(result.skipped).toBe(true)
             })
 
+            it('tells a staff-paused workflow to contact support instead of the resume button', async () => {
+                invocation.hogFunction.metadata = {
+                    email_sending_paused_at: '2026-01-01T00:00:00Z',
+                    email_sending_paused_reason: "PostHog staff paused this workflow's email to protect delivery for everyone.",
+                    email_sending_paused_by: 'staff',
+                }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                const messages = result.logs.map((l) => l.message).join(' ')
+                expect(messages).toContain('Contact support')
+                expect(messages).not.toContain('Resume it from the workflow page')
+            })
+
             it('blocks editor test sends while the workflow is paused without recording metrics', async () => {
                 invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
