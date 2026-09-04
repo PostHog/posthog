@@ -41,7 +41,7 @@ const existingAlert = {
             id: 'dest-1',
             channel_type: 'slack',
             integration_id: 7,
-            config: { channel: 'C0123', channel_name: '#alerts' },
+            config: { channel: 'C0123', channel_name: '#alerts', reply_broadcast: true },
             last_delivered_at: null,
             last_failure_at: null,
             last_error: '',
@@ -67,7 +67,7 @@ describe('nativeAlertEditorLogic', () => {
 
     it('round-trips an alert through the draft and splits the composite slack channel', () => {
         const draft = draftFromAlert(existingAlert)
-        expect(draft.destinations).toEqual([{ integrationId: 7, channel: 'C0123|#alerts' }])
+        expect(draft.destinations).toEqual([{ integrationId: 7, channel: 'C0123|#alerts', replyBroadcast: true }])
         expect(payloadFromDraft(draft)).toEqual({
             name: 'Production errors',
             enabled: false,
@@ -76,7 +76,11 @@ describe('nativeAlertEditorLogic', () => {
             filters: { events: existingAlert.filters.events, properties: existingAlert.filters.properties },
             throttle_seconds: 3600,
             destinations: [
-                { channel_type: 'slack', integration_id: 7, config: { channel: 'C0123', channel_name: '#alerts' } },
+                {
+                    channel_type: 'slack',
+                    integration_id: 7,
+                    config: { channel: 'C0123', channel_name: '#alerts', reply_broadcast: true },
+                },
             ],
         })
     })
@@ -119,7 +123,11 @@ describe('nativeAlertEditorLogic', () => {
                 name: 'Spikes',
                 triggers: ['issue_spiking'],
                 destinations: [
-                    { channel_type: 'slack', integration_id: 7, config: { channel: 'C0456', channel_name: '#spikes' } },
+                    {
+                        channel_type: 'slack',
+                        integration_id: 7,
+                        config: { channel: 'C0456', channel_name: '#spikes', reply_broadcast: false },
+                    },
                 ],
             })
         )
