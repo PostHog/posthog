@@ -14,6 +14,7 @@ import {
     Item,
     ItemContent,
     ItemTitle,
+    Separator,
     Text,
     cn,
 } from 'lib/ui/quill'
@@ -206,17 +207,18 @@ export function HogFlowTreeNode({
                                 {showAllBranches ? 'Show fewer branches' : `Show ${hiddenBranchCount} more branches`}
                             </Button>
                         )}
-                        {joinEdge && (
+                    </CollapsibleContent>
+                    {joinEdge && (
+                        <>
+                            <Separator className="mx-3 my-1 hidden group-data-[open]/collapsible:block" />
                             <HogFlowTreeDropzone
                                 active={activeDropzones}
                                 draggedActionId={draggedActionId}
                                 edge={joinEdge}
                                 isBranchJoin
-                                showConnector={false}
                             />
-                        )}
-                    </CollapsibleContent>
-                    <div className="h-2 group-data-[open]/collapsible:hidden" aria-hidden="true" />
+                        </>
+                    )}
                 </Collapsible>
             )}
         </div>
