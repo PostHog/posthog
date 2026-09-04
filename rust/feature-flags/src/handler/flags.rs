@@ -617,6 +617,16 @@ mod tests {
         headers.insert("user-agent", "posthog-flutter/4.0.0".parse().unwrap());
         let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
+
+        headers.clear();
+        headers.insert("user-agent", "posthog-kmp/0.6.0".parse().unwrap());
+        let result = detect_evaluation_runtime_from_request(&headers, None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
+
+        headers.clear();
+        headers.insert("user-agent", "posthog-unity/4.5.0".parse().unwrap());
+        let result = detect_evaluation_runtime_from_request(&headers, None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
     }
 
     #[test]
@@ -633,13 +643,20 @@ mod tests {
     fn test_detect_evaluation_runtime_all_server_sdks() {
         let server_sdks = vec![
             "posthog-python/1.4.0",
+            "posthog-python-mcp/0.1.0",
             "posthog-ruby/2.0.0",
             "posthog-ruby2.0.0",
+            "posthog-rails/3.18.0",
             "posthog-php/3.0.0",
             "posthog-java/1.0.0",
+            "posthog-server/1.0.0",
             "posthog-go/0.1.0",
             "posthog-node/2.2.0",
+            "posthog-node-mcp/0.7.0",
+            "posthog-edge/2.2.0",
+            "posthog-convex/0.2.0",
             "posthog-dotnet/1.0.0",
+            "posthog-aspnetcore/1.0.0",
             "posthog-elixir/0.2.0",
             "posthog-rs/0.10.0",
         ];
