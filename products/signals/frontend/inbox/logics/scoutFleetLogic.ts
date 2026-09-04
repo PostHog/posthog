@@ -257,7 +257,6 @@ export interface scoutFleetLogicValues {
     aiConsentDisabledReason: string | null
     customScoutCount: number
     deletingScoutIds: string[]
-    publishingScoutIds: string[]
     emittedFindingsSummary: {
         authoredReportCount: number
         count: number
@@ -278,6 +277,7 @@ export interface scoutFleetLogicValues {
         pausingSoon: number
         recentlyPaused: number
     }
+    publishingScoutIds: string[]
     rollups: Map<string, ScoutRollup>
     rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
@@ -441,9 +441,6 @@ export interface scoutFleetLogicActions {
         configId: string
         updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     }
-    removeScoutConfigLocally: (configId: string) => {
-        configId: string
-    }
     publishScoutToCommunity: (
         configId: string,
         options: PublishScoutOptions
@@ -452,6 +449,9 @@ export interface scoutFleetLogicActions {
         options: PublishScoutOptions
     }
     publishScoutToCommunityFinished: (configId: string) => {
+        configId: string
+    }
+    removeScoutConfigLocally: (configId: string) => {
         configId: string
     }
     runScoutNow: (configId: string) => {
