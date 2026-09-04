@@ -32845,6 +32845,98 @@ export namespace Schemas {
     }
 
     /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     */
+    export type EvaluationBackfillStatusEnum = typeof EvaluationBackfillStatusEnum[keyof typeof EvaluationBackfillStatusEnum];
+
+
+    export const EvaluationBackfillStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export type EvaluationBackfillConditionPropertiesItem = { [key: string]: unknown };
+
+    /**
+     * One condition set as it was frozen onto the backfill: no id, no compiled bytecode.
+     */
+    export interface EvaluationBackfillCondition {
+      /** Property filters (event or person) that scope which units match this condition set. */
+      properties?: EvaluationBackfillConditionPropertiesItem[];
+      /** Percentage (0-100) of matching units sampled for this condition set. */
+      rollout_percentage?: number;
+    }
+
+    export interface EvaluationBackfill {
+      /** Backfill identifier. */
+      readonly id: string;
+      /** running while the walk is dispatching, then completed or cancelled.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled */
+      readonly status: EvaluationBackfillStatusEnum;
+      /** What one unit is, frozen at creation: a generation, a trace, or a session.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      readonly target: EvaluationTargetEnum;
+      /** Inclusive start of the window, by unit timestamp. */
+      readonly window_start: string;
+      /** Exclusive end of the window. */
+      readonly window_end: string;
+      /** Condition sets frozen at creation, so an edit to the evaluation does not change this run. */
+      readonly conditions: readonly EvaluationBackfillCondition[];
+      /** Whether units with an existing result are evaluated again. */
+      readonly rerun_existing: boolean;
+      /** Units matched at creation; the ceiling on dispatched_count. */
+      readonly total_count: number;
+      /** Units the backfill has started an evaluation for so far. */
+      readonly dispatched_count: number;
+      /** Units the live path had already covered, so nothing was dispatched. */
+      readonly skipped_count: number;
+      /** User who started the backfill. */
+      readonly created_by: UserBasic | null;
+      /** When the backfill was created. */
+      readonly created_at: string;
+      /**
+         * When the backfill reached a terminal status; null while it runs.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+    }
+
+    export interface EvaluationBackfillEstimate {
+      /** Units that would be evaluated. */
+      total_units: number;
+      /** What one unit is: a generation, a trace, or a session.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      unit: EvaluationTargetEnum;
+      /** Window start after clamping. */
+      window_start: string;
+      /** Window end after clamping. */
+      window_end: string;
+    }
+
+    export interface EvaluationBackfillRequest {
+      /** Inclusive start of the window, by unit timestamp. */
+      window_start: string;
+      /** Exclusive end of the window. Values in the future are clamped to now. */
+      window_end: string;
+      /** Condition sets to match. Defaults to the evaluation's own condition sets. */
+      conditions?: EvaluationCondition[];
+      /** Evaluate units again even when this evaluation already has a result for them. */
+      rerun_existing?: boolean;
+    }
+
+    /**
      * * `unknown` - Unknown
      * * `ok` - Ok
      * * `invalid` - Invalid
@@ -54417,6 +54509,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingSymbolSet[];
+    }
+
+    export interface PaginatedEvaluationBackfillList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationBackfill[];
     }
 
     export interface PaginatedEvaluationList {
@@ -93902,6 +94003,17 @@ export namespace Schemas {
       LlmJudge: 'llm_judge',
       Sentiment: 'sentiment',
     } as const;
+
+    export type EvaluationsBackfillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EventDefinitionsListParams = {
     /**

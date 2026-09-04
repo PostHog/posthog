@@ -453,6 +453,104 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
     })
     .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
+/**
+ * Create a backfill: freeze the conditions, count the units, start the walk.
+ */
+export const evaluationsBackfillsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
+
+/**
+ * Count what a backfill over the given window would evaluate, without creating one.
+ */
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsEstimateCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsEstimateCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
+
 export const evaluationsUpdateBodyNameMax = 400
 
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
