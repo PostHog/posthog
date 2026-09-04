@@ -140,6 +140,10 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                         Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                     },
                 })
+                if (!response.ok) {
+                    // An error body carries no counts, so it must not read as a report of no data.
+                    throw new Error(`Stats request failed with status ${response.status}`)
+                }
                 const data: LiveUserCountStats = await response.json()
                 if (data.users_on_product == null && data.active_recordings == null) {
                     // The stream reports no data yet. Keep the last known counts so the badges do not blink away.
