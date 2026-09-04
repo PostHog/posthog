@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.legal_documents.backend.facade import api as legal_api
+from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 from products.legal_documents.backend.logic.pandadoc import PandaDocError
 from products.legal_documents.backend.models import LegalDocument
 
@@ -1067,18 +1068,15 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         ]
     )
     @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
     @patch("products.legal_documents.backend.facade.api.capture_exception")
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     def test_reconcile_recreates_envelope_when_pandadoc_reports_it_missing(
-        self, _name, age, expected_recreated, status_mock, create_mock, capture_mock
+        self, _name, age, expected_recreated, status_mock, create_mock, capture_mock, void_mock
     ) -> None:
-        from products.legal_documents.backend.logic import (
-            PandaDocEnvelopeLost,
-            pandadoc as pandadoc_module,
-        )
-
         status_mock.return_value = None
+        void_mock.return_value = 404
         create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
         LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - age)
 
@@ -1087,6 +1085,7 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertEqual(result.envelopes_recreated, expected_recreated)
         self.assertEqual(create_mock.called, bool(expected_recreated))
         self.assertEqual(capture_mock.called, bool(expected_recreated))
+        self.assertEqual(void_mock.called, bool(expected_recreated))
         if expected_recreated:
             create_kwargs = create_mock.call_args.kwargs
             self.assertEqual(create_kwargs["tokens"]["Client.Company"], self.document.company_name)
@@ -1096,7 +1095,9 @@ class TestLegalDocumentReconciliation(APIBaseTest):
                 [recipient.email for recipient in create_kwargs["recipients"]],
             )
             captured_exc = capture_mock.call_args.args[0]
-            self.assertIsInstance(captured_exc, PandaDocEnvelopeLost)
+            self.assertEqual(
+                str(captured_exc), "PandaDoc envelope no longer exists for a legal document still out for signature"
+            )
             additional = capture_mock.call_args.kwargs["additional_properties"]
             self.assertEqual(additional["legal_document_id"], str(self.document.id))
             self.assertEqual(additional["pandadoc_document_id"], "doc_123")
@@ -1105,6 +1106,46 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         else:
             self.document.refresh_from_db()
             self.assertEqual(self.document.pandadoc_document_id, "doc_123")
+
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.facade.api.capture_exception")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_keeps_envelope_when_void_says_it_still_exists(
+        self, status_mock, void_mock, create_mock, capture_mock
+    ) -> None:
+        status_mock.return_value = None
+        void_mock.side_effect = PandaDocError(
+            "PandaDoc /public/v1/documents/doc_123/status returned 409: still rendering"
+        )
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(hours=2))
+
+        result = legal_api.reconcile_pending_signatures()
+
+        create_mock.assert_not_called()
+        capture_mock.assert_not_called()
+        self.assertEqual(result.envelopes_recreated, 0)
+        self.assertEqual(result.errors, 1)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.pandadoc_document_id, "doc_123")
+        assert self.document.updated_at is not None
+        self.assertGreaterEqual(self.document.updated_at, timezone.now() - timedelta(minutes=1))
+
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_recreates_after_voiding_live_envelope(self, status_mock, void_mock, create_mock) -> None:
+        status_mock.return_value = None
+        void_mock.return_value = 204
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(hours=2))
+
+        result = legal_api.reconcile_pending_signatures()
+
+        create_mock.assert_called_once()
+        self.assertEqual(result.envelopes_recreated, 1)
 
     @parameterized.expand(
         [
@@ -1118,8 +1159,6 @@ class TestLegalDocumentReconciliation(APIBaseTest):
     def test_reconcile_creates_envelope_for_row_missing_pandadoc_id(
         self, _name, age, expected_recreated, status_mock, create_mock
     ) -> None:
-        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
-
         status_mock.return_value = "document.sent"
         create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
         org = self.create_organization_with_features([])

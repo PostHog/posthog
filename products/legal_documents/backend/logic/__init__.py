@@ -192,10 +192,6 @@ _RECONCILE_LOOKBACK = timedelta(days=14)
 RECONCILE_MAX_PER_RUN = 500
 
 
-class PandaDocEnvelopeLost(Exception):
-    """Raised only to attach an error-tracking event when a PandaDoc envelope disappears before it was signed."""
-
-
 def list_pending_signature_documents() -> QuerySet[LegalDocument]:
     """
     Rows we still think are out for signature but that have a PandaDoc envelope
@@ -555,6 +551,36 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
         )
         capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
         return None
+
+
+def confirm_pandadoc_envelope_gone(document: LegalDocument) -> bool:
+    """
+    A 404 from the status GET isn't proof the envelope is actually gone; a
+    transient or false 404 looks identical. Attempting the void write is the
+    second opinion: a 404 there confirms PandaDoc purged it, a 2xx means it
+    was still live and is now voided, and any other response means it still
+    exists in a state PandaDoc won't void, so the caller must not supersede it.
+    """
+    client = pandadoc_client.PandaDocClient()
+    try:
+        status_code = client.force_void_document(document_id=document.pandadoc_document_id)
+    except pandadoc_client.PandaDocError as exc:
+        logger.warning(
+            "legal_document_pandadoc_envelope_not_confirmed_gone",
+            document_id=str(document.id),
+            pandadoc_document_id=document.pandadoc_document_id,
+            error=str(exc),
+        )
+        document.save(update_fields=["updated_at"])
+        return False
+    if status_code == 404:
+        return True
+    logger.warning(
+        "legal_document_pandadoc_envelope_voided_before_recreate",
+        document_id=str(document.id),
+        pandadoc_document_id=document.pandadoc_document_id,
+    )
+    return True
 
 
 def retry_pandadoc_envelope(document: LegalDocument) -> bool:

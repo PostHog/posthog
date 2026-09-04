@@ -302,9 +302,12 @@ def _time_since_touched(document: LegalDocument) -> timedelta:
 def _recreate_lost_envelope(document: LegalDocument) -> bool:
     """
     PandaDoc no longer has the envelope for a row still out for signature, so
-    the customer can never be emailed from it. Record that in error tracking,
-    then create a fresh envelope from the row's own data.
+    the customer can never be emailed from it. Confirms the envelope is truly
+    gone before superseding it, records that in error tracking, then creates a
+    fresh envelope from the row's own data.
     """
+    if not logic.confirm_pandadoc_envelope_gone(document):
+        return False
     lost_pandadoc_document_id = document.pandadoc_document_id
     logger.warning(
         "legal_document_pandadoc_envelope_lost",
@@ -312,9 +315,7 @@ def _recreate_lost_envelope(document: LegalDocument) -> bool:
         pandadoc_document_id=lost_pandadoc_document_id,
     )
     capture_exception(
-        logic.PandaDocEnvelopeLost(
-            f"PandaDoc envelope {lost_pandadoc_document_id} for legal document {document.id} no longer exists"
-        ),
+        Exception("PandaDoc envelope no longer exists for a legal document still out for signature"),
         additional_properties={
             "legal_document_id": str(document.id),
             "pandadoc_document_id": lost_pandadoc_document_id,
