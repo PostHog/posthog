@@ -652,6 +652,7 @@ export function formatCompact(value) {
 // --- containers: a fragment that holds the fragments dropped on top of it ---
 
 const areaOf = (box) => Math.max(1, box.w * box.h);
+const boxKey = (item) => item.x + ":" + item.y + ":" + item.w + ":" + item.h;
 const holds = (box, item) => {
   const cx = item.x + item.w / 2;
   const cy = item.y + item.h / 2;
@@ -756,13 +757,12 @@ export function useContainer(fragmentId, options) {
     [all, fragmentId],
   );
 
+  const memberIds = useRef(null);
+  const memberBoxes = useRef({});
   const children = useMemo(() => {
     if (!self) return [];
-    const inside = all.filter(
-      (item) => item.id !== fragmentId && holds(self, item),
-    );
-    // The smallest fragment that holds a child owns it, so a container inside
-    // a container keeps its own contents.
+    const others = all.filter((item) => item.id !== fragmentId);
+    const inside = others.filter((item) => holds(self, item));
     const mine = inside.filter((child) =>
       inside.every(
         (other) =>
@@ -771,7 +771,23 @@ export function useContainer(fragmentId, options) {
           !holds(other, child),
       ),
     );
-    return mine.sort((a, b) => a.y - b.y || a.x - b.x);
+    const keep = new Set(mine.map((item) => item.id));
+    const before = memberIds.current;
+    const boxes = memberBoxes.current;
+    if (before) {
+      for (const item of others) {
+        if (keep.has(item.id)) continue;
+        if (!before.has(item.id)) continue;
+        if (boxes[item.id] !== boxKey(item)) continue;
+        keep.add(item.id);
+      }
+    }
+    const members = others.filter((item) => keep.has(item.id));
+    memberIds.current = keep;
+    const next = {};
+    for (const item of members) next[item.id] = boxKey(item);
+    memberBoxes.current = next;
+    return members.sort((a, b) => a.y - b.y || a.x - b.x);
   }, [all, fragmentId, self]);
 
   const inner = useMemo(() => {
@@ -786,8 +802,15 @@ export function useContainer(fragmentId, options) {
 
   const lastBox = useRef(null);
   useEffect(() => {
-    if (!self || busy) return;
+    if (!self) return;
     const previous = lastBox.current;
+    const selfMoved =
+      previous !== null &&
+      (previous.x !== self.x ||
+        previous.y !== self.y ||
+        previous.w !== self.w ||
+        previous.h !== self.h);
+    if (busy && !selfMoved) return;
     lastBox.current = { x: self.x, y: self.y, w: self.w, h: self.h };
     if (children.length === 0) return;
 
