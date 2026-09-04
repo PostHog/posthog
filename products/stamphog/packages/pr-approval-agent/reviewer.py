@@ -288,7 +288,9 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     When the Ownership block's "Files per team" names more than one team, add one
     clause per team after that sentence. Open each clause with that team's handle
     exactly as the Ownership block spells it, such as "@PostHog/team-replay:",
-    and say what is true now in the files that team owns. Each team is shown its
+    in plain text with the colon right after it (no bold, no backticks), and do
+    not write any other "@name/name:" token anywhere in this field.
+    Say what is true now in the files that team owns. Each team is shown its
     own clause and no other, so a clause has to hold on its own. Leave a team out
     when the diff does not tell you what its files now do: silence is better than
     a guess. Leave a team out as well when every file it owns is one a build step

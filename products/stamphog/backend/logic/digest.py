@@ -85,11 +85,8 @@ KEEP_RULES = frozenset({"contract", "assumption", "decision", "customer"})
 # The perspective a kept line was written from, as the model must name it. The same trick as the
 # named rules above: a judgment the model states in the answer is one the code can check.
 #
-# The prompt already carries each team's ownership counts and already asks for a line about the
-# team's own files. On a merge a team owns part of, the model wrote about the pull request anyway,
-# which is the other team's news and reads to that team as somebody else's announcement. So a line
-# about a partly owned merge has to claim it is about the owned files, and a line that claims
-# otherwise is dropped for that team.
+# A line about a partly owned merge has to claim it is about the owned files, and a line that
+# claims otherwise is dropped for that team.
 SCOPE_YOUR_FILES = "your_files"
 
 # A team that owns one source file of a change this size was swept, not targeted, and the merge is
@@ -151,7 +148,10 @@ _CHANNEL_LINK_RE = re.compile(r"[a-z][a-z0-9+.\-]*://|\bwww\.|\bmailto:|\S+@\S+\
 # reviewer opens each per-team clause with that team's GitHub handle, copied from the ownership
 # block it was given (see packages/pr-approval-agent/reviewer.py). The handle is captured so a
 # clause can be matched to the team it was written for.
-_TEAM_CLAUSE_RE = re.compile(r"\s*(@[A-Za-z0-9._-]+/[A-Za-z0-9._-]+):")
+#
+# A clause opens a sentence, so the handle is only matched at the start of the summary or after
+# sentence-ending punctuation. A scoped package name inside a sentence (`@posthog/cli:`) is prose.
+_TEAM_CLAUSE_RE = re.compile(r"(?:^|(?<=[.!?])\s+)(@[A-Za-z0-9._-]+/[A-Za-z0-9._-]+):")
 
 
 @frozen
@@ -210,8 +210,9 @@ def _build_summary(
 class _ReviewedSummary:
     """A reviewed summary taken apart: the sentence about the whole change, and each team's clause.
 
-    ``clauses`` is keyed by the handle the clause opens with. Empty for a summary about a merge one
-    team owns, and for every summary an engine older than the per-team clauses wrote.
+    ``clauses`` is keyed by the casefolded team slug the clause opens with. Empty for a summary
+    about a merge one team owns, and for every summary an engine older than the per-team clauses
+    wrote.
     """
 
     whole_change: str
@@ -223,56 +224,49 @@ def _split_clauses(summary_line: str) -> _ReviewedSummary:
 
     ``re.split`` on a pattern with one group returns the text before the first match, then each
     captured handle followed by the text after it, so the parts alternate from index 1 onwards.
+
+    The first clause a slug opens wins, so a handle the reviewer names again later inside another
+    team's clause cannot replace that team's own clause.
     """
     parts = _TEAM_CLAUSE_RE.split(summary_line)
-    clauses = {parts[i]: parts[i + 1].strip() for i in range(1, len(parts) - 1, 2)}
+    clauses: dict[str, str] = {}
+    for i in range(1, len(parts) - 1, 2):
+        clauses.setdefault(team_slug_from_handle(parts[i]).casefold(), parts[i + 1].strip())
     return _ReviewedSummary(whole_change=parts[0].strip(), clauses=clauses)
 
 
 def _whole_change_sentence(summary_line: str) -> str:
     """The reviewed summary with the per-team clauses taken off the end.
 
-    What is left is about the whole change, so it is true for whoever reads it. That is what every
-    caller wants: each clause is written for one team, and carrying all of them puts another team's
-    half of the merge in this team's thread, which is the news the digest exists to keep out.
+    What is left is about the whole change, so it is true for whoever reads it.
     """
     return _split_clauses(summary_line).whole_change
 
 
-def _addressed_summary(summary_line: str, team_slug: str) -> str | None:
+def _addressed_summary(reviewed: _ReviewedSummary, team_slug: str) -> str | None:
     """The reviewed text this audience may read, or None when the reviewer wrote it none.
 
-    The reviewer had the diff and the per-team file counts, so it decides what each team hears: on
-    a multi-team change it writes the sentence about the whole change and then one clause per
-    owning team. This picks out the clause addressed to this audience and drops the rest, which is
-    what keeps another team's half of the merge out of the prompt rather than asking a model to
-    ignore it.
-
-    A summary carrying no clause at all describes one team's merge and is read whole. A repo that
-    declared its own channel is not one of the teams a clause is addressed to, so it reads the
-    sentence about the whole change.
+    A summary carrying no clause at all describes one team's merge and is read whole, and so is one
+    read by a repo that declared its own channel, which is not a team a clause is addressed to.
     """
-    reviewed = _split_clauses(summary_line)
     if not reviewed.clauses or not team_slug:
         return reviewed.whole_change
-    # Matched on the slug rather than the whole handle, because the organization half differs
-    # between repositories while the audience key never carries it. Case is ignored: the reviewer
-    # copies the handle out of its ownership block, and a model that recases it still means
-    # this team.
-    for handle, clause in reviewed.clauses.items():
-        if team_slug_from_handle(handle).casefold() == team_slug.casefold():
-            return f"{reviewed.whole_change} {clause}".strip()
-    return None
+    # Keyed on the slug, never the whole handle: the audience key never carries the org half, and
+    # the reviewer may recase the handle it copied.
+    clause = reviewed.clauses.get(team_slug.casefold())
+    if clause is None:
+        return None
+    return f"{reviewed.whole_change} {clause}".strip()
 
 
 def _reviewed_for_prompt(summary_line: str, team_slug: str) -> str:
     """What a prompt's <reviewed_summary> carries for one merge.
 
-    A team the reviewer wrote no clause for still reads the sentence about the whole change. Only a
-    team owning part of the merge is dropped over a missing clause, and that happens before either
-    prompt is built (see ``_drop_unaddressed``), so what reaches here needs something to say.
+    A team the reviewer wrote no clause for still reads the sentence about the whole change. A team
+    owning part of the merge was already dropped over a missing clause (see ``_drop_unaddressed``).
     """
-    return _addressed_summary(summary_line, team_slug) or _whole_change_sentence(summary_line)
+    reviewed = _split_clauses(summary_line)
+    return _addressed_summary(reviewed, team_slug) or reviewed.whole_change
 
 
 def _fallback_summary(prs: list[PullRequest], considered: int) -> DigestSummary:
@@ -736,9 +730,8 @@ def _parse_selection(
 def _partly_owned(pr: PullRequest, audience: PullRequestAudience) -> bool:
     """True when this team owns some, but not all, of the merge's changed files.
 
-    Both rules below stand on this one, so the two cutoffs on the same axis stay in one place. The
-    test is the owned file count, never the path sample, which is capped and can be empty on a row
-    an older engine wrote. A count of zero is therefore not partial ownership: a repo-declared
+    The test is the owned file count, never the path sample, which is capped and can be empty on a
+    row an older engine wrote. A count of zero is therefore not partial ownership: a repo-declared
     audience asked for every merge in its repository, and a row carrying no count says nothing
     either way. Both are left to the model with no rule of ours applied to them.
     """
@@ -746,42 +739,30 @@ def _partly_owned(pr: PullRequest, audience: PullRequestAudience) -> bool:
 
 
 def _grazed(pr: PullRequest, audience: PullRequestAudience | None) -> bool:
-    """True when this merge only swept the audience's team up, so the team is not told about it.
-
-    The narrowest partial ownership there is: one file of a change large enough that the file was
-    reached rather than targeted.
-    """
-    if audience is None or not _partly_owned(pr, audience):
-        return False
-    return audience.owned_file_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES
-
-
-def _partially_owned_indexes(prs: list[PullRequest], audiences: list[PullRequestAudience] | None) -> frozenset[int]:
-    """Positions in ``prs`` whose team owns only part of the merge, for the scope check.
-
-    Keyed on the position because that is the index the prompt hands the model, so this has to be
-    read off the lists the dropped merges were already taken out of.
-    """
-    if not audiences:
-        return frozenset()
-    return frozenset(index for index, (pr, audience) in enumerate(zip(prs, audiences)) if _partly_owned(pr, audience))
+    """True when one file of a large change reached this team, so the team was swept, not targeted."""
+    return audience is not None and audience.owned_file_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES
 
 
 def _drop_unaddressed(
     prs: list[PullRequest], audiences: list[PullRequestAudience] | None, team_slug: str
-) -> tuple[list[PullRequest], list[PullRequestAudience] | None]:
+) -> tuple[list[PullRequest], list[PullRequestAudience] | None, frozenset[int]]:
     """The merges this audience is actually told about, with its rows still positionally matched.
 
     Two rules, both about a merge this team owns only part of, and both applied before any model
     reads it. A graze reached the team through a single file of a large change. A merge whose
     reviewed summary names owning teams and not this one was described by a reviewer that had the
     diff and found nothing to say about this team's files, so it is somebody else's news.
+
+    The third return value names the kept positions the team owns only part of, for the scope
+    check. It is read off the same walk, because that walk already decided which positions survive
+    and the prompt hands the model those positions as its indexes.
     """
     if not audiences:
-        return prs, audiences
+        return prs, audiences, frozenset()
 
-    kept_prs = []
-    kept_audiences = []
+    kept_prs: list[PullRequest] = []
+    kept_audiences: list[PullRequestAudience] = []
+    partial_indexes: set[int] = set()
     for pr, audience in zip(prs, audiences):
         if _grazed(pr, audience):
             logger.info(
@@ -791,16 +772,19 @@ def _drop_unaddressed(
                 changed_files=pr.changed_files,
             )
             continue
-        if _partly_owned(pr, audience) and _addressed_summary(pr.summary_line, team_slug) is None:
+        partly_owned = _partly_owned(pr, audience)
+        if partly_owned and _addressed_summary(_split_clauses(pr.summary_line), team_slug) is None:
             logger.info(
                 "stamphog_digest_no_clause_for_team",
                 pr_number=pr.pr_number,
                 audience_key=audience.audience_key,
             )
             continue
+        if partly_owned:
+            partial_indexes.add(len(kept_prs))
         kept_prs.append(pr)
         kept_audiences.append(audience)
-    return kept_prs, kept_audiences
+    return kept_prs, kept_audiences, frozenset(partial_indexes)
 
 
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:
@@ -818,7 +802,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     # Everything the audience claimed, which is what the channel's "3 of 11" line counts.
     considered = len(prs)
     team_slug = _audience_team_slug(audiences)
-    prs, audiences = _drop_unaddressed(prs, audiences, team_slug)
+    prs, audiences, partial_indexes = _drop_unaddressed(prs, audiences, team_slug)
     if not prs:
         return _build_summary(considered, [])
 
@@ -834,7 +818,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
         picked = _parse_selection(
             _complete(client, team_id, _build_selection_prompt(prs, audiences, team_slug)),
             dict(enumerate(prs)),
-            _partially_owned_indexes(prs, audiences),
+            partial_indexes,
         )
     except Exception as e:
         logger.warning("stamphog_digest_summarize_fallback", team_id=team_id, error=str(e))

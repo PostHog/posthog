@@ -855,10 +855,7 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
 def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
     audience: PullRequestAudience, claim: dict[str, Any], kept: bool
 ) -> None:
-    # A merge added a facade under a team's product and touched three of its eight files. That team
-    # read the other team's feature announcement in its own channel. The prompt already carried the
-    # counts and already asked for the team's own side, and the model wrote about the pull request
-    # anyway, so the perspective is named in the answer and checked here.
+    # The model names the perspective in its answer, so the code can check it here.
     #
     # The partly owned merge goes first so a check that dropped by position rather than by the index
     # the model was given would take the wrong entry with it.
@@ -903,11 +900,26 @@ _OTHER_TEAM_SUMMARY = f"{_WHOLE_CHANGE} {_THEIR_CLAUSE}"
             8,
             _WHOLE_CHANGE,
         ),
+        (
+            f"The CLI moves to @posthog/cli: the old binary is gone. @PostHog/{AUDIENCE}: {_OUR_CLAUSE} {_THEIR_CLAUSE}",
+            _audience(3),
+            8,
+            f"The CLI moves to @posthog/cli: the old binary is gone. {_OUR_CLAUSE}",
+        ),
+        (
+            f"{_WHOLE_CHANGE} @PostHog/{AUDIENCE}: {_OUR_CLAUSE} "
+            f"@PostHog/team-billing: the counters moved, and @PostHog/{AUDIENCE}: reads them.",
+            _audience(3),
+            8,
+            f"{_WHOLE_CHANGE} {_OUR_CLAUSE}",
+        ),
     ],
     ids=[
         "a_team_owning_part_of_the_merge_reads_its_own_clause",
         "a_team_owning_all_of_it_reads_the_whole_change_sentence",
         "and_so_does_a_repo_that_declared_its_own_channel",
+        "a_scoped_package_name_inside_a_sentence_is_not_a_clause",
+        "a_handle_named_again_inside_another_clause_does_not_replace_the_teams_own",
     ],
 )
 def test_the_prompt_carries_only_the_reviewed_text_written_for_this_audience(
@@ -973,10 +985,8 @@ def test_the_selection_prompt_asks_for_the_perspective_the_code_checks() -> None
 
 
 def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
-    # The headline call is shown only what the selection call kept, so nothing it sees is routine
-    # and the escape hatch had one thing left to fire on: a single change. An empty headline there
-    # makes the renderer promote that change's own line, and the channel post and the first thread
-    # line become the same sentence word for word.
+    # An empty headline on a single-change digest makes the renderer promote that change's own
+    # line, so the channel post and the first thread line become the same sentence.
     picked = [
         DigestPRSummary(
             pr_number=1,
@@ -1081,8 +1091,7 @@ def test_only_a_string_becomes_a_change_line(raw_summary: Any, expected: str) ->
 
 def test_the_paths_that_skip_the_model_drop_the_other_teams_clauses() -> None:
     # The reviewed summary carries one clause per owning team now, and two paths post it without a
-    # model picking this team's clause out of it: a malformed entry, and the outage fallback. Both
-    # used to be safe by construction, because the field was one sentence about the whole change.
+    # model picking this team's clause out of it: a malformed entry, and the outage fallback.
     pr = _pr_stub("o/r", 1, "The author's own claim.", "https://github.com/o/r/pull/1")
     pr.summary_line = (
         "Uploads pause when a workspace spends its quota. "

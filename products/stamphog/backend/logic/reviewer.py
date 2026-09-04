@@ -23,7 +23,11 @@ from __future__ import annotations
 import json
 from dataclasses import field
 
+import structlog
+
 from posthog.dataclasses import frozen
+
+logger = structlog.get_logger(__name__)
 
 # Final-verdict strings the engine emits (review_pr.Pipeline.final_verdict) mapped
 # onto the contract's ReviewVerdict values. Anything unrecognized escalates —
@@ -191,7 +195,12 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
     reasoning = str(reviewer.get("reasoning", "")).strip()
     # Clipped rather than rejected: the engine caps this at CHANGE_SUMMARY_MAX_CHARS, but the
     # value crosses a trust boundary, so the server does not rely on the sandbox honoring it.
-    change_summary = str(reviewer.get("change_summary", "")).strip()[:CHANGE_SUMMARY_MAX_CHARS]
+    # Warned about because a clip inside the last per-team clause drops that team's merge from the
+    # digest with nothing else to see it.
+    change_summary = str(reviewer.get("change_summary", "")).strip()
+    if len(change_summary) > CHANGE_SUMMARY_MAX_CHARS:
+        logger.warning("stamphog_change_summary_clipped", length=len(change_summary), limit=CHANGE_SUMMARY_MAX_CHARS)
+    change_summary = change_summary[:CHANGE_SUMMARY_MAX_CHARS]
     issues = reviewer.get("issues") or []
     showstoppers = [str(i) for i in issues] if isinstance(issues, list) else [str(issues)]
 
