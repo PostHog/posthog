@@ -86,7 +86,8 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            models.Index(fields=["team", "-created_at"], name="et_issue_team_created_at_idx"),
         ]
 
     def merge(
@@ -259,6 +260,10 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
             ),
         ]
         db_table = "posthog_errortrackingissuefingerprintv2"
+        indexes = [
+            models.Index(fields=["team", "created_at"], name="et_fp_team_created_at_idx"),
+            models.Index(fields=["team", "issue", "created_at"], name="et_fp_team_issue_created_idx"),
+        ]
 
 
 def _normalize_source_issue_ids(*, issue_ids: Sequence[str | UUID], target_issue_id: UUID) -> list[UUID]:
