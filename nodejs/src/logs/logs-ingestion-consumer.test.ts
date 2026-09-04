@@ -233,6 +233,7 @@ describe('LogsIngestionConsumer', () => {
                     ),
                 }),
                 usageBatch: new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
+                dependencyRetry: { retryCount: 2, initialRetryDelayMs: 1 },
                 ...depsPartial,
             },
             overrides
@@ -639,6 +640,36 @@ describe('LogsIngestionConsumer', () => {
                 expect(dlqMessage.headers.source_topic).toEqual(messages[0].topic)
                 expect(dlqMessage.headers.source_partition).toEqual(messages[0].partition.toString())
                 expect(dlqMessage.headers.source_offset).toEqual(messages[0].offset.toString())
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+
+        it('should retry a dependency blip in place and produce the message', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            let logsProduceAttempts = 0
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
+                if (t === KAFKA_LOGS_CLICKHOUSE && logsProduceAttempts++ === 0) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                // A blip that clears inside the backoff must not fail the batch: a replay would
+                // produce every other message of the batch a second time.
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+                const produced = getProducedKafkaMessages()
+                expect(produced.filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
+                expect(produced.filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)).toHaveLength(0)
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
             }
