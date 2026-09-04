@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -21,6 +21,7 @@ import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useC
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
 import { InstallationTrackerGate } from './components/InstallationTracker'
 import { ManualSetupButton } from './components/SelfDrivingInstallOptions'
+import { StepProgressDots } from './components/StepProgressDots'
 import { onboardingLogic } from './onboardingLogic'
 import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
@@ -224,53 +225,12 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                             </LemonButton>
                         )}
                     </div>
-                    <div
-                        className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5"
-                        role="group"
-                        aria-label={`Step ${stepIndex + 1} of ${steps.length}`}
-                    >
-                        {steps.map((s, i) => {
-                            const isCurrent = i === stepIndex
-                            const isReached = i <= furthestIndex
-                            const dot = (
-                                <span
-                                    className={cn(
-                                        'block h-1.5 rounded-full transition-all',
-                                        isCurrent
-                                            ? 'w-6 bg-accent'
-                                            : isReached
-                                              ? 'w-1.5 bg-accent opacity-40 group-hover:opacity-100'
-                                              : 'w-1.5 bg-border'
-                                    )}
-                                />
-                            )
-                            // Only steps the user already reached are reachable, in either
-                            // direction: the dots undo a wrong turn, they don't skip work.
-                            if (isCurrent || !isReached) {
-                                return (
-                                    <span key={s.id} aria-current={isCurrent ? 'step' : undefined}>
-                                        {dot}
-                                    </span>
-                                )
-                            }
-                            const label = s.navLabel ?? s.title
-                            return (
-                                <Tooltip key={s.id} title={label}>
-                                    {/* Padding gives the 6px dot a pointer-sized target without
-                                        changing the row's height. */}
-                                    <button
-                                        type="button"
-                                        onClick={() => goToStep(i)}
-                                        aria-label={`Go to ${label}`}
-                                        className="group flex items-center px-1 py-2 -mx-1 -my-2 cursor-pointer"
-                                        data-attr="self-driving-onboarding-step-dot"
-                                    >
-                                        {dot}
-                                    </button>
-                                </Tooltip>
-                            )
-                        })}
-                    </div>
+                    <StepProgressDots
+                        steps={steps.map((s) => ({ id: s.id, label: s.navLabel ?? s.title }))}
+                        currentIndex={stepIndex}
+                        furthestIndex={furthestIndex}
+                        onSelect={goToStep}
+                    />
                     <div className="min-w-0 flex justify-end">
                         {/* On the install step, live verification: flips when the team's first event
                             lands, whichever install path produced it. Past the install step, the run
