@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
+import { PostHogErrorBoundary } from '@posthog/react'
+
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
@@ -78,7 +80,11 @@ export function GlobalModals(): JSX.Element {
             ) : null}
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
-            <HedgehogMode />
+            {/* Hedgehog mode is decorative: a failure to load or render it hides the hedgehog
+                instead of replacing the whole app with an error panel. */}
+            <PostHogErrorBoundary additionalProperties={{ feature: 'hedgehog_mode' }} fallback={() => <></>}>
+                <HedgehogMode />
+            </PostHogErrorBoundary>
             <PaymentEntryModal />
             <GlobalCustomUnitModal />
             <MoveToModal />
