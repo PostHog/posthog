@@ -77,19 +77,28 @@ def _setup(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_reset_drops_the_xmin_cursor(activity_environment, team, **kwargs):
-    # A reset deletes the Delta table before the read. Keeping the cursor makes that read the
+@pytest.mark.parametrize(
+    "rebuild_trigger",
+    [
+        {"reset_pipeline": True},
+        {
+            "delta_revive_required": {
+                "reason": "hollow",
+                "missing_path": "p",
+                "detected_at": "2026-01-01T00:00:00+00:00",
+            }
+        },
+    ],
+    ids=["reset", "corrupt_delta_revive"],
+)
+async def test_table_rebuild_drops_the_xmin_cursor(activity_environment, team, rebuild_trigger, **kwargs):
+    # Both triggers delete the Delta table before the read. Keeping the cursor makes that read the
     # window since the last run, and the overwrite collapses the table to that slice.
     activity_inputs = await _setup(
         team,
         {"host": "host.com", "port": 5432, "user": "u", "password": "p", "database": "db", "schema": "public"},
         sync_type=ExternalDataSchema.SyncType.XMIN,
-        sync_type_config={
-            "reset_pipeline": True,
-            "xmin_last_value": 100,
-            "xmin_ceiling": 100,
-            "xmin_num_wraparound": 0,
-        },
+        sync_type_config={**rebuild_trigger, "xmin_last_value": 100, "xmin_ceiling": 100, "xmin_num_wraparound": 0},
     )
 
     with (
