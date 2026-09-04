@@ -4442,6 +4442,10 @@ def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user
 
 
 # Snoozes an insight alert from the button on its firing Slack message.
+# Buttons on error tracking alert threads; ids are defined by the product's message builder.
+ERROR_TRACKING_RESOLVE_ACTION_ID = "error_tracking_issue_resolve"
+ERROR_TRACKING_ASSIGN_ME_ACTION_ID = "error_tracking_issue_assign_me"
+ERROR_TRACKING_ACTION_IDS = (ERROR_TRACKING_RESOLVE_ACTION_ID, ERROR_TRACKING_ASSIGN_ME_ACTION_ID)
 INSIGHT_ALERT_SNOOZE_ACTION_ID = "insight_alert_snooze"
 INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID = "insight_alert_snooze_until"
 # Slack's datetimepicker element can't carry a custom value, so the alert id rides on the
@@ -4527,6 +4531,87 @@ def _snooze_modal_alert_uuid(view: dict) -> uuid.UUID | None:
         return uuid.UUID(meta.get("alert_id"))
     except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
         return None
+
+
+def _extract_error_tracking_hints(payload: dict) -> int | None:
+    """Integration id carried by an error tracking thread button, for region-ownership routing."""
+    for action_id in ERROR_TRACKING_ACTION_IDS:
+        integration_id, _ = _extract_action_value_hints(payload, action_id)
+        if integration_id is not None:
+            return integration_id
+    return None
+
+
+def _handle_error_tracking_issue_action(payload: dict, action: dict) -> HttpResponse:
+    """Resolve or self-assign an error tracking issue from a button on its alert thread.
+
+    Slack-side concerns only: parse the value, prove the workspace owns the integration the
+    button names, gate on org membership, then hand off to the error tracking facade, which
+    re-derives project access from the issue row. Slack expects a 200 within three seconds,
+    so the thread itself is updated by the mutation's own lifecycle reply, not here.
+    """
+    slack_team_id = payload.get("team", {}).get("id")
+    response_url = payload.get("response_url", "")
+    try:
+        value = json.loads(action.get("value") or "")
+        integration_id = value["integration_id"]
+        issue_id = uuid.UUID(str(value["issue_id"]))
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        logger.info("error_tracking_slack_action_malformed_value")
+        return HttpResponse(status=200)
+    if not slack_team_id or not isinstance(integration_id, int):
+        return HttpResponse(status=200)
+
+    integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+        kind=SLACK_INTEGRATION_KIND,
+        integration_id=slack_team_id,
+    ).first()
+    if integration is None:
+        logger.info("error_tracking_slack_action_no_integration", slack_team_id=slack_team_id)
+        return HttpResponse(status=200)
+
+    slack_user_id = payload.get("user", {}).get("id", "")
+    posthog_user = _is_org_member(integration, slack_user_id)
+    if posthog_user is None:
+        inbox_interactivity.post_response_url(
+            response_url,
+            {
+                "response_type": "ephemeral",
+                "replace_original": False,
+                "text": f"Only members of {_org_label(integration)} with a linked PostHog account can act on this issue from Slack.",
+            },
+        )
+        return HttpResponse(status=200)
+
+    from products.error_tracking.backend.facade.issues import (  # noqa: PLC0415 — cross-product calls kept off the slack import path
+        assign_issue_to_user_from_slack,
+        resolve_issue_from_slack,
+    )
+
+    if action.get("action_id") == ERROR_TRACKING_RESOLVE_ACTION_ID:
+        outcome = resolve_issue_from_slack(issue_id, integration=integration, user=posthog_user)
+        messages = {
+            "ok": "Resolved. The thread will update in a moment.",
+            "already": "This issue is already resolved.",
+        }
+    else:
+        outcome = assign_issue_to_user_from_slack(issue_id, integration=integration, user=posthog_user)
+        messages = {
+            "ok": "Assigned to you. The thread will update in a moment.",
+            "already": "This issue is already assigned to you.",
+        }
+    if outcome == "not_found":
+        logger.info("error_tracking_slack_action_no_issue", issue_id=str(issue_id))
+        return HttpResponse(status=200)
+    if outcome == "no_access":
+        text = "You do not have access to this issue's project in PostHog."
+    else:
+        text = messages[outcome]
+    inbox_interactivity.post_response_url(
+        response_url, {"response_type": "ephemeral", "replace_original": False, "text": text}
+    )
+    return HttpResponse(status=200)
 
 
 def _extract_alert_snooze_hints(payload: dict) -> uuid.UUID | None:
@@ -4825,6 +4910,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
+    error_tracking_integration_id = _extract_error_tracking_hints(payload)
     # Both controls a reply carries, and the modal a thumbs-down opens, claim the same
     # workspace, so one hint serves all three. Only the modal needs its own extractor:
     # a view submission carries no action for the generic one to read.
@@ -4871,6 +4957,15 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         )
 
         local = get_alert_team_id(alert_snooze_uuid) is not None
+    elif slack_team_id and error_tracking_integration_id:
+        # Routing only: the button names the workspace integration that posted the thread.
+        # Authorization (project match + org-member gate) is enforced in
+        # _handle_error_tracking_issue_action and the error tracking facade.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=error_tracking_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
     elif slack_team_id and inbox_integration_id:
         # Inbox onboarding buttons (create/join) are DMed to a user; any clicker may act, so this
         # is gated only on owning the integration locally.
@@ -5002,6 +5097,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_signals_dismiss_report(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
+            if action_id in ERROR_TRACKING_ACTION_IDS:
+                return _handle_error_tracking_issue_action(payload, action)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:
                 return inbox_interactivity.handle_inbox_create(payload)
             if action_id == onboarding.INBOX_JOIN_ACTION_ID:
