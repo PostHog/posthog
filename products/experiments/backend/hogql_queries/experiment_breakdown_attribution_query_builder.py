@@ -104,7 +104,9 @@ class ExperimentBreakdownAttributionQueryBuilder:
         """Attributed breakdown value at the configured step(s).
 
         A candidate row must match an attribution step and carry a breakdown value. Every alias
-        shares that one condition, so all breakdown values of a user come from the same event.
+        shares that one condition, and orders by (timestamp, uuid) rather than timestamp alone, so
+        all breakdown values of a user come from the same event. With ties on timestamp each alias
+        would otherwise pick its own row, forming a value tuple the user never had.
 
         argMinIf/argMaxIf over zero matching rows returns ClickHouse's empty string. The UI labels
         that as "None" too, but it is a different value from the null label, so it would form a
@@ -118,9 +120,10 @@ class ExperimentBreakdownAttributionQueryBuilder:
                 self._value_present_condition(breakdown_fields),
             ]
         )
+        ordering_key = ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["uuid"])])
         attributed = ast.Call(
             name=resolution.aggregation_fn,
-            args=[breakdown_field, ast.Field(chain=["timestamp"]), condition],
+            args=[breakdown_field, ordering_key, condition],
         )
         return parse_expr(
             "if({has_match} = 0, {null_label}, {attributed})",

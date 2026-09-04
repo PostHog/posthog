@@ -111,6 +111,9 @@ class TestExperimentBreakdownAttributionQueryBuilder:
 
         expr = _unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"])
         assert expr.name == expected_agg
+        # Ordering on timestamp alone lets tied events be picked per column, so a user's breakdown
+        # values could come from different rows. The uuid makes the pick the same for every column.
+        assert expr.args[1] == ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["uuid"])])
         steps, _ = _split_condition(expr.args[2])
         assert _matched_steps(steps) == expected_steps
 
