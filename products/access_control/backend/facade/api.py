@@ -311,19 +311,22 @@ def set_object_access_control(
     """
     team = Team.objects.only("id", "organization_id").get(id=team_id)
     resource = _validate_object_access_control(organization_id=team.organization_id, input=input)
-    lookup = {
-        "team_id": team_id,
-        "resource": resource,
-        "resource_id": input.resource_id,
-        "organization_member_id": input.organization_member_id,
-        "role_id": input.role_id,
-    }
     if input.access_level is None:
-        AccessControl.objects.filter(**lookup).delete()
+        AccessControl.objects.filter(
+            team_id=team_id,
+            resource=resource,
+            resource_id=input.resource_id,
+            organization_member_id=input.organization_member_id,
+            role_id=input.role_id,
+        ).delete()
         return None
 
     rule, _created = AccessControl.objects.update_or_create(
-        **lookup,
+        team_id=team_id,
+        resource=resource,
+        resource_id=input.resource_id,
+        organization_member_id=input.organization_member_id,
+        role_id=input.role_id,
         defaults={"access_level": input.access_level},
         create_defaults={"access_level": input.access_level, "created_by_id": input.created_by_id},
     )
