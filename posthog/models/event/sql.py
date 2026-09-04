@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -16,8 +17,8 @@ from posthog.clickhouse.events_json import (
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    UNPARSEABLE_PROPERTIES_KEY,
     WRITABLE_EVENTS_JSON_TABLE,
-    _json_subcolumn_type_supports_nullable,
 )
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
@@ -42,19 +43,19 @@ def WRITABLE_EVENTS_DATA_TABLE():
     return "writable_events"
 
 
-def _json_column_type(max_dynamic_types: int, max_dynamic_paths: int, subcolumns: dict[str, str]) -> str:
+def _json_column_type(subcolumns: dict[str, str]) -> str:
     explicit_paths = ", ".join(
         f"{escape_clickhouse_identifier(name)} {column_type}" for name, column_type in subcolumns.items()
     )
-    return f"JSON(max_dynamic_types = {max_dynamic_types}, max_dynamic_paths = {max_dynamic_paths}, {explicit_paths})"
+    return f"JSON(max_dynamic_paths = 0, {explicit_paths})"
 
 
 def EVENTS_PROPERTIES_JSON_TYPE() -> str:
-    return _json_column_type(8, 256, EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
+    return _json_column_type(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 def PERSON_PROPERTIES_JSON_TYPE() -> str:
-    return _json_column_type(6, 32, PERSON_PROPERTIES_JSON_SUBCOLUMNS)
+    return _json_column_type(PERSON_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 def json_property_presence_expr(column: str, prop: str) -> str:
@@ -69,13 +70,15 @@ def json_property_presence_expr(column: str, prop: str) -> str:
     if column not in ("properties", "person_properties"):
         raise ValueError(f"unsupported JSON events column: {column}")
     subcolumns = EVENTS_PROPERTIES_JSON_SUBCOLUMNS if column == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+    if column == "properties" and prop.startswith("$feature/"):
+        key = escape_clickhouse_string(prop.removeprefix("$feature/"))
+        return f"mapContains(properties.`$feature_flags`, {key})"
     parts = prop.split(".")
     column_sql = escape_clickhouse_identifier(column)
     path_sql = ".".join(escape_clickhouse_identifier(part) for part in parts)
     scalar = f"{column_sql}.{path_sql}"
     if len(parts) == 1 and prop in subcolumns:
-        if not _json_subcolumn_type_supports_nullable(subcolumns[prop]):
-            # Native container paths use the empty value for both missing and explicitly empty values.
+        if not subcolumns[prop].startswith("Nullable("):
             return f"notEmpty({scalar})"
         return f"isNotNull({scalar})"
     if parts[0] in subcolumns:
@@ -258,13 +261,16 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     timestamp DateTime64(6, 'UTC'),
     team_id Int64,
     distinct_id String,
-    elements_hash String DEFAULT '',
-    created_at DateTime64(6, 'UTC'),
+    elements_hash String,
+    created_at DateTime64(6, 'UTC') DEFAULT now(),
     _timestamp DateTime,
     _offset UInt64,
     elements_chain String,
     person_id UUID,
     person_properties {person_properties_json_type},
+    _unparseable_properties String,
+    _unparseable_person_properties String,
+    _active_feature_flags String,
     group0_properties String CODEC(ZSTD(3)),
     group1_properties String CODEC(ZSTD(3)),
     group2_properties String CODEC(ZSTD(3)),
@@ -276,11 +282,13 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     group2_created_at DateTime64(3),
     group3_created_at DateTime64(3),
     group4_created_at DateTime64(3),
-    inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64(),
+    inserted_at DateTime64(6, 'UTC') DEFAULT now64(),
     person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
-    is_deleted Bool DEFAULT false,
     consumer_breadcrumbs Array(String),
-    historical_migration Bool DEFAULT false
+    historical_migration Bool,
+    total_event_size UInt32,
+    captured_at DateTime64(6, 'UTC') DEFAULT now(),
+    _partition UInt64
     {compatibility_columns}
     {indexes}
 ) ENGINE = {engine}
@@ -290,11 +298,11 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 def EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
     return (
         EVENTS_JSON_TABLE_BASE_SQL
-        + """PARTITION BY toYYYYMM(timestamp)
-PRIMARY KEY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id))
-ORDER BY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id), distinct_id, uuid)
+        + """PARTITION BY clamp(toYYYYMM(timestamp), 202001, 203512)
+PRIMARY KEY (team_id, toDate(timestamp), event, cityHash64(distinct_id))
+ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), distinct_id, timestamp, uuid)
 SAMPLE BY cityHash64(distinct_id)
-SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', object_shared_data_serialization_version_for_zero_level_parts = 'map', merge_max_block_size = 131072, merge_max_block_size_bytes = 67108864, vertical_merge_algorithm_min_rows_to_activate = 0
+SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', enable_block_offset_column = 1, enable_block_number_column = 1, map_serialization_version = 'with_buckets'
 """
     ).format(
         table_name=EVENTS_JSON_DATA_TABLE,
@@ -399,7 +407,7 @@ def KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         table_name=KAFKA_EVENTS_NATIVE_JSON_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON),
-        extra_fields="",
+        extra_fields=", captured_at Nullable(DateTime64(6, 'UTC'))",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
@@ -474,27 +482,11 @@ FROM {database}.{kafka_table}
     )
 
 
-def _poison_safe_json_cast(column: str, fallback_key: str) -> str:
-    """Cast a String properties payload to the JSON column type without ever throwing.
-
-    The JSON type's parser rejects some payloads that are valid JSON — notably integers outside
-    [-2^63, 2^64) fail with INCORRECT_DATA. A throwing cast inside a Kafka materialized view is a
-    poison message: kafka_skip_broken_messages only covers format parsing, so the consumer would
-    retry the same block forever and stall ingestion for the whole table. Unparseable payloads are
-    instead preserved verbatim under a single string property so they can be repaired later.
-    """
-    return (
-        f"ifNull(accurateCastOrNull({column}, 'JSON'), "
-        f"CAST(concat('{{\"{fallback_key}\":', toJSONString({column}), '}}'), 'JSON')) AS {column}"
-    )
+def _clean_properties(column: str, cleaner: str) -> str:
+    fallback = f"concat('{{\"{UNPARSEABLE_PROPERTIES_KEY}\":', toJSONString({column}), '}}')"
+    return f"if(isValidJSON({column}) AND startsWith(trimLeft({column}), '{{'), {cleaner}({column}), {fallback})"
 
 
-# Dual-write materialized view that writes events into the native-JSON schema
-# (writable_events_json). It reads from a dedicated Kafka consumer group so JSON-table retries do not
-# replay legacy writes through events_json_mv. The string properties/person_properties payloads are
-# cast to the destination JSON columns via a poison-safe cast (see _poison_safe_json_cast). Unlike the
-# legacy MV this does not project the dmat_string_* columns — they don't exist on the JSON table,
-# whose property reads come from JSON subcolumns instead.
 def EVENTS_JSON_TABLE_MV_SQL(
     mv_name="events_json_table_mv",
     kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -504,21 +496,49 @@ def EVENTS_JSON_TABLE_MV_SQL(
     if target_table is None:
         target_table = WRITABLE_EVENTS_JSON_TABLE
 
+    properties_type = EVENTS_PROPERTIES_JSON_TYPE()
+    person_properties_type = PERSON_PROPERTIES_JSON_TYPE()
+    marker = escape_clickhouse_string(UNPARSEABLE_PROPERTIES_KEY)
+
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {database}.{target_table}
-AS SELECT
+AS
+WITH
+{properties_expr} AS cleaned_properties,
+{person_properties_expr} AS cleaned_person_properties,
+if(
+    JSONType(source.properties, '$active_feature_flags') = 'Array',
+    JSONExtractRaw(source.properties, '$active_feature_flags'),
+    ''
+) AS _active_feature_flags,
+{json_drop_keys}([{marker}])(cleaned_properties) AS visible_properties,
+{json_drop_keys}([{marker}])(cleaned_person_properties) AS visible_person_properties,
+accurateCastOrNull(visible_properties, {properties_type}) AS typed_properties,
+accurateCastOrNull(visible_person_properties, {person_properties_type}) AS typed_person_properties
+SELECT
+*,
+accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+(
+SELECT
 uuid,
 event,
-{properties_expr},
+ifNull(typed_properties, defaultValueOfArgumentType(assumeNotNull(typed_properties))) AS properties,
 timestamp,
 team_id,
 distinct_id,
 elements_chain,
 created_at,
 person_id,
+ifNull(
+    typed_person_properties,
+    defaultValueOfArgumentType(assumeNotNull(typed_person_properties))
+) AS person_properties,
+if(isNull(typed_properties), source.properties, JSONExtractString(cleaned_properties, {marker})) AS _unparseable_properties,
+if(isNull(typed_person_properties), source.person_properties, JSONExtractString(cleaned_person_properties, {marker})) AS _unparseable_person_properties,
+_active_feature_flags,
 person_created_at,
-{person_properties_expr},
 group0_properties,
 group1_properties,
 group2_properties,
@@ -531,8 +551,10 @@ group3_created_at,
 group4_created_at,
 person_mode,
 historical_migration,
+coalesce(captured_at, created_at) AS captured_at,
 _timestamp,
 _offset,
+_partition,
 arrayMap(
     i -> _headers.value[i],
     arrayFilter(
@@ -540,15 +562,20 @@ arrayMap(
         arrayEnumerate(_headers.name)
     )
 ) as consumer_breadcrumbs
-FROM {database}.{kafka_table}
+FROM {database}.{kafka_table} AS source
+)
 """.format(
         mv_name=mv_name,
         kafka_table=kafka_table,
         target_table=target_table,
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
-        properties_expr=_poison_safe_json_cast("properties", "$unparseable_properties"),
-        person_properties_expr=_poison_safe_json_cast("person_properties", "$unparseable_properties"),
+        properties_expr=_clean_properties("source.properties", "JSONCleanPostHogEventProperties"),
+        person_properties_expr=_clean_properties("source.person_properties", "JSONCleanPostHogPersonProperties"),
+        json_drop_keys=JSON_DROP_KEYS_CLICKHOUSE_NAME,
+        marker=marker,
+        properties_type=escape_clickhouse_string(properties_type),
+        person_properties_type=escape_clickhouse_string(person_properties_type),
     )
 
 

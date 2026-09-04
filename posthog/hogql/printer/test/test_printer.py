@@ -52,7 +52,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -63,11 +63,7 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
-from posthog.models.event.sql import (
-    EVENTS_JSON_DATA_TABLE,
-    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-)
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import WeekStartDay
@@ -130,33 +126,6 @@ class TestPrinter(BaseTest):
 
     def _events_table_ref(self) -> str:
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
-
-    def _json_reconstructed_blob(self, root: str) -> str:
-        return (
-            "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            + f"arrayFilter(kv -> {self._json_reconstructed_pair_filter(root)}, "
-            + f"JSONExtractKeysAndValuesRaw(toJSONString({root})))), ','), "
-            + "'}')"
-        )
-
-    def _json_reconstructed_pair_filter(self, root: str) -> str:
-        subcolumns = (
-            PERSON_PROPERTIES_JSON_SUBCOLUMNS
-            if root.endswith("person_properties")
-            else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
-        )
-        array_keys = [key for key, column_type in subcolumns.items() if column_type.startswith("Array(")]
-        map_keys = [key for key, column_type in subcolumns.items() if column_type.startswith("Map(")]
-
-        filters = ["kv.2 != 'null'"]
-        if array_keys:
-            filters.append(f"NOT (kv.2 = '[]' AND has({self._clickhouse_string_array(array_keys)}, kv.1))")
-        if map_keys:
-            filters.append(f"NOT (kv.2 = '{{}}' AND has({self._clickhouse_string_array(map_keys)}, kv.1))")
-        return " AND ".join(filters)
-
-    def _clickhouse_string_array(self, values: list[str]) -> str:
-        return "[" + ", ".join(escape_clickhouse_string(value) for value in values) + "]"
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
         if "%" in property_name:
@@ -1432,8 +1401,8 @@ class TestPrinter(BaseTest):
     def test_new_events_schema_json_has_uses_direct_json_subcolumns(self) -> None:
         expected_by_expr = {
             "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), '{}'))",
-            "JSONHas(properties, '$ai_trace_id')": "isNotNull(events.properties.`$ai_trace_id`)",
-            "JSONHas(properties, '$browser')": "isNotNull(events.properties.`$browser`)",
+            "JSONHas(properties, '$ai_trace_id')": "notEquals(length(events.properties.`$ai_trace_id`), 0)",
+            "JSONHas(properties, '$browser')": "ifNull(notEquals(length(events.properties.`$browser`), 0), 1)",
         }
         for expression, expected in expected_by_expr.items():
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -1467,10 +1436,10 @@ class TestPrinter(BaseTest):
             self.assertIn("events.properties.", printed, expression)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_to_json_string_scrubs_absent_typed_paths(self) -> None:
+    def test_new_events_schema_to_json_string_strips_empty_values(self) -> None:
         printed = self._expr("toJSONString(properties)")
 
-        self.assertEqual(printed, self._json_reconstructed_blob("events.properties"))
+        self.assertEqual(printed, "JSONStripEmptyStringsAndNulls(toJSONString(events.properties))")
 
     def test_instance_setting_enables_new_events_schema(self) -> None:
         # The production rollout lever is the instance setting, not the env var — a fresh context
