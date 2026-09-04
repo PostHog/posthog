@@ -8,6 +8,7 @@ objects, not data, per the wiring pattern. Heavy by import, so it lives here rat
 ``facade/api.py``.
 """
 
+from products.tasks.backend.constants import EVAL_INTERACTION_ORIGIN, MCP_EXEC_SKILLS_FEATURE_FLAG
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
@@ -21,9 +22,16 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
 )
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
-from products.tasks.backend.logic.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from products.tasks.backend.logic.services.local_skills import (
+    ENV_DISABLE_BUNDLED_SKILLS,
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    LocalSkillsCache,
+)
 
 __all__ = [
+    "ENV_DISABLE_BUNDLED_SKILLS",
+    "EVAL_INTERACTION_ORIGIN",
+    "MCP_EXEC_SKILLS_FEATURE_FLAG",
     "ENV_LOCAL_SKILLS_HOST_PATH",
     "CustomPromptSandboxContext",
     "EmptyAgentTurnError",
