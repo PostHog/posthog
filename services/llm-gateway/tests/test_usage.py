@@ -198,8 +198,8 @@ class TestUsageEndpoint:
         assert response.json()["billing_period_end"] is None
 
     def test_is_pro_always_false(self, authenticated_usage_client: TestClient) -> None:
-        # Seat billing was retired on 2026-07-16, so no caller is on a Pro seat.
-        # The field stays in the response until older Desktop builds age out.
+        # The seat product is retired. No caller holds a Pro seat.
+        # The field stays until older Desktop builds age out.
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
             headers={"Authorization": "Bearer phx_test"},

@@ -91,7 +91,7 @@ async def get_usage(
         code_usage_billed=quota_status.code_usage_billing_active,
         credits_exhausted=quota_status.limited,
     )
-    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
+    # The product's own credit bucket (resolve_quota resolves per bucket;
     # always unlimited for unbilled products), reported under the legacy `ai_credits`
     # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
     # through the same decision as the request-path throttle: clients gate on this
@@ -145,8 +145,8 @@ async def get_usage(
             breakdown=quota_status.posthog_desktop_usage if product == POSTHOG_CODE_PRODUCT else None,
         ),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
-        # Seat billing was retired on 2026-07-16, so nobody is on a Pro seat any more.
-        # Older PostHog Desktop builds require the field, so it stays until they age out.
+        # The seat product is retired. No caller holds a Pro seat.
+        # Older PostHog Desktop builds require this field, so it stays.
         is_pro=False,
         code_usage_subscribed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
