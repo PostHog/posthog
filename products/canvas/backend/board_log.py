@@ -27,6 +27,18 @@ def board_actor_name(user: User | None) -> str | None:
     return user.first_name or user.email
 
 
+def board_actor_person(user: User | None, user_id: int | None = None) -> dict[str, Any]:
+    """The identity every board payload carries: enough for an avatar and a name."""
+    if user is None:
+        return {"user_id": user_id, "user_uuid": None, "user_name": None, "user_email": None}
+    return {
+        "user_id": user.pk,
+        "user_uuid": str(user.uuid),
+        "user_name": board_actor_name(user),
+        "user_email": user.email,
+    }
+
+
 class InvalidBoardOpError(ValueError):
     """An op the server refuses to record."""
 
@@ -114,8 +126,7 @@ def _op_event(row: CanvasBoardOp, user: User | None) -> dict[str, Any]:
         "op_id": row.op_id,
         "actor": {
             "kind": row.actor_kind,
-            "user_id": row.actor_user_id,
-            "user_name": board_actor_name(user),
+            **board_actor_person(user, row.actor_user_id),
             "task_id": row.actor_task_id,
         },
         "created_at": row.created_at.isoformat(),

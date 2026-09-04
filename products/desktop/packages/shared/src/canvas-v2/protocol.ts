@@ -43,6 +43,7 @@ export const canvasV2FrameCaretSchema = z.object({
   clientId: z.string().max(128),
   name: z.string().max(120),
   color: z.string().max(32),
+  textColor: z.string().max(32),
   key: z.string().max(128),
   anchor: z.string().max(64).nullable(),
   focus: z.string().max(64).nullable(),

@@ -28,6 +28,11 @@ export const fileCanvasV2BoardInput = z.object({
   channelId: z.string().min(1),
 });
 
+export const pinCanvasV2BoardInput = z.object({
+  id: z.string().min(1),
+  pinned: z.boolean(),
+});
+
 export const renameCanvasV2BoardInput = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(120),

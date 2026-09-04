@@ -19,6 +19,7 @@ export interface ICanvasV2BoardsService {
   create(channelId: string, name: string): Promise<CanvasV2Board>;
   rename(id: string, name: string): Promise<CanvasV2Board>;
   setChannel(id: string, channelId: string): Promise<CanvasV2Board>;
+  setPinned(id: string, pinned: boolean): Promise<CanvasV2Board>;
   remove(id: string): Promise<void>;
   opsSince(id: string, since: number, limit?: number): Promise<CanvasV2OpsPage>;
   appendOps(

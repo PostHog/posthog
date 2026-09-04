@@ -23,7 +23,9 @@ const DEFAULT_OPS_PAGE_SIZE = 500;
 interface ApiActor {
   kind: string;
   user_id?: number | null;
+  user_uuid?: string | null;
   user_name?: string | null;
+  user_email?: string | null;
   task_id?: string | null;
 }
 
@@ -56,6 +58,9 @@ interface ApiBoardSummary {
   updated_at: string;
   head_seq: number;
   fragment_count: number;
+  pinned?: boolean;
+  created_by?: ApiActor | null;
+  last_actor?: ApiActor | null;
   preview?: { x: number; y: number; w: number; h: number }[];
 }
 
@@ -73,7 +78,9 @@ function actorInput(actor: ApiActor): unknown {
   return {
     kind: actor.kind,
     userId: actor.user_id ?? undefined,
+    userUuid: actor.user_uuid ?? undefined,
     userName: actor.user_name ?? undefined,
+    userEmail: actor.user_email ?? undefined,
     taskId: actor.task_id ?? undefined,
   };
 }
@@ -144,6 +151,9 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
         updatedAt: row.updated_at,
         headSeq: row.head_seq,
         fragmentCount: row.fragment_count,
+        pinned: row.pinned ?? false,
+        createdBy: row.created_by ? actorInput(row.created_by) : undefined,
+        lastActor: row.last_actor ? actorInput(row.last_actor) : undefined,
         preview: row.preview ?? [],
       }),
     );
@@ -178,6 +188,19 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ channel_id: channelId }),
+      },
+    );
+    return canvasV2BoardSchema.parse(boardInput(api));
+  }
+
+  async setPinned(id: string, pinned: boolean): Promise<CanvasV2Board> {
+    const api = await this.api.json<ApiBoard>(
+      boardPath(id),
+      "pin canvas board",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
       },
     );
     return canvasV2BoardSchema.parse(boardInput(api));

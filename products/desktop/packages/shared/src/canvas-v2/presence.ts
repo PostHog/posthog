@@ -45,7 +45,9 @@ export type CanvasV2PresenceInput = z.infer<typeof canvasV2PresenceInputSchema>;
 /** What the stream sends back: one client's ping plus who it belongs to. */
 export const canvasV2PresenceSchema = canvasV2PresenceInputSchema.extend({
   userId: z.number().optional(),
+  userUuid: z.string().optional(),
   userName: z.string().optional(),
+  userEmail: z.string().optional(),
 });
 export type CanvasV2Presence = z.infer<typeof canvasV2PresenceSchema>;
 

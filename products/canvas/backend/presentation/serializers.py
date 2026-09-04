@@ -7,8 +7,9 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.user import User
 
-from products.canvas.backend.board_log import BOARD_OP_TYPES, MAX_BOARD_OP_BYTES, board_actor_name
+from products.canvas.backend.board_log import BOARD_OP_TYPES, MAX_BOARD_OP_BYTES, board_actor_person
 from products.canvas.backend.board_presence import PRESENCE_MAX_CARETS, PRESENCE_MAX_SELECTED_IDS
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES,
@@ -1155,6 +1156,8 @@ class CanvasBoardCreatorSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=CanvasBoardActorKind.choices, help_text="Always user for a creator.")
     user_id = serializers.IntegerField(allow_null=True, help_text="Id of the user, or null when the account is gone.")
     user_name = serializers.CharField(allow_null=True, help_text="First name of the user, else their email.")
+    user_uuid = serializers.UUIDField(allow_null=True, help_text="Uuid of the user, for a stable avatar color.")
+    user_email = serializers.CharField(allow_null=True, help_text="Email of the user, for a Gravatar.")
 
 
 class CanvasBoardActorSerializer(CanvasBoardCreatorSerializer):
@@ -1176,8 +1179,7 @@ class CanvasBoardLogEntrySerializer(serializers.Serializer):
     def get_actor(self, entry: CanvasBoardOp) -> dict[str, Any]:
         return {
             "kind": entry.actor_kind,
-            "user_id": entry.actor_user_id,
-            "user_name": board_actor_name(entry.actor_user),
+            **board_actor_person(entry.actor_user, entry.actor_user_id),
             "task_id": entry.actor_task_id,
         }
 
@@ -1191,8 +1193,22 @@ class CanvasBoardPreviewBoxSerializer(serializers.Serializer):
     h = serializers.FloatField(read_only=True, help_text="Height of the fragment, in world units.")
 
 
+class CanvasBoardSummaryListSerializer(serializers.ListSerializer):
+    """Fetches the people who last touched the listed boards in one query."""
+
+    def to_representation(self, data: Any) -> list[Any]:
+        rows = list(data)
+        ids = {getattr(row, "last_actor_user_id", None) for row in rows}
+        ids.discard(None)
+        self.context["last_actor_users"] = {user.pk: user for user in User.objects.filter(pk__in=ids)} if ids else {}
+        return cast(list[Any], super().to_representation(rows))
+
+
 class CanvasBoardSummarySerializer(serializers.Serializer):
     """A board as listed, without its contents."""
+
+    class Meta:
+        list_serializer_class = CanvasBoardSummaryListSerializer
 
     id = serializers.UUIDField(read_only=True, help_text="Id of the board.")
     name = serializers.CharField(read_only=True, help_text="Display name of the board.")
@@ -1202,6 +1218,11 @@ class CanvasBoardSummarySerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the board was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the board or its log last changed.")
     head_seq = serializers.IntegerField(read_only=True, help_text="Seq of the newest op in the board's log.")
+    pinned = serializers.SerializerMethodField(help_text="True while the board is pinned to the top of its space.")
+    created_by = serializers.SerializerMethodField(help_text="Who created the board, or null.")
+    last_actor = serializers.SerializerMethodField(
+        help_text="Who recorded the newest op, or the creator when the board has no ops."
+    )
     fragment_count = serializers.SerializerMethodField(help_text="Number of fragments in the stored snapshot.")
 
     preview = serializers.SerializerMethodField(
@@ -1209,6 +1230,30 @@ class CanvasBoardSummarySerializer(serializers.Serializer):
     )
 
     MAX_PREVIEW_BOXES = 24
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_pinned(self, board: CanvasBoard) -> bool:
+        return board.pinned_at is not None
+
+    @extend_schema_field(CanvasBoardCreatorSerializer(allow_null=True))
+    def get_created_by(self, board: CanvasBoard) -> dict[str, Any] | None:
+        if board.created_by_id is None:
+            return None
+        return {
+            "kind": CanvasBoardActorKind.USER,
+            **board_actor_person(board.created_by, board.created_by_id),
+        }
+
+    @extend_schema_field(CanvasBoardCreatorSerializer(allow_null=True))
+    def get_last_actor(self, board: CanvasBoard) -> dict[str, Any] | None:
+        user_id = getattr(board, "last_actor_user_id", None)
+        if user_id is None:
+            return self.get_created_by(board)
+        users = self.context.get("last_actor_users") or {}
+        return {
+            "kind": getattr(board, "last_actor_kind", None) or CanvasBoardActorKind.USER,
+            **board_actor_person(users.get(user_id), user_id),
+        }
 
     @extend_schema_field(serializers.IntegerField())
     def get_fragment_count(self, board: CanvasBoard) -> int:
@@ -1253,6 +1298,7 @@ class CanvasBoardSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the board was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the board or its log last changed.")
     created_by = serializers.SerializerMethodField(help_text="Who created the board, or null.")
+    pinned = serializers.SerializerMethodField(help_text="True while the board is pinned to the top of its space.")
     head_seq = serializers.IntegerField(read_only=True, help_text="Seq of the newest op in the board's log.")
     snapshot = CanvasBoardSnapshotField(read_only=True, help_text="Newest folded board the server holds.")
     snapshot_seq = serializers.IntegerField(read_only=True, help_text="Seq the snapshot reflects.")
@@ -1266,9 +1312,12 @@ class CanvasBoardSerializer(serializers.Serializer):
             return None
         return {
             "kind": CanvasBoardActorKind.USER,
-            "user_id": board.created_by_id,
-            "user_name": board_actor_name(board.created_by),
+            **board_actor_person(board.created_by, board.created_by_id),
         }
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_pinned(self, board: CanvasBoard) -> bool:
+        return board.pinned_at is not None
 
     @extend_schema_field(CanvasBoardLogEntrySerializer(many=True))
     def get_ops_after_snapshot(self, board: CanvasBoard) -> list[dict[str, Any]]:
@@ -1293,6 +1342,7 @@ class CanvasBoardWriteSerializer(serializers.Serializer):
 
     name = serializers.CharField(max_length=120, required=False, help_text="Display name of the board.")
     channel_id = serializers.UUIDField(required=False, help_text="Id of the space the board belongs to.")
+    pinned = serializers.BooleanField(required=False, help_text="Pin the board to the top of its space.")
 
 
 class CanvasBoardOpsQuerySerializer(serializers.Serializer):

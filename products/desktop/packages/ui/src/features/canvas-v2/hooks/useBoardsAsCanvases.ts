@@ -20,6 +20,17 @@ export function boardAsCanvas(board: CanvasV2BoardSummary): DashboardRecord {
     templateId: "freeform",
     canvasVersion: 2,
     context: "",
+    createdBy: board.createdBy?.userName,
+    createdByUuid: board.createdBy?.userUuid,
+    createdByEmail: board.createdBy?.userEmail,
+    lastActor: board.lastActor
+      ? {
+          name: board.lastActor.userName,
+          uuid: board.lastActor.userUuid,
+          email: board.lastActor.userEmail,
+        }
+      : undefined,
+    pinnedAt: board.pinned ? new Date(board.updatedAt).getTime() : undefined,
     createdAt: new Date(board.createdAt).getTime(),
     updatedAt: new Date(board.updatedAt).getTime(),
   };

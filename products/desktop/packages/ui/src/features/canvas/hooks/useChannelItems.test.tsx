@@ -34,6 +34,22 @@ vi.mock("@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases", () => ({
   useAllBoardsAsCanvases: () => [],
   useSpaceBoardsAsCanvases: () => [],
 }));
+vi.mock(
+  "@posthog/ui/features/canvas-v2/hooks/useCanvasV2BoardMutations",
+  () => ({
+    useCanvasV2BoardMutations: () => ({
+      createBoard: vi.fn(),
+      renameBoard: vi.fn(),
+      fileBoard: vi.fn(),
+      setBoardPinned: vi.fn(),
+      removeBoard: vi.fn(),
+      isCreating: false,
+      isRenaming: false,
+      isFiling: false,
+      isRemoving: false,
+    }),
+  }),
+);
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => mocks.channels,
 }));
@@ -133,6 +149,7 @@ function taskItem(id: string): ChannelItemModel {
     authorUser: null,
     authorName: null,
     authorUuid: null,
+    authorEmail: null,
     templateId: null,
     repository: null,
     branch: null,

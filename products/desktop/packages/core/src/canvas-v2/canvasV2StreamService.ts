@@ -31,7 +31,9 @@ function actorInput(actor: Record<string, unknown>): unknown {
   return {
     kind: actor.kind,
     userId: actor.user_id ?? undefined,
+    userUuid: actor.user_uuid ?? undefined,
     userName: actor.user_name ?? undefined,
+    userEmail: actor.user_email ?? undefined,
     taskId: actor.task_id ?? undefined,
   };
 }
@@ -63,7 +65,9 @@ function toPresence(data: unknown): CanvasV2StreamEvent | null {
     selectedIds: row.selected_ids ?? [],
     carets: row.carets ?? [],
     userId: row.user_id ?? undefined,
+    userUuid: row.user_uuid ?? undefined,
     userName: row.user_name ?? undefined,
+    userEmail: row.user_email ?? undefined,
   });
   return parsed.success ? { type: "presence", presence: parsed.data } : null;
 }

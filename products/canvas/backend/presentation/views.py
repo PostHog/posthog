@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -1946,6 +1946,12 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 except ValueError:
                     return queryset.none()
                 queryset = queryset.filter(channel_id=channel_id)
+            newest = CanvasBoardOp.objects.for_team(self.team_id).filter(board_id=OuterRef("pk")).order_by("-seq")
+            queryset = queryset.annotate(
+                last_actor_user_id=Subquery(newest.values("actor_user_id")[:1]),
+                last_actor_kind=Subquery(newest.values("actor_kind")[:1]),
+            )
+            return queryset.order_by("-pinned_at", "-updated_at")
         return queryset.order_by("-updated_at")
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -1996,8 +2002,14 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user = self._request_user()
             if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
                 return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+            if channel_id != board.channel_id and board.pinned_at is not None:
+                board.pinned_at = None
+                update_fields.append("pinned_at")
             board.channel_id = channel_id
             update_fields.append("channel_id")
+        if "pinned" in data:
+            board.pinned_at = timezone.now() if data["pinned"] else None
+            update_fields.append("pinned_at")
         if update_fields:
             board.save(update_fields=[*update_fields, "updated_at"])
         return Response(CanvasBoardSerializer(board).data)
@@ -2084,6 +2096,8 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             client_id=data["client_id"],
             user_id=user.pk,
             user_name=board_log.board_actor_name(user) or "",
+            user_uuid=str(user.uuid),
+            user_email=user.email,
             cursor=data.get("cursor"),
             viewport=data.get("viewport"),
             selected_ids=data["selected_ids"],

@@ -32,6 +32,7 @@ class Migration(migrations.Migration):
                 ("snapshot", models.JSONField(default=dict)),
                 ("snapshot_seq", models.IntegerField(default=0)),
                 ("head_seq", models.IntegerField(default=0)),
+                ("pinned_at", models.DateTimeField(blank=True, null=True)),
                 ("deleted", models.BooleanField(default=False)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),

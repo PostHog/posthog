@@ -109,7 +109,8 @@ export function useChannelItems(channelId: string): {
     fileDashboard,
     invalidateDashboards,
   } = useDashboardMutations();
-  const { fileBoard, removeBoard } = useCanvasV2BoardMutations();
+  const { fileBoard, removeBoard, setBoardPinned } =
+    useCanvasV2BoardMutations();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -185,9 +186,11 @@ export function useChannelItems(channelId: string): {
       },
       togglePin: (item) => {
         const pin =
-          item.kind === "canvas"
-            ? setCanvasPinned(item.id, !item.pinned)
-            : togglePin(item.id);
+          item.kind !== "canvas"
+            ? togglePin(item.id)
+            : item.canvasVersion === 2
+              ? setBoardPinned(item.id, !item.pinned)
+              : setCanvasPinned(item.id, !item.pinned);
         pin.catch(() => {
           toast.error("Couldn't update pin");
         });
@@ -220,7 +223,9 @@ export function useChannelItems(channelId: string): {
         }
 
         const canvasPins = canvases.map((canvas) =>
-          setCanvasPinned(canvas.id, pinned),
+          canvas.canvasVersion === 2
+            ? setBoardPinned(canvas.id, pinned)
+            : setCanvasPinned(canvas.id, pinned),
         );
         if (canvasPins.length > 0) {
           Promise.all(canvasPins).catch(() => {
@@ -274,6 +279,7 @@ export function useChannelItems(channelId: string): {
       setCanvasPinned,
       fileBoard,
       removeBoard,
+      setBoardPinned,
       togglePin,
       setPinnedMany,
       archiveTask,

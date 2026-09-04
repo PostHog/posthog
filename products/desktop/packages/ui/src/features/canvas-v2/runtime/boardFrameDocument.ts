@@ -206,6 +206,7 @@ export function useSharedText(key) {
         clientId: caret.clientId,
         name: caret.name,
         color: caret.color,
+        textColor: caret.textColor,
         anchor: offsetOf(view.ids, caret.anchor, focus),
         focus,
       });
@@ -324,6 +325,7 @@ export function SharedTextArea({ keyName, placeholder, className, rows }) {
         clientId: caret.clientId,
         name: caret.name,
         color: caret.color,
+        textColor: caret.textColor,
         left: rect.left - box.left - el.scrollLeft,
         top: rect.top - box.top - el.scrollTop,
         height: rect.height || line,
@@ -392,9 +394,10 @@ export function SharedTextArea({ keyName, placeholder, className, rows }) {
             "div",
             {
               className:
-                "ph-caret-name absolute left-0 whitespace-nowrap rounded-(--radius-sm) px-1 text-[10px] leading-4 text-white",
+                "ph-caret-name absolute left-0 whitespace-nowrap rounded-(--radius-sm) px-1 text-[10px] leading-4",
               style: {
                 background: bar.color,
+                color: bar.textColor,
                 top: bar.top < 16 ? bar.height + 2 : -16,
               },
             },

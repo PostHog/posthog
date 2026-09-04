@@ -96,6 +96,7 @@ function item(
     },
     authorName: null,
     authorUuid: "user-uuid",
+    authorEmail: null,
     templateId: null,
     repository: { key: "posthog/code", label: "PostHog/code" },
     branch: "posthog/importer-cleanup",

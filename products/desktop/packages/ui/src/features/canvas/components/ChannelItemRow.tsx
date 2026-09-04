@@ -160,8 +160,6 @@ function rowAuthor(
     if (!item.authorUser) return null;
     return { user: item.authorUser, label: userDisplayName(item.authorUser) };
   }
-  // A canvas carries only a display name and uuid — no email or photo — so its
-  // face is an initials bubble seeded off the uuid.
   const name = item.authorName;
   if (!name && !item.authorUuid) return null;
   const [first, ...rest] = (name ?? "").split(/\s+/).filter(Boolean);
@@ -170,6 +168,7 @@ function rowAuthor(
       uuid: item.authorUuid,
       first_name: first ?? null,
       last_name: rest.join(" ") || null,
+      email: item.authorEmail,
     },
     label: name ?? "Unknown",
   };

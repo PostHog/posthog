@@ -124,7 +124,9 @@ export type CanvasV2ActorKind = z.infer<typeof canvasV2ActorKindSchema>;
 export const canvasV2ActorSchema = z.object({
   kind: canvasV2ActorKindSchema,
   userId: z.number().optional(),
+  userUuid: z.string().optional(),
   userName: z.string().optional(),
+  userEmail: z.string().optional(),
   taskId: z.string().optional(),
 });
 export type CanvasV2Actor = z.infer<typeof canvasV2ActorSchema>;
@@ -160,6 +162,9 @@ export const canvasV2BoardSummarySchema = z.object({
   updatedAt: z.string(),
   fragmentCount: z.number().int(),
   headSeq: z.number().int(),
+  pinned: z.boolean().default(false),
+  createdBy: canvasV2ActorSchema.optional(),
+  lastActor: canvasV2ActorSchema.optional(),
   preview: z
     .array(
       z.object({

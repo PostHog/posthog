@@ -7,6 +7,7 @@ export function useCanvasV2BoardMutations(): {
   createBoard: (channelId: string, name: string) => Promise<CanvasV2Board>;
   renameBoard: (id: string, name: string) => Promise<CanvasV2Board>;
   fileBoard: (id: string, channelId: string) => Promise<CanvasV2Board>;
+  setBoardPinned: (id: string, pinned: boolean) => Promise<CanvasV2Board>;
   removeBoard: (id: string) => Promise<void>;
   isCreating: boolean;
   isRenaming: boolean;
@@ -30,6 +31,9 @@ export function useCanvasV2BoardMutations(): {
   const file = useMutation(
     trpc.canvasV2.setChannel.mutationOptions({ onSuccess: invalidate }),
   );
+  const pin = useMutation(
+    trpc.canvasV2.setPinned.mutationOptions({ onSuccess: invalidate }),
+  );
   const remove = useMutation(
     trpc.canvasV2.remove.mutationOptions({ onSuccess: invalidate }),
   );
@@ -40,6 +44,8 @@ export function useCanvasV2BoardMutations(): {
     renameBoard: (id: string, name: string) => rename.mutateAsync({ id, name }),
     fileBoard: (id: string, channelId: string) =>
       file.mutateAsync({ id, channelId }),
+    setBoardPinned: (id: string, pinned: boolean) =>
+      pin.mutateAsync({ id, pinned }),
     removeBoard: async (id: string) => {
       await remove.mutateAsync({ id });
     },

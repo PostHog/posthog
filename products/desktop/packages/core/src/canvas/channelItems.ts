@@ -52,6 +52,7 @@ export interface ChannelItemModel {
   /** The branch its work is on, from the local checkout or the run. */
   branch: string | null;
   authorUser: UserBasic | null;
+  authorEmail: string | null;
   authorName: string | null;
   authorUuid: string | null;
   templateId: string | null;
@@ -178,8 +179,9 @@ export function buildChannelItems({
     needsInput: false,
     unread: false,
     authorUser: null,
-    authorName: d.createdBy ?? null,
-    authorUuid: d.createdByUuid ?? null,
+    authorName: d.lastActor?.name ?? d.createdBy ?? null,
+    authorUuid: d.lastActor?.uuid ?? d.createdByUuid ?? null,
+    authorEmail: d.lastActor?.email ?? d.createdByEmail ?? null,
     templateId: d.templateId,
     repository: null,
     branch: null,
@@ -212,6 +214,7 @@ export function buildChannelItems({
           sessionFacts.viewedTimestamps[task.id],
         ),
         authorUser: task.created_by ?? null,
+        authorEmail: task.created_by?.email ?? null,
         authorName: null,
         authorUuid: task.created_by?.uuid ?? null,
         templateId: null,

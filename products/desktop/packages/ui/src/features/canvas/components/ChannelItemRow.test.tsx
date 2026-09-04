@@ -108,6 +108,7 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     authorUser: null,
     authorName: null,
     authorUuid: "user-uuid",
+    authorEmail: null,
     templateId: null,
     repository: null,
     branch: null,

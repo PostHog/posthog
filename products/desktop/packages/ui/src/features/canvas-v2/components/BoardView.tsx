@@ -27,6 +27,7 @@ import {
   nextFragmentId,
 } from "@posthog/shared";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import {
   BACK_TO_CANVASES_ACTION,
   BOARD_LOAD_ERROR_DESCRIPTION,
@@ -158,6 +159,12 @@ export function BoardView({
       openOnly(open ? null : panel),
     [openOnly],
   );
+  const markCanvasViewed = useCanvasViewedStore(
+    (viewed) => viewed.markCanvasViewed,
+  );
+  useEffect(() => {
+    markCanvasViewed(boardId, Date.now());
+  }, [boardId, markCanvasViewed]);
   const [renaming, setRenaming] = useState(false);
   const { renameBoard } = useCanvasV2BoardMutations();
   const [editingId, setEditingId] = useState<string | null>(null);

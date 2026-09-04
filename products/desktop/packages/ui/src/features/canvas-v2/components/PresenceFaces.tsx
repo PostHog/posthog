@@ -1,13 +1,21 @@
 import type { PresencePeer } from "@posthog/core/canvas-v2/boardPresence";
-import { Text, Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
+import {
+  AvatarGroup,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   PRESENCE_FACES_LABEL,
   presenceOverflowLabel,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import type { ReactElement } from "react";
 
-/** Faces beyond this many collapse into one count badge. */
 const MAX_FACES = 5;
+const TOOLTIP_DELAY_MS = 200;
 
 /** Who else is on the board now, beside the sync chip. */
 export function PresenceFaces({
@@ -20,42 +28,49 @@ export function PresenceFaces({
   const hidden = peers.slice(MAX_FACES);
 
   return (
-    <ul aria-label={PRESENCE_FACES_LABEL} className="flex items-center gap-1">
-      {shown.map((peer) => (
-        <li key={peer.clientId}>
-          <Tooltip>
+    <TooltipProvider delay={TOOLTIP_DELAY_MS}>
+      <AvatarGroup stacked reverse size="xs" aria-label={PRESENCE_FACES_LABEL}>
+        {shown.map((peer) => (
+          <Tooltip key={peer.clientId} disableHoverablePopup>
             <TooltipTrigger
               render={
-                <div
-                  className="flex size-5 items-center justify-center rounded-full font-medium text-[9px] text-white ring-(--gray-2) ring-2"
-                  style={{ backgroundColor: peer.color }}
+                <span
+                  aria-label={peer.name}
+                  role="img"
+                  className="relative flex shrink-0"
                 >
-                  {peer.initials}
-                </div>
+                  <UserAvatar size="xs" user={peer.user} />
+                </span>
               }
             />
-            <TooltipContent side="bottom">{peer.name}</TooltipContent>
+            <TooltipContent
+              side="bottom"
+              className="pointer-events-none select-none"
+            >
+              {peer.name}
+            </TooltipContent>
           </Tooltip>
-        </li>
-      ))}
-      {hidden.length > 0 ? (
-        <li>
-          <Tooltip>
+        ))}
+        {hidden.length > 0 ? (
+          <Tooltip disableHoverablePopup>
             <TooltipTrigger
               render={
-                <div className="flex size-5 items-center justify-center rounded-full bg-(--gray-5) ring-(--gray-2) ring-2">
-                  <Text size="xs" variant="muted">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-(--gray-5) ring-2 ring-background">
+                  <Text size="xxs" variant="muted">
                     {presenceOverflowLabel(hidden.length)}
                   </Text>
-                </div>
+                </span>
               }
             />
-            <TooltipContent side="bottom">
+            <TooltipContent
+              side="bottom"
+              className="pointer-events-none select-none"
+            >
               {hidden.map((peer) => peer.name).join(", ")}
             </TooltipContent>
           </Tooltip>
-        </li>
-      ) : null}
-    </ul>
+        ) : null}
+      </AvatarGroup>
+    </TooltipProvider>
   );
 }

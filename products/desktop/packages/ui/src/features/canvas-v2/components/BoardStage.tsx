@@ -256,7 +256,8 @@ export function BoardStage({
         peer.carets.map((caret) => ({
           clientId: peer.clientId,
           name: peer.name,
-          color: peer.color,
+          color: peer.color.bg,
+          textColor: peer.color.text,
           key: caret.key,
           anchor: caret.anchor,
           focus: caret.focus,

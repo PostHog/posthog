@@ -328,6 +328,7 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
     rawStatus: null,
     environment: null,
     source: null,
+    authorEmail: null,
     needsInput: false,
     unread: false,
     authorUser: ME,

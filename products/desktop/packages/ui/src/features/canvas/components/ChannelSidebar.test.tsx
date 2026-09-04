@@ -108,6 +108,7 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     authorName: "Someone else",
     // Not the viewer, so filtering to "Me" leaves nothing.
     authorUuid: "someone-else-uuid",
+    authorEmail: null,
     templateId: null,
     repository: null,
     branch: null,

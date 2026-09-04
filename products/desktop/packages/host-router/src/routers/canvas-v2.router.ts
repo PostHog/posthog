@@ -7,6 +7,7 @@ import {
   canvasV2OpsSinceInput,
   createCanvasV2BoardInput,
   fileCanvasV2BoardInput,
+  pinCanvasV2BoardInput,
   renameCanvasV2BoardInput,
 } from "@posthog/core/canvas-v2/canvasV2Schemas";
 import {
@@ -67,6 +68,14 @@ export const canvasV2Router = router({
       ctx.container
         .get<ICanvasV2BoardsService>(CANVAS_V2_BOARDS_SERVICE)
         .setChannel(input.id, input.channelId),
+    ),
+  setPinned: publicProcedure
+    .input(pinCanvasV2BoardInput)
+    .output(canvasV2BoardSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<ICanvasV2BoardsService>(CANVAS_V2_BOARDS_SERVICE)
+        .setPinned(input.id, input.pinned),
     ),
   remove: publicProcedure
     .input(canvasV2BoardIdInput)

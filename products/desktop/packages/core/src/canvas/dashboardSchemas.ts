@@ -33,6 +33,15 @@ export const dashboardRecordSchema = z.object({
   // Display name of the creator (from the backend's created_by user).
   createdBy: z.string().optional(),
   createdByUuid: z.string().optional(),
+  createdByEmail: z.string().optional(),
+  // Canvases v2 only: who recorded the newest op, so a row shows who was here.
+  lastActor: z
+    .object({
+      name: z.string().optional(),
+      uuid: z.string().optional(),
+      email: z.string().optional(),
+    })
+    .optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   // Epoch ms the canvas was pinned to its channel; absent = not pinned.

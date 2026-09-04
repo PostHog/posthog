@@ -28,6 +28,7 @@ interface PeerCursor {
 interface PeerRing {
   key: string;
   color: string;
+  textColor: string;
   name: string;
   inset: number;
   left: number;
@@ -69,7 +70,8 @@ export function PresenceLayer({
       const screen = fragmentScreenRect(fragment, viewport, paneRect);
       rings.push({
         key: `${peer.clientId}:${id}`,
-        color: peer.color,
+        color: peer.color.bg,
+        textColor: peer.color.text,
         name: peer.name,
         inset: index * RING_INSET_PX,
         left: screen.left - paneRect.left,
@@ -96,8 +98,8 @@ export function PresenceLayer({
           }}
         >
           <span
-            className="-top-[18px] absolute left-0 rounded-(--radius-1) px-1.5 font-medium text-[10px] text-white leading-4 shadow-xs"
-            style={{ backgroundColor: ring.color }}
+            className="-top-[18px] absolute left-0 rounded-(--radius-1) px-1.5 font-medium text-[10px] leading-4 shadow-xs"
+            style={{ backgroundColor: ring.color, color: ring.textColor }}
           >
             {ring.name}
           </span>
@@ -121,14 +123,14 @@ export function PresenceLayer({
           >
             <path
               d="M1 1L1 16.5L5.1 12.6L7.9 18.6L10.4 17.4L7.6 11.5L12.5 11.5Z"
-              fill={peer.color}
+              fill={peer.color.bg}
               stroke="white"
               strokeWidth="1.2"
             />
           </svg>
           <span
-            className="-ml-1 mt-3.5 whitespace-nowrap rounded-full px-1.5 py-px font-medium text-[10px] text-white leading-4 shadow-sm"
-            style={{ backgroundColor: peer.color }}
+            className="-ml-1 mt-3.5 whitespace-nowrap rounded-full px-1.5 py-px font-medium text-[10px] leading-4 shadow-sm"
+            style={{ backgroundColor: peer.color.bg, color: peer.color.text }}
           >
             {peer.name}
           </span>

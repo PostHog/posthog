@@ -50,6 +50,7 @@ function item(title: string, overrides: Partial<ChannelItemModel> = {}) {
     authorUser: null,
     authorName: null,
     authorUuid: "user-uuid",
+    authorEmail: null,
     templateId: null,
     repository: null,
     branch: null,

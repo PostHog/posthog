@@ -1,3 +1,8 @@
+import { type AvatarColor, avatarColor } from "@posthog/core/auth/avatarColor";
+import {
+  getUserInitials,
+  type UserLike,
+} from "@posthog/core/auth/userInitials";
 import {
   CANVAS_V2_PRESENCE_STALE_MS,
   type CanvasV2Presence,
@@ -7,12 +12,17 @@ import {
 } from "@posthog/shared";
 
 /** Another person on the board, as the cursor layer and the faces read them. */
+export interface AvatarPerson extends UserLike {
+  uuid?: string | null;
+}
+
 export interface PresencePeer {
   clientId: string;
   userId?: number;
+  user: AvatarPerson;
   name: string;
   initials: string;
-  color: string;
+  color: AvatarColor;
   cursor: CanvasV2PresencePoint | null;
   viewport: CanvasV2Viewport | null;
   selectedIds: readonly string[];
@@ -22,37 +32,6 @@ export interface PresencePeer {
 }
 
 /** Eight hues that stay apart in both themes. */
-export const CANVAS_V2_PEER_COLORS: readonly string[] = [
-  "#f5581d",
-  "#2f80ed",
-  "#1d9a6c",
-  "#9b51e0",
-  "#d92d78",
-  "#c08a00",
-  "#0e9aa7",
-  "#5c6bc0",
-];
-
-/** The same seed always picks the same color, so a person keeps theirs. */
-export function peerColor(seed: string): string {
-  let hash = 0;
-  for (let index = 0; index < seed.length; index++) {
-    hash = (hash * 31 + seed.charCodeAt(index)) | 0;
-  }
-  const slot = Math.abs(hash) % CANVAS_V2_PEER_COLORS.length;
-  return CANVAS_V2_PEER_COLORS[slot];
-}
-
-export function peerInitials(name: string): string {
-  const words = name
-    .trim()
-    .split(/[\s@._-]+/)
-    .filter(Boolean);
-  if (words.length === 0) return "?";
-  const first = words[0][0] ?? "";
-  const second = words.length > 1 ? (words[words.length - 1][0] ?? "") : "";
-  return `${first}${second}`.toUpperCase();
-}
 
 export interface BoardPresenceOptions {
   /** This board view's own client id, so the local cursor is never drawn. */
@@ -89,15 +68,24 @@ export class BoardPresenceTracker {
     if (presence.clientId === this.localClientId) return;
     const name = presence.userName?.trim() || this.unknownName;
     const seed =
-      presence.userId !== undefined
+      presence.userUuid ??
+      (presence.userId !== undefined
         ? `user:${presence.userId}`
-        : `client:${presence.clientId}`;
+        : `client:${presence.clientId}`);
+    const [firstName, ...restName] = name.split(/\s+/).filter(Boolean);
+    const user: AvatarPerson = {
+      uuid: presence.userUuid ?? null,
+      first_name: firstName ?? null,
+      last_name: restName.join(" ") || null,
+      email: presence.userEmail ?? null,
+    };
     this.peers.set(presence.clientId, {
       clientId: presence.clientId,
       userId: presence.userId,
+      user,
       name,
-      initials: peerInitials(name),
-      color: peerColor(seed),
+      initials: getUserInitials(user),
+      color: avatarColor(seed),
       cursor: presence.cursor,
       viewport: presence.viewport,
       selectedIds: presence.selectedIds,
