@@ -92,6 +92,8 @@ Use this checklist as a design gate. Read the linked reference when an item appl
 6. Keep grid updates stable during drag, resize, and tile refresh. Avoid a full grid relayout for each tile result.
 7. Add observability when a change creates a new loading, query, cache, access, or refresh path.
 8. For list-only state, render controls only where that state applies.
+9. After a selector rename, search every dashboard consumer and test for the old name. Then run TypeScript.
+10. Keep dashboard mutation actions on the authenticated dashboard placement unless another placement has an explicit contract.
 
 ## 5. Test the boundary, not only the happy path
 

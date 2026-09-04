@@ -27,7 +27,7 @@ Check pasted links, direct URL edits, browser history navigation, filter control
 
 Before you change one layer, define its precedence with every other affected layer. Do not infer precedence from the UI.
 
-For dashboard editing, treat saved filters and variables as one configuration. Treat both URL parameters as one initial override. A filter or variable edit creates one user draft. Resolve saved configuration, then initial override, then user draft.
+For dashboard editing, treat saved filters and variables as one settings object. Treat both URL parameters as one initial override. A filter or variable edit creates one user draft. Resolve saved settings, then initial override, then user draft.
 
 Show initial URL overrides through the same unsaved treatment as user edits. Do not create a separate temporary state or treatment.
 
@@ -44,6 +44,13 @@ Show initial URL overrides through the same unsaved treatment as user edits. Do 
 - Combine filter and SQL-variable changes in one change list and one count.
 - Save filters and variables through one dashboard update.
 - Clear both URL override parameters on dashboard configuration save or discard.
+- Compare SQL values by value and null meaning. Treat absent `isNull` and `isNull: false` as equal.
+- Remove a no-op URL variable when a person selects its default value.
+- Apply current draft variables to controls, tile requests, insight links, exports, and scene actions.
+- Map camel-case date actions to snake-case URL fields at the router boundary.
+- Invalidate an old Preview state after any later filter or variable edit.
+- Refresh affected tiles after a save when automatic preview did not apply the draft.
+- Render settings mutation actions only on the authenticated dashboard placement.
 
 ## Failure cases
 

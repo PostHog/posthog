@@ -1,13 +1,13 @@
-# Dashboard configuration editing and URL overrides
+# Dashboard settings editing and URL overrides
 
 Use this reference when a dashboard change affects filters, SQL variables, previews, URL overrides, saving, or layout editing.
 
-## Configuration model
+## Settings model
 
-Treat dashboard filters and SQL variables as one editable configuration.
+Treat dashboard filters and SQL variables as one editable settings object.
 
 ```ts
-type DashboardConfiguration = {
+type DashboardSettings = {
   filters: DashboardFilter
   variables: Record<string, HogQLVariable>
 }
@@ -17,20 +17,20 @@ Use three explicit sources:
 
 | Source               | Contents                                      | Lifetime                             |
 | -------------------- | --------------------------------------------- | ------------------------------------ |
-| Saved configuration  | `persisted_filters` and `persisted_variables` | Persists for every applicable viewer |
+| Saved settings       | `persisted_filters` and `persisted_variables` | Persists for every applicable viewer |
 | Initial URL override | `query_filters` and `query_variables`         | Applies to the initial view          |
 | User draft           | Current filter and variable edits             | Local until save or discard          |
 
-Resolve the effective configuration in this order:
+Resolve the current settings in this order:
 
 ```text
-saved configuration
+saved settings
 → initial URL override
 → user draft
 ```
 
 - Freeze the initial URL override after the dashboard opens.
-- Do not infer configuration state from `dashboardMode`, `hasIntermittentFilters`, or `filterEditModeActive`.
+- Do not infer settings state from `dashboardMode`, `hasIntermittentFilters`, or `filterEditModeActive`.
 - Do not combine separate temporary-filter and temporary-variable conditions in UI components.
 - Keep embedded context and tile overrides outside this configuration.
 
@@ -38,10 +38,10 @@ saved configuration
 
 Derive exactly one visible state from the effective configuration:
 
-| State            | Condition                                                            | Required treatment                                            |
-| ---------------- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `unsavedChanges` | An initial URL override or user draft changes the saved values       | Show one count, one change list, and save or discard actions. |
-| `saved`          | The effective configuration equals the saved dashboard configuration | Show no configuration status.                                 |
+| State            | Condition                                                      | Required treatment                                            |
+| ---------------- | -------------------------------------------------------------- | ------------------------------------------------------------- |
+| `unsavedChanges` | An initial URL override or user draft changes the saved values | Show one count, one change list, and save or discard actions. |
+| `saved`          | The current settings equal the saved dashboard settings        | Show no settings status.                                      |
 
 - A filter or SQL-variable edit creates one user draft from the effective configuration.
 - Show initial URL overrides through the same unsaved treatment as user edits.
@@ -49,6 +49,9 @@ Derive exactly one visible state from the effective configuration:
 - The first edit includes the effective override values in the user draft.
 - UI code must consume the single derived visible state.
 - UI code must not reconstruct state from several selector flags.
+- Compare SQL variables by their displayed meaning. Treat absent `isNull` and `isNull: false` as equal.
+- Compare a missing saved override with the variable default. Do not report a default selection as a change.
+- Preserve explicit SQL `null`. Do not convert it to the string `"null"` in settings or change comparison.
 
 ## Actions and transitions
 
@@ -62,11 +65,12 @@ Use explicit actions for each boundary:
 
 Save behavior:
 
-1. Persist the final effective configuration.
+1. Persist the final current settings.
 2. Include both `filters` and `variables` in one dashboard update.
 3. Clear `query_filters` and `query_variables`.
 4. Clear the initial URL override and user draft.
-5. Confirm that reload shows the saved configuration.
+5. Confirm that reload shows the saved settings.
+6. If automatic preview is disabled, refresh all affected tiles after the save succeeds.
 
 Discard behavior:
 
@@ -80,11 +84,15 @@ Discard behavior:
 - Do not use `saveEditModeChanges` for SQL-variable-only changes.
 - Do not use `DashboardHeaderOverridesBanner` to clear dashboard configuration overrides.
 - For automatic preview, filter and variable controls can update their URL parameters after the draft exists.
+- Remove a URL variable when the selected value equals its default.
+- Map action payload field names to URL filter field names explicitly. Date actions use camel case. URL filters use snake case.
 - Above the automatic-preview threshold, Preview updates data without clearing or saving the draft.
+- Any later filter or variable edit invalidates the prior Preview result and returns the Preview action to its idle state.
+- Disable the Preview action while its current refresh runs. Do not use a loading spinner for this state.
 
 ## Unified change list
 
-Build one `DashboardConfigurationChange[]` for filters and SQL variables.
+Build one `DashboardSettingsChange[]` for filters and SQL variables.
 
 Each displayed row must include:
 
@@ -110,7 +118,7 @@ Additional requirements:
 - Saving dashboard changes must preserve the layout draft.
 - Discarding dashboard changes must preserve the layout draft.
 - Filter and variable controls remain editable during layout editing.
-- Dashboard configuration actions remain available during layout editing.
+- Dashboard settings actions remain available during layout editing.
 
 ## Other filter boundaries
 
@@ -119,7 +127,9 @@ Additional requirements:
 - `tile.filters_overrides` remains a separate persisted tile action.
 - Shared-token requests ignore URL filter and variable overrides.
 - Do not claim that URL overrides affect data where the request path ignores them.
-- Public, export, feature-flag, DataOps, group, and built-in placements may use different controls. Check each placement.
+- Render save, discard, and Preview only for `DashboardPlacement.Dashboard`.
+- Never render these mutation actions for public, embedded, export, built-in, or product-owned placements.
+- Other placements can render read-only filters or variables only when their contract supports them.
 
 ## UI requirements
 
@@ -127,7 +137,8 @@ Additional requirements:
 - Keep the status visible at narrow dashboard widths.
 - Move actions into a dropdown at the defined narrow container breakpoint.
 - Change Preview to Previewing while the dashboard refresh runs.
-- Show save and discard labels that describe dashboard configuration changes.
+- Disable Previewing without a spinner.
+- Show save and discard labels that describe dashboard settings changes.
 
 ## Required regression checks
 
@@ -142,6 +153,10 @@ Use one parameterized Kea logic scenario suite for configuration transitions:
 7. Edit filters and variables from a URL override view. Save. Confirm that the final state persists.
 8. Above the automatic-preview threshold, preview filters and variables. Confirm that preview changes data only.
 9. Check the complete layout independence matrix for save and discard actions.
+10. Save without Preview above the threshold. Confirm that all affected tiles refresh with the saved settings.
+11. Edit a SQL variable during or after Preview. Confirm that Preview returns to its idle, enabled state.
+12. Select a SQL variable default with absent and false `isNull`. Confirm no change row and no URL override.
+13. Set date filters. Confirm that action fields map to the URL and survive reload.
 
 Use DOM tests only for these visible outcomes:
 
@@ -150,6 +165,7 @@ Use DOM tests only for these visible outcomes:
 - Save and discard labels and actions.
 - Narrow action dropdown.
 - SQL-variable controls appear before the advanced-options ellipsis.
+- Save, discard, and Preview never appear outside `DashboardPlacement.Dashboard`.
 
 Do not keep tests that only assert selector flags, action order, a temporary variable, or a dirty filter.
 
@@ -159,6 +175,9 @@ Also check these separate boundaries:
 - Tile overrides never enter dashboard configuration changes.
 - Shared, public, export, feature-flag, DataOps, group, and built-in placements match their override support.
 - Browser history and direct URL edits resolve to the correct effective configuration.
+- Search for every removed or renamed selector across dashboard items, menus, panels, exports, and tests.
+- Run TypeScript after selector changes. Do not stop after the logic tests pass.
+- Check the insight-colors modal. Its cancel and save paths must not change the settings draft.
 
 ## Manual reproduction
 
@@ -173,16 +192,19 @@ Use one local dashboard with at least two working insight tiles and three SQL va
 
 ## Storybook coverage
 
-- Keep stories for saved configurations, user edits, and URL overrides shown as unsaved changes.
-- Do not add a separate temporary treatment story.
-- Keep stories for layout editing with an unsaved configuration and for the manual-preview dashboard size.
-- Keep a story for the preview loading state above the automatic-preview threshold.
-- Keep a story with several SQL variables. Confirm that they appear before the advanced-options ellipsis.
+- Keep dashboard stories under `products/dashboard`, not `scenes`.
+- Keep the existing filter variants focused on the visible change list.
+- Show up to five different filter changes, including breakdown and date range.
+- Do not add variants for URL overrides or layout editing with unsaved filters.
+- Do not add a SQL-variable-order variant.
 - Do not create a dashboard filter-bar story for embedded context when the embedding surface owns that context.
 
 ## Source files
 
 - `frontend/src/scenes/dashboard/DashboardFilters.tsx`
-- `frontend/src/scenes/dashboard/DashboardFilterChangesTooltip.tsx`
-- `frontend/src/scenes/dashboard/dashboardFilterChanges.ts`
+- `frontend/src/scenes/dashboard/DashboardUnsavedChangesIndicator.tsx`
+- `frontend/src/scenes/dashboard/dashboardChanges.ts`
 - `frontend/src/scenes/dashboard/dashboardLogic.tsx`
+- `frontend/src/scenes/dashboard/DashboardItems.tsx`
+- `frontend/src/scenes/dashboard/DashboardSceneMenuBar.tsx`
+- `frontend/src/scenes/dashboard/DashboardScenePanel.tsx`
