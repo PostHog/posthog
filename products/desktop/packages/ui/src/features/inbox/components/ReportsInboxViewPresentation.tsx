@@ -2,6 +2,7 @@ import {
   EnvelopeSimpleIcon,
   FunnelIcon,
   ListChecksIcon,
+  SparkleIcon,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -37,6 +38,7 @@ export interface ReportsInboxViewPresentationProps {
   isError: boolean;
   isEmpty: boolean;
   hasActiveFilters: boolean;
+  showConfigureAgentsEmptyState: boolean;
   triageEnabled: boolean;
   filterControl: ReactNode;
   scopeControl: ReactNode;
@@ -57,6 +59,7 @@ export function ReportsInboxViewPresentation({
   isError,
   isEmpty,
   hasActiveFilters,
+  showConfigureAgentsEmptyState,
   triageEnabled,
   filterControl,
   scopeControl,
@@ -73,16 +76,18 @@ export function ReportsInboxViewPresentation({
         <PageHeaderHeading>
           <PageHeaderTitleRow>
             <PageHeaderTitle>Self-driving</PageHeaderTitle>
-            <PageHeaderActions>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onConfigureAgents}
-              >
-                Configure agents
-              </Button>
-            </PageHeaderActions>
+            {!showConfigureAgentsEmptyState && (
+              <PageHeaderActions>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={onConfigureAgents}
+                >
+                  Configure agents
+                </Button>
+              </PageHeaderActions>
+            )}
           </PageHeaderTitleRow>
           <PageHeaderDescription>
             Issues and opportunities found in your product, ready to review
@@ -152,31 +157,45 @@ export function ReportsInboxViewPresentation({
             <Empty className="mx-auto max-w-md flex-none border-0 py-12">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
-                  {hasActiveFilters ? (
+                  {showConfigureAgentsEmptyState ? (
+                    <SparkleIcon size={24} />
+                  ) : hasActiveFilters ? (
                     <FunnelIcon size={24} />
                   ) : (
                     <EnvelopeSimpleIcon size={24} />
                   )}
                 </EmptyMedia>
                 <EmptyTitle>
-                  {hasActiveFilters
-                    ? "No reports match your filters"
-                    : "Nothing to review"}
+                  {showConfigureAgentsEmptyState
+                    ? "Ship fixes while you sleep"
+                    : hasActiveFilters
+                      ? "No reports match your filters"
+                      : "Nothing to review"}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {hasActiveFilters
-                    ? "Clear the filters to check for hidden reports."
-                    : "Reports show up here as your agents find things worth acting on."}
+                  {showConfigureAgentsEmptyState
+                    ? "PostHog watches your session replays, errors, and Slack, then opens a pull request when it finds something worth fixing. Connect a source to get started."
+                    : hasActiveFilters
+                      ? "Clear the filters to check for hidden reports."
+                      : "Reports show up here as your agents find things worth acting on."}
                 </EmptyDescription>
               </EmptyHeader>
-              {hasActiveFilters && (
+              {(hasActiveFilters || showConfigureAgentsEmptyState) && (
                 <EmptyContent>
                   <Button
-                    variant="outline"
+                    variant={
+                      showConfigureAgentsEmptyState ? "primary" : "outline"
+                    }
                     size="default"
-                    onClick={onClearFilters}
+                    onClick={
+                      showConfigureAgentsEmptyState
+                        ? onConfigureAgents
+                        : onClearFilters
+                    }
                   >
-                    Clear filters
+                    {showConfigureAgentsEmptyState
+                      ? "Configure agents"
+                      : "Clear filters"}
                   </Button>
                 </EmptyContent>
               )}

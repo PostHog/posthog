@@ -6,11 +6,15 @@ import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
+import { observationDetailUrl } from '../observations/replayObservationLogic'
+import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 import type { ReplayScanner } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
 import { observationSearchLogic } from './observationSearchLogic'
@@ -36,6 +40,50 @@ function exampleQueries(scanner: ReplayScanner | null): string[] {
     }
 }
 
+function suggestionDescription(crossScanner: boolean, fromObservations: boolean): string {
+    const subject = crossScanner ? 'your scanners' : 'this scanner'
+    if (fromObservations) {
+        return `Themes from what ${subject} observed recently.`
+    }
+    return `Examples to get started. Themes from what ${subject} observed will appear here once more sessions are analyzed.`
+}
+
+function QuerySection({
+    title,
+    description,
+    queries,
+    dataAttr,
+    onPick,
+}: {
+    title: string
+    description: string
+    queries: string[]
+    dataAttr: string
+    onPick: (query: string) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col items-center gap-2">
+            <div>
+                <div className="font-semibold">{title}</div>
+                <div className="text-muted text-xs">{description}</div>
+            </div>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+                {queries.map((query) => (
+                    <LemonButton
+                        key={query}
+                        type="secondary"
+                        size="small"
+                        onClick={() => onPick(query)}
+                        data-attr={dataAttr}
+                    >
+                        {query}
+                    </LemonButton>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 function countLabel(count: number, truncated: boolean): string {
     if (truncated) {
         return `Showing the top ${count === 1 ? 'match' : `${count} matches`}, best first`
@@ -48,17 +96,19 @@ function SearchResultCard({
     searchedQuery,
     showScanner,
     strongMatch,
+    returnParams,
 }: {
     result: ObservationSearchResultApi
     searchedQuery: string
     showScanner: boolean
     strongMatch: boolean
+    returnParams: Record<string, string>
 }): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
         <Link
-            to={urls.replayVisionObservation(observation.id)}
+            to={observationDetailUrl(observation.id, returnParams)}
             className="block border rounded p-3 bg-surface-primary hover:border-accent space-y-2 text-primary"
             data-attr="vision-search-result"
         >
@@ -72,9 +122,6 @@ function SearchResultCard({
                     </>
                 )}
                 <span className="font-mono text-xs text-muted truncate">{observation.session_id}</span>
-                {observation.recording_subject_email && (
-                    <span className="text-xs text-muted truncate">{observation.recording_subject_email}</span>
-                )}
                 <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
                     {strongMatch && (
                         <LemonTag type="success" size="small">
@@ -103,10 +150,35 @@ function SearchResultCard({
 }
 
 export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | null }): JSX.Element {
-    const logic = observationSearchLogic({ scannerId: scanner?.id ?? null })
-    const { query, results, searching, searchedQuery, strongMatchDistanceCutoff, truncated } = useValues(logic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const logic = observationSearchLogic({
+        scannerId: scanner?.id ?? null,
+        teamId: currentTeamId,
+        userId: user?.uuid ?? null,
+    })
+    const {
+        query,
+        results,
+        searching,
+        searchedQuery,
+        strongMatchDistanceCutoff,
+        truncated,
+        recentQueries,
+        suggestedQueries,
+        suggestedQueriesLoading,
+    } = useValues(logic)
     const { setQuery, search } = useActions(logic)
     const crossScanner = scanner === null
+    // A scanner-scoped search lives in the scanner URL, so a result can point back at the query it came from.
+    const returnParams: Record<string, string> =
+        crossScanner || !searchedQuery ? {} : { tab: ReplayScannerTab.Search, q: searchedQuery }
+    const tryQueries = suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(scanner)
+    const runQuery = (value: string): void => {
+        setQuery(value)
+        search()
+    }
 
     return (
         <div className="w-full max-w-3xl mx-auto flex flex-col gap-4 pt-2">
@@ -118,7 +190,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                     placeholder="Describe what to look for"
                     value={query}
                     onChange={setQuery}
-                    onPressEnter={() => !searching && search()}
+                    onPressEnter={() => !searching && dataProcessingAccepted && search()}
                     autoFocus
                     data-attr="vision-search-query"
                 />
@@ -126,7 +198,13 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                     type="primary"
                     onClick={() => search()}
                     loading={searching}
-                    disabledReason={!query.trim() ? 'Describe what to look for first' : undefined}
+                    disabledReason={
+                        !dataProcessingAccepted
+                            ? 'AI data processing is turned off for your organization'
+                            : !query.trim()
+                              ? 'Describe what to look for first'
+                              : undefined
+                    }
                     data-attr="vision-search-submit"
                 >
                     Search
@@ -139,29 +217,35 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                         <Spinner className="text-2xl" />
                     </div>
                 ) : (
-                    <div className="text-center text-muted pt-8 flex flex-col gap-3">
-                        <div>
+                    <div className="text-center pt-8 flex flex-col gap-6">
+                        <div className="text-muted">
                             {crossScanner
                                 ? 'Search everything your scanners have observed, ranked by how well it matches.'
                                 : 'Search everything this scanner has observed, ranked by how well it matches.'}
                         </div>
-                        <div className="flex items-center justify-center gap-2 flex-wrap">
-                            <span>Try</span>
-                            {exampleQueries(scanner).map((example) => (
-                                <LemonButton
-                                    key={example}
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => {
-                                        setQuery(example)
-                                        search()
-                                    }}
-                                    data-attr="vision-search-example"
-                                >
-                                    {example}
-                                </LemonButton>
-                            ))}
-                        </div>
+                        {recentQueries.length > 0 && (
+                            <QuerySection
+                                title="Recent searches"
+                                description="Searches that returned results, saved in this browser."
+                                queries={recentQueries}
+                                dataAttr="vision-search-recent"
+                                onPick={runQuery}
+                            />
+                        )}
+                        {suggestedQueriesLoading ? (
+                            // Hold the section rather than flash the fixed examples and swap them out a moment later.
+                            <div className="flex items-center justify-center h-16">
+                                <Spinner />
+                            </div>
+                        ) : (
+                            <QuerySection
+                                title="Suggested searches"
+                                description={suggestionDescription(crossScanner, suggestedQueries.length > 0)}
+                                queries={tryQueries}
+                                dataAttr="vision-search-example"
+                                onPick={runQuery}
+                            />
+                        )}
                     </div>
                 )
             ) : (
@@ -180,6 +264,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                         result={result}
                                         searchedQuery={searchedQuery ?? ''}
                                         showScanner={crossScanner}
+                                        returnParams={returnParams}
                                         strongMatch={
                                             strongMatchDistanceCutoff !== null &&
                                             result.distance <= strongMatchDistanceCutoff

@@ -6,22 +6,23 @@
 # filepath.Match globs against both the bare name ("events_main") and the
 # db-qualified form ("posthog.events_main"); object_types drops a whole kind.
 #
-# Three classes live here:
-#   1. Whole object kinds the goldens never model (object_types).
-#   2. Transient objects (atomic-replace temporaries, migration/backfill scratch,
+# Two classes live here:
+#   1. Transient objects (atomic-replace temporaries, migration/backfill scratch,
 #      backups) — never part of the managed schema.
-#   3. Cross-cluster proxies present on the node but intentionally NOT authored in
+#   2. Cross-cluster proxies present on the node but intentionally NOT authored in
 #      that role's golden — they belong to another role's managed set (e.g. the
 #      events_* distributed proxies the OPS node carries so it can query the main
 #      cluster). These are the same names check.sh lists in its validate SKIP.
+#
+# Kafka named collections are NOT excluded, despite carrying broker credentials on
+# the server: a dump that drops them cannot resolve the kafka_* tables that name
+# them. They are declared as `external` instead (roles/coshared/named_collections),
+# which binds the reference and stores nothing.
 #
 # Grow this list from what the reconciliation pass surfaces — anything the live
 # node has that the golden intentionally omits goes here, with a one-line reason.
 
 exclude {
-  # Secret Kafka broker/credential config; never modeled in the goldens.
-  object_types = ["named_collection"]
-
   patterns = [
     # --- transient (ClickHouse atomic CREATE-OR-REPLACE / EXCHANGE) ---
     "_tmp_replace_*",
@@ -41,6 +42,13 @@ exclude {
     # Distributed proxies into the main event cluster; owned by the data role.
     "events_main",
     "events_recent",
+
+    # --- infra-created, never by a migration ---
+    # Iceberg readers over the logs archive bucket. The bucket is per environment
+    # and named in the DDL, so declaring these would put one environment's storage
+    # layout in the schema of all of them.
+    "logs_archive",
+    "logs_archive_*",
 
     # --- out-of-band managed: real on prod, not created by the local
     #     migrate_clickhouse path, so the gate ignores them on BOTH sides until

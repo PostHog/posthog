@@ -68,6 +68,16 @@ tools:
             dollars whenever you set or change the size. That price always describes the sandbox actually serving the
             notebook, so if a restart failed it is the old one still running, not the size you just set.
             notebooks-compute-options lists the presets and the values this tool accepts.
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         feature_flag: revamped-py-notebooks
     notebooks-create:
         operation: notebooks_create
@@ -111,6 +121,16 @@ tools:
         title: Delete notebook
         description: |
             Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         soft_delete: true
     notebooks-get:
         operation: notebooks_sql_v2_state_retrieve
@@ -130,7 +150,18 @@ tools:
             different code than its last completed run (the cell or an upstream changed), so its displayed result is
             outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide
             re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy
-            rich-text notebooks return their raw document in content instead of markdown.
+            rich-text notebooks return their raw document in content instead of markdown. When you do not have the
+            notebook's short_id, find it with notebooks-list.
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         feature_flag: revamped-py-notebooks
         response:
             informational_wrapper:
@@ -194,6 +225,16 @@ tools:
             after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell. Only a modal
             backend is charged: hourly_price is calculated for a local docker kernel too, so quote it to the user only
             when backend is modal.
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         feature_flag: revamped-py-notebooks
         response:
             include:
@@ -229,6 +270,16 @@ tools:
             replacing it with legacy rich-text blocks.
         exclude_params:
             - _create_in_folder
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         feature_flag: notebooks-collaboration
         feature_flag_behavior: disable
     notebooks-recording-comments-retrieve:
@@ -250,7 +301,19 @@ tools:
             and creation/modification metadata. Use this when you need the raw content or the current version number —
             required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a
             markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use
-            notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled)."
+            notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled). When you do not
+            have the notebook's short_id, find it with notebooks-list; searching by title is what its search parameter
+            is for."
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         feature_flag: revamped-py-notebooks
         feature_flag_behavior: disable
     notebooks-run-cell:
@@ -286,6 +349,16 @@ tools:
         description: >
             Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The
             stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         feature_flag: revamped-py-notebooks
     notebooks-run-cell-result:
         operation: notebooks_sql_v2_runs_retrieve
@@ -304,6 +377,16 @@ tools:
             and tracebacks), media, and error. Use this when notebooks-add-cell or notebooks-update-cell returned status
             'running' (the cell outlived the call's wait window): poll with the run_id, waiting a few seconds between
             polls, until the status is terminal, then use the envelope to decide the next step.
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
         feature_flag: revamped-py-notebooks
         response:
             exclude:
