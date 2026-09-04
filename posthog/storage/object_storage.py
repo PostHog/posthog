@@ -32,6 +32,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        pass
+
+    @abc.abstractmethod
     def get_presigned_url(
         self,
         bucket: str,
@@ -107,6 +111,9 @@ class UnavailableStorage(ObjectStorageClient):
     def head_object(self, bucket: str, file_key: str):
         return None
 
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        raise ObjectStorageError("object storage is unavailable")
+
     def get_presigned_url(
         self,
         bucket: str,
@@ -177,6 +184,22 @@ class ObjectStorage(ObjectStorageClient):
         except Exception as e:
             logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
             return None
+
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        try:
+            return self.aws_client.head_object(Bucket=bucket, Key=file_key)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if error_code in {"404", "NoSuchKey", "NotFound"} or status_code == 404:
+                return None
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
+        except Exception as e:
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
 
     def get_presigned_url(
         self,
@@ -642,6 +665,12 @@ def get_presigned_post_pair(file_key: str, conditions: list[Any], expiration: in
 
 def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
     return object_storage_client().head_object(file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET)
+
+
+def head_object_strict(file_key: str, bucket: str | None = None) -> Optional[dict]:
+    return object_storage_client().head_object_strict(
+        file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET
+    )
 
 
 def health_check() -> bool:

@@ -66,7 +66,15 @@ interface RegisterableHogFunction {
 }
 
 export class RustVmExecutor {
-    private scheduler: RustVmBatchScheduler<RegisterableHogFunction>
+    private scheduler: RustVmBatchScheduler
+
+    /**
+     * The hog function that owns each bytecode array, so a batch dispatch can register the
+     * program. The scheduler batches by bytecode content, so one dispatch may carry events from
+     * many functions with identical bytecode — the representative function's handle is valid for
+     * all of them.
+     */
+    private functionsByBytecode = new WeakMap<unknown[], RegisterableHogFunction>()
 
     /**
      * Registered-program handles, keyed by hog function id. `updatedAt` is the version guard: a
@@ -85,7 +93,7 @@ export class RustVmExecutor {
     private handles: LRUCache<string, { updatedAt: string; handle: number }>
 
     constructor(private options: { mmdbPath: string }) {
-        this.scheduler = new RustVmBatchScheduler((hogFunction, events) => {
+        this.scheduler = new RustVmBatchScheduler((bytecode, events) => {
             const module_ = this.getModule()
             if (!module_) {
                 // Unreachable in practice: executeBatched checks the module before enqueueing.
@@ -95,9 +103,10 @@ export class RustVmExecutor {
             // `handleFor` re-registers an evicted program, and nothing can release the handle
             // between here and the call below.
             const { executeRegisteredBatch } = module_
-            const handle = executeRegisteredBatch ? this.handleFor(module_, hogFunction) : null
+            const hogFunction = this.functionsByBytecode.get(bytecode)
+            const handle = executeRegisteredBatch && hogFunction ? this.handleFor(module_, hogFunction) : null
             if (handle === null || !executeRegisteredBatch) {
-                return module_.executeBatch(hogFunction.bytecode, events, {
+                return module_.executeBatch(bytecode, events, {
                     parallel: true,
                     maxSteps: RUST_MAX_STEPS,
                 })
@@ -243,7 +252,8 @@ export class RustVmExecutor {
 
         let rust: RustExecResult
         try {
-            rust = await this.scheduler.execute(invocation.hogFunction, invocation.state.globals)
+            this.functionsByBytecode.set(invocation.hogFunction.bytecode, invocation.hogFunction)
+            rust = await this.scheduler.execute(invocation.hogFunction.bytecode, invocation.state.globals)
         } catch (error) {
             // A rejected batch never delivered results, so nothing executed — safe to fall back.
             return this.fallback('fallback_exception', invocation, sensitiveValues, error)

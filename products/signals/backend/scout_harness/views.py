@@ -67,6 +67,7 @@ from products.signals.backend.scout_harness.config_registry import enabled_scout
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
     ScoutRunRejectionKind,
@@ -102,6 +103,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutNoteSerializer,
     ScoutNotesQuerySerializer,
     ScoutRunIdsBatchRequestSerializer,
+    ScoutRunTokenCostsSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -145,6 +147,7 @@ from products.signals.backend.scout_harness.tools.runs import (
     fleet_findings_summary,
     get_run,
     recent_runs_per_scout,
+    run_id_for_sandbox_task,
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -787,6 +790,47 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
     @validated_request(
+        request_serializer=ScoutRunIdsBatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutRunTokenCostsSerializer,
+                description="Model spend for each requested run that exists on this project.",
+            ),
+            403: OpenApiResponse(description="Caller is not PostHog staff."),
+        },
+        summary="Get the model spend of many runs at once",
+        description=(
+            "Return what each requested `SignalScoutRun` spent on model calls, summed from the "
+            "`$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: "
+            "a settled run's total is final, a run still in progress reports what it has spent so far. "
+            "`available` is false where the internal AI observability project holding those events can't "
+            "be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal "
+            "operating number, and the events sit outside the project in the path. Strictly team-scoped — "
+            "run ids belonging to another project contribute no rows."
+        ),
+        operation_id="signals_scout_runs_token_costs",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="token-costs",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def token_costs(self, request: Request, **kwargs) -> Response:
+        if not cast(User, request.user).is_staff:
+            raise exceptions.PermissionDenied("Only PostHog staff can read scout run costs.")
+        costs = scout_run_token_costs(team_id=_canonical_team_id(self), run_ids=request.validated_data["run_ids"])
+        return Response(
+            ScoutRunTokenCostsSerializer(
+                {
+                    "costs": [dataclasses.asdict(cost) for cost in costs.costs],
+                    "available": costs.available,
+                }
+            ).data
+        )
+
+    @validated_request(
         request_serializer=EmitFindingRequestSerializer,
         parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
@@ -1228,30 +1272,32 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = request.validated_data
+        team_id = _canonical_team_id(self)
         run_id = data.get("run_id") or None
         # `run_id` only stamps best-effort `created_by_run_id` lineage — a memory write must
-        # never be lost over it. So an unverifiable `run_id` is dropped (lineage left null),
-        # not rejected. We still won't stamp a `run_id` that isn't a run on this project: the
-        # agent's MCP token pins us to a team, but `run_id` is a free field on the body and a
-        # foreign-team UUID would otherwise create a cross-team `created_by_run_id` reference.
-        # Bad UUIDs are blocked by `UUIDField` in the serializer.
-        if (
-            run_id is not None
-            and not SignalScoutRun.objects.filter(id=run_id, team_id=_canonical_team_id(self)).exists()
-        ):
+        # never be lost over it. So an unverifiable `run_id` is dropped, not rejected: the
+        # serializer coerces one it can't parse to None, and one that names no run on this project
+        # is dropped here. The project check is what keeps `run_id` from creating a cross-team
+        # `created_by_run_id` reference — the agent's MCP token pins us to a team, but `run_id`
+        # is a free field on the body.
+        if run_id is not None and not SignalScoutRun.objects.filter(id=run_id, team_id=team_id).exists():
             run_id = None
+        # Nothing usable came off the body, so fall back to the run the caller's sandbox token is
+        # bound to. A scout copies `run_id` out of its prompt by hand and a share of those copies
+        # arrive truncated, which used to cost the entry its run link; the token binding is the
+        # server's own record of which run is writing, so lineage survives the typo.
+        if run_id is None:
+            run_id = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
         try:
             entry = remember(
-                team_id=_canonical_team_id(self),
+                team_id=team_id,
                 key=data["key"],
                 content=data["content"],
                 run_id=str(run_id) if run_id is not None else None,
                 # Derived from the token's bound task, never from the body: a report-pipeline
                 # stage has no run to point `run_id` at, and a writer that could name itself
                 # could name a scout's skill instead.
-                identity=pipeline_writer_identity(
-                    task_id=_sandbox_bound_task_id(request), team_id=_canonical_team_id(self)
-                ),
+                identity=pipeline_writer_identity(task_id=_sandbox_bound_task_id(request), team_id=team_id),
                 expires_at=data.get("expires_at"),
             )
         except InvalidScratchpadError as exc:
@@ -1401,11 +1447,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 if _may_read_reports(request, self.team.parent_team or self.team)
                 # Every derived origin quotes report content (id, title, and the reviewer's / user's
                 # text), so a caller without report read access must not see any of them.
-                else (
-                    SignalScoutNote.Origin.REPORT_DISMISSAL,
-                    SignalScoutNote.Origin.REPORT_DISCUSSION,
-                    SignalScoutNote.Origin.REPORT_FEEDBACK,
-                )
+                else SignalScoutNote.derived_origins()
             ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)

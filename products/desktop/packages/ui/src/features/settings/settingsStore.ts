@@ -10,11 +10,12 @@ import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
 import type {
   Adapter,
   AgentRuntime,
-  CodexModelAccess,
   ExecutionMode,
+  ModelAccess,
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
 import {
   TIP_SHOWINGS,
   type TipKey,
@@ -22,6 +23,8 @@ import {
 import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+
+const MAX_EFFECTIVE_CUSTOM_INSTRUCTIONS_LENGTH = 20_000;
 
 // ---------- Types ----------
 
@@ -133,7 +136,7 @@ export interface SyncedCustomInstructions {
 
 // ---------- Store shape ----------
 
-interface SettingsStore {
+export interface SettingsStore {
   // Run mode + last-used flow defaults
   defaultRunMode: DefaultRunMode;
   lastUsedRunMode: "local" | "cloud";
@@ -169,9 +172,9 @@ interface SettingsStore {
   setLastUsedWorkspaceMode: (mode: WorkspaceMode) => void;
   setLastUsedAgentRuntime: (runtime: AgentRuntime) => void;
   setLastUsedAdapter: (adapter: AgentAdapter) => void;
-  setLastUsedModel: (model: string) => void;
+  setLastUsedModel: (model: string | null) => void;
   setLastUsedPiModel: (model: string) => void;
-  setLastUsedReasoningEffort: (effort: string) => void;
+  setLastUsedReasoningEffort: (effort: string | null) => void;
   setLastUsedContextWindow: (value: "200k" | "1m") => void;
   setLastUsedFastMode: (enabled: boolean) => void;
   setLastUsedCloudRepository: (repo: string | null) => void;
@@ -232,6 +235,7 @@ interface SettingsStore {
   autoConvertLongText: AutoConvertLongText;
   sendMessagesWith: SendMessagesWith;
   customInstructions: string;
+  ste100Enabled: boolean;
   // When on, personalization mirrors the user-level AGENTS.md (or CLAUDE.md)
   // instead of the hand-typed customInstructions above.
   syncCustomInstructionsFromFile: boolean;
@@ -239,6 +243,7 @@ interface SettingsStore {
   setAutoConvertLongText: (value: AutoConvertLongText) => void;
   setSendMessagesWith: (mode: SendMessagesWith) => void;
   setCustomInstructions: (instructions: string) => void;
+  setSte100Enabled: (enabled: boolean) => void;
   setSyncCustomInstructionsFromFile: (enabled: boolean) => void;
   setSyncedCustomInstructions: (
     synced: SyncedCustomInstructions | null,
@@ -283,14 +288,16 @@ interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
-  codexModelAccess: CodexModelAccess;
+  codexModelAccess: ModelAccess;
+  claudeModelAccess: ModelAccess;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
   setAutoPublishCloudRuns: (enabled: boolean) => void;
   setRtkEnabledLocal: (enabled: boolean) => void;
   setRtkEnabledCloud: (enabled: boolean) => void;
-  setCodexModelAccess: (mode: CodexModelAccess) => void;
+  setCodexModelAccess: (mode: ModelAccess) => void;
+  setClaudeModelAccess: (mode: ModelAccess) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -493,12 +500,14 @@ export const useSettingsStore = create<SettingsStore>()(
       autoConvertLongText: "2500",
       sendMessagesWith: "enter",
       customInstructions: "",
+      ste100Enabled: true,
       syncCustomInstructionsFromFile: false,
       syncedCustomInstructions: null,
       setAutoConvertLongText: (value) => set({ autoConvertLongText: value }),
       setSendMessagesWith: (mode) => set({ sendMessagesWith: mode }),
       setCustomInstructions: (instructions) =>
         set({ customInstructions: instructions }),
+      setSte100Enabled: (enabled) => set({ ste100Enabled: enabled }),
       setSyncCustomInstructionsFromFile: (enabled) =>
         set({ syncCustomInstructionsFromFile: enabled }),
       setSyncedCustomInstructions: (synced) =>
@@ -550,6 +559,7 @@ export const useSettingsStore = create<SettingsStore>()(
       rtkEnabledLocal: true,
       rtkEnabledCloud: true,
       codexModelAccess: "posthog-gateway",
+      claudeModelAccess: "posthog-gateway",
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -560,6 +570,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setRtkEnabledLocal: (enabled) => set({ rtkEnabledLocal: enabled }),
       setRtkEnabledCloud: (enabled) => set({ rtkEnabledCloud: enabled }),
       setCodexModelAccess: (mode) => set({ codexModelAccess: mode }),
+      setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -690,6 +701,7 @@ export const useSettingsStore = create<SettingsStore>()(
         autoConvertLongText: state.autoConvertLongText,
         sendMessagesWith: state.sendMessagesWith,
         customInstructions: state.customInstructions,
+        ste100Enabled: state.ste100Enabled,
         syncCustomInstructionsFromFile: state.syncCustomInstructionsFromFile,
 
         // Diff viewer
@@ -710,6 +722,7 @@ export const useSettingsStore = create<SettingsStore>()(
         rtkEnabledLocal: state.rtkEnabledLocal,
         rtkEnabledCloud: state.rtkEnabledCloud,
         codexModelAccess: state.codexModelAccess,
+        claudeModelAccess: state.claudeModelAccess,
 
         // Terminal
         terminalFont: state.terminalFont,
@@ -821,15 +834,27 @@ export function getEffectiveCustomInstructions(
   state: Pick<
     SettingsStore,
     | "customInstructions"
+    | "ste100Enabled"
     | "syncCustomInstructionsFromFile"
     | "syncedCustomInstructions"
   >,
 ): string {
-  if (state.syncCustomInstructionsFromFile) {
-    const content = state.syncedCustomInstructions?.content ?? "";
-    return content.trim() ? content : "";
+  const content = state.syncCustomInstructionsFromFile
+    ? (state.syncedCustomInstructions?.content ?? "")
+    : state.customInstructions;
+  if (!state.ste100Enabled) {
+    return state.syncCustomInstructionsFromFile
+      ? content.trim()
+        ? content
+        : ""
+      : content;
   }
-  return state.customInstructions;
+  const instruction = SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION;
+  const availableContentLength =
+    MAX_EFFECTIVE_CUSTOM_INSTRUCTIONS_LENGTH - instruction.length - 2;
+  return [content.trim().slice(0, availableContentLength), instruction]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**

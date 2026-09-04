@@ -10,7 +10,7 @@ CREATE TABLE posthog.kafka_app_metrics2 (
   metric_kind String,
   metric_name String,
   count Int64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_app_metrics2\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_app_metrics2';
 CREATE TABLE posthog.kafka_app_metrics2_ws (
   team_id Int64,
   timestamp DateTime64(6, 'UTC'),
@@ -20,19 +20,19 @@ CREATE TABLE posthog.kafka_app_metrics2_ws (
   metric_kind String,
   metric_name String,
   count Int64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_app_metrics2_ws\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_app_metrics2\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_app_metrics2_ws', kafka_topic_list = 'clickhouse_app_metrics2';
 CREATE TABLE posthog.kafka_cohort_membership (
   team_id Int64,
   cohort_id Int64,
   person_id UUID,
   status Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4),
   last_updated DateTime64(6)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_cohort_membership_changed\'', kafka_topic_list = 'kafka_topic_list = \'cohort_membership_changed\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_cohort_membership_changed', kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_distinct_id_usage (
   team_id Int64,
   distinct_id String,
   timestamp DateTime64(6, 'UTC')
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_distinct_id_usage\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'distinct_id_usage_events_json\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_skip_broken_messages = 100, kafka_topic_list = 'distinct_id_usage_events_json';
 CREATE TABLE posthog.kafka_flag_evaluations (
   uuid UUID,
   event LowCardinality(String),
@@ -49,7 +49,7 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   group3_properties String,
   group4_properties String,
   inserted_at DateTime64(6, 'UTC')
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_flag_evaluations\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_flag_evaluations\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_heatmaps (
   session_id String,
   team_id Int64,
@@ -63,7 +63,7 @@ CREATE TABLE posthog.kafka_heatmaps (
   pointer_target_fixed Bool,
   current_url String,
   type LowCardinality(String)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_heatmap_events\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_heatmap_events';
 CREATE TABLE posthog.kafka_precalculated_events (
   team_id Int64,
   date Nullable(Date),
@@ -72,7 +72,7 @@ CREATE TABLE posthog.kafka_precalculated_events (
   condition String,
   uuid UUID,
   source String
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_flush_interval_ms = 7500, kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_prefiltered_events\'', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_prefiltered_events\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_prefiltered_events', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_prefiltered_events';
 CREATE TABLE posthog.kafka_precalculated_person_properties (
   team_id Int64,
   distinct_id String,
@@ -80,7 +80,7 @@ CREATE TABLE posthog.kafka_precalculated_person_properties (
   condition String,
   matches Bool,
   source String
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_flush_interval_ms = 7500, kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_precalculated_person_properties\'', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_precalculated_person_properties\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_precalculated_person_properties', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_precalculated_person_properties';
 CREATE TABLE posthog.kafka_session_replay_features (
   session_id String,
   team_id Int64,
@@ -151,7 +151,7 @@ CREATE TABLE posthog.kafka_session_replay_features (
   text_selection_count Int64,
   selection_copy_count Int64,
   is_deleted UInt8
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_session_replay_features\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_session_replay_features';
 CREATE TABLE posthog.kafka_tophog (
   timestamp DateTime64(6, 'UTC'),
   metric LowCardinality(String),
@@ -162,7 +162,7 @@ CREATE TABLE posthog.kafka_tophog (
   pipeline LowCardinality(String),
   lane LowCardinality(String),
   labels Map(LowCardinality(String), String)
-) ENGINE = Kafka() SETTINGS date_time_input_format = 'best_effort', kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_tophog\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_tophog\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_tophog', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_tophog';
 CREATE TABLE posthog.kafka_tophog_ws (
   timestamp DateTime64(6, 'UTC'),
   metric LowCardinality(String),
@@ -173,7 +173,7 @@ CREATE TABLE posthog.kafka_tophog_ws (
   pipeline LowCardinality(String),
   lane LowCardinality(String),
   labels Map(LowCardinality(String), String)
-) ENGINE = Kafka() SETTINGS date_time_input_format = 'best_effort', kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_tophog_ws\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_tophog\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_tophog_ws', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_tophog';
 CREATE TABLE posthog.query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),

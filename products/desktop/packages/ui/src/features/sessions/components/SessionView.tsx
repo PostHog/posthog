@@ -933,6 +933,7 @@ export function SessionView({
                             <ContextUsageIndicator
                               usage={contextUsage}
                               taskId={taskId}
+                              originProduct={task?.origin_product}
                               focused={isActiveSession !== false}
                             />
                           }
@@ -961,12 +962,8 @@ export function SessionView({
         fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
         toModelId={pendingModelSwitch?.value ?? ""}
         toModelLabel={pendingModelSwitch?.label ?? ""}
+        taskId={taskId}
         contextTokens={contextUsage?.used}
-        sessionCostUsd={
-          olderHistoryCursor === 0 && contextUsage?.cost?.currency === "USD"
-            ? contextUsage.cost.amount
-            : undefined
-        }
         onConfirm={confirmModelSwitch}
         onCopyHandoffSummary={
           canCopyHandoffSummary && !hasPendingSideQuestion

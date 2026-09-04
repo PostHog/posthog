@@ -347,6 +347,48 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
     # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
 
     @freeze_time("2025-01-16T00:00:00Z")
+    def test_sums_distinguish_reported_zero_from_no_report(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_zero",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0),
+            properties={
+                "$ai_input_tokens": 0,
+                "$ai_output_tokens": 0,
+                "$ai_input_cost_usd": 0,
+                "$ai_output_cost_usd": 0,
+                "$ai_total_cost_usd": 0,
+            },
+        )
+        # A generation whose provider never reported usage carries no token or
+        # cost properties at all.
+        _create_event(
+            event="$ai_generation",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 1),
+            properties={
+                "$ai_trace_id": "trace_unpriced",
+                "$ai_latency": 1,
+            },
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        traces = {trace.id: trace for trace in response.results}
+
+        zero_trace = traces["trace_zero"]
+        self.assertEqual(zero_trace.totalCost, 0)
+        self.assertEqual(zero_trace.inputCost, 0)
+        self.assertEqual(zero_trace.inputTokens, 0)
+
+        unpriced_trace = traces["trace_unpriced"]
+        self.assertIsNone(unpriced_trace.totalCost)
+        self.assertIsNone(unpriced_trace.inputCost)
+        self.assertIsNone(unpriced_trace.inputTokens)
+
+    @freeze_time("2025-01-16T00:00:00Z")
     def test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation(self):
         event_uuid = uuid.uuid4()
         generation_id = "generation-id-1"

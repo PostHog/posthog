@@ -155,8 +155,9 @@ def create_scout_report(
     Unlike the autostart inputs they're written whatever the judged status, so a suppressed report
     keeps the exhibits behind it for whoever reviews the suppression.
 
-    `suggested_prompts`, when supplied, become the questions the inbox offers above the report's
-    "Ask AI" box. Written on the same terms as `charts`, and for the same reason.
+    `suggested_prompts`, when supplied, become the prompts (questions or next-step actions) the
+    inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
+    the same reason.
 
     `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
     defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
@@ -297,6 +298,14 @@ def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
 
 
+def scout_report_exists(*, team_id: int, report_id: str) -> bool:
+    """Team-scoped existence check for the edit path's pre-judge gate. Validates the id shape the way
+    the write paths do, so a malformed id is a caller error rather than an uncaught 500. A cost gate
+    only — the write paths keep their own fail-closed resolution under their transactions."""
+    _validate_report_id(report_id)
+    return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
+
+
 def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
     """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
     have its content pushed to a configured destination, matching emit. Returns None when the report
@@ -312,12 +321,21 @@ def update_scout_report(
     title: str | None = None,
     summary: str | None = None,
     attribution: ArtefactAttribution | None = None,
+    reviewed: bool = False,
 ) -> list[str]:
     """Rewrite an existing report's `title`/`summary` in place (the `edit_report` content path).
 
     Team-scoped fail-closed: a `report_id` the team doesn't own raises, never silently no-ops. Returns
     the modified field names. Title/summary edits are best-effort authorship — the pipeline may later
     re-research and overwrite them (decision #6); that is documented in the scout-facing contract.
+
+    `reviewed=True` means the caller ran the safety judge over the full document this save leaves
+    behind — both `title` and `summary` as they will be stored (the `edit_report` tool path on a full
+    rewrite) — so the save re-embeds the report instead of retracting its embedding. Callers must not
+    set it for a partial edit: the stored other half may itself be unreviewed, and re-embedding would
+    republish it. The default keeps unjudged callers fail-closed. A reviewed rewrite that changes
+    nothing still saves, marked for re-indexing: re-sending the stored document through the judge is
+    the recovery route for an embedding an earlier unreviewed edit tombstoned.
 
     When `attribution` is supplied and the content actually changes, a typed `title_change` /
     `summary_change` artefact is appended to the report's work log for each edited field, recording the
@@ -339,10 +357,12 @@ def update_scout_report(
         old_title, old_summary = report.title, report.summary
         updated_fields = report.update_authored_content(title=title, summary=summary)
         if updated_fields:
-            # Agent-authored text that the safety judge has not seen; the report's existing verdict was
-            # reached on the text this edit replaces. Marking the save retracts the report's embedding
-            # rather than indexing unreviewed content under a stale approval (see receivers.py).
-            report._unreviewed_edit = True  # type: ignore[attr-defined]
+            if not reviewed:
+                # Agent-authored text that the safety judge has not seen; the report's existing verdict
+                # was reached on the text this edit replaces. Marking the save retracts the report's
+                # embedding rather than indexing unreviewed content under a stale approval (see
+                # receivers.py).
+                report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             if attribution is not None:
                 edit_artefacts: list[TitleChange | SummaryChange] = []
@@ -357,6 +377,16 @@ def update_scout_report(
                         content=content,
                         attribution=attribution,
                     )
+        elif reviewed and title is not None and summary is not None:
+            # A judged rewrite to the exact stored document: nothing changes in Postgres, but the
+            # embedding row may be a tombstone from an earlier unreviewed edit, and only a save marked
+            # as re-indexable lets the receiver restore it (see receivers.py). The receiver cannot see
+            # whether the row is live, so this spends one re-embed of identical text when it was — a
+            # judged re-send is rare, and a supersede write is cheap. No change artefacts, and
+            # `updated_at` stays out of the save: nothing changed, so the report must not jump the
+            # inbox's recency ordering or read as edited.
+            report._reviewed_reindex = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "summary"])
 
     logger.info(
         "signals_scout.edit_report: content updated",
@@ -472,11 +502,11 @@ def set_report_suggested_prompts(
 
     The same contract `set_report_charts` has, one level down: team-scoped fail-closed, the sequence
     is the full set the report should offer rather than an addition, and an empty sequence is a real
-    write that takes the questions down. A caller that means "leave them alone" does not call this.
+    write that takes the prompts down. A caller that means "leave them alone" does not call this.
 
     Returns whether the stored set actually changed, so a re-send of what is already there doesn't
     count as an edit and notify the report's destination a second time about nothing. Compared after
-    normalizing, since a question that differs only in trailing whitespace is the same question.
+    normalizing, since a prompt that differs only in trailing whitespace is the same prompt.
     """
     _validate_report_id(report_id)
     payload = normalize_suggested_prompts(suggested_prompts)
@@ -558,8 +588,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
             # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
             # would keep a former owner, re-added as a normal reviewer, excluded from autostart
-            # identity selection on stale evidence.
+            # identity selection on stale evidence. `source_skill` is the fresh stamp too: dropping
+            # it here would strip the atomic provenance from exactly the entries a scout re-picks,
+            # leaving autostart's owner exclusion resting on the best-effort tally alone.
             "is_skill_owner": entry.is_skill_owner,
+            "source_skill": entry.source_skill,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))

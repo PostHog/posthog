@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     project_arrow_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -1539,12 +1540,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # the query actually returned instead of failing the batch build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                    while True:
-                        # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
-                        batch = ss_cursor.fetchmany(chunk_size)
-                        if not batch:
-                            break
-
+                    for batch in fetch_row_batches(
+                        ss_cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
+                    ):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in batch),
                             read_schema,

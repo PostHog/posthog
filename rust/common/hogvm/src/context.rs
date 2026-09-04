@@ -270,20 +270,6 @@ impl ExecutionContext {
         }
     }
 
-    /// The pre-decoded form of `get_bytecode` — the interpreter's per-step fetch path.
-    pub fn get_token(&self, ip: usize, symbol: &Option<Symbol>) -> Result<&Token, VmError> {
-        let res = match symbol {
-            Some(symbol) => self
-                .symbol_table
-                .get(symbol)
-                .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))?
-                .get_token(ip),
-            None => self.program.get_token(ip),
-        };
-
-        res.ok_or_else(|| VmError::EndOfProgram(ip))
-    }
-
     pub fn version(&self) -> u64 {
         self.program.version()
     }

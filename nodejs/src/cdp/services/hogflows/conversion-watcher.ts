@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { ConversionWatcherRow, CyclotronJobInvocationHogFlow, PinnedConversionGoal } from '../../types'
@@ -60,15 +62,32 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
     }
 }
 
-// A null window means "no explicit window", which cannot mean "forever": the row would never be
-// swept and the table would grow without bound. The cap is also what keeps the watcher population
-// proportional to recent traffic rather than to all traffic ever.
-export const MAX_CONVERSION_WINDOW_MINUTES = 30 * 24 * 60
+// What a workflow measures when it sets no explicit window. This answers "how long after entering the
+// workflow does a conversion still count", so it is a product choice rather than a storage one. A
+// workflow whose own steps run past this can never measure the back half of its own runs.
+export const DEFAULT_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
+
+// The ceiling on an explicitly configured window. It exists only to bound the table: a row that never
+// expires is a row the sweep can never reclaim. It cannot sit below the default, or a workflow could
+// ask for less than it gets by asking for nothing. Raising it further waits on an unambiguous way to
+// express the window, since today's out-of-range values are minutes fields holding second counts.
+export const MAX_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
+
+// Substituting our window for the configured one changes what the workflow's conversion rate measures,
+// so it must not be silent: a clamped run reports over the cap, not over the window it asked for.
+const counterConversionWindowClamped = new Counter({
+    name: 'cdp_conversion_window_clamped',
+    help: 'Runs enrolled with a conversion window shortened to the cap because the workflow configured a longer one. Each one measures its conversion rate over a shorter period than the workflow asked for.',
+})
 
 function conversionWindowMinutes(hogFlow: HogFlow): number {
     const configured = hogFlow.conversion?.window_minutes
     if (!configured || configured <= 0) {
+        return DEFAULT_CONVERSION_WINDOW_MINUTES
+    }
+    if (configured > MAX_CONVERSION_WINDOW_MINUTES) {
+        counterConversionWindowClamped.inc()
         return MAX_CONVERSION_WINDOW_MINUTES
     }
-    return Math.min(configured, MAX_CONVERSION_WINDOW_MINUTES)
+    return configured
 }
