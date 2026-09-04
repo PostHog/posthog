@@ -378,8 +378,8 @@ interface ItemPointerPress {
 
 interface PointerActivation {
     onItemPointerDown: (event: React.PointerEvent<HTMLElement>, item: SearchItem) => void
-    /** True when the pointer sequence already activated this item, so the click must not repeat it. */
-    consumePointerActivation: (item: SearchItem) => boolean
+    /** Activates the item unless the pointer sequence already did, so one gesture selects once. */
+    onItemClick: (item: SearchItem, openInNewTab?: boolean) => void
 }
 
 function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean) => void): PointerActivation {
@@ -432,15 +432,18 @@ function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean
         }
     }, [])
 
-    const consumePointerActivation = useCallback((item: SearchItem): boolean => {
-        if (activatedIdRef.current !== item.id) {
-            return false
-        }
-        activatedIdRef.current = null
-        return true
-    }, [])
+    const onItemClick = useCallback(
+        (item: SearchItem, openInNewTab: boolean = false): void => {
+            if (activatedIdRef.current === item.id) {
+                activatedIdRef.current = null
+                return
+            }
+            activate(item, openInNewTab)
+        },
+        [activate]
+    )
 
-    return { onItemPointerDown, consumePointerActivation }
+    return { onItemPointerDown, onItemClick }
 }
 
 // ============================================================================
@@ -935,7 +938,7 @@ function SearchResults({
     groupLabelClassName?: string
 }): JSX.Element {
     const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue } = useSearchContext()
-    const { onItemPointerDown, consumePointerActivation } = usePointerActivation(handleItemClick)
+    const { onItemPointerDown, onItemClick } = usePointerActivation(handleItemClick)
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -1007,9 +1010,7 @@ function SearchResults({
                                                                 // are handled in the capture phase below instead.
                                                                 // Keyboard Enter also arrives here, without a press.
                                                                 e.preventDefault()
-                                                                if (!consumePointerActivation(item)) {
-                                                                    handleItemClick(item)
-                                                                }
+                                                                onItemClick(item)
                                                             }}
                                                             render={(props) => {
                                                                 const isHighlighted =
@@ -1037,9 +1038,7 @@ function SearchResults({
                                                                             // action items stay inert.
                                                                             if (e.metaKey || e.ctrlKey) {
                                                                                 e.preventDefault()
-                                                                                if (!consumePointerActivation(item)) {
-                                                                                    handleItemClick(item, true)
-                                                                                }
+                                                                                onItemClick(item, true)
                                                                             }
                                                                         }}
                                                                     >
