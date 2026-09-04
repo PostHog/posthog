@@ -15,6 +15,11 @@ from django.utils import timezone
 import structlog
 import dateutil.parser
 import posthoganalytics
+from prometheus_client import Counter
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    TimeoutError as RedisTimeoutError,
+)
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -53,6 +58,11 @@ from posthog.tasks.usage_report import (
 from posthog.utils import get_current_day
 
 logger = structlog.get_logger(__name__)
+
+LLM_GATEWAY_QUOTA_CACHE_INVALIDATION_UNAVAILABLE_COUNTER = Counter(
+    "llm_gateway_quota_cache_invalidation_unavailable_total",
+    "Evictions of the LLM gateway's per-team quota cache entries skipped because its Redis was unreachable.",
+)
 
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
@@ -673,6 +683,15 @@ def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
             pipeline.incr(f"quota:generation:team:{team_id}")
             pipeline.delete(f"quota:code_usage_billing:team:{team_id}")
         pipeline.execute()
+    except (RedisConnectionError, RedisTimeoutError) as e:
+        # An unreachable gateway Redis is a tolerated outcome, so keep it out of error tracking.
+        LLM_GATEWAY_QUOTA_CACHE_INVALIDATION_UNAVAILABLE_COUNTER.inc()
+        logger.warning(
+            "llm_gateway_quota_cache_invalidation_unavailable",
+            error=str(e),
+            error_type=type(e).__name__,
+            team_count=len(id_set),
+        )
     except Exception as e:
         capture_exception(e)
 
