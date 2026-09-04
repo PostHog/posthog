@@ -93,7 +93,8 @@ function parseAiGatewayProducts(raw: string | undefined): Set<string> {
 /**
  * Sandbox-run signals stages, which are billed per stage rather than under one
  * `signals` product. The stage names come from `TaskRun.state.ai_stage`, set in
- * `Task._build_task` in posthog/posthog.
+ * `Task._build_task` (pipeline stages) and `Task.create_run` (interactive
+ * `inbox` / `chat`) in posthog/posthog.
  */
 const SIGNALS_STAGE_PRODUCTS = new Set([
   "scout",
@@ -101,6 +102,9 @@ const SIGNALS_STAGE_PRODUCTS = new Set([
   "implementation",
   "repo_selection",
   "custom_agent",
+  "inbox",
+  "chat",
+  "scout_suggestions",
 ]);
 
 /**
