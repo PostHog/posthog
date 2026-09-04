@@ -252,6 +252,10 @@ def drain_dlq(
         message_max_bytes = max_message_bytes or target.producer_settings.get("max_request_size")
         if message_max_bytes:
             producer_conf["message.max.bytes"] = int(message_max_bytes)
+        # Compress the same way the shared producer does, so a record that fit the target
+        # topic when it was first written still fits on the way back in.
+        if target.producer_settings.get("compression_type"):
+            producer_conf["compression.type"] = target.producer_settings["compression_type"]
         producer = Producer(producer_conf)
 
     replayed = 0
