@@ -201,7 +201,7 @@ def _roll_out_variant(
             catch_all["description"] = release_condition_description
         groups = [catch_all, *groups]
 
-    return {
+    new_filters = {
         "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
         "payloads": current_filters.get("payloads", {}),
         "multivariate": {
@@ -216,6 +216,11 @@ def _roll_out_variant(
         },
         "groups": groups,
     }
+    # A holdout must keep excluding its users after the winner ships — that is its
+    # entire purpose (measuring shipped features against an unexposed baseline).
+    if current_filters.get("holdout"):
+        new_filters["holdout"] = current_filters["holdout"]
+    return new_filters
 
 
 def ship_variant(
