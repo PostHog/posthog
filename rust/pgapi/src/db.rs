@@ -165,43 +165,6 @@ pub fn row_to_json(r: &tokio_postgres::Row) -> Result<Value> {
 }
 
 fn tls_connector() -> postgres_native_tls::MakeTlsConnector {
-    let mut builder = native_tls::TlsConnector::builder();
-    load_rds_ca_certs(&mut builder);
-    let connector = builder.build().expect("failed to build TLS connector");
+    let connector = native_tls::TlsConnector::new().expect("failed to build TLS connector");
     postgres_native_tls::MakeTlsConnector::new(connector)
-}
-
-fn load_rds_ca_certs(builder: &mut native_tls::TlsConnectorBuilder) {
-    let path = match std::env::var("RDS_CA_CERT_PATH") {
-        Ok(p) if !p.is_empty() => p,
-        _ => {
-            tracing::warn!("RDS_CA_CERT_PATH not set; TLS will use system certs only");
-            return;
-        }
-    };
-    let pem = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(path, error = %e, "could not read RDS CA bundle");
-            return;
-        }
-    };
-    let mut added = 0u32;
-    for block in pem.split("-----END CERTIFICATE-----") {
-        let trimmed = block.trim();
-        if trimmed.is_empty() || !trimmed.contains("-----BEGIN CERTIFICATE-----") {
-            continue;
-        }
-        let cert_pem = format!("{trimmed}\n-----END CERTIFICATE-----\n");
-        match native_tls::Certificate::from_pem(cert_pem.as_bytes()) {
-            Ok(cert) => {
-                builder.add_root_certificate(cert);
-                added += 1;
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "skipping malformed certificate in RDS CA bundle");
-            }
-        }
-    }
-    tracing::info!(path, added, "loaded RDS CA certificates");
 }

@@ -123,7 +123,10 @@ RUN apt-get update && \
     chmod -R 755 ./share/GeoLite2-City.mmdb && \
     mkdir -p /app/share && \
     mv ./share/GeoLite2-City.mmdb /app/share/ && \
-    rm -rf ./share
+    rm -rf ./share && \
+    curl -sS -o /usr/local/share/ca-certificates/rds-combined-ca-bundle.pem \
+        "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" && \
+    update-ca-certificates
 
 ARG BIN
 ENV BIN=$BIN
