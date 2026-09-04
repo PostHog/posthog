@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch, sentinel
 
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException
+from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import (
@@ -722,6 +723,68 @@ def test_map_hosts_with_required_missing_role_raises() -> None:
 
     with pytest.raises(ValueError, match="No hosts found with roles.*INGESTION_SMALL"):
         cluster.map_hosts_by_roles(lambda _: (), node_roles=[NodeRole.INGESTION_SMALL], require_hosts=True)
+
+
+def _two_shard_data_cluster() -> ClickhouseCluster:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("shard-1-host", "9000", "1", "1", "online", "data"),
+            ("shard-2-host", "9000", "2", "1", "online", "data"),
+        ]
+    )
+    return ClickhouseCluster(bootstrap_client_mock)
+
+
+@parameterized.expand(
+    [
+        ("no_roles", None, {"shard-1-host", "shard-2-host"}),
+        ("matching_role", [NodeRole.DATA], {"shard-1-host", "shard-2-host"}),
+        ("all_roles", [NodeRole.ALL], {"shard-1-host", "shard-2-host"}),
+    ]
+)
+def test_map_one_host_per_shard_filters_by_role(
+    _name: str, node_roles: list[NodeRole] | None, expected: set[str]
+) -> None:
+    cluster = _two_shard_data_cluster()
+
+    visited: set[str] = set()
+
+    def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
+        visited.add(host.connection_info.host)
+        return lambda: fn(Mock())
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
+        cluster.map_one_host_per_shard(lambda _: (), node_roles=node_roles).result()
+
+    assert visited == expected
+
+
+@parameterized.expand([("without_require_hosts", False), ("with_require_hosts", True)])
+def test_map_one_host_per_shard_rejects_roles_owning_no_shard(_name: str, require_hosts: bool) -> None:
+    cluster = _two_shard_data_cluster()
+
+    with pytest.raises(ValueError, match="No shard is owned by roles.*LOGS"):
+        cluster.map_one_host_per_shard(lambda _: (), node_roles=[NodeRole.LOGS], require_hosts=require_hosts)
+
+
+def _shardless_cluster() -> ClickhouseCluster:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("logs-host-1", "9000", "1", "1", "online", "logs"),
+        ]
+    )
+    return ClickhouseCluster(bootstrap_client_mock)
+
+
+def test_map_one_host_per_shard_on_shardless_topology_defaults_to_noop() -> None:
+    assert _shardless_cluster().map_one_host_per_shard(lambda _: ()).result() == {}
+
+
+def test_map_one_host_per_shard_with_required_hosts_rejects_shardless_topology() -> None:
+    with pytest.raises(ValueError, match="No shard-bearing hosts found"):
+        _shardless_cluster().map_one_host_per_shard(lambda _: (), require_hosts=True)
 
 
 def test_satellite_dedup_same_physical_host() -> None:
