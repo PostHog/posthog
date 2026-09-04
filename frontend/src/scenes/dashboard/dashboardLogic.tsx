@@ -4363,7 +4363,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.resetIntermittentFilters()
                     actions.resetUrlFilters()
                 }
-                if (!values.canAutoPreview) {
+                if (!values.canAutoPreview && !filtersChangedWhileSaving) {
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Preview,
                         forceRefresh: false,
@@ -4401,10 +4401,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.resetIntermittentFilters()
                     actions.resetUrlFilters()
                 }
-                actions.refreshDashboardItems({
-                    action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
-                })
+                if (!hadUnsavedFilterEdits && !filtersChangedWhileRestoring) {
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
                 lemonToast.success('Dashboard filters restored')
             } catch (e) {
                 lemonToast.error('Could not restore dashboard filters: ' + String(e))
@@ -4527,7 +4529,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // remove overrides from url
                 actions.resetUrlFilters()
-                actions.resetUrlVariables()
 
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({

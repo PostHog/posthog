@@ -586,6 +586,17 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard?.persisted_filters).toEqual(savedFilters)
         })
 
+        it('clears temporary filters without clearing temporary variables', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderOverridesBanner)
+            })
+                .toDispatchActions(['resetUrlFilters'])
+                .toNotHaveDispatchedActions(['resetUrlVariables'])
+                .toFinishAllListeners()
+        })
+
         it('does not restore stale filters after a later filter save', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const updateSpy = jest.spyOn(api, 'update')
