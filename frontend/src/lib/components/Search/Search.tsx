@@ -379,7 +379,7 @@ interface ItemPointerPress {
 interface PointerActivation {
     onItemPointerDown: (event: React.PointerEvent<HTMLElement>, item: SearchItem) => void
     /** Activates the item unless the pointer sequence already did, so one gesture selects once. */
-    onItemClick: (item: SearchItem, openInNewTab?: boolean) => void
+    onItemClick: (event: React.MouseEvent, item: SearchItem, openInNewTab?: boolean) => void
 }
 
 function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean) => void): PointerActivation {
@@ -433,9 +433,14 @@ function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean
     }, [])
 
     const onItemClick = useCallback(
-        (item: SearchItem, openInNewTab: boolean = false): void => {
-            if (activatedIdRef.current === item.id) {
-                activatedIdRef.current = null
+        (event: React.MouseEvent, item: SearchItem, openInNewTab: boolean = false): void => {
+            const pressed = activatedIdRef.current === item.id
+            // The marker outlives the gesture when the list move swallows the click, so drop it
+            // on any activation of this item, not only on the one that consumes it.
+            activatedIdRef.current = null
+            // A click a pointer made carries a click count. Base UI runs a keyboard Enter as
+            // `listItem.click()`, which reports none, so that Enter is never the press's own click.
+            if (pressed && event.detail > 0) {
                 return
             }
             activate(item, openInNewTab)
@@ -1010,7 +1015,7 @@ function SearchResults({
                                                                 // are handled in the capture phase below instead.
                                                                 // Keyboard Enter also arrives here, without a press.
                                                                 e.preventDefault()
-                                                                onItemClick(item)
+                                                                onItemClick(e, item)
                                                             }}
                                                             render={(props) => {
                                                                 const isHighlighted =
@@ -1038,7 +1043,7 @@ function SearchResults({
                                                                             // action items stay inert.
                                                                             if (e.metaKey || e.ctrlKey) {
                                                                                 e.preventDefault()
-                                                                                onItemClick(item, true)
+                                                                                onItemClick(e, item, true)
                                                                             }
                                                                         }}
                                                                     >

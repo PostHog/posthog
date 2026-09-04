@@ -79,9 +79,29 @@ describe('Search', () => {
 
         fireEvent.pointerDown(row, { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
         fireEvent.pointerUp(row, { pointerId: 1, clientX: 10, clientY: 10 })
-        fireEvent.click(row, { clientX: 10, clientY: 10 })
+        // `detail` is the click count, which every click a pointer makes carries.
+        fireEvent.click(row, { clientX: 10, clientY: 10, detail: 1 })
 
         expect(onItemSelect).toHaveBeenCalledTimes(1)
+    })
+
+    it('selects on Enter after the list move swallowed the click', () => {
+        const { rerenderWith } = renderResults([INBOX, SETTINGS])
+
+        fireEvent.pointerDown(screen.getByText('Inbox'), { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+        rerenderWith([SETTINGS, INBOX])
+        fireEvent.pointerUp(document.body, { pointerId: 1, clientX: 10, clientY: 10 })
+        expect(onItemSelect).toHaveBeenCalledTimes(1)
+
+        // Some results, such as the theme toggle, leave the search open, so the same row can be
+        // activated again straight away. Base UI runs a keyboard Enter as `listItem.click()`,
+        // which carries no click count.
+        act(() => {
+            screen.getByText('Inbox').click()
+        })
+
+        expect(onItemSelect).toHaveBeenCalledTimes(2)
+        expect(onItemSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'inbox' }), false)
     })
 
     it('cancels the selection when the pointer is dragged off the result', () => {
