@@ -47,7 +47,7 @@ export function getDashboardVariableChanges(
 
     return Array.from(variableIds).flatMap((variableId) => {
         const previous = previousVariables[variableId] ?? defaultVariables[variableId]
-        const current = currentVariables[variableId]
+        const current = currentVariables[variableId] ?? defaultVariables[variableId]
         if (dashboardVariableValuesEqual(previous, current)) {
             return []
         }
