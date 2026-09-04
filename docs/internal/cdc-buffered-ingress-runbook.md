@@ -72,13 +72,14 @@ column, so the merges that predicate on them keep their pruning. Naming columns 
 default 32, which is why those are named too. Legacy CDC tables are untouched: that path strips the
 position column before writing, and the property is never set on a table that lacks it.
 
-A table whose files carry no statistic for the position column reports no position at all. That
-re-applies rows its table may already hold, which both lanes absorb, and it is deliberately cheaper
-than scanning a history table's whole column to avoid it. Two ordinary cases reach it: a companion
-table's first write, before the property is set, and the tick after a repartition rewrites the
-files. Buffer deletion pauses while any table is in that state, since the floor is unknown. A
-persistent `cdc_position_stats_property_not_set` warning means a table never accepted the property,
-and its buffer will grow to the S3 retention — investigate rather than wait.
+A table whose files carry no statistic for the position column reports no position at all. The
+merge lane then re-applies rows as upserts, which is a no-op, but the append lane appends them a
+second time. So the property is declared on a lane's table before its first buffered write, even
+while the column is absent, and a persistent `cdc_position_stats_property_not_set` warning is an
+alert: that table will accumulate duplicate history and its buffer will grow to the S3 retention.
+
+A repartition rewrites files without the property, so deletion pauses for a tick until the next
+lane build re-declares it and the next write carries the statistic again.
 
 **A run stands down while any delivery for the schema is still in the queue** — a legacy one, or a
 previous attempt of this same job. Both would write alongside whatever this run reads, and on the

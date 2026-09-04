@@ -129,6 +129,18 @@ class TestEnsurePositionStats:
             CDC_SEQ_COLUMN
         )
 
+    async def test_it_names_the_position_column_before_the_table_has_one(self, tmp_path):
+        # A snapshot-seeded companion has no position column until its first buffered write, and
+        # that write is the one that has to carry the statistic. Without it the next run reads no
+        # position and the append lane writes every row a second time.
+        deltalake.write_deltalake(str(tmp_path / "t"), pa.table({"id": pa.array([1], pa.int64())}), mode="overwrite")
+        table = deltalake.DeltaTable(str(tmp_path / "t"))
+
+        await ensure_position_stats(table, ["id"])
+
+        declared = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
+        assert CDC_SEQ_COLUMN in declared.split(",")
+
     async def test_it_does_not_rewrite_a_table_that_already_has_it(self, tmp_path, mocker):
         table = _write(tmp_path / "t", [10])
         before = table.version()

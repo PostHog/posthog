@@ -399,11 +399,18 @@ def _lane_writer(name: str, *, billable: bool = True, transform=None) -> _LaneWr
 class TestLaneFanOut:
     @staticmethod
     def _pipeline(writers: list[_LaneWriter]) -> LanedPipelineV3:
+        """A laned pipeline whose companion lanes are already open.
+
+        Companions open lazily in production, on the first batch a lane has rows for. These tests
+        are about the fan-out itself, so they hand the writers over ready-made; `TestCompanionJob`
+        is what covers the opening.
+        """
         base = _make_pipeline()
         pipeline = LanedPipelineV3.__new__(LanedPipelineV3)
         pipeline.__dict__.update(base.__dict__)
         pipeline._output_lanes = [writer.lane for writer in writers]
         pipeline._lane_writers = writers
+        pipeline._writers_by_lane = {id(writer.lane): writer for writer in writers}
         pipeline._s3_batch_writer = writers[0].s3_batch_writer
         pipeline._pg_producer = writers[0].pg_producer
         pipeline._batch_results = writers[0].batch_results
@@ -453,6 +460,21 @@ class TestLaneFanOut:
 
         assert [len(writer.batch_results) for writer in writers] == [1, 0]
         cast(MagicMock, writers[1].pg_producer.send_batch_notification).assert_not_called()
+
+    async def test_the_primary_lane_keeps_batch_zero_even_when_it_filters_it_away(self) -> None:
+        # The producer supersedes a previous attempt's staged batches only on index 0. If the
+        # merge lane could skip it, a retried run would never retire what the attempt before it
+        # left staged, and those batches would load alongside this one.
+        writers = [
+            _lane_writer("users", transform=lambda t: t.slice(0, 0)),
+            _lane_writer("users_cdc", billable=False),
+        ]
+        pipeline = self._pipeline(writers)
+
+        await self._process(pipeline, pa.table({"id": pa.array([1, 2], pa.int64())}))
+
+        assert [len(w.batch_results) for w in writers] == [1, 1]
+        assert writers[0].row_count == 0
 
     async def test_a_batch_that_arrives_empty_is_still_staged(self) -> None:
         # Every non-CDC source is one lane with no transform, and reaches here with an empty table
@@ -507,48 +529,51 @@ class TestLaneFanOut:
 
 
 class TestCompanionJob:
-    """A table beyond the first gets its own job, the way legacy CDC extraction writes `both`."""
+    """A table beyond the first gets its own job, opened only when it has rows to write."""
 
     @staticmethod
     def _laned(lanes: list[OutputLane]) -> LanedPipelineV3:
         return _build_laned(lanes)
 
     @staticmethod
-    def _open(pipeline: LanedPipelineV3, created: MagicMock) -> MagicMock:
+    def _open(pipeline: LanedPipelineV3, lane: OutputLane, created: MagicMock) -> MagicMock:
         producer = MagicMock()
         with (
             patch(f"{_LANES}.PostgresProducer", producer),
             patch(
-                f"{_LANES}.database_sync_to_async_pool", lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k))
+                f"{_LANES}.database_sync_to_async_pool",
+                lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k)),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model._build_schema_snapshot",
+                "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
+                "create_job_model._build_schema_snapshot",
                 return_value={"name": "users"},
             ),
             patch("products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects", created),
         ):
-            async_to_sync(pipeline._open_companion_lanes)()
+            async_to_sync(pipeline._writer_for)(lane)
         return producer
 
-    def test_a_single_lane_source_creates_no_companion(self) -> None:
-        pipeline = self._laned([OutputLane(name="users_cdc", cdc_write_mode="scd2_append")])
-        created = MagicMock()
+    @staticmethod
+    def _both() -> list[OutputLane]:
+        return [
+            OutputLane(name="users", cdc_write_mode="incremental_merge"),
+            OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
+        ]
 
-        self._open(pipeline, created)
+    def test_no_job_is_created_until_a_lane_has_rows(self) -> None:
+        # A job created before there is anything to write is a row nothing owns: the loader
+        # finishes a job on its final batch, and the stranded sweep finds runs by their batches.
+        pipeline = self._laned(self._both())
 
-        created.create.assert_not_called()
         assert len(pipeline._lane_writers) == 1
+        assert pipeline._lane_writers[0].job is None
 
     def test_the_companion_table_gets_its_own_job(self) -> None:
-        pipeline = self._laned(
-            [
-                OutputLane(name="users", cdc_write_mode="incremental_merge"),
-                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
-            ]
-        )
+        pipeline = self._laned(self._both())
         created = MagicMock()
 
-        self._open(pipeline, created)
+        self._open(pipeline, pipeline._output_lanes[1], created)
 
         fields = created.create.call_args.kwargs
         # No workflow run id: the schema's own job owns the pipeline lock, and a second holder
@@ -560,65 +585,44 @@ class TestCompanionJob:
         assert fields["schema_snapshot"]["companion_of"] == "job-1"
 
     def test_the_companion_writes_under_its_own_job_and_run(self) -> None:
-        pipeline = self._laned(
-            [
-                OutputLane(name="users", cdc_write_mode="incremental_merge"),
-                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
-            ]
-        )
+        pipeline = self._laned(self._both())
         created = MagicMock()
         created.create.return_value = MagicMock(id="companion-job")
 
-        producer = self._open(pipeline, created)
+        producer = self._open(pipeline, pipeline._output_lanes[1], created)
 
         assert producer.call_args.kwargs["job_id"] == "companion-job"
         assert producer.call_args.kwargs["workflow_run_id"] is None
         companion = pipeline._lane_writers[1].job
         assert companion is not None and companion.id == "companion-job"
 
-    def test_a_companion_that_staged_nothing_is_completed_not_left_running(self) -> None:
-        """Its table already held the whole read, so it sends no final batch.
+    def test_a_lane_opens_once_however_many_batches_it_writes(self) -> None:
+        pipeline = self._laned(self._both())
+        created = MagicMock()
+        created.create.return_value = MagicMock(id="companion-job")
+        lane = pipeline._output_lanes[1]
 
-        Nothing else would finish it: the loader completes a job on its final batch, this job's
-        own workflow only knows the schema's job, and the stranded sweep finds runs by their
-        queued batches. Left Running it also blocks the buffer's deletion proof for ever.
-        """
-        pipeline = _build_laned(
-            [
-                OutputLane(name="users", cdc_write_mode="incremental_merge"),
-                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
-            ]
-        )
-        pipeline._lane_writers.append(
-            _LaneWriter(
-                lane=pipeline._output_lanes[1],
-                s3_batch_writer=MagicMock(),
-                pg_producer=MagicMock(),
-                job=MagicMock(id="companion-job"),
-            )
-        )
-        jobs = MagicMock()
+        self._open(pipeline, lane, created)
+        self._open(pipeline, lane, created)
 
-        with (
-            patch(
-                f"{_LANES}.database_sync_to_async_pool", lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k))
-            ),
-            patch("products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects", jobs),
-        ):
-            async_to_sync(pipeline._finish_empty_companion)(pipeline._lane_writers[1])
+        assert created.create.call_count == 1
+        assert len(pipeline._lane_writers) == 2
 
-        assert jobs.filter.call_args.kwargs["id"] == "companion-job"
-        assert jobs.filter.return_value.update.call_args.kwargs["status"] == "Completed"
+    def test_the_schema_job_is_finalized_on_its_own_lane_alone(self) -> None:
+        # Counting the companion's batches here would hand the schema's job to a consumer that
+        # never hears about it, leaving the job Running and its pipeline lock held.
+        pipeline = self._laned(self._both())
+        companion = _lane_writer("users_cdc", billable=False)
+        companion.batch_results.append(MagicMock(batch_index=0))
+        pipeline._lane_writers.append(companion)
 
-    def test_a_failed_run_takes_its_companion_job_terminal(self) -> None:
-        # Nothing else would: the stranded sweep finds runs by their queued batches, so a
-        # companion that failed before staging anything has none to be found by.
-        pipeline = self._laned(
-            [
-                OutputLane(name="users", cdc_write_mode="incremental_merge"),
-                OutputLane(name="users_cdc", cdc_write_mode="scd2_append"),
-            ]
-        )
+        assert pipeline._total_batches() == 1
+        assert pipeline._consumer_finalizes_this_run() is False
+
+    def test_a_failed_run_takes_its_open_companion_jobs_terminal(self) -> None:
+        # Only lanes that opened have a job; the sweep owns them once they have batches, but a
+        # run that fails before its final batch has to close them itself.
+        pipeline = self._laned(self._both())
         pipeline._lane_writers.append(
             _LaneWriter(
                 lane=pipeline._output_lanes[1],
@@ -632,7 +636,8 @@ class TestCompanionJob:
         with (
             patch(f"{_CONSUMER}.mark_job_failed_if_not_terminal", marked),
             patch(
-                f"{_LANES}.database_sync_to_async_pool", lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k))
+                f"{_LANES}.database_sync_to_async_pool",
+                lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k)),
             ),
         ):
             async_to_sync(pipeline._fail_companion_jobs)()
@@ -658,8 +663,17 @@ class TestSingleTableRunIsUntouched:
         pipeline._s3_batch_writer.write_batch.assert_called_once()
         pipeline._pg_producer.send_batch_notification.assert_called_once()
 
-    def test_a_source_without_lanes_runs_the_base_class(self) -> None:
-        assert _make_pipeline()._resource.lanes is None
+    def test_the_activity_runs_the_base_class_for_a_source_without_lanes(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+            LanedPipelineV3 as Laned,
+        )
+
+        # The dispatch the activity makes, which is what keeps every other source off the subclass.
+        def pick(lanes):
+            return Laned if lanes else PipelineV3
+
+        assert pick(None) is PipelineV3
+        assert pick([OutputLane(name="users"), OutputLane(name="users_cdc")]) is Laned
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:

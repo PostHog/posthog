@@ -17,6 +17,8 @@ from collections import Counter
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Final, Literal
 
+from django.utils import timezone
+
 import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -46,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SCD2_APPEND_MODE,
     drop_superseded_rows,
+    has_engine_seq,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
@@ -149,18 +152,27 @@ async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | N
     every staged batch committed. A `both` run completes two jobs, so both have to be COMPLETED —
     the schema's own and its companion — or a file at the floor could be deleted while the history
     table still owed it.
+
+    Both queries are bounded by `created_at`. `externaldatajob` is one of the largest tables in
+    this database and a 5-minute schema adds a row every tick, so an unbounded sort over its
+    history — or a JSONB predicate with no index across it — would cost more every day it ran.
+    A proof older than the window is no loss: it only ever deletes fewer files.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     def _read() -> dt.datetime | None:
+        since = timezone.now() - _PROOF_WINDOW
         jobs = (
             ExternalDataJob.objects.filter(
-                team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.COMPLETED
+                team_id=schema.team_id,
+                schema_id=schema.id,
+                status=ExternalDataJob.Status.COMPLETED,
+                created_at__gte=since,
             )
             .order_by("-created_at")
-            .values_list("id", "schema_snapshot")[:_PROOF_SEARCH_DEPTH]
+            .values_list("id", "created_at", "schema_snapshot")[:_PROOF_SEARCH_DEPTH]
         )
-        for job_id, snapshot in jobs:
+        for job_id, created_at, snapshot in jobs:
             listed_at = (snapshot or {}).get(BUFFER_LISTED_AT_KEY)
             if not listed_at:
                 continue
@@ -170,19 +182,29 @@ async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | N
                 continue
             if stamped.tzinfo is None:
                 continue
-            if _companions_completed(job_id, schema):
+            if _companions_completed(job_id, schema, created_at):
                 return stamped
         return None
 
     return await database_sync_to_async_pool(db_read_with_retry)(_read)
 
 
-def _companions_completed(job_id: uuid.UUID, schema: ExternalDataSchema) -> bool:
-    """Whether every companion table this run also wrote finished with it."""
+def _companions_completed(job_id: uuid.UUID, schema: ExternalDataSchema, created_at: dt.datetime) -> bool:
+    """Whether every companion table this run also wrote finished with it.
+
+    A companion is created inside its parent's own run, so the row can only be a few minutes
+    younger. Bounding on that keeps the unindexed `companion_of` predicate off the schema's whole
+    history, and `billable=False` narrows it to companion rows before the JSONB is touched.
+    """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     companions = ExternalDataJob.objects.filter(
-        team_id=schema.team_id, schema_id=schema.id, schema_snapshot__companion_of=str(job_id)
+        team_id=schema.team_id,
+        schema_id=schema.id,
+        billable=False,
+        created_at__gte=created_at - _COMPANION_CLOCK_SLACK,
+        created_at__lte=created_at + _COMPANION_CREATION_WINDOW,
+        schema_snapshot__companion_of=str(job_id),
     ).values_list("status", flat=True)
     return all(status == ExternalDataJob.Status.COMPLETED for status in companions)
 
@@ -190,6 +212,15 @@ def _companions_completed(job_id: uuid.UUID, schema: ExternalDataSchema) -> bool
 # A run whose companion failed proves nothing, so look past it — but never far: an older listing
 # only ever deletes fewer files, and the floor is what does the real work.
 _PROOF_SEARCH_DEPTH = 10
+
+# How far back a usable proof can sit. A schema that has not completed a run in this long has a
+# bigger problem than an undeleted buffer file.
+_PROOF_WINDOW = dt.timedelta(days=2)
+
+# A companion is created at the start of its parent's run, so it cannot be older than the parent
+# nor much younger than the longest a run can take.
+_COMPANION_CLOCK_SLACK = dt.timedelta(minutes=1)
+_COMPANION_CREATION_WINDOW = dt.timedelta(hours=6)
 
 
 async def build_output_lanes(
@@ -216,7 +247,10 @@ async def build_output_lanes(
         if delta_table is not None:
             # Before the read, so this run's own write is the one that carries the statistic.
             await ensure_position_stats(delta_table, [*keys, *([SCD2_VALID_TO_COLUMN] if is_append else [])])
-        key_columns = [*keys, CDC_OP_COLUMN]
+        # Without primary keys an identity is just the operation, which matches rows the table
+        # has never held. Ask for none instead: the lane then replays, which duplicates history
+        # rather than losing it, and duplication is the direction that can be repaired.
+        key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
         positions.append(position.position)
         replay = ReplayFilter(position)
@@ -329,6 +363,10 @@ class ReplayFilter:
         return self._drop_already_written(table)
 
     def _drop_already_written(self, table: pa.Table) -> pa.Table:
+        # A source column of the same name is customer data, so comparing it against this lane's
+        # position would drop rows nothing has written. `drop_superseded_rows` refuses it too.
+        if not has_engine_seq(table):
+            return table
         if any(name not in table.column_names for name in self._key_columns):
             # The batch cannot be keyed the way the table was, so nothing can be proven applied.
             return table
@@ -337,7 +375,12 @@ class ReplayFilter:
         keep: list[int] = []
         for i, seq in enumerate(seqs):
             if seq == self._position and self._applied.get(identities[i], 0) > 0:
-                self._applied[identities[i]] -= 1
+                # Deleted rather than decremented to zero: a Counter holding zero-valued keys is
+                # still truthy, and `apply` would keep paying for this scan long after it is spent.
+                if self._applied[identities[i]] == 1:
+                    del self._applied[identities[i]]
+                else:
+                    self._applied[identities[i]] -= 1
                 continue
             keep.append(i)
         if len(keep) == table.num_rows:
@@ -428,7 +471,10 @@ class CDCSourceManager:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
             if parsed is None:
                 continue
-            files.append(_BufferFile(span=parsed, key=key, modified=entry.get("LastModified")))
+            modified = entry.get("LastModified")
+            files.append(
+                _BufferFile(span=parsed, key=key, modified=modified if isinstance(modified, dt.datetime) else None)
+            )
 
         files.sort(key=lambda f: (f.span.start_seq, f.span.end_seq, f.span.file_index))
         await self._logger.adebug("cdc_buffer_files_listed", prefix=prefix, file_count=len(files))

@@ -289,6 +289,10 @@ class PipelineV3(Generic[ResumableData]):
     def _total_batches(self) -> int:
         return len(self._batch_results)
 
+    def _consumer_finalizes_this_run(self) -> bool:
+        """Whether the load consumer will finalize THIS job, so the workflow must not."""
+        return self._total_batches() > 0
+
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
 
@@ -457,7 +461,7 @@ class PipelineV3(Generic[ResumableData]):
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
             # See the PipelineResult docstring for the full ownership contract.
-            consumer_will_hear_about_this_run = self._total_batches() > 0
+            consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
             return {
                 "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),

@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
+    SCD2_VALID_TO_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
@@ -409,6 +410,21 @@ class TestReplayFilter:
 
         assert result.num_rows == 1
 
+    def test_a_source_owned_position_column_is_never_matched(self):
+        # The batcher passes a source column literally named _ph_cdc_seq through untouched, so its
+        # values are customer data. Matching them against this lane's position would drop rows
+        # nothing has written.
+        table = pa.table(
+            {
+                "id": pa.array([1, 2], pa.int64()),
+                CDC_SEQ_COLUMN: pa.array([20, 20], pa.int64()),
+                CDC_OP_COLUMN: pa.array(["I", "I"], pa.string()),
+            }
+        )
+        replay = self._append(20, {(1, "I"): 1, (2, "I"): 1})
+
+        assert replay.apply(table) is table
+
     def test_skipped_rows_are_counted(self):
         replay = self._append(20, {(2, "I"): 1})
         replay.apply(_ops([1, 2, 3], [10, 20, 20], ["I", "I", "I"]))
@@ -496,6 +512,58 @@ class TestBuildOutputLanes:
         lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
 
         assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_cdc", False)]
+
+    async def test_only_the_append_lane_is_asked_for_identity(self):
+        # Asserted on the call, not on hand-fed positions: if both lanes asked for identity the
+        # merge lane would drop rows at its own position, and a test that feeds the positions in
+        # cannot see that.
+        reads = AsyncMock(side_effect=[_NO_POSITION, _NO_POSITION])
+        stats = AsyncMock()
+        delta_ref = MagicMock()
+        delta_ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.DeltaTableRef", delta_ref
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.ensure_position_stats",
+                stats,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position", reads
+            ),
+        ):
+            await build_output_lanes(_schema(cdc_table_mode="both"), MagicMock(), AsyncMock())
+
+        merge_keys, append_keys = (call.kwargs["key_columns"] for call in reads.call_args_list)
+        assert merge_keys is None
+        assert append_keys == ["id", CDC_OP_COLUMN]
+        # The history table's own merge predicates on valid_to, so it keeps its pruning too.
+        assert SCD2_VALID_TO_COLUMN in stats.call_args_list[1].args[1]
+        assert SCD2_VALID_TO_COLUMN not in stats.call_args_list[0].args[1]
+
+    async def test_a_lane_with_no_primary_keys_asks_for_no_identity(self):
+        # Otherwise the identity is the operation alone, which matches rows the table never held.
+        reads = AsyncMock(side_effect=[_NO_POSITION])
+        delta_ref = MagicMock()
+        delta_ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.DeltaTableRef", delta_ref
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.ensure_position_stats",
+                AsyncMock(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position", reads
+            ),
+        ):
+            await build_output_lanes(
+                _schema(cdc_table_mode="cdc_only", primary_key_columns=[]), MagicMock(), AsyncMock()
+            )
+
+        assert reads.call_args.kwargs["key_columns"] is None
 
     async def test_only_the_append_lane_matches_rows_at_the_position(self):
         lanes, _ = await self._build(

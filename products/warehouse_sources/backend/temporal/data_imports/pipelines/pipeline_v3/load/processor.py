@@ -1095,7 +1095,6 @@ def _process_message_reported(
                 _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
 
             _trigger_post_import_workflow(export_signal)
-
             logger.debug("post_load_operations_complete")
 
         mark_batch_as_processed(

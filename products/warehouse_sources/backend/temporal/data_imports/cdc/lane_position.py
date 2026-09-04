@@ -102,22 +102,25 @@ async def ensure_position_stats(delta_table: deltalake.DeltaTable, keep_stats_fo
     """Keep per-file min/max for the position column, so reading the resume point stays a lookup.
 
     Naming columns REPLACES Delta's default "first 32 columns", so every column that still needs
-    pruning has to be named too — the merge key above all, which every write matches on. A column
-    the table does not have is dropped rather than declared: delta-rs accepts it, but it would buy
-    no pruning while still displacing the defaults.
+    pruning has to be named too — the merge key above all, which every write matches on.
+
+    The position column is named even before the table has it. A snapshot-seeded companion does
+    not carry it until its first buffered write, and that write is the one that has to land with
+    the statistic: without it the next run reads no position at all and appends every row again.
+    delta-rs accepts a column the table lacks. Every other name is filtered by presence, since one
+    that never arrives would buy no pruning while still displacing the defaults.
     """
     present = {field.name for field in delta_table.schema().fields}
-    if CDC_SEQ_COLUMN not in present:
-        return
     # Deduplicated, and normalized to match how the writer stores them: the caller passes raw source
     # names, so `userId` would otherwise be dropped and the merge key would lose its pruning.
     candidates = dict.fromkeys([CDC_SEQ_COLUMN, *(normalize_column_name(n) for n in keep_stats_for or [])])
-    wanted = ",".join(name for name in candidates if name in present)
+    wanted = ",".join(name for name in candidates if name == CDC_SEQ_COLUMN or name in present)
     if (delta_table.metadata().configuration or {}).get(STATS_COLUMNS_PROPERTY) == wanted:
         return
     try:
         await asyncio.to_thread(delta_table.alter.set_table_properties, {STATS_COLUMNS_PROPERTY: wanted})
     except Exception:
-        # The lane then reports no position and re-applies rows its table already holds, which both
-        # lanes absorb. Never worth failing a sync over.
+        # The lane then reports no position. The merge lane re-applies rows as upserts, but the
+        # append lane would append them a second time, so this warning is an alert condition —
+        # see the runbook. Still never worth failing a sync that has already written its data.
         logger.warning("cdc_position_stats_property_not_set", exc_info=True)
