@@ -50,7 +50,7 @@ pub async fn check_quota(
             report_dropped_events("otel_all_or_nothing_drop", filtered.len() as u64);
             Err(QuotaOutcome::Dropped)
         }
-        Err(CaptureError::BillingLimit) => {
+        Err(CaptureError::BillingLimit(_)) => {
             report_dropped_events("otel_quota_drop", count as u64);
             Err(QuotaOutcome::Dropped)
         }
