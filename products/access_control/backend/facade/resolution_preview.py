@@ -389,8 +389,7 @@ def iter_resolution_changes(
 
     Resolution is evaluated as one acting active member per organization; teams of
     organizations with no active member are skipped. With `only_pending`, organizations
-    already on the most-specific resolution are skipped too: for them the enforced and the
-    most-specific resolution are the same walk, so the comparison is empty by construction.
+    already on the most-specific resolution are skipped too: they are migrated already.
     """
     team_ids = AccessControl.objects.values_list("team_id", flat=True).distinct()
     teams = Team.objects.filter(id__in=team_ids).select_related("organization").order_by("organization_id")

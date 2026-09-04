@@ -52,10 +52,11 @@ class MigrationCandidates:
 
     @property
     def unaffected_ids(self) -> list[UUID]:
-        return [org.id for org in self.unchanged] + list(self.without_rules)
+        return [org.id for org in self.unchanged] + self.without_rules
 
 
 def _pending_organizations() -> QuerySet[Organization]:
+    # The column is nullable and NULL means legacy, so exclude True rather than filter False
     return Organization.objects.exclude(uses_most_specific_access_resolution=True)
 
 
@@ -79,7 +80,7 @@ def find_organizations_to_migrate() -> MigrationCandidates:
         )
         for org_id, changes in changes_by_org.items()
     ]
-    divergent = sorted((org for org in evaluated if org.changes > 0), key=lambda org: -org.changes)
+    divergent = sorted((org for org in evaluated if org.changes > 0), key=lambda org: org.changes, reverse=True)
     unchanged = sorted((org for org in evaluated if org.changes == 0), key=lambda org: str(org.id))
 
     organizations_with_rules = AccessControl.objects.values("team__organization_id")

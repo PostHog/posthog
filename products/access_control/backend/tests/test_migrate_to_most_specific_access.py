@@ -48,7 +48,7 @@ class TestMigrateToMostSpecificAccess(BaseUserAccessControlTest):
 
     def _resolution_flags(self) -> dict[str, bool]:
         return {
-            org.name: bool(org.uses_most_specific_access_resolution)
+            org.name: org.uses_most_specific_access_resolution
             for org in Organization.objects.filter(
                 id__in=[
                     self.organization.id,
@@ -76,7 +76,12 @@ class TestMigrateToMostSpecificAccess(BaseUserAccessControlTest):
         out = StringIO()
         call_command("migrate_to_most_specific_access", "--dry-run", stdout=out)
 
-        assert all(flag is False for flag in self._resolution_flags().values())
+        assert self._resolution_flags() == {
+            self.organization.name: False,
+            "Unchanged org": False,
+            "No member org": False,
+            "No rules org": False,
+        }
         assert "would be migrated" in out.getvalue()
 
     def test_skips_organizations_already_on_most_specific_resolution(self):
