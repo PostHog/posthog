@@ -3,7 +3,7 @@ import './Playlist.scss'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, ReactNode, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 import {
@@ -17,7 +17,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils/arrays'
@@ -568,28 +567,33 @@ const LoadingState = (): JSX.Element => {
     )
 }
 
-/**
- * TODO add docs on how to enrich custom events with session_id and link to it from here
- */
-const UnusableEventsWarning = (props: { unusableEventsInFilter: string[] }): JSX.Element => {
+const UnusableEventsWarning = ({ unusableEventsInFilter }: { unusableEventsInFilter: string[] }): JSX.Element => {
     return (
         <LemonBanner type="warning">
-            <p>Cannot use these events to filter for session recordings:</p>
-            <li className="my-1">
-                {props.unusableEventsInFilter.map((event) => (
-                    <span key={event}>"{event}"</span>
-                ))}
-            </li>
             <p>
-                Events have to have a <PropertyKeyInfo value="$session_id" /> to be used to filter recordings. This is
-                added automatically by{' '}
+                These events cannot filter session recordings:{' '}
+                {unusableEventsInFilter.map((event, index) => (
+                    <Fragment key={event}>
+                        {index > 0 ? ', ' : ''}
+                        <code>{event}</code>
+                    </Fragment>
+                ))}
+                .
+            </p>
+            <p>
+                An event needs a <code>$session_id</code> property to filter recordings. The{' '}
                 <Link to="https://posthog.com/docs/libraries/js" target="_blank">
-                    the Web SDK
-                </Link>
-                ,{' '}
+                    Web SDK
+                </Link>{' '}
+                and the{' '}
                 <Link to="https://posthog.com/docs/libraries" target="_blank">
-                    and the Mobile SDKs (Android, iOS, React Native and Flutter)
+                    mobile SDKs
+                </Link>{' '}
+                add this property automatically. For other events, read how to{' '}
+                <Link to="https://posthog.com/docs/data/sessions#automatically-sending-session-ids" target="_blank">
+                    send session IDs with your events
                 </Link>
+                .
             </p>
         </LemonBanner>
     )
