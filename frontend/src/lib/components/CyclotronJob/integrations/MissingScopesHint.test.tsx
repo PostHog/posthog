@@ -63,4 +63,37 @@ describe('MissingScopesHint', () => {
             expect(screen.queryByText('chat:write.customize')).toEqual(expectHint ? expect.anything() : null)
         })
     })
+
+    // The hint subscribes to every integration on the team. A form with no scope-carrying input must
+    // not mount that subscription, or a plain webhook config would load integrations it never uses.
+    it('does not load integrations for a form without scope-carrying inputs', async () => {
+        let loads = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations': () => {
+                    loads += 1
+                    return [200, { results: [] }]
+                },
+            },
+        })
+        initKeaTests()
+
+        render(
+            <Provider>
+                <CyclotronJobInputs
+                    configuration={{
+                        inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL' }],
+                        inputs: { url: { value: 'https://example.com/hook' } },
+                    }}
+                    showSource={false}
+                    sampleGlobalsWithInputs={null}
+                />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText('Webhook URL')).toBeInTheDocument()
+        })
+        expect(loads).toEqual(0)
+    })
 })

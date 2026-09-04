@@ -49,7 +49,7 @@ import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSug
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
-import { useFieldMissingScopes } from './integrations/fieldScopes'
+import { declaresFieldScopes } from './integrations/fieldScopes'
 import { MissingScopesHint } from './integrations/MissingScopesHint'
 import { CyclotronJobInputConfiguration } from './types'
 
@@ -927,7 +927,6 @@ function CyclotronJobInputWithSchema({
     const value = configuration.inputs?.[schema.key] ?? { value: null }
     const error = errors?.[schema.key]
     const warning = warnings?.[schema.key]
-    const fieldScopes = useFieldMissingScopes(schema, configuration, parentConfiguration)
 
     const onSchemaChange = (newSchema: CyclotronJobInputSchemaType | null): void => {
         let inputsSchema = configuration.inputs_schema || []
@@ -992,7 +991,13 @@ function CyclotronJobInputWithSchema({
                                     {schema.description}
                                 </LemonMarkdown>
                             ) : null}
-                            <MissingScopesHint fieldScopes={fieldScopes} />
+                            {declaresFieldScopes(schema) ? (
+                                <MissingScopesHint
+                                    schema={schema}
+                                    configuration={configuration}
+                                    parentConfiguration={parentConfiguration}
+                                />
+                            ) : null}
                         </>
                     }
                 >
