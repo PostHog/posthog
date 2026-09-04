@@ -6,6 +6,7 @@ from typing import Any
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
@@ -112,6 +113,19 @@ class TestQueryStatusManager(SimpleTestCase):
         with self.assertRaises(QueryResultExpiredError):
             self.manager.get_query_status_with_result()
         assert self.manager.get_query_status().complete is True
+
+    @parameterized.expand(
+        [
+            ("still_running", False, settings.RUNNING_QUERY_STATUS_TTL_SECONDS),
+            ("finished", True, settings.ASYNC_QUERY_STATUS_TTL_SECONDS),
+        ]
+    )
+    def test_a_record_lives_as_long_as_its_state_is_worth_keeping(self, _name, complete, expected_ttl):
+        self.query_status.complete = complete
+
+        self.manager.store_query_status(self.query_status)
+
+        assert get_client().ttl(self.manager.status_key) == expected_ttl
 
     def test_a_blocking_outcome_never_takes_over_a_run_under_the_same_id(self):
         self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team_id, complete=False))

@@ -107,12 +107,20 @@ class QueryStatusManager:
         `cache_key` is where the finished query left its result in the query cache. It rides
         beside the status instead of on it, because QueryStatus is the body of the poll
         response and the cache key is not part of that contract.
+
+        Without a `ttl_seconds` the record lives as long as its state is worth keeping: a day for
+        a finished run, so a late poll still finds it, and minutes for one still in flight.
         """
-        ttl = ttl_seconds if ttl_seconds is not None else settings.ASYNC_QUERY_STATUS_TTL_SECONDS
+        if ttl_seconds is None:
+            ttl_seconds = (
+                settings.ASYNC_QUERY_STATUS_TTL_SECONDS
+                if query_status.complete
+                else settings.RUNNING_QUERY_STATUS_TTL_SECONDS
+            )
         record = query_status.model_dump()
         record["cache_key"] = cache_key
-        query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=ttl)
-        self.redis_client.set(self.status_key, SafeJSONRenderer().render(record), ex=ttl)
+        query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=ttl_seconds)
+        self.redis_client.set(self.status_key, SafeJSONRenderer().render(record), ex=ttl_seconds)
 
     def _store_clickhouse_query_progress_dict(self, query_progress_dict):
         value = json.dumps(query_progress_dict)

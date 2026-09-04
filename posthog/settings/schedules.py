@@ -48,6 +48,12 @@ CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 ASYNC_QUERY_STATUS_TTL_SECONDS = 24 * 60 * 60
 BLOCKING_QUERY_STATUS_TTL_SECONDS = 15 * 60
 
+# A run that has not finished keeps a short life. The day is for answering a late poll about a
+# finished run, while an unfinished record only holds the next run back: enqueue joins whatever is
+# not complete, so a dispatch that never reaches a worker has to stop blocking the query long
+# before a day is out.
+RUNNING_QUERY_STATUS_TTL_SECONDS = 20 * 60
+
 # A record that carries the result itself, because the result never reached the query cache, keeps
 # a short life. The day-long one is worth its size only while it is a pointer.
 INLINE_RESULT_STATUS_TTL_SECONDS = 20 * 60
