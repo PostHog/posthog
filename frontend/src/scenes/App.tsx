@@ -204,7 +204,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <ChunkLoadErrorBoundary fallback={(error) => <AppLoadError error={error} />}>
-            <Suspense fallback={<AuthenticatedShellFallback />}>
+            <Suspense fallback={<AuthenticatedShellFallback showSpinner={showingDelayedSpinner} />}>
                 <AuthenticatedShell>{wrappedSceneElement}</AuthenticatedShell>
             </Suspense>
         </ChunkLoadErrorBoundary>

@@ -19,5 +19,5 @@ const meta: Meta<typeof AuthenticatedShellFallback> = {
 export default meta
 
 export function StuckShell(): JSX.Element {
-    return <AuthenticatedShellFallback />
+    return <AuthenticatedShellFallback showSpinner />
 }

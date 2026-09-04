@@ -3,30 +3,27 @@ import { useEffect, useState } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
-// Hold the fallback blank briefly so a fast shell load never flashes a spinner,
-// matching the delay gate the sibling scene spinners use in App.tsx.
-const SPINNER_DELAY_MS = 1000
 // After this long the shell is almost certainly stuck (a stale-deploy chunk that
 // never resolves), so explain the wait and offer a reload.
 const RETRY_PROMPT_DELAY_MS = 8000
 
 /**
- * Suspense fallback for the authenticated shell chunk. It stays blank for a
- * moment, then shows a spinner, then explains the wait and offers a reload once
- * the load is clearly stuck. This keeps a hard reload after a stale-deploy chunk
- * swap from leaving the person on a bare full-screen logo with no way forward.
+ * Suspense fallback for the authenticated shell chunk. It shows a spinner, then
+ * explains the wait and offers a reload once the load is clearly stuck. This keeps
+ * a hard reload after a stale-deploy chunk swap from leaving the person on a bare
+ * full-screen logo with no way forward.
+ *
+ * `showSpinner` comes from `appLogic.showingDelayedSpinner`, which starts its delay
+ * at app boot. The boot spinner can therefore be on screen before this fallback
+ * mounts. A second delay timed from mount would hide the spinner again and blank
+ * the screen between the two.
  */
-export function AuthenticatedShellFallback(): JSX.Element {
-    const [showSpinner, setShowSpinner] = useState(false)
+export function AuthenticatedShellFallback({ showSpinner }: { showSpinner: boolean }): JSX.Element {
     const [showRetryPrompt, setShowRetryPrompt] = useState(false)
 
     useEffect(() => {
-        const spinnerTimer = window.setTimeout(() => setShowSpinner(true), SPINNER_DELAY_MS)
         const retryTimer = window.setTimeout(() => setShowRetryPrompt(true), RETRY_PROMPT_DELAY_MS)
-        return () => {
-            clearTimeout(spinnerTimer)
-            clearTimeout(retryTimer)
-        }
+        return () => clearTimeout(retryTimer)
     }, [])
 
     return (

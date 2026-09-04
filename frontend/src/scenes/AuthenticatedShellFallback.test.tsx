@@ -14,8 +14,20 @@ describe('AuthenticatedShellFallback', () => {
         jest.useRealTimers()
     })
 
+    it('takes spinner visibility from the app-level delay instead of restarting it', () => {
+        const { container, rerender } = render(<AuthenticatedShellFallback showSpinner={false} />)
+
+        act(() => {
+            jest.advanceTimersByTime(2000)
+        })
+        expect(container.querySelector('.Spinner')).toBeNull()
+
+        rerender(<AuthenticatedShellFallback showSpinner />)
+        expect(container.querySelector('.Spinner')).not.toBeNull()
+    })
+
     it('holds the reload prompt back until the shell load is clearly stuck', () => {
-        render(<AuthenticatedShellFallback />)
+        render(<AuthenticatedShellFallback showSpinner />)
 
         expect(screen.queryByText('Reload')).not.toBeInTheDocument()
 
@@ -33,7 +45,7 @@ describe('AuthenticatedShellFallback', () => {
             value: { ...window.location, reload },
         })
 
-        render(<AuthenticatedShellFallback />)
+        render(<AuthenticatedShellFallback showSpinner />)
         act(() => {
             jest.advanceTimersByTime(8000)
         })
