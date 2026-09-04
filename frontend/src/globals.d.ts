@@ -43,6 +43,10 @@ declare global {
         ESBUILD_LOADED_CHUNKS: Set<string>
         /** Set by the HTML loader script: resolves when the boot stylesheet has loaded (true) or failed (false). */
         ESBUILD_CSS_READY?: Promise<boolean>
+        /** Chunk hashes per lazy entry; the full map arrives from a hashed static file after boot. */
+        ESBUILD_CHUNK_MAP: Record<string, string[]>
+        /** Scenes requested before the chunk map loaded; null once it has loaded or failed. */
+        ESBUILD_PENDING_CHUNK_SCENES: string[] | null
         POSTHOG_EXPORTED_DATA: ExportedData
         POSTHOG_USER_IDENTITY_WITH_FLAGS?: {
             distinctID: string
