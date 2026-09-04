@@ -6,6 +6,7 @@
 // the runs endpoint's `date_to` cursor past its 100-row page cap).
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
@@ -143,6 +144,14 @@ export function runDurationSeconds(run: SignalScoutRunSummary, now: Date): numbe
 /** Format a run's duration for display, e.g. "1m 30s". Empty string when unknown. */
 export function formatRunDuration(seconds: number | null): string {
     return humanFriendlyDuration(seconds, { maxUnits: 2 })
+}
+
+/**
+ * What a run spent on model calls. A run costing less than a cent gets more digits, since at two
+ * decimals it would read as "$0.00", which says the run was free.
+ */
+export function formatRunCost(costUsd: number): string {
+    return humanFriendlyCurrency(costUsd, costUsd > 0 && costUsd < 0.01 ? 4 : 2)
 }
 
 /**
