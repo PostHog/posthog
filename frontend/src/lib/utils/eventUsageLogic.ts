@@ -162,9 +162,9 @@ export interface ExperimentRecordingsFilterContext {
 
 /**
  * What the recordings list came back with, and — when it came back with nothing — the cause the tab
- * can name from what it already holds. Roughly two in five tab visits show an empty list today and
- * nothing says why, so the facets are carried alongside `empty_reason` to tell a project with replay
- * off apart from an experiment too young to have recordings, or a filter that matched nothing.
+ * can name from what it already holds. A large share of tab visits show an empty list and nothing
+ * says why, so the facets are carried alongside `empty_reason` to tell a project with replay off
+ * apart from an experiment too young to have recordings, or a filter that matched nothing.
  * Carries the same facets as `experiment recording opened`, so an empty list and an opened recording
  * are comparable per facet.
  */

@@ -524,6 +524,24 @@ export interface experimentReplayTabLogicMeta {
             linkabilityLoaded: boolean,
             seenTogetherMapLoading: boolean
         ) => boolean
+        exposureLinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean | null
+        durationFilterActive: (
+            playlistFilters: RecordingUniversalFilters | null,
+            recordingsFilters: RecordingUniversalFilters
+        ) => boolean
+        listEmptyReason: (
+            currentTeam: TeamPublicType | TeamType | null,
+            bucketSessionIds: string[] | undefined,
+            arg: any
+        ) => ExperimentReplayListEmptyReason
+        filterContext: (
+            effectiveVariantKey: string | null,
+            effectiveExposureScope: ExperimentReplayExposureScope,
+            metricFilterMode: ExperimentReplayMetricFilterMode,
+            effectiveMetricUuids: string[],
+            bucketSessionIds: string[] | undefined,
+            selectedWatchCard: ExperimentWatchCardApi | null
+        ) => ExperimentRecordingsFilterContext
         tabViewContext: (
             variantKeys: string[],
             metricOptions: ExperimentReplayMetricOption[],
@@ -977,8 +995,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // a list on its own, so an empty-list report says whether it was applied.
         durationFilterActive: [
             (s) => [s.playlistFilters, s.recordingsFilters],
-            (playlistFilters: RecordingUniversalFilters | null, recordingsFilters: RecordingUniversalFilters): boolean =>
-                (playlistFilters ?? recordingsFilters).duration.length > 0,
+            (
+                playlistFilters: RecordingUniversalFilters | null,
+                recordingsFilters: RecordingUniversalFilters
+            ): boolean => (playlistFilters ?? recordingsFilters).duration.length > 0,
         ],
         /**
          * The cause to report when the list comes back with nothing, first match wins. The order is

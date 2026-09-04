@@ -1,8 +1,9 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -157,8 +158,9 @@ const EMPTY_FILTER_GROUP = {
 }
 
 // Run windows are relative: the reasons are read against the retention period and against today,
-// so a fixed date would start naming a different reason as it aged.
-const daysAgo = (days: number): string => dayjs().subtract(days, 'day').toISOString()
+// so a fixed date would start naming a different reason as it aged. Counted in hours, so a run in
+// a zone with daylight saving still lands a whole number of days back.
+const daysAgo = (days: number): string => dayjs().subtract(days * 24, 'hour').toISOString()
 
 const listsRendered = (captureSpy: jest.SpyInstance, experimentId: number): any[] =>
     captureSpy.mock.calls.filter(
