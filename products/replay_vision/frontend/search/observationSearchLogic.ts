@@ -52,7 +52,9 @@ export interface ObservationSearchLogicProps {
 export interface observationSearchLogicValues {
     page: number
     pageCount: number
+    pageEndIndex: number
     pageResults: ObservationSearchResultApi[]
+    pageStartIndex: number
     query: string
     recentQueries: string[]
     results: ObservationSearchResultApi[] | null
@@ -112,7 +114,9 @@ export interface observationSearchLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         pageCount: (results: ObservationSearchResultApi[] | null) => number
+        pageEndIndex: (pageStartIndex: number, pageResults: ObservationSearchResultApi[]) => number
         pageResults: (results: ObservationSearchResultApi[] | null, page: number) => ObservationSearchResultApi[]
+        pageStartIndex: (page: number) => number
         strongMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
     }
 }
@@ -237,6 +241,12 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             (s) => [s.results, s.page],
             (results: ObservationSearchResultApi[] | null, page: number): ObservationSearchResultApi[] =>
                 results ? results.slice((page - 1) * SEARCH_PAGE_SIZE, page * SEARCH_PAGE_SIZE) : [],
+        ],
+        pageStartIndex: [(s) => [s.page], (page: number): number => (page - 1) * SEARCH_PAGE_SIZE],
+        pageEndIndex: [
+            (s) => [s.pageStartIndex, s.pageResults],
+            (pageStartIndex: number, pageResults: ObservationSearchResultApi[]): number =>
+                pageStartIndex + pageResults.length,
         ],
         // Null when the tag would not separate anything, so it is never shown on every result.
         strongMatchDistanceCutoff: [
