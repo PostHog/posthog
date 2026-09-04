@@ -134,6 +134,11 @@ jobs:
             - name: Docker meta
               id: meta
               uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+              # Kargo reads org.opencontainers.image.revision from the image index to match an
+              # image to its source commit, so the annotations must land on the index, not only
+              # on the per-platform manifests.
+              env:
+                  DOCKER_METADATA_ANNOTATIONS_LEVELS: index
               with:
                   images: ghcr.io/posthog/posthog/${{ matrix.image }}
                   tags: ${{ inputs.tag-rules }}
@@ -188,6 +193,7 @@ jobs:
                   push: ${{ inputs.push }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  annotations: ${{ steps.meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       SCCACHE_LOG=debug
