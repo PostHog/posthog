@@ -36,6 +36,7 @@ from products.signals.backend.scout_harness.tools.report import (
     _wants_repo_selection,
     edit_report_sync,
 )
+from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -1299,6 +1300,46 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert chart_clear is not None
         assert chart_clear.event_uuid != forward([])
+
+    def test_evidence_edit_event_uuid_keys_on_the_observations(self) -> None:
+        # Same collision class as the chart and prompt cases above: appended evidence is a valid sole
+        # input, so two evidence-only edits to one report in a run share every other part of the key.
+        # Keyed on the prose alone, two observations that read the same under different source ids hash
+        # identically and ingestion drops the second, so the team undercounts what landed on the rail.
+        run = _make_run(self.team)
+        report_id = str(uuid4())
+
+        def forward(evidence: list[ScoutReportSignal], note: str | None = None) -> str:
+            with patch(CAPTURE_PATH):
+                captured = _capture_report_edited(
+                    team=self.team,
+                    run=run,
+                    result=EditReportResult(
+                        report_id=report_id,
+                        updated_fields=[],
+                        note_appended=note is not None,
+                        evidence_appended=len(evidence),
+                    ),
+                    title=None,
+                    summary=None,
+                    note=note,
+                    evidence=evidence,
+                )
+            assert captured is not None
+            return captured.event_uuid
+
+        def observation(source_id: str, description: str = "Checkout errors doubled", weight: float = 1.0):
+            return ScoutReportSignal(description=description, source_id=source_id, weight=weight)
+
+        checkout = forward([observation("checkout-errors")])
+        assert checkout == forward([observation("checkout-errors")])
+        # The rail carries a row per source id, so the same prose recorded twice is two observations.
+        assert checkout != forward([observation("checkout-errors-eu")])
+        assert checkout != forward([observation("checkout-errors", description="Signups fell")])
+        assert checkout != forward([observation("checkout-errors", weight=2.0)])
+        # A description is scout-authored free text, so on a pipe-joined key a note carrying the
+        # evidence part verbatim hashes like the evidence edit itself and one of the two is dropped.
+        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors",1.0]]')
 
     @parameterized.expand(
         [
