@@ -990,7 +990,10 @@ class SignalReportViewSet(
             qs = self._annotate_signal_report_priority(qs)
             qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        qs = self._annotate_is_suggested_reviewer(qs)
+        if self.action != "bulk_state":
+            # `bulk_state` answers with one outcome per id, never a serialized report, and the list
+            # ordering that reads this value does not apply to it either.
+            qs = self._annotate_is_suggested_reviewer(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
             # This correlated subquery costs one walk per matching row. Multi-row actions do
             # without it: `list` serves the value from a batched page lookup, and `bulk_state`
