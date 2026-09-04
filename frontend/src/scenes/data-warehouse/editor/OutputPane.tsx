@@ -22,6 +22,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
+import { eventsScanWarningMessages } from 'lib/components/Cards/InsightCard/eventsScanWarning'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -63,7 +64,6 @@ import {
     type AccessControlFilterWarning,
     type DataTableNode,
     type DataWarehouseSyncWarning,
-    type EventsScanWarning,
     type HogQLQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -1075,7 +1075,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     }
     const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
     const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
-    const scanWarnings = warnings.filter((w): w is EventsScanWarning => w.type === 'events_scan')
+    const scanWarningMessages = eventsScanWarningMessages(warnings)
     return (
         <>
             {syncWarnings.length > 0 && (
@@ -1119,7 +1119,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                     ))}
                 </LemonBanner>
             )}
-            {scanWarnings.length > 0 && (
+            {scanWarningMessages.length > 0 && (
                 <LemonBanner
                     type="warning"
                     className="m-2 flex-shrink-0"
@@ -1127,8 +1127,8 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                 >
                     This query scans events without one or more recommended limits:
                     <ul className="list-disc pl-5">
-                        {scanWarnings.map((warning, index) => (
-                            <li key={index}>{warning.message}</li>
+                        {scanWarningMessages.map((message) => (
+                            <li key={message}>{message}</li>
                         ))}
                     </ul>
                 </LemonBanner>
