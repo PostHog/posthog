@@ -91,6 +91,12 @@ class TestShardedAlterRouting(unittest.TestCase):
         cluster.map_one_host_per_shard.assert_called_once()
         cluster.any_host_by_roles.assert_not_called()
 
+    def test_per_shard_host_selection_is_role_filtered(self):
+        cluster = _build_cluster_mock()
+        self._exec_with_cloud([NodeRole.LOGS], cluster)
+        _args, kwargs = cluster.map_one_host_per_shard.call_args
+        self.assertEqual(kwargs["node_roles"], [NodeRole.LOGS])
+
     @parameterized.expand([(role.name, role) for role in sorted(SINGLE_SHARD_DATA_NODE_ROLES, key=lambda r: r.name)])
     def test_satellite_role_uses_any_host_by_roles(self, _name: str, role: NodeRole):
         cluster = _build_cluster_mock()

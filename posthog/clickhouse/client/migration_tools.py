@@ -59,7 +59,8 @@ def run_sql_with_exceptions(
         Specifies whether the query is an ALTER statement executed on replicated tables.
         This will run on just one host per shard or one host for the whole cluster if there is no sharding.
     require_hosts: bool, optional (default is False)
-        Raises when none of the requested node roles exist in the migration topology.
+        Raises when none of the requested node roles exist in the migration topology, or, for a
+        sharded ALTER, when a shard holds no host with those roles.
 
     Returns:
     migrations.RunPython
@@ -104,7 +105,9 @@ def run_sql_with_exceptions(
             if not is_local_or_test and single_role in SINGLE_SHARD_DATA_NODE_ROLES:
                 logger.info("       Running ALTER on sharded replicated table on one host of role %s", single_role)
                 return cluster.any_host_by_roles(query, node_roles=node_roles_list).result()
-            return cluster.map_one_host_per_shard(query).result()
+            return cluster.map_one_host_per_shard(
+                query, node_roles=node_roles_list, require_hosts=require_hosts
+            ).result()
         elif is_alter_on_replicated_table:
             logger.info("       Running ALTER on replicated table on just one host")
             return cluster.any_host_by_roles(query, node_roles=node_roles_list).result()
