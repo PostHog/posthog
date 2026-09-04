@@ -116,9 +116,20 @@ Seasonality check (mandatory before you claim any change of level):
   `fetch_metric_series` (or `simulate_detector`) with `date_from: "-28d"` and
   read the labels — the data you need is already in that one response.
 - Put that comparison in `evidence`: the triggered value, then the value of the
-  same weekday and hour in each of the previous weeks. If the triggered value
-  sits inside the range of its own weekday's history, the detector measured the
-  weekly cycle and the verdict is `false_positive`.
+  same weekday and hour in each of the previous weeks. Read those samples as a
+  cluster, not as a min-to-max range. A range widens the moment one earlier week
+  was itself anomalous, and then a second real firing hides inside it. Compare
+  the triggered value against a robust center of that history — the median of the
+  same-weekday samples — and their typical spread.
+- First drop any earlier week that the detector also flagged from the comparison
+  samples; `simulate_detector` returns those dates. A past incident is not part
+  of the normal weekly cycle, so leaving it in lets a fresh incident pass as
+  seasonal.
+- Call it `false_positive` only when the remaining same-weekday samples form a
+  consistent, tight cluster and the triggered value lands near that center. If
+  the samples vary widely, with no steady weekly level to sit inside, the history
+  does not prove seasonality: use `inconclusive` and say the weekly pattern was
+  too noisy to confirm.
 - The same rule holds for the daily cycle. An 08:00 bucket compares against
   08:00 on other days, never against the quiet hours overnight.
 - If the window is too short to hold three same-weekday samples, say so and use
