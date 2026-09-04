@@ -9,25 +9,47 @@ A session on a local dev instance (`localhost:8010`) where replay was turned off
 
 **Query result:**
 
-| has_recording | recording_status | start_reason | script_not_loaded | url_trigger | event_trigger | flag_trigger | sample_rate | buffer_length | flushed_size | sdk_library | sdk_version |
-| ------------- | ---------------- | ------------ | ----------------- | ----------- | ------------- | ------------ | ----------- | ------------- | ------------ | ----------- | ----------- |
-| null          | disabled         | null         | null              | null        | null          | null         | null        | null          | null         | web         | 1.369.2     |
+| all_recording_statuses | remote_config       | has_recording | start_reason | script_not_loaded | url_trigger | sample_rate | sdk_version |
+| ---------------------- | ------------------- | ------------- | ------------ | ----------------- | ----------- | ----------- | ----------- |
+| `['disabled']`         | `{"enabled":false}` | null          | null         | null              | null        | null        | 1.369.2     |
 
 **Verdict:** DISABLED
 
 **Explanation:**
-`$recording_status = 'disabled'` on every event in the session.
-The SDK decided not to record at initialization time.
+Two things have to hold before you call a session disabled, and both do here.
+The session reported `disabled` and nothing else, and the remote config says replay is off for the project.
 All trigger and sampling signals are null because the SDK never reached
 the point of evaluating them — recording was off before any of that logic runs.
 
 **What to check:**
 
 - Project settings > Session replay — is recording enabled?
-- SDK init config — is `disable_session_recording: true` set?
-- Has the user called `posthog.opt_out_capturing()`?
 
-## Example 2: URL trigger never fired
+## Example 2: the recorder had not loaded yet
+
+A short visit that left before the recorder file took over.
+This is the shape that gets misread as DISABLED most often.
+
+**Query result:**
+
+| all_recording_statuses        | remote_config      | latest_recording_status | has_recording | script_not_loaded | max_flushed_size | sdk_version |
+| ----------------------------- | ------------------ | ----------------------- | ------------- | ----------------- | ---------------- | ----------- |
+| `['disabled','lazy_loading']` | `{"enabled":true}` | lazy_loading            | null          | null              | 0                | 1.425.1     |
+
+**Verdict:** RECORDER_LOADING
+
+**Explanation:**
+The session carries `disabled`, but reading that as "replay is off" would be wrong twice over.
+The remote config says replay is on for the project.
+And the session also reported `lazy_loading`, so the SDK had moved past its initial state and was fetching the recorder file.
+The visit ended before that file took over, so nothing was captured.
+
+**What to check:**
+
+- Nothing, for a single session. This is the expected outcome of a visit shorter than the recorder takes to load.
+- Across a project, a high share of sessions that never get past `lazy_loading` is worth looking at: check page weight and whether the recorder file is served from a slow or throttled path.
+
+## Example 3: URL trigger never fired
 
 A test session where a URL trigger was configured but the user never visited
 a matching URL during the session.
@@ -52,7 +74,7 @@ so the buffer was discarded and no recording was stored.
 - Did the user visit any page matching those patterns?
 - Is the URL pattern a regex that might not match the actual URLs?
 
-## Example 3: snapshots produced but never flushed
+## Example 4: snapshots produced but never flushed
 
 A session where the SDK is recording and the internal buffer keeps growing,
 but nothing ever gets flushed to PostHog.

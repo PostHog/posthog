@@ -10,7 +10,7 @@ from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import (
     SESSION_ID_CLOCK_SKEW_SLACK,
     SessionReplayEvents,
-    get_latest_session_event_properties,
+    get_session_capture_diagnostics,
     uuidv7_session_lower_bound,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -453,7 +453,7 @@ class TestBatchExists(ClickhouseTestMixin, APIBaseTest):
         assert cache.get(f"session_recording_existence_team_{self.team.pk}_id_missing-session") is None
 
 
-class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
+class TestGetSessionCaptureDiagnostics(ClickhouseTestMixin, APIBaseTest):
     def _seed_event(self, session_id: str, timestamp, marker: str) -> None:
         _create_event(
             team=self.team,
@@ -475,10 +475,10 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
         session_id = _uuidv7_session_id_for(session_start) if uuidv7_id else "my-custom-session-id"
         self._seed_event(session_id, session_start - event_age_before_start, marker)
 
-        properties = get_latest_session_event_properties(session_id, self.team)
+        diagnostics = get_session_capture_diagnostics(session_id, self.team)
 
-        assert properties is not None
-        assert properties["$recording_status"] == marker
+        assert diagnostics is not None
+        assert diagnostics.properties["$recording_status"] == marker
 
     def test_filters_response_to_diagnostic_properties(self) -> None:
         session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
@@ -497,9 +497,10 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        properties = get_latest_session_event_properties(session_id, self.team)
+        diagnostics = get_session_capture_diagnostics(session_id, self.team)
 
-        assert properties == {
+        assert diagnostics is not None
+        assert diagnostics.properties == {
             "$recording_status": "disabled",
             "$sdk_debug_replay_internal_buffer_length": 0,
         }
@@ -507,7 +508,7 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
     def test_returns_none_when_session_has_no_events(self) -> None:
         session_id = _uuidv7_session_id_for(now() - relativedelta(minutes=10))
 
-        assert get_latest_session_event_properties(session_id, self.team) is None
+        assert get_session_capture_diagnostics(session_id, self.team) is None
 
     def test_does_not_leak_another_teams_session(self) -> None:
         session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
@@ -521,7 +522,7 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": session_id, "$recording_status": "secret"},
         )
 
-        assert get_latest_session_event_properties(session_id, self.team) is None
+        assert get_session_capture_diagnostics(session_id, self.team) is None
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/session_recordings/{session_id}/capture_diagnostics"
@@ -540,3 +541,22 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["properties"]["$recording_status"] == "endpoint"
+
+    def test_collects_every_recording_status_the_session_reported(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        self._seed_event(session_id, session_start, "disabled")
+        self._seed_event(session_id, session_start + relativedelta(seconds=1), "lazy_loading")
+        self._seed_event(session_id, session_start + relativedelta(seconds=2), "active")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=session_start + relativedelta(seconds=3),
+            properties={"$session_id": session_id},
+        )
+
+        diagnostics = get_session_capture_diagnostics(session_id, self.team)
+
+        assert diagnostics is not None
+        assert diagnostics.recording_statuses == ["active", "disabled", "lazy_loading"]

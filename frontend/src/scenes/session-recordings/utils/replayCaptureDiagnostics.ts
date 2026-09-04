@@ -1,9 +1,16 @@
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 export type DiagnosisVerdict =
     | 'captured'
     | 'ad_blocked'
     | 'disabled'
+    | 'url_blocked'
+    | 'recorder_not_started'
+    | 'recorder_loading'
+    | 'recorder_ran'
+    | 'config_pending'
     | 'trigger_pending'
     | 'sampled_out'
     | 'buffering_empty'
@@ -13,6 +20,11 @@ export type DiagnosisVerdict =
 export interface SuggestedAction {
     label: string
     to?: string
+}
+
+export interface DiagnosisContext {
+    /** Every `$recording_status` the session reported, as an unordered set, not only this event's. */
+    sessionRecordingStatuses?: string[]
 }
 
 export interface ReplayCaptureDiagnosis {
@@ -72,6 +84,45 @@ const pickSignals = (properties: Record<string, any>): Record<string, unknown> =
     return out
 }
 
+// posthog-js loads the recorder as a separate chunk. Until that chunk takes over, the SDK
+// reports `disabled` and then `lazy_loading`, so the first events of a page load carry one of
+// them on a session that records fine. Neither settles what the rest of the session did.
+const STARTUP_STATUSES = ['disabled', 'lazy_loading']
+
+// Statuses that say more than a startup snapshot, most to least informative: the highest one the
+// session reported wins.
+const STATUSES_BEYOND_STARTUP = [
+    'active',
+    'sampled',
+    'buffering',
+    'rrweb_error',
+    'paused',
+    'missing_config',
+    'awaiting_config',
+    'pending_config',
+    'lazy_loading',
+]
+
+// A status the session reported on another event arrives without that event's signals, so a
+// verdict that reads them cannot be reached from it. These three need a flushed size or a buffer
+// length to say more, and on their own they only prove the recorder ran.
+const STATUSES_PROVING_THE_RECORDER_RAN = ['active', 'sampled', 'buffering']
+
+const parseRemoteConfigEnabled = (value: unknown): boolean | null => {
+    let config = value
+    if (typeof config === 'string') {
+        try {
+            config = JSON.parse(config)
+        } catch {
+            return null
+        }
+    }
+    if (config && typeof config === 'object' && typeof (config as Record<string, unknown>).enabled === 'boolean') {
+        return (config as Record<string, boolean>).enabled
+    }
+    return null
+}
+
 const toNumber = (value: unknown): number | null => {
     if (typeof value === 'number') {
         return value
@@ -82,24 +133,90 @@ const toNumber = (value: unknown): number | null => {
     return null
 }
 
-export function diagnoseReplayCapture(eventProperties: Record<string, any> | null | undefined): ReplayCaptureDiagnosis {
+// Trigger groups are the V2 recording config. The SDK lists each group whose trigger matched and
+// records the sampling decision it then made for that group. The V1 sample rate property is not
+// written on this path, so this list is the only sampling decision a V2 session reports. Every
+// matched group sampled out means nothing was left to start the recorder.
+const isSampledOutByTriggerGroup = (value: unknown): boolean => {
+    if (!Array.isArray(value) || value.length === 0) {
+        return false
+    }
+    return value.every((group) => group?.matched === true && group?.sampled === false)
+}
+
+// The status to read when this event does not settle one itself. The recorder writes the status,
+// so an event captured by another SDK on the same session carries none, and the newest event of a
+// session can be one of those. The set carries no timestamps, so it says the session got further,
+// never when it did.
+const statusFromSession = (eventStatus: string | undefined, sessionStatuses: string[]): string | undefined => {
+    if (!eventStatus) {
+        return [...STATUSES_BEYOND_STARTUP, ...STARTUP_STATUSES].find((s) => sessionStatuses.includes(s))
+    }
+    if (STARTUP_STATUSES.includes(eventStatus)) {
+        return STATUSES_BEYOND_STARTUP.find((s) => s !== eventStatus && sessionStatuses.includes(s))
+    }
+    return undefined
+}
+
+export function diagnoseReplayCapture(
+    eventProperties: Record<string, any> | null | undefined,
+    context?: DiagnosisContext
+): ReplayCaptureDiagnosis {
     const properties = eventProperties ?? {}
+    const eventStatus = properties['$recording_status']
+    const sessionStatuses = context?.sessionRecordingStatuses ?? []
+    const statusElsewhere = statusFromSession(eventStatus, sessionStatuses)
+
+    if (statusElsewhere === undefined) {
+        return diagnoseSignals(properties, eventStatus)
+    }
+
+    if (STATUSES_PROVING_THE_RECORDER_RAN.includes(statusElsewhere)) {
+        return diagnoseSignals(properties, eventStatus, statusElsewhere)
+    }
+
+    const diagnosis = diagnoseSignals(properties, statusElsewhere)
+    const eventReports = eventStatus
+        ? `This event reports \`${eventStatus}\``
+        : 'This event carries no recording status'
+    return {
+        ...diagnosis,
+        reasons: [
+            `${eventReports}, and elsewhere in the session the SDK reported \`${statusElsewhere}\`.`,
+            ...diagnosis.reasons,
+        ],
+    }
+}
+
+function diagnoseSignals(
+    properties: Record<string, any>,
+    recordingStatus: unknown,
+    statusProvingTheRecorderRan?: string
+): ReplayCaptureDiagnosis {
     const rawSignals = pickSignals(properties)
 
     const hasRecording = properties['$has_recording']
-    const recordingStatus = properties['$recording_status']
+    const replayEnabledRemotely = parseRemoteConfigEnabled(properties['$session_recording_remote_config'])
     const startReason = properties['$session_recording_start_reason']
     const urlTrigger = properties['$sdk_debug_replay_url_trigger_status']
     const eventTrigger = properties['$sdk_debug_replay_event_trigger_status']
     const flagTrigger = properties['$sdk_debug_replay_linked_flag_trigger_status']
     const bufferLength = toNumber(properties['$sdk_debug_replay_internal_buffer_length'])
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
+    const sampleRate = toNumber(properties['$replay_sample_rate'])
+    const sampledOutByTriggerGroup = isSampledOutByTriggerGroup(
+        properties['$sdk_debug_replay_matched_recording_trigger_groups']
+    )
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
     const rrwebError = properties['$sdk_debug_replay_rrweb_error']
 
     const settingsAction: SuggestedAction = {
         label: 'Open replay settings',
         to: urls.settings('project-replay'),
+    }
+    const billingAction: SuggestedAction = {
+        label: 'Open billing',
+        to: urls.organizationBilling([ProductKey.SESSION_REPLAY]),
     }
     const troubleshootingAction: SuggestedAction = {
         label: 'Read troubleshooting docs',
@@ -132,32 +249,80 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
-    if (recordingStatus === 'disabled') {
-        return {
-            verdict: 'disabled',
-            headline: 'Session recording was disabled for this session',
-            reasons: [
-                'The SDK reported `$recording_status = disabled` at the time this event was captured.',
-                'Recording may be turned off in project settings, or explicitly disabled at runtime via the SDK.',
-            ],
-            rawSignals,
-            suggestedActions: [settingsAction, troubleshootingAction],
-        }
-    }
-
     // A reported rrweb error is the unambiguous signal that the recorder failed. The recorder is
     // started during buffering — before sampling/triggers resolve — so the attach flags alone
     // can't tell a real failure apart from a normal sampled-out or torn-down session.
-    if (rrwebError) {
+    if (rrwebError || recordingStatus === 'rrweb_error') {
         return {
             verdict: 'recorder_error',
             headline: 'The recorder failed to start',
             reasons: [
                 'The SDK started the rrweb recorder for this session but it reported an error, so no snapshots were produced.',
-                `rrweb reported: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`,
+                ...(rrwebError
+                    ? [`rrweb reported: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`]
+                    : []),
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    if (recordingStatus === 'missing_config') {
+        return {
+            verdict: 'config_pending',
+            headline: 'The SDK could not load its replay config',
+            reasons: [
+                'The SDK asked PostHog for fresh replay config, the request failed, and recording stays off until the page reloads.',
+                'A blocked or failing request to the PostHog config endpoint is the usual cause. Check for ad blockers, a content security policy, or a reverse proxy that does not forward it.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    // Older SDKs call `awaiting_config` `pending_config`.
+    if (recordingStatus === 'awaiting_config' || recordingStatus === 'pending_config') {
+        return {
+            verdict: 'config_pending',
+            headline: 'The SDK was still waiting for its replay config',
+            reasons: [
+                'The SDK had asked PostHog for fresh replay config and had not received it yet, so the recorder had not started.',
+                'Recording starts once the config arrives. A session that ends first produces no replay.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    // PostHog returns replay as off both when the project has it turned off and when the
+    // recordings quota is limited. The SDK stores both as `enabled: false`, so this property
+    // cannot say which one applied.
+    if (replayEnabledRemotely === false) {
+        return {
+            verdict: 'disabled',
+            headline: 'PostHog told the SDK not to record this session',
+            reasons: [
+                'When this event was captured, PostHog was returning replay as off, so the recorder never started.',
+                'Two things cause this: replay is turned off for the project, or the organization has reached its recording quota. This event does not say which one.',
+                'Check replay settings first. If replay is already on there, check billing for a recording limit.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, billingAction, troubleshootingAction],
+        }
+    }
+
+    // The SDK returns `paused` from one condition in every status path: the current URL matches
+    // the project's blocked list. It is checked before triggers there, so it is checked first here.
+    if (recordingStatus === 'paused') {
+        return {
+            verdict: 'url_blocked',
+            headline: 'Recording is turned off for this page',
+            reasons: [
+                'The page URL matches the blocked URLs list for this project, so the SDK stopped recording while the visitor was on it.',
+                'Check the blocked URLs list in replay settings if this page should be recorded.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
         }
     }
 
@@ -181,16 +346,50 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
-    if (startReason === 'sampled_out') {
+    // posthog-js does not write this reason. Sampling out only logs a warning there, so a dropped
+    // session arrives as `disabled` and is handled below. Kept for SDKs that do report it.
+    if (startReason === 'sampled_out' || sampledOutByTriggerGroup) {
         return {
             verdict: 'sampled_out',
             headline: 'This session was excluded by sampling',
             reasons: [
-                'The SDK selected this session to be dropped based on the configured replay sample rate.',
-                'Sampling is random per-session — increase the sample rate in project settings to capture more sessions.',
+                sampledOutByTriggerGroup
+                    ? 'A recording trigger matched this session, then the sample rate on that trigger group dropped it, so the recorder never started.'
+                    : 'The SDK selected this session to be dropped based on the configured replay sample rate.',
+                'Sampling is random per session. Raise the sample rate in replay settings to capture more sessions.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    // Checked after every cause this event's own signals prove, because those name a reason while
+    // this only says the recorder ran. It comes before the startup verdicts below, which would
+    // say the recorder never ran.
+    if (statusProvingTheRecorderRan) {
+        return {
+            verdict: 'recorder_ran',
+            headline: 'The recorder was running in this session',
+            reasons: [
+                `The session reported \`${statusProvingTheRecorderRan}\`, so the recorder did start.`,
+                'The signals on this event do not say what stopped the recording from reaching PostHog.',
+                'The recording may still be processing, or it may not have met the minimum duration set for this project.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    if (recordingStatus === 'lazy_loading') {
+        return {
+            verdict: 'recorder_loading',
+            headline: 'The recorder had not finished loading yet',
+            reasons: [
+                'PostHog loads the recorder as a separate file after the SDK starts. When this event was captured, that file had not taken over yet, so the recorder was not producing snapshots.',
+                'This is normal early in a page load. If the visit ended around this point, that is the likely reason there is no recording. Short visits and slow networks are the usual cause, and it is not a settings problem.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
         }
     }
 
@@ -207,12 +406,33 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
-    if (recordingStatus === 'active' && flushedSize !== null && flushedSize > 0) {
+    if (recordingStatus === 'disabled') {
+        return {
+            verdict: 'recorder_not_started',
+            headline: 'The recorder was not running for this session',
+            reasons: [
+                'The SDK reports this state both when replay is turned off and before the recorder has loaded, so it does not on its own mean replay is off.',
+                replayEnabledRemotely === true
+                    ? 'Replay is on for this project, so look at the SDK setup on the page rather than project settings.'
+                    : 'Check that replay is on in project settings.',
+                ...(sampleRate !== null && sampleRate < 1
+                    ? [
+                          `Replay sampling is set to ${Math.round(sampleRate * 100)}% for this project. A session that sampling drops reports this same state, so sampling is a likely cause. Raise the sample rate to capture more sessions.`,
+                      ]
+                    : []),
+                'On the page, check that disable_session_recording is not set, that the visitor has not opted out, and that nothing blocks the recorder file.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    if ((recordingStatus === 'active' || recordingStatus === 'sampled') && flushedSize !== null && flushedSize > 0) {
         return {
             verdict: 'captured',
             headline: 'A recording should exist for this session',
             reasons: [
-                'The SDK reported `$recording_status = active` and flushed recording data to PostHog.',
+                `The SDK reported \`$recording_status = ${recordingStatus}\` and flushed recording data to PostHog.`,
                 'If the replay still appears missing, it may still be processing, or it may have been deleted due to retention.',
             ],
             rawSignals,
