@@ -132,6 +132,10 @@ Shared-field edits read the current sync state, without a second field cache.
 Entry IDs keep the full random client ID to prevent collisions between users.
 Text requests allow up to 2 MiB for text and entry IDs. The text limit remains
 20,000 characters. Other data requests keep the 64 KiB limit.
+Board reads keep the existing eight-request limit and bounded queue. They use
+the authenticated HTTP client's 30-second timeout after a request starts.
+Closing a frame removes its queued reads. Active cached reads can finish for
+other consumers, but the closed frame receives no later replies.
 
 Cursor coordinates are rounded to world units. Presence uses one request at a
 time and sends at most ten requests per second, including selection and caret

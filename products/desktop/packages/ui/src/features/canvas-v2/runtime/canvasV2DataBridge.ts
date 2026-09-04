@@ -46,6 +46,7 @@ import { fieldPlainValue } from "@posthog/ui/features/canvas-v2/runtime/canvasV2
 import type { QueryClient } from "@tanstack/react-query";
 
 export interface CanvasV2DataBridgeContext {
+  signal?: AbortSignal;
   boardId: string;
   queryClient: QueryClient;
   getSnapshot: () => CanvasV2Snapshot;
@@ -483,20 +484,37 @@ async function read<T>(
   if (budget.waiting.length >= CANVAS_V2_MAX_READS_WAITING) {
     throw new Error(BOARD_TOO_MANY_READS_AT_ONCE);
   }
-  await acquireReadSlot(budget);
+  await acquireReadSlot(budget, ctx.signal);
   try {
+    if (ctx.signal?.aborted) throw ctx.signal.reason;
     return await run();
   } finally {
     releaseReadSlot(budget);
   }
 }
 
-function acquireReadSlot(budget: BoardBudget): Promise<void> {
+function acquireReadSlot(
+  budget: BoardBudget,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
   if (budget.readsInFlight < CANVAS_V2_MAX_READS_IN_FLIGHT) {
     budget.readsInFlight += 1;
     return Promise.resolve();
   }
-  return new Promise<void>((resolve) => budget.waiting.push(resolve));
+  return new Promise<void>((resolve, reject) => {
+    const ready = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const abort = () => {
+      const index = budget.waiting.indexOf(ready);
+      if (index !== -1) budget.waiting.splice(index, 1);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    budget.waiting.push(ready);
+  });
 }
 
 function releaseReadSlot(budget: BoardBudget): void {

@@ -1,4 +1,5 @@
 import {
+  type BoardFrameToHostMessage,
   CANVAS_V2_CHANNEL,
   CANVAS_V2_FRAME_TO_HOST_CHANNEL,
   CANVAS_V2_HOST_TO_FRAME_CHANNEL,
@@ -16,21 +17,34 @@ vi.mock("@posthog/ui/shell/useHostCapabilities", () => ({
   useHostCapabilities: () => ({ vendoredCanvasModules: false }),
 }));
 
-vi.mock("@posthog/ui/features/canvas-v2/runtime/canvasV2DataBridge", () => ({
-  spendBoardWrite: vi.fn(),
-  handleCanvasV2DataRequest: vi.fn(),
+const query = vi.fn();
+vi.mock("@posthog/ui/features/canvas/hostClient", () => ({
+  hostClient: () => ({ canvasData: { query: { mutate: query } } }),
 }));
 
-function mountFrame(snapshot: CanvasV2Snapshot) {
+function sendFromFrame(
+  frame: BoardWebviewElement,
+  message: BoardFrameToHostMessage,
+): void {
+  frame.dispatchEvent(
+    Object.assign(new Event("ipc-message"), {
+      channel: CANVAS_V2_FRAME_TO_HOST_CHANNEL,
+      args: [message],
+    }),
+  );
+}
+
+function mountFrame(snapshot: CanvasV2Snapshot, boardId = "board") {
   const send = vi.fn();
   const frame = document.createElement("webview") as BoardWebviewElement;
   frame.send = send;
-  const { result } = renderHook(() =>
+  const queryClient = new QueryClient();
+  const { result, unmount } = renderHook(() =>
     useBoardFrame({
-      boardId: "board",
+      boardId,
       frameElement: frame,
       theme: "light",
-      queryClient: new QueryClient(),
+      queryClient,
       getSnapshot: () => snapshot,
       applyLocal: vi.fn(),
       reportCaret: vi.fn(),
@@ -49,16 +63,60 @@ function mountFrame(snapshot: CanvasV2Snapshot) {
     }),
   );
   act(() =>
-    frame.dispatchEvent(
-      Object.assign(new Event("ipc-message"), {
-        channel: CANVAS_V2_FRAME_TO_HOST_CHANNEL,
-        args: [{ channel: CANVAS_V2_CHANNEL, type: "ready" }],
-      }),
-    ),
+    sendFromFrame(frame, { channel: CANVAS_V2_CHANNEL, type: "ready" }),
   );
   send.mockClear();
-  return { frame, send, result };
+  return { frame, send, result, unmount, queryClient };
 }
+
+it.each([false, true])(
+  "bounds queued reads and handles a closed frame: %s",
+  async (close) => {
+    vi.useFakeTimers();
+    const { frame, send, unmount, queryClient } = mountFrame(
+      emptyCanvasV2Snapshot(),
+      `read-queue-${close}`,
+    );
+    let active = 0;
+    let peak = 0;
+    query.mockReset().mockImplementation(() => {
+      peak = Math.max(peak, ++active);
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          active--;
+          resolve({ results: [] });
+        }, 20_000),
+      );
+    });
+    try {
+      await act(async () => {
+        for (let index = 0; index < 16; index++) {
+          sendFromFrame(frame, {
+            channel: CANVAS_V2_CHANNEL,
+            type: "data-request",
+            id: String(index),
+            method: "query",
+            payload: { hogql: `select ${index}` },
+          });
+        }
+      });
+      expect(query).toHaveBeenCalledTimes(8);
+      if (close) unmount();
+      await act(() => vi.advanceTimersByTimeAsync(40_000));
+      expect(peak).toBe(8);
+      expect(query).toHaveBeenCalledTimes(close ? 8 : 16);
+      const replies = send.mock.calls
+        .map(([, message]) => message)
+        .filter((message) => message.type === "data-response");
+      expect(replies).toHaveLength(close ? 0 : 16);
+      expect(replies.every((message) => message.ok)).toBe(true);
+    } finally {
+      unmount();
+      queryClient.clear();
+      vi.useRealTimers();
+    }
+  },
+);
 
 it("sends changed data without repeating unchanged source or state", () => {
   const toJSON = vi.fn(() => ({ value: "unchanged" }));
@@ -147,28 +205,21 @@ it.each<[CanvasV2DataMethod, number, boolean]>([
 ])("bounds %s requests with %i entry IDs", async (method, count, ok) => {
   const { frame, send } = mountFrame(emptyCanvasV2Snapshot());
   await act(async () => {
-    frame.dispatchEvent(
-      Object.assign(new Event("ipc-message"), {
-        channel: CANVAS_V2_FRAME_TO_HOST_CHANNEL,
-        args: [
-          {
-            channel: CANVAS_V2_CHANNEL,
-            type: "data-request",
-            id: "request",
-            method,
-            payload: {
-              key: "note",
-              base: "a".repeat(count),
-              next: "b".repeat(count),
-              baseIds: Array.from(
-                { length: count },
-                (_, index) => `${"a".repeat(32)}-${index}`,
-              ),
-            },
-          },
-        ],
-      }),
-    );
+    sendFromFrame(frame, {
+      channel: CANVAS_V2_CHANNEL,
+      type: "data-request",
+      id: "request",
+      method,
+      payload: {
+        key: "note",
+        base: "a".repeat(count),
+        next: "b".repeat(count),
+        baseIds: Array.from(
+          { length: count },
+          (_, index) => `${"a".repeat(32)}-${index}`,
+        ),
+      },
+    });
   });
   expect(send).toHaveBeenCalledWith(
     CANVAS_V2_HOST_TO_FRAME_CHANNEL,

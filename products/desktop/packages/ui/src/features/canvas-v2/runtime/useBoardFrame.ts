@@ -56,7 +56,6 @@ const log = logger.scope("canvas-v2-frame");
 // ship oversized payloads, or hold a slot forever.
 const MAX_PENDING_DATA_REQUESTS = 200;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
-const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 
 export interface BoardFrameEvents {
@@ -267,6 +266,7 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
   useLayoutEffect(() => {
     let activeRequests = 0;
     let lastExternalOpen = 0;
+    const controller = new AbortController();
 
     const reply = (
       id: string,
@@ -274,6 +274,7 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
       result?: unknown,
       error?: string,
     ): void => {
+      if (controller.signal.aborted) return;
       postRaw({
         channel: CANVAS_V2_CHANNEL,
         type: "data-response",
@@ -306,17 +307,14 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
         getSnapshot,
         applyLocal,
         reportCaret,
+        signal: controller.signal,
       };
       try {
-        const result = await Promise.race([
-          handleCanvasV2DataRequest(message.method, message.payload, ctx),
-          new Promise<never>((_, rejectRequest) =>
-            setTimeout(
-              () => rejectRequest(new Error("Data request timed out")),
-              DATA_REQUEST_TIMEOUT_MS,
-            ),
-          ),
-        ]);
+        const result = await handleCanvasV2DataRequest(
+          message.method,
+          message.payload,
+          ctx,
+        );
         reply(message.id, true, result);
       } catch (error) {
         reply(
@@ -406,11 +404,15 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
     };
 
     if (!frameElement) return;
-    return listenToBoardFrame(frameElement, (data) => {
+    const stopListening = listenToBoardFrame(frameElement, (data) => {
       const parsed = boardFrameToHostMessageSchema.safeParse(data);
       if (!parsed.success) return;
       route(parsed.data);
     });
+    return () => {
+      controller.abort();
+      stopListening();
+    };
   }, [frameElement, postRaw, options.boardId]);
 
   // Re-theme in place: a fragment remount would reset its component state.
