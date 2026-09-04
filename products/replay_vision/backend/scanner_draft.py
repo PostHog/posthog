@@ -819,6 +819,10 @@ recordings of the user's product and produces one observation per recording. The
 - summarizer: writes a free-text summary of the session. Best when the goal is broad ("what are users
   doing?", "give me an overview") and doesn't fit one question, dimension, or vocabulary.
 
+A short or vague goal ("help", "what's going on") is not a puzzle to work out. Draft a summarizer over
+the whole product with no filters and move on. The user reviews the draft in the wizard and narrows it
+there, so a broad draft is the right answer, not a guess at what they meant.
+
 Pick the single type that best fits the goal, then draft the scanner:
 - name: short and specific, under 8 words.
 - description: one sentence saying what the scanner looks for.
