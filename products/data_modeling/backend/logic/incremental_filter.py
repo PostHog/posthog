@@ -19,6 +19,8 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clone_expr
 
+from posthog.temporal.common.errors import NonReportableError
+
 SelectLike = Union[ast.SelectQuery, ast.SelectSetQuery]
 
 # The alias the outer guard binds the user's query to. Leading underscores keep it clear of
@@ -26,11 +28,12 @@ SelectLike = Union[ast.SelectQuery, ast.SelectSetQuery]
 GUARD_ALIAS = "__ph_incremental"
 
 
-class IncrementalFilterError(ValueError):
+class IncrementalFilterError(ValueError, NonReportableError):
     """The query cannot carry an incremental window filter.
 
     A user-input problem (a 400), not a server fault: the key column is missing, or it is produced
-    by an aggregate and so cannot be filtered before grouping.
+    by an aggregate and so cannot be filtered before grouping. ``NonReportableError`` keeps the
+    same condition out of error tracking when it fails a materialization instead of a request.
     """
 
 
