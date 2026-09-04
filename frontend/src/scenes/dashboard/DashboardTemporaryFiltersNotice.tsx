@@ -26,7 +26,9 @@ export function DashboardTemporaryFiltersNotice(): JSX.Element | null {
             ? [
                   {
                       label: 'SQL variable',
-                      value: Object.values(urlVariables).map((variable) => variable.code_name),
+                      value: Object.values(urlVariables).map((variable) =>
+                          variable.isNull ? `${variable.code_name}: null` : `${variable.code_name}: ${variable.value}`
+                      ),
                       status: 'new' as const,
                   },
               ]
