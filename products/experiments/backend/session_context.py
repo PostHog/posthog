@@ -83,6 +83,13 @@ MAX_CANDIDATE_EXPERIMENTS = 50
 # is a backstop far above any real configuration — without it HogQL applies an implicit
 # LIMIT 100, which would silently and nondeterministically truncate legitimate rows.
 MAX_EXPOSURE_ROWS = 10_000
+# Every distinct clipped run window becomes one union branch in the flag-evaluations query and
+# one aggregate column per flag in the stamped-property query, and the experiment set feeding
+# those scans is deliberately uncapped (the rescue path must see past the candidate cap).
+# Windows only split when an experiment starts or stops inside the scan window, so real
+# sessions see one or two; the cap bounds query width against many staggered experiment
+# boundaries. Newest experiments keep their windows, like every other cap here.
+MAX_DISTINCT_SCAN_WINDOWS = 50
 # Short-lived because the context is not immutable: late-arriving events and experiment edits
 # must surface within minutes. The key includes the viewer because the experiment set is
 # filtered by per-user access control, so entries must never be shared across users.
@@ -854,21 +861,32 @@ def _scan_windows_by_flag_key(
     """The timestamp ranges each flag key's events are read over: each of its experiments' run
     windows intersected with the scan window, deduplicated. Experiments sharing one flag
     usually share one clipped window; when their run windows differ inside the scan window,
-    each window gets its own entry, so no experiment reads a sibling's range. A key with no
-    window to read is dropped, since none of its events can evidence a variant the session
+    each window gets its own entry, so no experiment reads a sibling's range. At most
+    MAX_DISTINCT_SCAN_WINDOWS distinct windows are kept, newest experiments first. A key with
+    no window to read is dropped, since none of its events can evidence a variant the session
     saw; that also covers candidate keys for variant-less experiments and flags renamed
     between the metadata fetch and the candidate fetch."""
     windows: dict[str, list[_ScanWindow]] = {}
+    kept_windows: set[_ScanWindow] = set()
     for experiment_id, flag_key in resolved.flag_key_by_id.items():
         if flag_key not in flag_keys:
             continue
         window = resolved.run_window_by_id[experiment_id].clip(window_start, window_end)
-        if window is not None and window not in windows.setdefault(flag_key, []):
-            windows[flag_key].append(window)
+        if window is None:
+            continue
+        if window not in kept_windows:
+            # flag_key_by_id iterates newest experiments first, so past the cap the oldest
+            # experiments' windows are the ones dropped; a dropped window means that experiment
+            # contributes no batched evidence, the same degradation as the candidate cap.
+            if len(kept_windows) >= MAX_DISTINCT_SCAN_WINDOWS:
+                continue
+            kept_windows.add(window)
+        key_windows = windows.setdefault(flag_key, [])
+        if window not in key_windows:
+            key_windows.append(window)
     return {
         flag_key: sorted(key_windows, key=lambda window: (window.start, window.end))
         for flag_key, key_windows in windows.items()
-        if key_windows
     }
 
 

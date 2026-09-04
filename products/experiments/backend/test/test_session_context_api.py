@@ -637,6 +637,33 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert by_id[second.id]["multiple_variants"] is False
         assert by_id[second.id]["first_exposure_timestamp"] == AFTER_BOUNDARY
 
+    def test_distinct_scan_windows_are_capped_newest_first(self) -> None:
+        # Each distinct clipped window widens the evaluation and stamped queries, and the
+        # experiment set feeding them is uncapped, so the window count itself must be bounded.
+        # Past the cap the newest experiment keeps its window and the older one reads nothing,
+        # the same degradation as the candidate cap.
+        self._create_recording()
+        self._create_experiment(key="old-exp", name="Old experiment", start_date=EXPERIMENT_START)
+        newer = self._create_experiment(key="new-exp", name="New experiment", start_date=RUN_BOUNDARY)
+        self._create_session_event(
+            timestamp=BEFORE_BOUNDARY,
+            properties={"$feature_flag": "old-exp", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            timestamp=AFTER_BOUNDARY,
+            properties={"$feature_flag": "new-exp", "$feature_flag_response": "test"},
+        )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_DISTINCT_SCAN_WINDOWS", 1):
+            response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["experiment_id"] for result in results] == [newer.id]
+        assert results[0]["variants_seen"] == ["test"]
+        assert results[0]["first_exposure_timestamp"] == AFTER_BOUNDARY
+
     def test_multiple_custom_criteria_experiments_resolve_in_one_request(self) -> None:
         self._create_recording()
         # Two custom-criteria experiments force a real multi-branch UNION ALL — a single branch
