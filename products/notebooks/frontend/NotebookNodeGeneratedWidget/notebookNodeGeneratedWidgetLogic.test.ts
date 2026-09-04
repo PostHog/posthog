@@ -105,6 +105,25 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
     })
 
+    it('persists a newly inserted widget before retrying its initial status', async () => {
+        jest.mocked(notebooksWidgetStatus)
+            .mockRejectedValueOnce(
+                new ApiError('Not found', 404, undefined, {
+                    code: 'node_not_found',
+                    detail: 'This generated widget is no longer in the notebook.',
+                })
+            )
+            .mockResolvedValueOnce(status())
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(props.persistNotebook).toHaveBeenCalledTimes(1)
+        expect(notebooksWidgetStatus).toHaveBeenCalledTimes(2)
+        expect(logic.values.status?.lifecycle_status).toBe('awaiting_generation')
+        expect(logic.values.statusLoadError).toBeNull()
+    })
+
     it('times out a status request instead of leaving the widget loading forever', async () => {
         jest.useFakeTimers()
         jest.mocked(notebooksWidgetStatus).mockImplementation(
