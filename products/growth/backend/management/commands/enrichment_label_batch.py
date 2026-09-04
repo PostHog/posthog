@@ -22,23 +22,54 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
+from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
     ai_processing_approved,
     classify_payload,
     get_active_config,
+    has_usable_payload,
     is_unknown_output,
     latest_fetches_qs,
+    parse_sources,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
+    validate_sources,
 )
+from products.growth.backend.enrichment.sources import TRANSIENT_SOURCE_ERRORS, resolve_sources
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
 
 _ID_BATCH_SIZE = 500
+
+# So an absence-of-event alert can catch the label pipeline going silent.
+LABEL_BATCH_RUN_EVENT = "ai_enrichment_label_batch_completed"
+
+
+def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> None:
+    region = get_instance_region()
+    if region not in ("US", "EU"):
+        return
+    with ph_scoped_capture(region=region) as capture:
+        capture(
+            distinct_id="ai-enrichment-label-batch",
+            event=LABEL_BATCH_RUN_EVENT,
+            properties={
+                "label": label,
+                "version": version,
+                "attempted": counts["attempted"],
+                "succeeded": counts["succeeded"],
+                "failed": counts["failed"],
+                "sources_fetched": counts["sources_fetched"],
+                "sources_cached": counts["sources_cached"],
+                "sources_failed": counts["sources_failed"],
+                "sources_deferred": counts["sources_deferred"],
+            },
+        )
 
 
 def _advisory_lock_key(label: str) -> int:
@@ -104,6 +135,7 @@ class Command(BaseCommand):
         try:
             validate_input_fields(config)
             validate_output_fields(config)
+            validate_sources(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e
 
@@ -134,6 +166,7 @@ class Command(BaseCommand):
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
         client = get_llm_client(product="growth").with_options(max_retries=0)
+        specs = parse_sources(config)
 
         counts: dict[str, int] = {
             "attempted": 0,
@@ -141,9 +174,13 @@ class Command(BaseCommand):
             "skipped_existing": 0,
             "skipped_no_ai_consent": 0,
             "unknown": 0,
-            "failures": 0,
+            "failed": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "sources_fetched": 0,
+            "sources_cached": 0,
+            "sources_failed": 0,
+            "sources_deferred": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -208,7 +245,39 @@ class Command(BaseCommand):
                         counts["consent_revoked_after_attempt"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                sources = None
+                # Skipped when has_usable_payload is False, since fetching sources would spend
+                # Firecrawl budget on an org whose verdict is already "unknown" regardless.
+                if specs and has_usable_payload(fetch.payload):
+                    name = (
+                        fetch.payload.get("name")
+                        if isinstance(fetch.payload.get("name"), str)
+                        else fetch.organization.name
+                    )
+                    sources = resolve_sources(fetch.organization_id, domain=signup_domain, name=name, specs=specs)
+                    fetched = cached = failed_sources = 0
+                    deferred = False
+                    for record in sources.values():
+                        error = record.get("error")
+                        if error in TRANSIENT_SOURCE_ERRORS:
+                            deferred = True
+                        elif record.get("source") == "cache":
+                            cached += 1
+                        elif error:
+                            failed_sources += 1
+                        else:
+                            fetched += 1
+                    with counts_lock:
+                        counts["sources_fetched"] += fetched
+                        counts["sources_cached"] += cached
+                        counts["sources_failed"] += failed_sources
+                    if deferred:
+                        # A transient source problem must not become a permanent verdict or trip the
+                        # circuit breaker; with no result row written, the next run retries this org.
+                        with counts_lock:
+                            counts["sources_deferred"] += 1
+                        return
+                output = classify_payload(config, fetch.payload, signup_domain, client, sources=sources)
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
@@ -237,7 +306,7 @@ class Command(BaseCommand):
                     },
                 )
                 with counts_lock:
-                    counts["failures"] += 1
+                    counts["failed"] += 1
                     failure_streak += 1
                     if failure_streak >= max_failures:
                         circuit_open.set()
@@ -333,20 +402,24 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted. Consent skips are excluded for the
-        # same reason (an archive of orgs that all declined is a correct empty run, not a failed
-        # one), but only "consent_revoked_after_attempt" needs subtracting here - a declined org
-        # caught at enumeration time never incremented "attempted" to begin with (see
+        # work that was queued but never actually attempted. Consent skips and source deferrals are
+        # excluded for the same reason (an archive of orgs that all declined, or that all hit a
+        # transient Firecrawl outage, is a correct empty run, not a failed one), but only
+        # "consent_revoked_after_attempt" and "sources_deferred" need subtracting here - a declined
+        # org caught at enumeration time never incremented "attempted" to begin with (see
         # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
         # double-subtract and could push "tried" negative.
-        tried = counts["attempted"] - counts["aborted"] - counts["consent_revoked_after_attempt"]
+        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["sources_deferred"]
+        tried = counts["attempted"] - not_tried
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "
             f"skipped_existing {counts['skipped_existing']}, "
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
-            f"failures {counts['failures']}, aborted {counts['aborted']}, "
+            f"failed {counts['failed']}, aborted {counts['aborted']}, "
+            f"sources_fetched {counts['sources_fetched']}, sources_cached {counts['sources_cached']}, "
+            f"sources_failed {counts['sources_failed']}, sources_deferred {counts['sources_deferred']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )
@@ -358,6 +431,9 @@ class Command(BaseCommand):
             elapsed_seconds=elapsed_seconds,
             **counts,
         )
+        # Emitted unconditionally too, before any failure decision below, so an absence-of-event
+        # alert also sees a run that aborted or failed its ratio check.
+        _report_batch_run(label=label, version=config.version, counts=counts)
         # Written unconditionally, before any failure decision below: a wrapper parsing stdout
         # for these counts needs them most on the run that fails, not just on a clean one.
         self.stdout.write(summary)

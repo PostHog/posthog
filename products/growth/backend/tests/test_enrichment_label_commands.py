@@ -12,13 +12,35 @@ from django.db import connection
 
 from parameterized import parameterized
 
-from posthog.models.organization import Organization
+from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 
+from products.growth.backend.enrichment.labels import SourceSpec
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_SOURCES_MODULE = "products.growth.backend.enrichment.sources"
+
+_FETCH_SOURCE = [{"key": "home", "kind": "fetch", "url": "https://{domain}"}]
+_SOURCE_OUTPUT_FIELDS = [
+    {"key": "is_ai", "type": "boolean", "description": ""},
+    {"key": "confidence", "type": "number", "description": ""},
+    {"key": "reasoning", "type": "string", "description": ""},
+    {"key": "evidence_url", "type": "string", "description": ""},
+]
+
+
+def _org_with_domain(name: str, domain: str) -> Organization:
+    """An org whose earliest member's email resolves to `domain` via
+    labels.signup_domain_for_organization, so source-fetching code has a real domain to work with."""
+    org = Organization.objects.create(name=name)
+    user = User.objects.create_user(email=f"member@{domain}", password=None, first_name="t")
+    OrganizationMembership.objects.create(organization=org, user=user)
+    return org
+
 
 _OUTPUT_FIELDS = [
     {"key": "is_ai", "type": "boolean", "description": ""},
@@ -325,7 +347,7 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
                 call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "attempted 1" in out.getvalue()
-        assert "failures 1" in out.getvalue()
+        assert "failed 1" in out.getvalue()
 
     def test_summary_accumulates_prompt_and_completion_tokens_across_the_run(self):
         self._config()
@@ -463,6 +485,311 @@ class TestDryRunFixes(BaseTest):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
 
+class TestDryRunSourcesFetching(BaseTest):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name"],
+            sources=_FETCH_SOURCE,
+            output_fields=_SOURCE_OUTPUT_FIELDS,
+            is_active=True,
+        )
+
+    def test_sources_are_fetched_and_the_source_value_reaches_the_row(self):
+        self._config()
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _response(
+            json.dumps({"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://posthog.com"})
+        )
+        source_store = {
+            "home": {
+                "kind": "fetch",
+                "markdown": "We build developer tools.",
+                "url": "https://posthog.com",
+                "fetched_at": "x",
+                "source": "scrape",
+            }
+        }
+        out = StringIO()
+
+        with (
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.resolve_sources", return_value=source_store) as resolve,
+        ):
+            call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
+
+        resolve.assert_called_once_with(
+            self.organization.id,
+            domain="posthog.com",
+            name="Acme",
+            specs=[SourceSpec(key="home", kind="fetch", template="https://{domain}")],
+        )
+        assert "https://posthog.com" in out.getvalue()
+
+
+class TestBatchCommandSourcesFetching(_BatchCommandTestCase):
+    def _sources_config(self, **overrides: Any) -> EnrichmentPromptConfig:
+        params: dict[str, Any] = {"sources": _FETCH_SOURCE, "output_fields": _SOURCE_OUTPUT_FIELDS}
+        params.update(overrides)
+        return self._config(**params)
+
+    def _sources_response(self) -> MagicMock:
+        # posthog.com matches self.organization's default signup domain, so evidence_url
+        # validation doesn't null it - see labels._reject_unsupported_evidence_url.
+        content = json.dumps(
+            {"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://posthog.com"}
+        )
+        return _response(content)
+
+    def test_sources_are_fetched_before_classifying_and_passed_through(self):
+        self._sources_config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = self._sources_response()
+        source_store = {
+            "home": {"kind": "fetch", "markdown": "We build developer tools.", "url": "https://acme.example"}
+        }
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources", return_value=source_store) as resolve,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        resolve.assert_called_once_with(
+            self.organization.id,
+            domain="posthog.com",
+            name="Acme",
+            specs=[SourceSpec(key="home", kind="fetch", template="https://{domain}")],
+        )
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.inputs["fields"]["sources.home.markdown"] == "We build developer tools."
+
+    def test_sources_are_not_fetched_when_the_config_has_no_sources(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources") as resolve,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        resolve.assert_not_called()
+
+    def test_sources_are_not_fetched_for_an_org_with_no_usable_payload(self):
+        self._sources_config()
+        self._fetch(payload={"companyFound": False})
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources") as resolve,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        resolve.assert_not_called()
+
+    def test_fetched_cached_and_failed_counts_reach_the_summary(self):
+        self._sources_config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = self._sources_response()
+        source_store = {"home": {"kind": "fetch", "fetched_at": "x", "source": "scrape", "error": "unreachable"}}
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources", return_value=source_store),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert "sources_fetched 0" in out.getvalue()
+        assert "sources_cached 0" in out.getvalue()
+        assert "sources_failed 1" in out.getvalue()
+        assert "sources_deferred 0" in out.getvalue()
+        # A permanent source error proceeds to classification without that source, unlike a
+        # transient one - see TestSourceDeferral below.
+        assert EnrichmentLabelResult.objects.filter(label_name="test_label").exists()
+
+    def test_a_failed_source_served_from_cache_counts_as_cached_not_failed(self):
+        self._sources_config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = self._sources_response()
+        source_store = {
+            "home": {"kind": "fetch", "fetched_at": "x", "error": "unreachable", "source": "cache"},
+        }
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.resolve_sources", return_value=source_store),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert "sources_fetched 0" in out.getvalue()
+        assert "sources_cached 1" in out.getvalue()
+        assert "sources_failed 0" in out.getvalue()
+
+
+class TestSourceDeferral(_BatchCommandTestCase):
+    """A transient source-fetch problem (busy/not_configured) must defer the whole org - no
+    classification, no result row, and no contribution to the circuit breaker - rather than
+    compute a permanent verdict against missing source content. See enrichment/sources.py's
+    TRANSIENT_SOURCE_ERRORS and enrichment_label_batch.py's _process."""
+
+    def _sources_config(self, **overrides: Any) -> EnrichmentPromptConfig:
+        params: dict[str, Any] = {"sources": _FETCH_SOURCE, "output_fields": _SOURCE_OUTPUT_FIELDS}
+        params.update(overrides)
+        return self._config(**params)
+
+    def test_a_busy_source_defers_the_org_without_writing_a_result(self):
+        self._sources_config()
+        org = _org_with_domain("acme", "acme.example")
+        self._fetch(organization=org)
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_SOURCES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        client.chat.completions.create.assert_not_called()
+        assert EnrichmentLabelResult.objects.count() == 0
+        assert "sources_deferred 1" in out.getvalue()
+        assert "failed 0" in out.getvalue()
+
+    def test_deferred_orgs_never_trip_the_circuit_breaker(self):
+        self._sources_config()
+        orgs = [_org_with_domain(f"org-{i}", f"org-{i}.example") for i in range(3)]
+        for org in orgs:
+            self._fetch(organization=org)
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_SOURCES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")),
+        ):
+            # max_failures=1 would abort after a single genuine failure; a deferral must not
+            # count as one, so all 3 orgs must be reached without a CommandError.
+            call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1, stdout=out)
+
+        client.chat.completions.create.assert_not_called()
+        assert EnrichmentLabelResult.objects.count() == 0
+        assert "sources_deferred 3" in out.getvalue()
+        assert "failed 0" in out.getvalue()
+
+    def test_deferred_orgs_are_excluded_from_the_success_rate_denominator(self) -> None:
+        self._sources_config()
+        good_org = _org_with_domain("good", "good.example")
+        self._fetch(organization=good_org)
+        busy_orgs = [_org_with_domain(f"busy-{i}", f"busy-{i}.example") for i in range(3)]
+        for org in busy_orgs:
+            self._fetch(organization=org)
+        client = _mock_llm_client()
+        # _sources_config's schema requires evidence_url; the default _good_response omits it.
+        client.chat.completions.create.return_value = _response(
+            json.dumps({"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://good.example"})
+        )
+        out = StringIO()
+
+        def _scrape(url: str, **kwargs: Any) -> MagicMock:
+            if "good.example" not in url:
+                raise FirecrawlEgressBudgetExhausted("boom")
+            scraped = MagicMock()
+            scraped.status_code = 200
+            scraped.markdown = "ok"
+            return scraped
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_SOURCES_MODULE}.scrape", side_effect=_scrape),
+        ):
+            # A 3-of-4 raw success rate would fail --min-success-rate 0.9; the 3 deferred orgs
+            # must drop out of the denominator so this run succeeds on the 1 org actually tried.
+            call_command("enrichment_label_batch", label="test_label", workers=1, min_success_rate=0.9, stdout=out)
+
+        assert EnrichmentLabelResult.objects.count() == 1
+        assert "succeeded 1" in out.getvalue()
+        assert "sources_deferred 3" in out.getvalue()
+
+
+class TestBatchRunReportEvent(_BatchCommandTestCase):
+    def test_emits_one_event_with_the_run_counts(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        capture = MagicMock()
+        scoped_capture = MagicMock()
+        scoped_capture.__enter__.return_value = capture
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_called_once_with(region="EU")
+        event = capture.call_args.kwargs
+        assert event["event"] == "ai_enrichment_label_batch_completed"
+        assert event["properties"] == {
+            "label": "test_label",
+            "version": "v1",
+            "attempted": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "sources_fetched": 0,
+            "sources_cached": 0,
+            "sources_failed": 0,
+            "sources_deferred": 0,
+        }
+
+    def test_skips_outside_a_cloud_region(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value=None),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture") as scoped_capture_factory,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_not_called()
+
+    def test_emits_even_when_the_run_fails(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _bad_response()
+        scoped_capture = MagicMock()
+        scoped_capture.__enter__.return_value = MagicMock()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+        ):
+            with self.assertRaises(CommandError):
+                call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_called_once()
+
+
 class TestAiProcessingConsent(_BatchCommandTestCase):
     def test_a_declined_org_is_never_sent_to_the_llm(self):
         self._config()
@@ -567,7 +894,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         assert EnrichmentLabelResult.objects.filter(organization=approved_org).exists()
         assert "attempted 1" in out.getvalue()
         assert "skipped_no_ai_consent 1" in out.getvalue()
-        assert "failures 0" in out.getvalue()
+        assert "failed 0" in out.getvalue()
 
     def test_the_dry_run_prints_a_skip_row_rather_than_an_error(self):
         self._config()

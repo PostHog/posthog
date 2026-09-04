@@ -17,12 +17,16 @@ from products.growth.backend.enrichment.labels import (
     ai_processing_approved,
     classify_payload,
     get_active_config,
+    has_usable_payload,
+    parse_sources,
     recent_latest_fetches_qs,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
+    validate_sources,
     verdict_field_key,
 )
+from products.growth.backend.enrichment.sources import TRANSIENT_SOURCE_ERRORS, resolve_sources
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
 
 _COMPANY_WIDTH = 30
@@ -79,6 +83,7 @@ class Command(BaseCommand):
         try:
             validate_input_fields(config)
             validate_output_fields(config)
+            validate_sources(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e
 
@@ -97,6 +102,7 @@ class Command(BaseCommand):
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring.
         verdict_key = verdict_field_key(config)
+        specs = parse_sources(config)
 
         # Columns come from the schema, not from hardcoded key names: a config whose keys aren't
         # named confidence/reasoning used to print 0.00 and blanks as if they were the answer.
@@ -137,7 +143,20 @@ class Command(BaseCommand):
                 # already tolerates this) must print one ERROR row, not kill the whole sample.
                 company = fetch.payload.get("name") or fetch.organization.name
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                sources = None
+                deferred_keys: list[str] = []
+                if specs and has_usable_payload(fetch.payload):
+                    name = (
+                        fetch.payload.get("name")
+                        if isinstance(fetch.payload.get("name"), str)
+                        else fetch.organization.name
+                    )
+                    sources = resolve_sources(fetch.organization_id, domain=signup_domain, name=name, specs=specs)
+                    deferred_keys = sorted(
+                        key for key, record in sources.items() if record.get("error") in TRANSIENT_SOURCE_ERRORS
+                    )
+                # An interactive sample classifies anyway and only reports the deferral.
+                output = classify_payload(config, fetch.payload, signup_domain, client, sources=sources)
             except Exception as e:
                 errors += 1
                 company = fetch.organization.name
@@ -173,6 +192,8 @@ class Command(BaseCommand):
                     for field in compare_config.output_fields
                 ]
             self.stdout.write(row_fmt.format(*row))
+            if deferred_keys:
+                self.stdout.write(f"  deferred sources (busy/not_configured): {', '.join(deferred_keys)}")
 
         summary = f"classified {classified}, unknown {unknown}, errors {errors}, skipped_no_ai_consent {skipped}"
         self.stdout.write(self.style.SUCCESS(summary) if errors == 0 else self.style.WARNING(summary))

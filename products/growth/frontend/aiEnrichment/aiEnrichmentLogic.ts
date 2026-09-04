@@ -23,6 +23,7 @@ import type {
     LabelListResponseApi,
     RunRequestApi,
     SaveRequestApi,
+    SourceApi,
 } from '../generated/api.schemas'
 import { growthAiEnrichmentRunCreateBodySampleDefault } from '../generated/api.zod'
 import {
@@ -31,6 +32,8 @@ import {
     buildOutputFieldsPayload,
     hasValidOutputFields,
 } from './aiEnrichmentOutputFields'
+
+export type AIEnrichmentSource = SourceApi
 
 // The run endpoint streams application/x-ndjson and isn't part of the generated response types
 // (backend documents it as a raw string body) - these mirror the row/summary shapes described in
@@ -60,6 +63,7 @@ interface AIEnrichmentEditorSnapshot {
     model: string
     inputFields: string[]
     outputFields: AIEnrichmentOutputField[]
+    sources: AIEnrichmentSource[]
 }
 
 const DEFAULT_MODEL = 'gpt-5-mini'
@@ -85,6 +89,21 @@ function sameOutputFieldSet(a: AIEnrichmentOutputField[], b: AIEnrichmentOutputF
     return normalize(a) === normalize(b)
 }
 
+function sameSourceSet(a: AIEnrichmentSource[], b: AIEnrichmentSource[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    const normalize = (sources: AIEnrichmentSource[]): string =>
+        [...sources]
+            .sort((left, right) => left.key.localeCompare(right.key))
+            .map(
+                (source) =>
+                    `${source.key}:${source.kind}:${source.url ?? ''}:${source.query ?? ''}:${source.limit ?? ''}`
+            )
+            .join('|')
+    return normalize(a) === normalize(b)
+}
+
 function safeDecodeURIComponent(value: string): string {
     try {
         return decodeURIComponent(value)
@@ -105,6 +124,7 @@ function configToSnapshot(config: ConfigVersionApi): AIEnrichmentEditorSnapshot 
             type: field.type,
             description: field.description ?? '',
         })),
+        sources: config.sources ?? [],
     }
 }
 
@@ -120,6 +140,7 @@ export interface aiEnrichmentLogicValues {
     editorModel: string
     editorOutputFields: AIEnrichmentOutputField[]
     editorPromptText: string
+    editorSources: AIEnrichmentSource[]
     isEditorDirty: boolean
     isRunning: boolean
     labels: LabelListResponseApi | null
@@ -156,6 +177,9 @@ export interface aiEnrichmentLogicActions {
     ) => {
         activateResult: ConfigVersionApi
         payload?: string
+    }
+    addEditorSource: () => {
+        value: true
     }
     addOutputField: () => {
         value: true
@@ -220,6 +244,9 @@ export interface aiEnrichmentLogicActions {
     loadVersionIntoEditor: (config: ConfigVersionApi) => {
         config: ConfigVersionApi
     }
+    removeEditorSource: (index: number) => {
+        index: number
+    }
     removeOutputField: (index: number) => {
         index: number
     }
@@ -262,6 +289,9 @@ export interface aiEnrichmentLogicActions {
     setEditorPromptText: (promptText: string) => {
         promptText: string
     }
+    setEditorSources: (sources: AIEnrichmentSource[]) => {
+        sources: SourceApi[]
+    }
     setIsRunning: (isRunning: boolean) => {
         isRunning: boolean
     }
@@ -276,6 +306,13 @@ export interface aiEnrichmentLogicActions {
     }
     setSelectedLabel: (label: string | null) => {
         label: string | null
+    }
+    updateEditorSource: (
+        index: number,
+        patch: Partial<AIEnrichmentSource>
+    ) => {
+        index: number
+        patch: Partial<SourceApi>
     }
     updateOutputField: (
         index: number,
@@ -297,7 +334,8 @@ export interface aiEnrichmentLogicMeta {
             editorPromptText: string,
             editorModel: string,
             editorInputFields: string[],
-            editorOutputFields: AIEnrichmentOutputField[]
+            editorOutputFields: AIEnrichmentOutputField[],
+            editorSources: SourceApi[]
         ) => boolean
         canRun: (
             selectedLabel: string | null,
@@ -332,6 +370,10 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
         removeOutputField: (index: number) => ({ index }),
         updateOutputField: (index: number, patch: Partial<AIEnrichmentOutputField>) => ({ index, patch }),
         seedDefaultOutputFields: true,
+        setEditorSources: (sources: AIEnrichmentSource[]) => ({ sources }),
+        addEditorSource: true,
+        removeEditorSource: (index: number) => ({ index }),
+        updateEditorSource: (index: number, patch: Partial<AIEnrichmentSource>) => ({ index, patch }),
         setSampleSize: (sampleSize: number) => ({ sampleSize }),
         runClassification: true,
         consumeRunLine: (line: string) => ({ line }),
@@ -382,6 +424,7 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                         model: values.editorModel,
                         input_fields: values.editorInputFields,
                         output_fields: buildOutputFieldsPayload(values.editorOutputFields),
+                        sources: values.editorSources,
                     }
                     return await growthAiEnrichmentSaveCreate(request)
                 },
@@ -444,6 +487,18 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                 updateOutputField: (state, { index, patch }) =>
                     state.map((field, existingIndex) => (existingIndex === index ? { ...field, ...patch } : field)),
                 seedDefaultOutputFields: () => DEFAULT_OUTPUT_FIELD_SEED.map((field) => ({ ...field })),
+            },
+        ],
+        editorSources: [
+            [] as AIEnrichmentSource[],
+            {
+                setSelectedLabel: () => [],
+                loadVersionIntoEditor: (_, { config }) => configToSnapshot(config).sources,
+                setEditorSources: (_, { sources }) => sources,
+                addEditorSource: (state) => [...state, { key: '', kind: 'fetch' as const, url: '' }],
+                removeEditorSource: (state, { index }) => state.filter((_, existingIndex) => existingIndex !== index),
+                updateEditorSource: (state, { index, patch }) =>
+                    state.map((source, existingIndex) => (existingIndex === index ? { ...source, ...patch } : source)),
             },
         ],
         sampleSize: [
@@ -511,13 +566,21 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                 versions.find((version) => version.is_active) ?? null,
         ],
         isEditorDirty: [
-            (s) => [s.loadedSnapshot, s.editorPromptText, s.editorModel, s.editorInputFields, s.editorOutputFields],
+            (s) => [
+                s.loadedSnapshot,
+                s.editorPromptText,
+                s.editorModel,
+                s.editorInputFields,
+                s.editorOutputFields,
+                s.editorSources,
+            ],
             (
                 loadedSnapshot: AIEnrichmentEditorSnapshot | null,
                 editorPromptText: string,
                 editorModel: string,
                 editorInputFields: string[],
-                editorOutputFields: AIEnrichmentOutputField[]
+                editorOutputFields: AIEnrichmentOutputField[],
+                editorSources: AIEnrichmentSource[]
             ): boolean => {
                 if (!loadedSnapshot) {
                     return editorPromptText.trim().length > 0
@@ -526,7 +589,8 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                     loadedSnapshot.promptText !== editorPromptText ||
                     loadedSnapshot.model !== editorModel ||
                     !sameInputFieldSet(loadedSnapshot.inputFields, editorInputFields) ||
-                    !sameOutputFieldSet(loadedSnapshot.outputFields, editorOutputFields)
+                    !sameOutputFieldSet(loadedSnapshot.outputFields, editorOutputFields) ||
+                    !sameSourceSet(loadedSnapshot.sources, editorSources)
                 )
             },
         ],
@@ -644,6 +708,7 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                         input_fields: values.editorInputFields,
                         output_fields: buildOutputFieldsPayload(values.editorOutputFields),
                         sample: values.sampleSize,
+                        sources: values.editorSources,
                     }
                     // The generated client (growthAiEnrichmentRunCreate) can't stream - it routes
                     // through lib/api, which buffers/parses the body as JSON. Only the URL builder is

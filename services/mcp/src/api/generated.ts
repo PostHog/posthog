@@ -18619,6 +18619,48 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `fetch` - fetch
+     * * `search` - search
+     */
+    export type SourceKindEnum = typeof SourceKindEnum[keyof typeof SourceKindEnum];
+
+
+    export const SourceKindEnum = {
+      Fetch: 'fetch',
+      Search: 'search',
+    } as const;
+
+    export interface Source {
+      /**
+         * Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, letters/digits/underscore only.
+         * @maxLength 32
+         * @pattern ^[a-z][a-z0-9_]{0,31}$
+         */
+      key: string;
+      /** 'fetch' scrapes one url; 'search' runs a web search.
+       *
+       * * `fetch` - fetch
+       * * `search` - search */
+      kind: SourceKindEnum;
+      /**
+         * Url template for a 'fetch' source, e.g. 'https://{domain}/pricing'. Required for kind 'fetch'.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Search query template for a 'search' source, e.g. '"{name}" AI OR LLM product'. Required for kind 'search'.
+         * @maxLength 500
+         */
+      query?: string;
+      /**
+         * Max results for a 'search' source (1-10). Ignored for kind 'fetch'.
+         * @minimum 1
+         * @maximum 10
+         */
+      limit?: number;
+    }
+
+    /**
      * * `boolean` - boolean
      * * `number` - number
      * * `string` - string
@@ -18664,6 +18706,8 @@ export namespace Schemas {
       model: string;
       /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
       input_fields: string[];
+      /** Web sources this config fetches per org through Firecrawl before classifying. Kind 'fetch' scrapes one url template; kind 'search' runs a web search from a query template. Templates may reference {domain} (the signup domain) and {name} (the Harmonic payload's name, falling back to the organization's name). Each fetch costs 1 Firecrawl credit and each search costs 2. Results reach the LLM as extra input columns and are stored on the result row, so a config with any sources must declare a string 'evidence_url' output field. */
+      sources: Source[];
       /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
       /** Whether the batch runner currently computes this version. */
@@ -76567,6 +76611,8 @@ export namespace Schemas {
       model: string;
       /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
       input_fields?: string[];
+      /** Web sources this config fetches per org through Firecrawl before classifying. Kind 'fetch' scrapes one url template; kind 'search' runs a web search from a query template. Templates may reference {domain} (the signup domain) and {name} (the Harmonic payload's name, falling back to the organization's name). Each fetch costs 1 Firecrawl credit and each search costs 2. Results reach the LLM as extra input columns and are stored on the result row, so a config with any sources must declare a string 'evidence_url' output field. */
+      sources?: Source[];
       /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
       /**
@@ -76912,6 +76958,8 @@ export namespace Schemas {
       model: string;
       /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
       input_fields?: string[];
+      /** Web sources this config fetches per org through Firecrawl before classifying. Kind 'fetch' scrapes one url template; kind 'search' runs a web search from a query template. Templates may reference {domain} (the signup domain) and {name} (the Harmonic payload's name, falling back to the organization's name). Each fetch costs 1 Firecrawl credit and each search costs 2. Results reach the LLM as extra input columns and are stored on the result row, so a config with any sources must declare a string 'evidence_url' output field. */
+      sources?: Source[];
       /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
     }

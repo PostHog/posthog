@@ -1,8 +1,8 @@
-"""Typed client for the one Firecrawl endpoint PostHog calls: a single-page scrape.
+"""Typed client for the Firecrawl endpoints PostHog calls: a single-page scrape and a web search.
 
 Firecrawl fetches and renders a page server-side and returns the extracted formats plus page
-metadata. Only ``POST /v2/scrape`` is wired up; crawl, map and search are separate products with
-their own credit cost and are not exposed until something needs them.
+metadata for ``POST /v2/scrape``, and ranked web results for ``POST /v2/search``. Crawl and map are
+separate products with their own credit cost and are not exposed until something needs them.
 """
 
 from collections.abc import Mapping, Sequence
@@ -32,6 +32,13 @@ DEFAULT_SCRAPE_FORMATS: tuple[ScrapeFormat, ...] = ("markdown", "summary")
 # while the connect timeout stays short: a connection that will not open is never worth waiting on.
 DEFAULT_SCRAPE_TIMEOUT: tuple[float, float] = (5.0, 45.0)
 
+SEARCH_ENDPOINT = "/v2/search"
+
+DEFAULT_SEARCH_TIMEOUT: tuple[float, float] = (5.0, 45.0)
+
+# Firecrawl bills search at 2 credits per 10 results, so an unbounded limit is an unbounded bill.
+MAX_SEARCH_LIMIT = 10
+
 
 class FirecrawlNotConfigured(Exception):
     """No Firecrawl API key is configured on this instance, so no call was made. Self-hosted
@@ -40,6 +47,11 @@ class FirecrawlNotConfigured(Exception):
 
 class FirecrawlScrapeFailed(Exception):
     """Firecrawl was reached but did not return a usable scrape (HTTP error, ``success: false``,
+    or a body that does not match the documented shape)."""
+
+
+class FirecrawlSearchFailed(Exception):
+    """Firecrawl was reached but did not return a usable search (HTTP error, ``success: false``,
     or a body that does not match the documented shape)."""
 
 
@@ -57,6 +69,25 @@ class FirecrawlScrape:
     credits_used: int | None = None
 
 
+@frozen
+class FirecrawlSearchResult:
+    """One web result from a Firecrawl search. Title and description are optional: Firecrawl does
+    not guarantee either is present for every result."""
+
+    url: str
+    title: str | None = None
+    description: str | None = None
+
+
+@frozen
+class FirecrawlSearch:
+    """The results of one Firecrawl web search."""
+
+    query: str
+    results: tuple[FirecrawlSearchResult, ...]
+    credits_used: int | None = None
+
+
 def _as_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
@@ -69,6 +100,12 @@ def _as_mapping(value: object) -> Mapping[str, object] | None:
     # An isinstance check cannot narrow the key type, but these mappings come from a parsed JSON
     # body, where every key is a string by construction.
     return cast(Mapping[str, object], value) if isinstance(value, Mapping) else None
+
+
+def _as_sequence(value: object) -> Sequence[object]:
+    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
+        return []
+    return value
 
 
 def scrape(
@@ -129,4 +166,76 @@ def scrape(
         description=_as_str(metadata.get("description")),
         status_code=_as_int(metadata.get("statusCode")),
         credits_used=_as_int(metadata.get("creditsUsed")),
+    )
+
+
+def search(
+    query: str,
+    *,
+    source: str,
+    limit: int = 5,
+    priority: Priority = Priority.NORMAL,
+    timeout: float | tuple[float, float] = DEFAULT_SEARCH_TIMEOUT,
+) -> FirecrawlSearch:
+    """Search the web through Firecrawl.
+
+    Raises :class:`FirecrawlNotConfigured` when the instance has no API key,
+    :class:`FirecrawlSearchFailed` when Firecrawl answers with anything but a successful search, and
+    :class:`~posthog.egress.firecrawl.transport.FirecrawlEgressBudgetExhausted` when our own egress
+    budget sheds the call.
+    """
+    if limit > MAX_SEARCH_LIMIT:
+        raise ValueError(f"limit must be at most {MAX_SEARCH_LIMIT}")
+
+    api_key = settings.FIRECRAWL_API_KEY
+    if not api_key:
+        raise FirecrawlNotConfigured("No FIRECRAWL_API_KEY configured")
+
+    response = firecrawl_request(
+        "POST",
+        f"{FIRECRAWL_API_BASE}{SEARCH_ENDPOINT}",
+        api_key=api_key,
+        source=source,
+        endpoint=SEARCH_ENDPOINT,
+        priority=priority,
+        timeout=timeout,
+        json={"query": query, "limit": limit, "sources": [{"type": "web"}]},
+    )
+
+    if not response.ok:
+        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} returned HTTP {response.status_code}")
+
+    try:
+        payload: object = response.json()
+    except ValueError as exc:
+        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} returned a non-JSON body") from exc
+
+    payload_mapping = _as_mapping(payload)
+    if payload_mapping is None or payload_mapping.get("success") is not True:
+        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} was unsuccessful")
+
+    data = _as_mapping(payload_mapping.get("data"))
+    if data is None:
+        raise FirecrawlSearchFailed(f"Firecrawl search for {query!r} returned no data")
+
+    results = []
+    for entry in _as_sequence(data.get("web")):
+        entry_mapping = _as_mapping(entry)
+        if entry_mapping is None:
+            continue
+        url = _as_str(entry_mapping.get("url"))
+        if url is None:
+            continue
+        results.append(
+            FirecrawlSearchResult(
+                url=url,
+                title=_as_str(entry_mapping.get("title")),
+                description=_as_str(entry_mapping.get("description")),
+            )
+        )
+
+    return FirecrawlSearch(
+        query=query,
+        results=tuple(results),
+        credits_used=_as_int(payload_mapping.get("creditsUsed")),
     )

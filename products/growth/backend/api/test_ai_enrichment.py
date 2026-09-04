@@ -23,6 +23,7 @@ from products.growth.backend.enrichment.labels import (
     MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
     MAX_OUTPUT_FIELDS,
     MAX_PROMPT_TEXT_CHARS,
+    MAX_SOURCES,
 )
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -76,6 +77,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
         is_active: bool = True,
         created_by=None,
         output_fields: list[dict[str, str]] | None = None,
+        sources: list[dict[str, Any]] | None = None,
     ) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig.objects.create(
             name=label,
@@ -84,6 +86,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
             output_fields=_OUTPUT_FIELDS if output_fields is None else output_fields,
             model="gpt-5-mini",
             input_fields=["name"],
+            sources=sources or [],
             is_active=is_active,
             created_by=self.user if created_by is None else created_by,
         )
@@ -146,6 +149,19 @@ class TestAIEnrichmentAPI(APIBaseTest):
         self.assertFalse(by_version["test-v2"]["has_results"])
         self.assertTrue(by_version["test-v2"]["is_active"])
         self.assertEqual(by_version["test-v1"]["created_by_email"], self.user.email)
+
+    def test_configs_response_carries_the_sources_field(self):
+        self._config(
+            label="sources_label", sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}]
+        )
+
+        response = self.client.get("/api/growth_ai_enrichment/configs/?label=sources_label")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        (config_row,) = response.json()["results"]
+        self.assertEqual(
+            config_row["sources"], [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}]
+        )
 
     def test_activate_flips_active_flag_and_deactivates_previous(self):
         old_active = self._config(label="test_label", version="test-v1", is_active=True)
@@ -380,6 +396,104 @@ class TestAIEnrichmentAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(EnrichmentPromptConfig.objects.filter(name="too_many_fields_label").count(), 0)
+
+    def test_save_accepts_a_valid_sources_list_and_stores_it(self):
+        payload = {
+            "label": "sources_label",
+            "prompt_text": "x",
+            "model": "gpt-5-mini",
+            "sources": [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+            "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+        }
+
+        response = self.client.post("/api/growth_ai_enrichment/save/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        config = EnrichmentPromptConfig.objects.get(name="sources_label")
+        self.assertEqual(config.sources, payload["sources"])
+
+    def test_save_rejects_a_source_with_an_unknown_kind(self):
+        response = self.client.post(
+            "/api/growth_ai_enrichment/save/",
+            {
+                "label": "bad_kind_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "sources": [{"key": "pricing", "kind": "crawl", "url": "https://{domain}/pricing"}],
+                "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="bad_kind_label").count(), 0)
+
+    def test_save_rejects_a_source_with_an_invalid_key(self):
+        response = self.client.post(
+            "/api/growth_ai_enrichment/save/",
+            {
+                "label": "bad_source_key_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "sources": [{"key": "Pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+                "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["attr"], "sources")
+        self.assertIn("key", body["detail"])
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="bad_source_key_label").count(), 0)
+
+    def test_save_rejects_too_many_sources(self):
+        response = self.client.post(
+            "/api/growth_ai_enrichment/save/",
+            {
+                "label": "too_many_sources_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "sources": [
+                    {"key": f"source_{i}", "kind": "fetch", "url": "https://{domain}/pricing"}
+                    for i in range(MAX_SOURCES + 1)
+                ],
+                "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="too_many_sources_label").count(), 0)
+
+    def test_save_rejects_sources_without_an_evidence_url_output_field(self):
+        response = self.client.post(
+            "/api/growth_ai_enrichment/save/",
+            {
+                "label": "missing_evidence_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "sources": [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+                "output_fields": _OUTPUT_FIELDS,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="missing_evidence_label").count(), 0)
+
+    def test_run_rejects_sources_without_an_evidence_url_output_field(self):
+        # RunRequestSerializer declares its own `sources` field and its own validate() override -
+        # a wiring guard that the same _validate_config_shape check reaches this endpoint too.
+        response = self.client.post(
+            "/api/growth_ai_enrichment/run/",
+            {
+                "label": "run_missing_evidence_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "sources": [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+                "output_fields": _OUTPUT_FIELDS,
+                "sample": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_save_has_no_mutation_endpoint_for_an_existing_version(self):
         # Versions are immutable: the freeze is enforced by this viewset simply never defining
@@ -741,6 +855,63 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         self.assertEqual(verdict_rows[0]["inputs"], {"name": "Acme"})
         self.assertEqual(summary_row["summary"], {"classified": 0, "unknown": 0, "errors": 1})
         mock_capture.assert_called_once()
+
+    def test_run_fetches_the_sources_a_draft_config_declares_and_feeds_them_to_the_classifier(self):
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            payload={"name": "Acme", "companyFound": True},
+        )
+        client = MagicMock()
+        client.with_options.return_value = client
+        llm_response = MagicMock()
+        llm_response.choices[0].message.content = json.dumps(
+            {
+                "is_ai": True,
+                "confidence": 0.9,
+                "reasoning": "ships an llm product",
+                "evidence_url": "https://posthog.com/pricing",
+            }
+        )
+        client.chat.completions.create.return_value = llm_response
+        # domain matches the test user's email domain (user1@posthog.com) - evidence_url
+        # validation nulls a citation whose host isn't the signup domain or a subdomain of it.
+        source_store = {
+            "pricing": {
+                "kind": "fetch",
+                "url": "https://posthog.com/pricing",
+                "markdown": "We build developer tools.",
+                "fetched_at": "2026-09-02T00:00:00+00:00",
+                "source": "scrape",
+            }
+        }
+
+        with (
+            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client),
+            patch("products.growth.backend.enrichment.lab.resolve_sources", return_value=source_store) as fetch_sources,
+        ):
+            response = self.client.post(
+                "/api/growth_ai_enrichment/run/",
+                {
+                    "label": "unsaved_label",
+                    "prompt_text": "judge from the pricing page.",
+                    "model": "gpt-5-mini",
+                    "input_fields": ["name"],
+                    "sources": [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+                    "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+                    "sample": 5,
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Drained inside the patch: classification runs lazily as the stream is consumed.
+            rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
+
+        (verdict_row,) = [row for row in rows if "summary" not in row]
+        fetch_sources.assert_called_once()
+        self.assertEqual(fetch_sources.call_args.kwargs["name"], "Acme")
+        self.assertEqual(verdict_row["inputs"]["sources.pricing.markdown"], "We build developer tools.")
+        self.assertEqual(verdict_row["outputs"]["evidence_url"], "https://posthog.com/pricing")
 
 
 class TestRunError(SimpleTestCase):

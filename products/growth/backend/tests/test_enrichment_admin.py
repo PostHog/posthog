@@ -83,6 +83,17 @@ class TestEnrichmentPromptConfigFormCleanOutputFields(SimpleTestCase):
         assert form.clean_output_fields() == ranged
 
 
+class TestEnrichmentPromptConfigFormCleanSources(SimpleTestCase):
+    def test_rejects_a_source_with_a_malformed_key(self) -> None:
+        form = EnrichmentPromptConfigForm()
+        form.cleaned_data = {"sources": [{"key": "Pricing", "kind": "fetch", "url": "https://{domain}/pricing"}]}
+
+        with self.assertRaises(ValidationError) as ctx:
+            form.clean_sources()
+
+        assert "Pricing" in str(ctx.exception)
+
+
 class _GrowthAdminTestCase(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -139,7 +150,7 @@ class TestEnrichmentPromptConfigAdminReadonlyFields(_GrowthAdminTestCase):
 
         readonly = self.admin.get_readonly_fields(self.request, config)
 
-        for field in ("name", "version", "prompt_text", "model", "input_fields", "output_fields"):
+        for field in ("name", "version", "prompt_text", "model", "input_fields", "sources", "output_fields"):
             assert field in readonly
 
     def test_a_sibling_version_with_results_does_not_lock_a_fresh_version(self) -> None:
