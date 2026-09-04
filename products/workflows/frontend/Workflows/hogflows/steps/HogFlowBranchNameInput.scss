@@ -1,0 +1,11 @@
+.HogFlowBranchNameInput {
+    .LemonInput {
+        background-color: transparent;
+        border-color: transparent;
+
+        &:hover:not([aria-disabled='true']),
+        &.LemonInput--focused:not([aria-disabled='true']) {
+            border-color: var(--color-border-primary) !important;
+        }
+    }
+}

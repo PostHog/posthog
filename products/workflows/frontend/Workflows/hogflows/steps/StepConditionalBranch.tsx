@@ -6,7 +6,6 @@ import { IconPlus, IconX } from '@posthog/icons'
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
@@ -15,6 +14,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
 import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useNameInputs } from './utils'
 
 type ConditionFilters = Extract<
@@ -150,20 +150,12 @@ export function StepConditionalBranchConfiguration({
                     >
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex min-w-0 flex-1 items-center gap-2">
-                                <span
-                                    className="size-2 shrink-0 rounded-full"
-                                    style={{ backgroundColor: branchColor }}
-                                />
-                                <LemonInput
+                                <HogFlowBranchNameInput
+                                    branchColor={branchColor}
                                     value={localConditionNames[index] || ''}
                                     onChange={(value) => handleNameChange(index, value)}
                                     placeholder={`Condition ${index + 1}`}
-                                    size="small"
-                                    transparentBackground
-                                    className="min-w-0 border-transparent bg-transparent hover:border-primary focus-within:border-primary"
-                                    aria-label={`Condition ${index + 1} name`}
-                                    onFocus={() => setSelectedBranch({ actionId: action.id, index })}
-                                    data-attr="workflow-panel-select-branch"
+                                    ariaLabel={`Condition ${index + 1} name`}
                                 />
                                 {isCountableCondition(condition.filters) && (
                                     <ConditionAudienceEstimate

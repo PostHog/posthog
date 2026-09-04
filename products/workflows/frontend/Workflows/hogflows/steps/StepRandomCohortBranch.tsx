@@ -5,12 +5,12 @@ import { useMemo, useState } from 'react'
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
 import { cohortPercentagesAddUp, normalizeCohortPercentages, parseCohortPercentage, useNameInputs } from './utils'
 
 // Print enough precision that the two figures in the imbalance warning cannot contradict each other:
@@ -137,33 +137,15 @@ export function StepRandomCohortBranchConfiguration({
                         onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
                     >
                         <div className="flex items-center justify-between gap-2">
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                noPadding
-                                className="min-w-0 justify-start"
-                                icon={
-                                    <span
-                                        className="size-2 shrink-0 rounded-full"
-                                        style={{ backgroundColor: branchColor }}
-                                    />
-                                }
-                                aria-label={`Select cohort ${index + 1} path`}
-                                aria-pressed={isBranchSelected}
-                                onClick={() => setSelectedBranch({ actionId: action.id, index })}
-                                data-attr="workflow-panel-select-branch"
-                            >
-                                Cohort {index + 1}
-                            </LemonButton>
+                            <HogFlowBranchNameInput
+                                branchColor={branchColor}
+                                value={localCohortNames[index] || ''}
+                                onChange={(value) => handleNameChange(index, value)}
+                                placeholder={`Cohort ${index + 1}`}
+                                ariaLabel={`Cohort ${index + 1} name`}
+                            />
                             <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
                         </div>
-
-                        <LemonInput
-                            value={localCohortNames[index] || ''}
-                            onChange={(value) => handleNameChange(index, value)}
-                            placeholder={`Cohort #${index + 1}`}
-                            size="small"
-                        />
 
                         <div className="flex items-center gap-2">
                             <input
