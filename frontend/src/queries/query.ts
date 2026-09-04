@@ -67,8 +67,9 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 // The server keeps running a query after the ingress drops the request, then records the outcome
-// under the client's query ID. Give it longer than a blocking query is allowed to run, and stay
-// inside the record's lifetime (BLOCKING_QUERY_STATUS_TTL_SECONDS, 15 minutes).
+// under the client's query ID. The wait runs from the drop, not from the request: a blocking query
+// may spend ten minutes in ClickHouse (HOGQL_INCREASED_MAX_EXECUTION_TIME) and only then write the
+// record, which itself lives for fifteen (BLOCKING_QUERY_STATUS_TTL_SECONDS).
 const DROPPED_REQUEST_RECOVERY_DEADLINE_MS = 10 * 60 * 1000
 const DROPPED_REQUEST_RECOVERY_POLL_INTERVAL_MS = 5_000
 
@@ -106,9 +107,9 @@ function blocksOnServer(refresh: RefreshType | undefined): boolean {
 async function waitForRecordedResult(
     queryId: string,
     methodOptions: ApiMethodOptions | undefined,
-    requestStartedAtMs: number
+    droppedAtMs: number
 ): Promise<QueryStatus | null> {
-    const untilMs = requestStartedAtMs + DROPPED_REQUEST_RECOVERY_DEADLINE_MS
+    const untilMs = droppedAtMs + DROPPED_REQUEST_RECOVERY_DEADLINE_MS
     for (;;) {
         try {
             const statusResponse = (await api.queryStatus.get(queryId, false)).query_status
@@ -261,7 +262,6 @@ async function executeQuery<N extends DataNode>(
      */
     recovery?: QueryRecoveryOutcome
 ): Promise<NonNullable<N['response']>> {
-    const requestStartedAtMs = Date.now()
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
         // Every blocking request carries an ID the server records its outcome under, so a
@@ -286,7 +286,7 @@ async function executeQuery<N extends DataNode>(
             }
             const droppedAtMs = Date.now()
             recovery.attempted = true
-            const recorded = await waitForRecordedResult(queryId, methodOptions, requestStartedAtMs)
+            const recorded = await waitForRecordedResult(queryId, methodOptions, droppedAtMs)
             if (!recorded) {
                 throw e
             }

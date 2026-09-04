@@ -357,6 +357,24 @@ describe('query', () => {
             expect(failed[0][1]).toMatchObject({ drop_recovery_attempted: true, error_status: 504 })
         })
 
+        it('waits for a record written past the time the request itself was allowed to run', async () => {
+            jest.spyOn(api, 'query').mockImplementationOnce(async () => {
+                // The gateway drops the request a minute in, while the query keeps running.
+                now += 60 * 1000
+                throw gatewayTimeout()
+            })
+            jest.spyOn(api.queryStatus, 'get')
+                .mockImplementationOnce(async () => {
+                    // The server writes the record just short of ten minutes after the drop, which
+                    // is past the ten minutes the query itself was allowed to spend in ClickHouse.
+                    now += 10 * 60 * 1000 - 10
+                    throw notRecordedYet()
+                })
+                .mockResolvedValueOnce({ query_status: { complete: true, results: { results: ['late'] } } } as any)
+
+            await expect(performQuery(query, undefined, 'blocking')).resolves.toMatchObject({ results: ['late'] })
+        })
+
         it('recovers a dropped force_cache request, which the endpoint runs when the cache is stale', async () => {
             jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
             const statusSpy = jest
