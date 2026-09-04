@@ -153,7 +153,9 @@ function isAssistantMessage(
   return message.role === "assistant";
 }
 
-function normalizeStopReason(stopReason: string | undefined): string | undefined {
+function normalizeStopReason(
+  stopReason: string | undefined,
+): string | undefined {
   return stopReason === "aborted" ? "cancelled" : stopReason;
 }
 

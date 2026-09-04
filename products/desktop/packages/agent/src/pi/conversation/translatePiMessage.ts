@@ -297,11 +297,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
             content: message.content,
             details: message.details,
           },
-      isInterrupted
-        ? "in_progress"
-        : message.isError
-          ? "failed"
-          : "completed",
+      isInterrupted ? "in_progress" : message.isError ? "failed" : "completed",
       message.timestamp,
     );
   }
