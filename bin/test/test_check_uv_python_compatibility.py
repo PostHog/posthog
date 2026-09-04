@@ -9,7 +9,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from bin.check_uv_python_compatibility import check_flox_alignment, check_uv_python_compatibility, label_workflow_pins
+from bin.check_uv_python_compatibility import (
+    FloxUv,
+    check_flox_alignment,
+    check_uv_python_compatibility,
+    label_workflow_pins,
+)
 
 
 class TestCheckUvPythonCompatibility(unittest.TestCase):
@@ -62,24 +67,29 @@ class TestLabelWorkflowPins(unittest.TestCase):
         self.assertEqual(set(locations), {"0.11.28", "0.10.2"})
 
 
+PINNED = FloxUv(install_id="uv", version="0.12.5")
+HELD_BACK = FloxUv(install_id="uv-x86_64-darwin", version="0.11.25")
+
+
 class TestCheckFloxAlignment(unittest.TestCase):
     @parameterized.expand(
         [
-            ("single_entry_matches", {"uv": ("0.12.5", "all")}, True),
-            ("single_entry_diverges", {"uv": ("0.11.25", "all")}, False),
-            (
-                "one_entry_lags_on_its_own_systems",
-                {"uv": ("0.12.5", "aarch64-darwin"), "uv-x86_64-darwin": ("0.11.25", "x86_64-darwin")},
-                True,
-            ),
-            ("every_entry_diverges", {"uv": ("0.11.28", "all"), "uv-old": ("0.11.25", "x86_64-darwin")}, False),
+            ("every_system_on_the_pin", {"aarch64-linux": PINNED, "x86_64-linux": PINNED}, True, "✓"),
+            ("one_system_held_back", {"aarch64-linux": PINNED, "x86_64-darwin": HELD_BACK}, True, "⚠"),
+            ("a_system_resolves_no_uv", {"aarch64-linux": PINNED, "x86_64-darwin": None}, False, "✗"),
+            ("no_system_on_the_pin", {"aarch64-linux": HELD_BACK, "x86_64-darwin": HELD_BACK}, False, "✗"),
         ]
     )
-    def test_alignment(self, _name, flox_entries, expected_ok):
-        with patch("bin.check_uv_python_compatibility.get_uv_versions_from_flox", return_value=flox_entries):
-            with redirect_stdout(io.StringIO()):
-                ok = check_flox_alignment("0.12.5")
+    def test_alignment(self, _name, coverage, expected_ok, expected_marker):
+        buffer = io.StringIO()
+        with (
+            patch("bin.check_uv_python_compatibility.get_uv_coverage_from_flox_lock", return_value=coverage),
+            redirect_stdout(buffer),
+        ):
+            ok = check_flox_alignment("0.12.5")
+
         self.assertEqual(ok, expected_ok)
+        self.assertIn(expected_marker, buffer.getvalue())
 
 
 if __name__ == "__main__":

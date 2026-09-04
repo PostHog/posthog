@@ -11,23 +11,25 @@ The shape we enforce:
   breaking the moment master ships a new pin. Raise the floor only when the
   code on master genuinely requires a newer uv feature.
 
-- .github/workflows/*.yml use setup-uv with an explicit exact version literal
-  (e.g. `version: '0.11.14'`). Every workflow pins the SAME exact version so
-  CI is deterministic across jobs. The pin must satisfy the pyproject floor.
-  An exact literal also avoids the historical GH API rate-limit issue caused
-  by range resolution (astral-sh/setup-uv#325).
+- .github/workflows/*.yml and their .depot/workflows/*.yml shadows use setup-uv
+  with an explicit exact version literal (e.g. `version: '0.11.14'`). Every
+  workflow pins the SAME exact version so CI is deterministic across jobs. The
+  pin must satisfy the pyproject floor. An exact literal also avoids the
+  historical GH API rate-limit issue caused by range resolution
+  (astral-sh/setup-uv#325).
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
   CI. Comparison is on major.minor to allow patch drift. The manifest may
   declare uv more than once, restricted by system, where the catalog cannot
-  serve the pin everywhere. At least one entry must match; the rest are
-  reported with the systems they cover so the gap stays visible.
+  serve the pin everywhere. Every declared system must resolve some uv, and at
+  least one must resolve the pin; a system the catalog holds back is reported
+  so the gap stays visible.
 
 Performs four checks:
 1. Workflow pins are present, exact literals, and identical across all files.
 2. Workflow pin satisfies pyproject's required-version floor.
 3. Workflow pin can download the required Python version.
-4. Flox manifest uv version matches the workflow pin on major.minor.
+4. Every flox system resolves uv, and at least one resolves the workflow pin.
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
@@ -38,7 +40,9 @@ Exit codes:
 
 import re
 import sys
+import json
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -92,58 +96,67 @@ def get_uv_floor_from_pyproject() -> str | None:
     return match.group(1) if match else None
 
 
-def get_uv_versions_from_flox() -> dict[str, tuple[str, str]]:
-    """Map each flox install entry that provides uv to its version and systems.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class FloxUv:
+    """The uv one system resolves to in the flox lock."""
 
-    The manifest declares uv more than once when the catalog cannot serve one
-    version on every system, so a single entry does not describe local parity.
+    install_id: str
+    version: str
+
+
+def get_uv_coverage_from_flox_lock() -> dict[str, FloxUv | None]:
+    """Map each system the flox environment declares to the uv it resolves to.
+
+    A system maps to None when no install entry gives it uv. Reading the lock
+    rather than the manifest reports resolved versions instead of `^` ranges,
+    and avoids restating flox's own rule for which systems an entry covers.
     """
-    flox_manifest = Path(__file__).parent.parent / ".flox" / "env" / "manifest.toml"
+    flox_lock = Path(__file__).parent.parent / ".flox" / "env" / "manifest.lock"
 
-    if not flox_manifest.exists():
+    if not flox_lock.exists():
         return {}
 
-    with open(flox_manifest, "rb") as f:
-        data = tomllib.load(f)
+    with open(flox_lock) as f:
+        lock = json.load(f)
 
-    all_systems = data.get("options", {}).get("systems", [])
+    resolved = {
+        package["system"]: FloxUv(install_id=package["install_id"], version=package["version"])
+        for package in lock.get("packages", [])
+        if package.get("attr_path") == "uv"
+    }
 
-    entries: dict[str, tuple[str, str]] = {}
-    for install_id, entry in data.get("install", {}).items():
-        if not isinstance(entry, dict) or entry.get("pkg-path") != "uv":
-            continue
-        match = re.search(r"(\d+\.\d+\.\d+)", str(entry.get("version", "")))
-        if match:
-            entries[install_id] = (match.group(1), ", ".join(entry.get("systems", all_systems)))
-
-    return entries
+    return {system: resolved.get(system) for system in lock.get("manifest", {}).get("options", {}).get("systems", [])}
 
 
 def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
     """Find all setup-uv usages in CI workflows and their version pins.
 
-    Returns a dict mapping workflow filename to list of version strings (or None
+    Returns a dict mapping workflow path to list of version strings (or None
     if a usage has no pin). Every usage must be pinned with an exact literal —
     unpinned setup-uv would resolve via GitHub API on every job and hit rate
     limits under concurrent load (see astral-sh/setup-uv#325).
+
+    The Depot shadows run the same jobs on Depot runners, so a pin that drifts
+    there diverges CI just as a GitHub one does.
     """
-    workflows_dir = Path(__file__).parent.parent / ".github" / "workflows"
+    repo_root = Path(__file__).parent.parent
     uv_usages: dict[str, list[str | None]] = {}
 
-    for workflow_file in sorted(workflows_dir.glob("*.yml")):
-        lines = workflow_file.read_text().splitlines()
-        for i, line in enumerate(lines):
-            if "setup-uv@" not in line:
-                continue
-            version: str | None = None
-            for lookahead in lines[i + 1 : i + 6]:
-                if re.match(r"^\s+-\s+name:", lookahead):
-                    break
-                m = re.match(r"^\s+version:\s*['\"]?([0-9.]+)['\"]?", lookahead)
-                if m:
-                    version = m.group(1)
-                    break
-            uv_usages.setdefault(workflow_file.name, []).append(version)
+    for workflows_dir in (repo_root / ".github" / "workflows", repo_root / ".depot" / "workflows"):
+        for workflow_file in sorted(workflows_dir.glob("*.yml")):
+            lines = workflow_file.read_text().splitlines()
+            for i, line in enumerate(lines):
+                if "setup-uv@" not in line:
+                    continue
+                version: str | None = None
+                for lookahead in lines[i + 1 : i + 6]:
+                    if re.match(r"^\s+-\s+name:", lookahead):
+                        break
+                    m = re.match(r"^\s+version:\s*['\"]?([0-9.]+)['\"]?", lookahead)
+                    if m:
+                        version = m.group(1)
+                        break
+                uv_usages.setdefault(str(workflow_file.relative_to(repo_root)), []).append(version)
 
     return uv_usages
 
@@ -291,32 +304,37 @@ def check_python_downloadable(workflow_pin: str | None, python_version: str) -> 
 
 
 def check_flox_alignment(workflow_pin: str | None) -> bool:
-    """Check 4: the flox manifest matches the workflow pin on major.minor."""
-    _section("Check 4: Flox manifest uv version alignment")
+    """Check 4: every flox system resolves uv, and at least one resolves the pin."""
+    _section("Check 4: Flox uv coverage and version alignment")
 
-    flox_entries = get_uv_versions_from_flox()
-    if not flox_entries:
-        print("⚠ Skipped: No flox manifest or uv version found")
+    coverage = get_uv_coverage_from_flox_lock()
+    if not coverage:
+        print("⚠ Skipped: No flox lock or declared systems found")
         return True
     if not workflow_pin:
         print("⚠ Skipped: No workflow pin to compare against")
         return True
 
-    pin_mm = ".".join(workflow_pin.split(".")[:2])
-    matched = {i: e for i, e in flox_entries.items() if ".".join(e[0].split(".")[:2]) == pin_mm}
+    pin_mm = parse_version(workflow_pin)[:2]
+    ok = True
+    matched = 0
+
+    for system, entry in sorted(coverage.items()):
+        if entry is None:
+            print(f"✗ Flox resolves no uv for {system}")
+            ok = False
+        elif parse_version(entry.version)[:2] == pin_mm:
+            matched += 1
+            print(f"✓ Flox {entry.install_id} at {entry.version} matches workflow pin {workflow_pin} on {system}")
+        else:
+            print(f"⚠ Flox {entry.install_id} at {entry.version} lags workflow pin {workflow_pin} on {system}")
 
     if not matched:
-        for install_id, (version, systems) in sorted(flox_entries.items()):
-            print(f"✗ Flox {install_id} at {version} diverges from workflow pin {workflow_pin} on {systems}")
-        print("  Update .flox/env/manifest.toml to match the workflow pin.")
-        return False
-
-    for install_id, (version, systems) in sorted(matched.items()):
-        print(f"✓ Flox {install_id} at {version} matches workflow pin {workflow_pin} on {systems}")
-    for install_id in sorted(set(flox_entries) - set(matched)):
-        version, systems = flox_entries[install_id]
-        print(f"⚠ Flox {install_id} at {version} lags the workflow pin on {systems}")
-    return True
+        print(f"✗ No flox system resolves uv {workflow_pin}")
+        ok = False
+    if not ok:
+        print("  Update .flox/env/manifest.toml, then refresh the lock with `flox activate`.")
+    return ok
 
 
 def main() -> int:
