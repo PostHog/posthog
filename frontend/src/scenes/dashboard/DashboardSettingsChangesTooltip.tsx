@@ -6,7 +6,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { InsightDetailSectionDisplay } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import type { DashboardFilterChange } from './dashboardSettingsChanges'
+import type { DashboardFilterChange } from './dashboardChanges'
 
 interface DashboardSettingsChangesTooltipProps {
     changes: DashboardFilterChange[]

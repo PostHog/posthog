@@ -1,7 +1,7 @@
 import type { HogQLVariable } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { getDashboardFilterChanges, getDashboardVariableChanges } from './dashboardSettingsChanges'
+import { getDashboardFilterChanges, getDashboardVariableChanges } from './dashboardChanges'
 
 describe('getDashboardFilterChanges', () => {
     it('lists new, changed, and removed property filters with their values', () => {

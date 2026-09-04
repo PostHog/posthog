@@ -136,13 +136,13 @@ import {
     hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
-import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import {
     getDashboardFilterChanges,
     getDashboardVariableChanges,
     type DashboardSettingsChange,
     type DashboardFilterChange,
-} from './dashboardSettingsChanges'
+} from './dashboardChanges'
+import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
