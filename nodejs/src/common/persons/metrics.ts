@@ -184,6 +184,12 @@ export const personhogStoreShadowComparedCounter = new Counter({
     labelNames: ['verb'],
 })
 
+export const personhogStoreShadowFoldRedriveCounter = new Counter({
+    name: 'personhog_store_shadow_fold_redrive_total',
+    help: 'Per-pair shadow merges re-driven after a fold the authoritative side executed aborted on the shadow, by outcome',
+    labelNames: ['outcome'],
+})
+
 export const personhogStoreShadowCompareFailedCounter = new Counter({
     name: 'personhog_store_shadow_compare_failed_total',
     help: 'Shadow comparisons that threw, which is a fault in the comparison rather than in either backend',

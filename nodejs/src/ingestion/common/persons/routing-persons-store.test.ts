@@ -21,6 +21,7 @@ jest.mock('~/common/persons/metrics', () => ({
     personhogStoreShadowDivergenceCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowComparedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowCompareFailedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personhogStoreShadowFoldRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
 }))
 
 const emptyMergeResult = (): MergePersonsResult => ({ survivor: null, results: [] })
@@ -234,6 +235,103 @@ describe('RoutingPersonsStore', () => {
             await store.mergePersons({} as never, 0)
 
             expect(divergences()).toEqual([{ verb: 'mergePersons', field: 'fold_disposition' }])
+        })
+
+        const foldRequest = () => ({
+            teamId: 1,
+            targetDistinctId: 'd1',
+            sources: [
+                { distinctId: 'anon-1', eventUuid: 'uuid-1' },
+                { distinctId: 'anon-2', eventUuid: 'uuid-2' },
+            ],
+            triggerSourceDistinctId: 'anon-1',
+            eventUuid: 'uuid-1',
+            eventOps: {
+                set: { plan: 'pro' },
+                setOnce: {},
+                unset: [],
+                denied: false,
+                shouldForceUpdate: false,
+                eventName: '$identify',
+            },
+            allowIdentifiedSources: false,
+            mergeMode: { type: 'SYNC' as const },
+            createdAtMs: 1_000,
+        })
+
+        it('a fold only the shadow aborted re-drives each pair as a sequential shadow merge', async () => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'merged' },
+                    { sourceDistinctId: 'anon-2', outcome: 'merged' },
+                ],
+            })
+            stores.personhogMock.mergePersons
+                .mockResolvedValueOnce({ survivor: null, results: [], foldAborted: 'conflict' })
+                .mockResolvedValue({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+                })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons(foldRequest() as never, 7)
+
+            // The fold call, then one plain merge per pair: the pair's own
+            // event uuid roots the op id, no trigger marks it fold-shaped,
+            // and the ops are empty.
+            expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
+            const pairCalls = stores.personhogMock.mergePersons.mock.calls.slice(1)
+            expect(pairCalls.map((call: any[]) => call[0].sources)).toEqual([
+                [{ distinctId: 'anon-1', eventUuid: 'uuid-1' }],
+                [{ distinctId: 'anon-2', eventUuid: 'uuid-2' }],
+            ])
+            expect(pairCalls.map((call: any[]) => call[0].eventUuid)).toEqual(['uuid-1', 'uuid-2'])
+            for (const call of pairCalls) {
+                expect(call[0].triggerSourceDistinctId).toBeUndefined()
+                expect(call[0].eventOps.set).toEqual({})
+            }
+        })
+
+        it('a fold both backends executed re-drives nothing', async () => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            stores.personhogMock.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons(foldRequest() as never, 7)
+
+            expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(1)
+        })
+
+        it('a failing re-drive pair does not stop the remaining pairs', async () => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'merged' },
+                    { sourceDistinctId: 'anon-2', outcome: 'merged' },
+                ],
+            })
+            stores.personhogMock.mergePersons
+                .mockResolvedValueOnce({ survivor: null, results: [], foldAborted: 'conflict' })
+                .mockRejectedValueOnce(new Error('redrive transport failure'))
+                .mockResolvedValue({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-2', outcome: 'merged' }],
+                })
+            const store = makeStore(stores, 'shadow')
+
+            await expect(store.mergePersons(foldRequest() as never, 7)).resolves.toBeDefined()
+
+            expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
         })
 
         it('a fold both backends aborted records nothing', async () => {

@@ -6,6 +6,7 @@ import {
     personhogStoreShadowComparedCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowErrorsCounter,
+    personhogStoreShadowFoldRedriveCounter,
     personhogStoreShadowSkipsCounter,
 } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
@@ -126,7 +127,8 @@ class ShadowVerbTimeoutError extends Error {
  * `mergePersons` like any other verb: each backend runs its own whole
  * merge (the identity service's saga, or the Postgres store's own), so
  * shadow mode rehearses every merge, folds included, against the
- * personhog backend's own graph.
+ * personhog backend's own graph; a fold only the shadow aborted is
+ * re-driven per pair.
  */
 export class RoutingPersonsStore implements PersonsStore {
     constructor(
@@ -180,7 +182,11 @@ export class RoutingPersonsStore implements PersonsStore {
         verb: string,
         pg: () => Promise<T>,
         personhog: () => Promise<T>,
-        opts?: { shadow?: () => Promise<unknown>; compare?: (authoritative: T, shadow: unknown) => void }
+        opts?: {
+            shadow?: () => Promise<unknown>
+            compare?: (authoritative: T, shadow: unknown) => void
+            after?: (authoritative: T, shadow: unknown) => Promise<void>
+        }
     ): Promise<T> {
         if (this.mode === 'personhog') {
             return personhog()
@@ -189,6 +195,7 @@ export class RoutingPersonsStore implements PersonsStore {
         await this.shadowed(verb, async () => {
             const shadow = await (opts?.shadow ?? personhog)()
             this.compared(verb, () => opts?.compare?.(result, shadow))
+            await opts?.after?.(result, shadow)
         })
         return result
     }
@@ -434,8 +441,74 @@ export class RoutingPersonsStore implements PersonsStore {
             'mergePersons',
             () => this.pg.mergePersons(request, batchId),
             () => this.personhog.mergePersons(request, batchId),
-            { compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow) }
+            {
+                compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow),
+                after: (authoritative, shadow) => this.redriveShadowFoldPairs(request, batchId, authoritative, shadow),
+            }
         )
+    }
+
+    /**
+     * A fold only the shadow aborted gets its pairs re-driven, single
+     * shot, as the fallback merges the service cannot issue (it sees only
+     * the executed authoritative result). Per-pair op ids let the pair's
+     * own event attach on redelivery; ops stay empty because plan events
+     * route theirs through the shadowed update path regardless.
+     */
+    private async redriveShadowFoldPairs(
+        request: MergePersonsRequest,
+        batchId: number,
+        authoritative: MergePersonsResult,
+        shadow: unknown
+    ): Promise<void> {
+        const shadowResult = shadow as MergePersonsResult
+        if (authoritative.foldAborted !== undefined || shadowResult?.foldAborted === undefined) {
+            return
+        }
+        for (const source of request.sources) {
+            try {
+                const result = await this.personhog.mergePersons(
+                    {
+                        teamId: request.teamId,
+                        targetDistinctId: request.targetDistinctId,
+                        sources: [source],
+                        eventUuid: source.eventUuid,
+                        eventOps: {
+                            set: {},
+                            setOnce: {},
+                            unset: [],
+                            denied: false,
+                            shouldForceUpdate: false,
+                            eventName: request.eventOps.eventName,
+                        },
+                        allowIdentifiedSources: request.allowIdentifiedSources,
+                        mergeMode: request.mergeMode,
+                        createdAtMs: request.createdAtMs,
+                    },
+                    batchId
+                )
+                const outcome = result.results[0]?.outcome ?? 'error'
+                personhogStoreShadowFoldRedriveCounter.labels({ outcome }).inc()
+                if (outcome !== 'merged' && outcome !== 'attached' && outcome !== 'noop_same_person') {
+                    // Named so a row comparison can exclude exactly these
+                    // pairs; the pair's next event re-attempts organically.
+                    logger.warn('shadow fold re-drive left the pair unmerged', {
+                        team_id: request.teamId,
+                        source_distinct_id: source.distinctId,
+                        target_distinct_id: request.targetDistinctId,
+                        outcome,
+                    })
+                }
+            } catch (error) {
+                personhogStoreShadowFoldRedriveCounter.labels({ outcome: errorClassLabel(error) }).inc()
+                logger.warn('shadow fold re-drive left the pair unmerged', {
+                    team_id: request.teamId,
+                    source_distinct_id: source.distinctId,
+                    target_distinct_id: request.targetDistinctId,
+                    outcome: errorClassLabel(error),
+                })
+            }
+        }
     }
 
     /**
