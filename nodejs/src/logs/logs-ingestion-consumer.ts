@@ -78,7 +78,7 @@ export interface LogsIngestionConsumerDeps {
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
-/** Retention tiers that get their own per-tier usage metric; total = sum across all tiers. */
+/** Retention day counts that get their own per-tier usage metric. */
 const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
 
 function retentionBytesMetricName(retentionDays: number): string | null {
@@ -889,7 +889,7 @@ export class LogsIngestionConsumer {
                         const jsonParse = logsSettings.json_parse_logs ?? false
                         const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
-                        // Retention is uniform per team; stash for retention-bucketed usage emit
+                        // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)
                         if (teamStats) {
                             teamStats.retentionDays = retentionDays
@@ -1124,6 +1124,11 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
+            // Byte-days: ingested bytes weighted by retention days. Summed over a period it is total
+            // storage-duration and scales to any retention day count (average retention =
+            // retention_byte_days / bytes_ingested). Uses credit-adjusted `bytesAllowed` to reconcile
+            // with `bytes_ingested`. Runs beside the per-tier metric above until billing leaves fixed tiers.
+            this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing

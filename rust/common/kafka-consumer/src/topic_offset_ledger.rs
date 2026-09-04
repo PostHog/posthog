@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use metrics::{counter, gauge};
-use tracing::warn;
 
 use crate::charge::Charge;
 use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger};
@@ -46,7 +45,13 @@ pub enum Rejection {
     /// The work violated the ledger's contract. The partition's window is
     /// unknown after this, so its ledger was reset to a new generation: work
     /// in flight drops as stale, and the next delivery founds a fresh ledger.
-    Violation(LedgerError),
+    /// `generation` and `held` describe the ledger before that reset.
+    Violation {
+        error: LedgerError,
+        stamp: u64,
+        generation: u64,
+        held: Held,
+    },
 }
 
 /// One [`PartitionOffsetLedger`] per partition, each founded under a
@@ -116,9 +121,15 @@ impl TopicOffsetLedger {
                 match ledger.charge(offset_charges) {
                     Ok(_) => Ok(ledger.held()),
                     Err(error) => {
+                        let held = ledger.held();
                         *ledger = PartitionOffsetLedger::new(generation + 1);
                         self.generations_version.fetch_add(1, Ordering::Relaxed);
-                        Err(Rejection::Violation(error))
+                        Err(Rejection::Violation {
+                            error,
+                            stamp,
+                            generation,
+                            held,
+                        })
                     }
                 }
             }
@@ -126,7 +137,7 @@ impl TopicOffsetLedger {
         // Outside the lock, and on every path, so no caller has to remember.
         match result {
             Ok(held) => publish_held(topic_partition, held),
-            Err(rejection) => count_rejection("charge", topic_partition, rejection),
+            Err(rejection) => count_rejection("charge", rejection),
         }
         result
     }
@@ -158,9 +169,15 @@ impl TopicOffsetLedger {
                         match ledger.complete(offsets) {
                             Ok(()) => Ok(ledger.frontier()),
                             Err(error) => {
+                                let held = ledger.held();
                                 *ledger = PartitionOffsetLedger::new(generation + 1);
                                 self.generations_version.fetch_add(1, Ordering::Relaxed);
-                                Err(Rejection::Violation(error))
+                                Err(Rejection::Violation {
+                                    error,
+                                    stamp,
+                                    generation,
+                                    held,
+                                })
                             }
                         }
                     }
@@ -170,7 +187,7 @@ impl TopicOffsetLedger {
         // The window only changes depth at a charge or a take, so a
         // settlement reports rejections and leaves the gauges alone.
         if let Err(rejection) = result {
-            count_rejection("settle", topic_partition, rejection);
+            count_rejection("settle", rejection);
         }
         result
     }
@@ -255,21 +272,16 @@ fn publish_held(topic_partition: &TopicPartition, held: Held) {
 }
 
 /// Count one charge or settlement the ledger rejected. A stale slice is
-/// expected around a rebalance; a violation is a bug in the accounting.
-fn count_rejection(stage: &'static str, topic_partition: &TopicPartition, rejection: Rejection) {
+/// expected around a rebalance; a violation is a bug in the accounting. The
+/// rejection is returned to the caller, which alone still holds the slice
+/// and so is the place to log it.
+fn count_rejection(stage: &'static str, rejection: Rejection) {
     match rejection {
         Rejection::Stale { .. } => {
             counter!(STALE_SLICES, "stage" => stage).increment(1);
         }
-        Rejection::Violation(error) => {
+        Rejection::Violation { error, .. } => {
             counter!(ERRORS, "stage" => stage, "kind" => error.kind()).increment(1);
-            warn!(
-                stage,
-                topic = %topic_partition.topic,
-                partition = topic_partition.partition,
-                error = %error,
-                "Offset ledger rejected a slice and reset its partition"
-            );
         }
     }
 }
@@ -614,10 +626,18 @@ mod tests {
         // violation, not a rebalance: the ledger cannot trust its window.
         assert_eq!(
             ledger.charge(&p0, 0, [(Offset(11), Charge::ZERO)]),
-            Err(Rejection::Violation(LedgerError::OffsetNotAboveWindow {
-                offset: Offset(11),
-                next: Offset(12),
-            }))
+            Err(Rejection::Violation {
+                error: LedgerError::OffsetNotAboveWindow {
+                    offset: Offset(11),
+                    next: Offset(12),
+                },
+                stamp: 0,
+                generation: 0,
+                held: Held {
+                    offsets: 2,
+                    charge: Charge::ZERO
+                },
+            })
         );
         assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
@@ -648,9 +668,15 @@ mod tests {
 
         assert_eq!(
             ledger.settle(&p0, 0, [Offset(15)]),
-            Err(Rejection::Violation(LedgerError::CompletionUncharged {
-                offset: Offset(15)
-            }))
+            Err(Rejection::Violation {
+                error: LedgerError::CompletionUncharged { offset: Offset(15) },
+                stamp: 0,
+                generation: 0,
+                held: Held {
+                    offsets: 1,
+                    charge: Charge::ZERO
+                },
+            })
         );
         assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(ledger.generation(&p0), 1);

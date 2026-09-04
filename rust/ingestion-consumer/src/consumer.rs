@@ -21,6 +21,7 @@ use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionO
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
+use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -677,12 +678,20 @@ impl IngestionConsumer {
         // off the per-message path.
         for (topic_partition, partition) in &partitions {
             // The ledger counts both outcomes and publishes what the window
-            // holds, so the charge needs no follow-up here.
-            let _ = self.topic_offset_ledger.charge(
+            // holds; a rejection is logged here, where the slice is still
+            // known.
+            if let Err(rejection) = self.topic_offset_ledger.charge(
                 topic_partition,
                 partition.generation,
                 partition.charges.iter().copied(),
-            );
+            ) {
+                warn_rejection(
+                    "charge",
+                    topic_partition,
+                    rejection,
+                    RejectedSlice::charged(&partition.charges),
+                );
+            }
         }
 
         Ok(CollectedBatch {
@@ -756,17 +765,26 @@ impl IngestionConsumer {
 
     /// Settle one partition's slice of a batch against the ledger and report
     /// the frontier it reached. `Err` when the ledger rejected the slice,
-    /// which it has already counted.
+    /// which it has already counted and this logs.
     fn settle(
         &self,
         topic_partition: &TopicPartition,
         partition: &PartitionDeliveries,
     ) -> Result<Option<Offset>, Rejection> {
-        self.topic_offset_ledger.settle(
-            topic_partition,
-            partition.generation,
-            partition.charges.iter().map(|(offset, _)| *offset),
-        )
+        self.topic_offset_ledger
+            .settle(
+                topic_partition,
+                partition.generation,
+                partition.charges.iter().map(|(offset, _)| *offset),
+            )
+            .inspect_err(|rejection| {
+                warn_rejection(
+                    "settle",
+                    topic_partition,
+                    *rejection,
+                    RejectedSlice::settled(&partition.span),
+                )
+            })
     }
 
     /// Validate and submit one commit to Kafka.
