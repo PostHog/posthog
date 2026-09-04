@@ -24,6 +24,9 @@ Team.objects.only("id").select_for_update(no_key=True).get(id=team_id)
 Project.objects.select_for_update().get(id=project_id)
 
 # ok: hot-parent-row-select-for-update
+TeamConversationsSlackConfig.objects.select_for_update().get(team_id=team_id)
+
+# ok: hot-parent-row-select-for-update
 Team.objects.filter(id=team_id).first()
 
 # ok: hot-parent-row-select-for-update
