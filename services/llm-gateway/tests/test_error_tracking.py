@@ -1,8 +1,10 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
+import openai
 import pytest
-from litellm.exceptions import AuthenticationError
+from litellm import exception_type
+from litellm.exceptions import AuthenticationError, RateLimitError
 
 import llm_gateway.observability.error_tracking as error_tracking_module
 
@@ -60,6 +62,32 @@ def _litellm_authentication_error(provider: str, code: str) -> AuthenticationErr
         model="test-model",
         response=response,
     )
+
+
+def _litellm_rate_limit_error(code: str) -> RateLimitError:
+    body = {"error": {"code": code, "message": "slow down"}}
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://example.com/v1/chat/completions"),
+        json=body,
+    )
+    provider_error = openai.RateLimitError("slow down", response=response, body=body["error"])
+    # litellm maps and raises from inside an `except` block, which is what leaves the provider
+    # exception on `__context__`. Raise the same way so the fixture matches production.
+    try:
+        raise provider_error
+    except Exception as handled:
+        try:
+            exception_type(
+                model="test-model",
+                original_exception=handled,
+                custom_llm_provider="openai",
+                completion_kwargs={},
+                extra_kwargs={},
+            )
+        except RateLimitError as mapped:
+            return mapped
+    raise AssertionError("litellm did not map the provider rate limit failure")
 
 
 class TestCaptureException:
@@ -122,6 +150,7 @@ class TestCaptureException:
                 ":401:invalid_organization",
             ),
             (_ProviderError(500), ":500:unknown"),
+            (_litellm_rate_limit_error("rate_limit_exceeded"), ":429:rate_limit_exceeded"),
         ],
     )
     def test_reads_the_code_wherever_litellm_leaves_it(self, error, expected):
