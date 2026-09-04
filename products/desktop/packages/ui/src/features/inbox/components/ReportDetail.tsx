@@ -10,6 +10,7 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportOwnerSection } from "@posthog/ui/features/inbox/components/ReportOwnerSection";
 import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportRunsSection";
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
@@ -115,6 +116,7 @@ function ReportDetailContent({
           showDismiss={false}
           showMetadata={false}
         >
+          <ReportOwnerSection report={report} />
           <ReportReviewersSection report={report} />
           <ReportRunsSection report={report} />
           <ReportActivitySection reportId={report.id} />

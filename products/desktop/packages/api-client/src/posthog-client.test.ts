@@ -7,6 +7,7 @@ import {
   DESKTOP_BILLING_LIMIT_ERROR_CODE,
   PostHogAPIClient,
   SESSION_LOGS_PAGE_TIMEOUT_MS,
+  SignalReportClaimConflictError,
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
@@ -2001,6 +2002,58 @@ describe("PostHogAPIClient", () => {
       } else {
         await expect(request).resolves.toMatchObject({ status: "suppressed" });
       }
+    });
+  });
+
+  describe("claimSignalReport", () => {
+    function makeClient(fetch: FetchImplementation): PostHogAPIClient {
+      return new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+    }
+
+    it("posts the claim and returns the updated report", async () => {
+      const fetch = vi.fn<FetchImplementation>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "abc",
+            work_state: "working",
+            assignee: { kind: "agent", agent: "scout-runner" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.claimSignalReport("abc", {
+          pr_url: "https://github.com/o/r/pull/1",
+        }),
+      ).resolves.toMatchObject({ work_state: "working" });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        "/api/projects/42/signals/reports/abc/claim/",
+      );
+      expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toStrictEqual({
+        pr_url: "https://github.com/o/r/pull/1",
+      });
+    });
+
+    it("surfaces a claim conflict as a recoverable error", async () => {
+      const fetch = vi.fn<FetchImplementation>().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Report already resolved." }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = makeClient(fetch);
+
+      await expect(client.claimSignalReport("abc")).rejects.toThrow(
+        SignalReportClaimConflictError,
+      );
     });
   });
 

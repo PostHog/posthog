@@ -709,6 +709,36 @@ export interface SignalReportChart {
   size?: SignalReportChartSize | null;
 }
 
+/** Kind of actor that can own a report claim. */
+export type SignalActorKind = "user" | "task" | "agent" | "system";
+
+/** Latest known state of a report's implementation pull request. */
+export type SignalReportPrState =
+  | "unknown"
+  | "draft"
+  | "open"
+  | "closed"
+  | "merged";
+
+/** Remediation state the server derives from a report's claim and pull request. */
+export type SignalReportWorkState =
+  | "unclaimed"
+  | "working"
+  | "in_review"
+  | "done";
+
+/**
+ * Current owner of a report. Exactly one of `user`, `task_id`, or `agent`
+ * carries the identity, chosen by `kind`; a system claim carries none of them.
+ */
+export interface SignalReportAssignee {
+  kind: SignalActorKind;
+  user?: UserBasic | null;
+  task_id?: string | null;
+  agent?: string | null;
+  claimed_at?: string | null;
+}
+
 export interface SignalReport {
   id: string;
   title: string | null;
@@ -734,14 +764,23 @@ export interface SignalReport {
   is_suggested_reviewer?: boolean;
   /** Distinct source products contributing signals to this report. */
   source_products?: string[];
-  /** PR URL from the latest implementation task run, if available. */
+  /** PR URL attached to the report's claim, or from the latest implementation task run. */
   implementation_pr_url?: string | null;
+  /** Latest known state of that pull request. */
+  implementation_pr_state?: SignalReportPrState | null;
   /**
    * Whether that PR merged (GitHub webhook). A merged PR is history, not work
    * in flight: a report can outlive its fix when evidence keeps arriving, and
    * its old PR must not read as reviewable or continuable.
    */
   implementation_pr_merged?: boolean;
+  /**
+   * Who owns the report right now: a user, an internal task, an external agent,
+   * or the system. Null when nobody has claimed it.
+   */
+  assignee?: SignalReportAssignee | null;
+  /** Remediation state the server derives from the claim and its pull request. */
+  work_state?: SignalReportWorkState;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */
