@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
+from celery.result import EagerResult
 from parameterized import parameterized
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
@@ -20,7 +21,7 @@ from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
 )
-from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
+from posthog.clickhouse.client.async_task_chain import execute_task_chain, kick_off_task, task_chain_context
 from posthog.clickhouse.client.execute_async import (
     QueryNotFoundError,
     QueryResultExpiredError,
@@ -239,6 +240,30 @@ class TestAsyncTaskChain(SimpleTestCase):
 
         chain_mock.assert_called_once_with(*signatures)
         chain_mock.return_value.apply_async.assert_called_once_with()
+
+    def test_dispatch_keeps_the_record_the_task_wrote(self) -> None:
+        get_client().flushall()
+        query_id = "query-run-inline"
+        team_id = 12345
+        cache_key = "cache_run_inline"
+        manager = QueryStatusManager(query_id, team_id)
+
+        # An eager Celery app runs the task inside apply_async. By the time it returns, the worker
+        # has already filed the finished record, which points at the result in the query cache.
+        def run_task_inline(task_id: str) -> EagerResult:
+            manager.store_query_status(QueryStatus(id=query_id, team_id=team_id, complete=True), cache_key=cache_key)
+            return EagerResult(task_id, None, "SUCCESS")
+
+        signature = MagicMock()
+        signature.apply_async.side_effect = run_task_inline
+
+        kick_off_task(manager, QueryStatus(id=query_id, team_id=team_id), signature)
+
+        raw_record = get_client().get(manager.status_key)
+        assert raw_record is not None
+        record = json.loads(raw_record)
+        assert record["complete"] is True
+        assert record["cache_key"] == cache_key
 
 
 class TestExecuteProcessQuery(TestCase):
