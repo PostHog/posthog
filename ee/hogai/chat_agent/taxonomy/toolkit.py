@@ -221,7 +221,11 @@ class TaxonomyAgentToolkit:
         names: list[str],
         group_type_index: int | None = None,
     ) -> dict[str, str]:
-        """Map property name -> sanitized user-authored description from the team's property definitions.
+        """Map property name -> sanitized user-authored description from the project's property definitions.
+
+        Scoped to the project, so a description written in any environment of the project is
+        visible here. `effective_project_id_expr()` falls back to `team_id` for legacy rows whose
+        `project_id` is still null.
 
         Only the enterprise `PropertyDefinition` model carries a `description` field, so this is a
         no-op on non-EE builds. Descriptions live only in Postgres and never influence which
