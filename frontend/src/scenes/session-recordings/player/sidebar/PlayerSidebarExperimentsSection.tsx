@@ -258,10 +258,14 @@ interface ExposureTimeProps {
 // before-start or after-end jump lands on the closest captured frame rather than the exposure
 // moment, so the tooltip names the gap and says what the jump does.
 function ExposureTime({ offsetMs, placement, onSeek }: ExposureTimeProps): JSX.Element {
-    const magnitude = colonDelimitedDuration(Math.abs(offsetMs) / 1000, null)
+    // An in-window offset is a playback position, so it floors to match the player clock. An
+    // out-of-window gap rounds up instead: flooring one under a second would print 00:00, the same
+    // "no exposure here" reading this column exists to correct.
+    const seconds = placement === 'inside' ? Math.floor(offsetMs / 1000) : Math.ceil(Math.abs(offsetMs) / 1000)
+    const magnitude = colonDelimitedDuration(seconds, null)
     const label = placement === 'before' ? `-${magnitude}` : placement === 'after' ? `+${magnitude}` : magnitude
-    // Floored like the label, so the tooltip's spelled-out gap and the compact offset agree.
-    const gap = humanFriendlyDuration(Math.floor(Math.abs(offsetMs) / 1000))
+    // The same rounded value as the label, so the spelled-out gap and the compact offset agree.
+    const gap = humanFriendlyDuration(seconds)
     const tooltip =
         placement === 'before'
             ? `The exposure fired ${gap} before the replay begins. Jumps to the first frame.`
