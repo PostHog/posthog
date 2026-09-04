@@ -13,14 +13,18 @@ Variants come from the flag, via complementary event signals:
   SDK dedupe gap: a returning user's later sessions may carry no exposure event at all.
 
 The exposure timestamp follows each experiment's exposure criteria, but only within this
-session: the experiment analysis counts exposure per person across the whole run window
-(and applies test-account filtering and multiple-variant handling, which are deliberately
-not applied here — this surface shows the raw session truth). Callers must present this as
-what the session *saw*, not what the experiment analysis counts.
+session and only within the experiment's own run window: every variant source is clipped to
+[start_date, end_date], so a flag evaluation from before the experiment launched or after it
+was stopped is not reported as a variant the session saw. The experiment analysis counts
+exposure per person across the whole run window (and applies test-account filtering and
+multiple-variant handling, which are deliberately not applied here — this surface shows the
+raw session truth). Callers must present this as what the session *saw*, not what the
+experiment analysis counts.
 """
 
 import logging
 import contextvars
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -38,10 +42,11 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, uuidv7_session_lower_bound
@@ -96,6 +101,42 @@ MAX_SESSION_CONTEXT_BATCH = 20
 MAX_SESSION_CONTEXT_BATCH_DAYS = 5
 
 
+@frozen
+class _ScanWindow:
+    """A closed timestamp range one variant source is read over."""
+
+    start: datetime
+    end: datetime
+
+
+@frozen
+class _RunWindow:
+    """An experiment's own run window, open-ended (`end is None`) while the experiment runs.
+
+    Variant evidence from outside this window is not something the session saw while the
+    experiment ran, so every variant source is clipped to it. The experiment analysis clips the
+    same way, which is why an evaluation past `end_date` shows up in the replay context but not
+    in the results.
+    """
+
+    start: datetime
+    end: Optional[datetime]
+
+    def union(self, other: "_RunWindow") -> "_RunWindow":
+        """The window covering both runs, open-ended if either experiment still runs."""
+        return _RunWindow(
+            start=min(self.start, other.start),
+            end=None if self.end is None or other.end is None else max(self.end, other.end),
+        )
+
+    def clip(self, window_start: datetime, window_end: datetime) -> Optional[_ScanWindow]:
+        """This run window intersected with the given scan window, or None when they don't
+        overlap at all and the source has nothing to read."""
+        start = max(self.start, window_start)
+        end = window_end if self.end is None else min(self.end, window_end)
+        return _ScanWindow(start=start, end=end) if start <= end else None
+
+
 @dataclass(frozen=True)
 class _ResolvedExposure:
     """An experiment's exposure criteria resolved to what its exposure query needs: which
@@ -145,13 +186,16 @@ class _ResolvedCandidates:
     variant_keys_by_id: dict[int, set[str]]
     batchable_ids: set[int]
     all_variant_keys: set[str]
-    branch_meta: list[tuple[int, "_ResolvedExposure", set[str]]]
+    branch_meta: list[tuple[int, "_ResolvedExposure", set[str], "_RunWindow"]]
+    run_window_by_flag_key: dict[str, "_RunWindow"]
 
 
 def _cache_key(team: Team, user: User, session_id: str) -> str:
     # The version segment must be bumped whenever the cached dataclasses change shape: entries are
-    # pickled, so a deploy would otherwise restore instances missing the new fields.
-    return f"experiment_session_context_v2_{team.pk}_{user.pk}_{session_id}"
+    # pickled, so a deploy would otherwise restore instances missing the new fields. Bump it for a
+    # fix that changes the computed values too, so corrected entries replace wrong ones on deploy
+    # instead of after the TTL.
+    return f"experiment_session_context_v3_{team.pk}_{user.pk}_{session_id}"
 
 
 def _accessible_items(
@@ -325,9 +369,10 @@ def _compute_session_experiment_contexts(
     )
     # Every overlapping experiment's flag key (uncapped — the rescue below must be able to see
     # beyond the candidate cap), its exposure criteria, its defined variant names, and its run
-    # window (so each day-chunk can pick its own candidate slice below). Filtering the exposure
-    # queries to these bounds their cardinality by real configuration: sessions call plenty of
-    # non-experiment flags, and event payloads can carry arbitrary keys/variants.
+    # window (so each day-chunk can pick its own candidate slice below, and every variant source
+    # is clipped to the window its experiment ran over). Filtering the exposure queries to these
+    # bounds their cardinality by real configuration: sessions call plenty of non-experiment
+    # flags, and event payloads can carry arbitrary keys/variants.
     flag_meta = list(
         overlapping.order_by("-start_date").values_list(
             "id", "feature_flag__key", "feature_flag__filters", "exposure_criteria", "start_date", "end_date"
@@ -344,8 +389,16 @@ def _compute_session_experiment_contexts(
     variant_keys_by_id: dict[int, set[str]] = {}
     batchable_ids: set[int] = set()
     all_variant_keys: set[str] = set()
-    branch_meta: list[tuple[int, _ResolvedExposure, set[str]]] = []
-    for experiment_id, flag_key, filters, exposure_criteria, _start_date, _end_date in flag_meta:
+    branch_meta: list[tuple[int, _ResolvedExposure, set[str], _RunWindow]] = []
+    run_window_by_flag_key: dict[str, _RunWindow] = {}
+    for experiment_id, flag_key, filters, exposure_criteria, start_date, end_date in flag_meta:
+        run_window = _RunWindow(start=start_date, end=end_date)
+        # The batched flag-evaluation and stamped-property queries key on flag key, not on
+        # experiment id, so two experiments sharing one flag read the union of their run
+        # windows. The approximation only widens the window, and experiments are effectively
+        # 1:1 with flags in practice.
+        seen_window = run_window_by_flag_key.get(flag_key)
+        run_window_by_flag_key[flag_key] = seen_window.union(run_window) if seen_window else run_window
         variant_keys = _variant_keys_from_filters(filters)
         if not variant_keys:
             continue
@@ -356,7 +409,7 @@ def _compute_session_experiment_contexts(
         if resolution.batchable:
             batchable_ids.add(experiment_id)
         else:
-            branch_meta.append((experiment_id, resolution, variant_keys))
+            branch_meta.append((experiment_id, resolution, variant_keys, run_window))
     if not flag_key_by_id:
         # No overlapping experiment defines variants, so nothing could surface a variant seen.
         return {window.session_id: [] for window in windows}, set()
@@ -431,6 +484,7 @@ def _compute_session_experiment_contexts(
         batchable_ids=batchable_ids,
         all_variant_keys=all_variant_keys,
         branch_meta=branch_meta,
+        run_window_by_flag_key=run_window_by_flag_key,
     )
 
     results: dict[str, list[ExperimentSessionContextItem]] = {}
@@ -481,13 +535,13 @@ def _compute_chunk_contexts(
         user,
         shared_hogql,
         session_ids,
-        window_start,
-        window_end,
-        set(resolved.flag_key_by_id.values()),
+        _scan_windows_by_flag_key(
+            resolved.run_window_by_flag_key, resolved.flag_key_by_id.values(), window_start, window_end
+        ),
         resolved.all_variant_keys,
     )
     # Same width backstop as the candidate cap — each branch experiment adds a union branch, so
-    # (unlike the constant-width flag-evaluations query) non-batchable experiments beyond the
+    # (unlike the single-scan flag-evaluations query) non-batchable experiments beyond the
     # cap are deliberately not queried: they get no criteria-driven exposure moment, though
     # flag evaluations still evidence (and rescue) them like any other experiment.
     query_exposure_branches = partial(
@@ -507,7 +561,7 @@ def _compute_chunk_contexts(
         user,
         shared_hogql,
         session_ids,
-        candidate_keys,
+        _scan_windows_by_flag_key(resolved.run_window_by_flag_key, candidate_keys, window_start, window_end),
         window_start,
         window_end,
     )
@@ -557,7 +611,13 @@ def _compute_chunk_contexts(
     if rescued_keys:
         candidates = candidates + list(resolved.overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
         rescued_stamped = _query_stamped_flag_properties(
-            team, user, shared_hogql, session_ids, rescued_keys, window_start, window_end
+            team,
+            user,
+            shared_hogql,
+            session_ids,
+            _scan_windows_by_flag_key(resolved.run_window_by_flag_key, rescued_keys, window_start, window_end),
+            window_start,
+            window_end,
         )
         for session_id, values_by_key in rescued_stamped.items():
             stamped.setdefault(session_id, {}).update(values_by_key)
@@ -748,22 +808,38 @@ def _variant_keys_from_filters(filters: Optional[dict]) -> set[str]:
     return {variant["key"] for variant in multivariate.get("variants", []) if variant.get("key")}
 
 
+def _scan_windows_by_flag_key(
+    run_windows: dict[str, _RunWindow],
+    flag_keys: Iterable[str],
+    window_start: datetime,
+    window_end: datetime,
+) -> dict[str, _ScanWindow]:
+    """The timestamp range each flag key's events are read over: the experiment's run window
+    intersected with the scan window. A key whose experiment did not run during the scan window
+    at all is dropped, since none of its events can evidence a variant the session saw."""
+    windows: dict[str, _ScanWindow] = {}
+    for flag_key in flag_keys:
+        window = run_windows[flag_key].clip(window_start, window_end)
+        if window is not None:
+            windows[flag_key] = window
+    return windows
+
+
 def _query_flag_evaluations(
     team: Team,
     user: User,
     shared_hogql: SharedHogQLDatabase,
     session_ids: list[str],
-    window_start: datetime,
-    window_end: datetime,
-    flag_keys: set[str],
+    flag_key_windows: dict[str, _ScanWindow],
     variants: set[str],
 ) -> dict[str, dict[str, list[tuple[str, datetime]]]]:
     """The sessions' `$feature_flag_called` events for the given experiment flag keys and
-    defined variant names, as session_id -> flag_key -> [(variant, first_seen)]. Serves two
-    roles: variant evidence for every experiment (the replay shows what the session was
-    served, whatever the exposure criteria say), and the exposure moment for experiments whose
-    criteria resolve to the plain default shape (`$feature_flag_called` with no extra property
-    filters).
+    defined variant names, as session_id -> flag_key -> [(variant, first_seen)]. Each key is
+    read only over its own scan window, so an evaluation from outside the experiment's run
+    window never reaches the caller. Serves two roles: variant evidence for every experiment
+    (the replay shows what the session was served, whatever the exposure criteria say), and the
+    exposure moment for experiments whose criteria resolve to the plain default shape
+    (`$feature_flag_called` with no extra property filters).
 
     Shape-bound to `$feature_flag_called` on purpose — the `$feature_flag` batching key and
     the `$feature_flag_response` variant property come with that event, so all three are
@@ -771,6 +847,25 @@ def _query_flag_evaluations(
     query needs no rewrite: flag evaluations stay `$feature_flag_called` events, and
     `_resolve_exposure` stops classifying criteria-less experiments as batchable, so their
     exposure moments move to the branch path."""
+    if not flag_key_windows:
+        return {}
+    # One clause per flag key, each carrying that experiment's own timestamp range. The clip
+    # has to happen in SQL: the query returns min(timestamp) per (session, flag, variant), so a
+    # variant evaluated both before and during the run collapses into a single row with a
+    # pre-start timestamp, and dropping that row in Python would erase a variant the session
+    # really saw while the experiment ran. The clause count matches the flag-key list this
+    # query filtered to before, so it is bounded by the team's launched experiments.
+    flag_key_clauses = [
+        parse_expr(
+            "properties.$feature_flag = {flag_key} AND timestamp >= {window_start} AND timestamp <= {window_end}",
+            placeholders={
+                "flag_key": ast.Constant(value=flag_key),
+                "window_start": ast.Constant(value=window.start),
+                "window_end": ast.Constant(value=window.end),
+            },
+        )
+        for flag_key, window in sorted(flag_key_windows.items())
+    ]
     query = parse_select(
         """
         SELECT $session_id AS session_id,
@@ -780,19 +875,15 @@ def _query_flag_evaluations(
         FROM events
         WHERE event = '$feature_flag_called'
           AND $session_id IN {session_ids}
-          AND properties.$feature_flag IN {flag_keys}
           AND toString(properties.$feature_flag_response) IN {variants}
-          AND timestamp >= {window_start}
-          AND timestamp <= {window_end}
+          AND {flag_key_windows}
         GROUP BY session_id, flag_key, variant
         LIMIT {max_rows}
         """,
         placeholders={
             "session_ids": ast.Constant(value=session_ids),
-            "flag_keys": ast.Constant(value=sorted(flag_keys)),
             "variants": ast.Constant(value=sorted(variants)),
-            "window_start": ast.Constant(value=window_start),
-            "window_end": ast.Constant(value=window_end),
+            "flag_key_windows": ast.Or(exprs=flag_key_clauses),
             "max_rows": ast.Constant(value=MAX_EXPOSURE_ROWS),
         },
     )
@@ -815,7 +906,7 @@ def _query_exposure_event_branches(
     session_ids: list[str],
     window_start: datetime,
     window_end: datetime,
-    branch_meta: list[tuple[int, _ResolvedExposure, set[str]]],
+    branch_meta: list[tuple[int, _ResolvedExposure, set[str], _RunWindow]],
 ) -> dict[str, dict[int, list[tuple[str, datetime]]]]:
     """The sessions' exposure events for experiments whose criteria don't fit the batched
     default query (a custom event, an action, or the default event narrowed by property
@@ -825,10 +916,16 @@ def _query_exposure_event_branches(
     experiment's exposure criteria via `build_exposure_event_conditions`, and the variant from
     the property `get_exposure_event_and_property` dictates — the stamped `$feature/<key>`
     property for custom events and actions (they carry no `$feature_flag_response`),
-    `$feature_flag_response` for the default event.
+    `$feature_flag_response` for the default event. Each branch reads only the part of the scan
+    window its own experiment ran over.
     """
     branches: list[ast.SelectQuery] = []
-    for experiment_id, resolution, variants in branch_meta:
+    for experiment_id, resolution, variants, run_window in branch_meta:
+        branch_window = run_window.clip(window_start, window_end)
+        if branch_window is None:
+            # The experiment did not run at any point in this scan window, so no event here can
+            # evidence a variant it served.
+            continue
         # Built here, after the branch cap, so classification stays DB-free for experiments
         # the slice discards (action-based conditions cost a Postgres lookup each).
         try:
@@ -864,8 +961,8 @@ def _query_exposure_event_branches(
                 "exposure_conditions": ast.And(exprs=conditions) if conditions else ast.Constant(value=True),
                 "session_ids": ast.Constant(value=session_ids),
                 "variants": ast.Constant(value=sorted(variants)),
-                "window_start": ast.Constant(value=window_start),
-                "window_end": ast.Constant(value=window_end),
+                "window_start": ast.Constant(value=branch_window.start),
+                "window_end": ast.Constant(value=branch_window.end),
             },
         )
         assert isinstance(branch, ast.SelectQuery)
@@ -900,13 +997,19 @@ def _query_stamped_flag_properties(
     user: User,
     shared_hogql: SharedHogQLDatabase,
     session_ids: list[str],
-    flag_keys: set[str],
+    flag_key_windows: dict[str, _ScanWindow],
     window_start: datetime,
     window_end: datetime,
 ) -> dict[str, dict[str, list[str]]]:
     """Distinct stamped `$feature/<key>` property values per session, as
-    session_id -> flag_key -> values. Sessions with no in-window events yield no entry."""
-    sorted_keys = sorted(flag_keys)
+    session_id -> flag_key -> values. Sessions with no in-window events yield no entry.
+
+    Each key aggregates only the events inside its own scan window. The clip has to happen in
+    the aggregate: the values come back without timestamps, so a value stamped outside the
+    experiment's run window could not be dropped afterwards."""
+    if not flag_key_windows:
+        return {}
+    sorted_keys = sorted(flag_key_windows)
     # Built as ast nodes, not string interpolation — flag keys can contain arbitrary characters.
     select: list[ast.Expr] = [
         ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
@@ -914,8 +1017,17 @@ def _query_stamped_flag_properties(
             ast.Alias(
                 alias=f"v{index}",
                 expr=ast.Call(
-                    name="groupUniqArray",
-                    args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", f"$feature/{key}"])])],
+                    name="groupUniqArrayIf",
+                    args=[
+                        ast.Call(name="toString", args=[ast.Field(chain=["properties", f"$feature/{key}"])]),
+                        parse_expr(
+                            "timestamp >= {window_start} AND timestamp <= {window_end}",
+                            placeholders={
+                                "window_start": ast.Constant(value=flag_key_windows[key].start),
+                                "window_end": ast.Constant(value=flag_key_windows[key].end),
+                            },
+                        ),
+                    ],
                 ),
             )
             for index, key in enumerate(sorted_keys)
