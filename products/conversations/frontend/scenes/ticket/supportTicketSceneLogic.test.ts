@@ -650,6 +650,72 @@ describe('supportTicketSceneLogic send outcome handling', () => {
     })
 })
 
+describe('supportTicketSceneLogic message poll failures', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsListMock = api.comments.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const captureMock = posthog.capture as jest.Mock
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset().mockResolvedValue({ ...makeTicket(), priority: 'medium', assignee: null } as Ticket)
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+        captureMock.mockClear()
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+    })
+
+    // The loader is polled every few seconds. A persistent read failure must show one toast, not a
+    // fresh one per poll, and must still be counted so the outage is measurable.
+    it('toasts once across repeated poll failures but counts each one', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        commentsListMock.mockReset().mockRejectedValue(new Error('offline'))
+
+        await expectLogic(logic, () => {
+            logic.actions.loadMessages()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.loadMessages()
+        }).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledTimes(1)
+        const loadFailures = captureMock.mock.calls.filter(([event]) => event === 'support widget load failed')
+        expect(loadFailures).toHaveLength(2)
+        expect(loadFailures[0][1]).toMatchObject({ surface: 'support_ticket_scene', reason: 'thread_load_failed' })
+
+        errorToast.mockRestore()
+    })
+
+    // A recovered load re-arms the toast, so the next outage is visible again.
+    it('re-arms the toast after a load succeeds in between', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+
+        commentsListMock.mockReset().mockRejectedValue(new Error('offline'))
+        await expectLogic(logic, () => {
+            logic.actions.loadMessages()
+        }).toFinishAllListeners()
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        await expectLogic(logic, () => {
+            logic.actions.loadMessages()
+        }).toFinishAllListeners()
+        commentsListMock.mockReset().mockRejectedValue(new Error('offline again'))
+        await expectLogic(logic, () => {
+            logic.actions.loadMessages()
+        }).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledTimes(2)
+        errorToast.mockRestore()
+    })
+})
+
 describe('supportTicketSceneLogic tag pool refresh', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 

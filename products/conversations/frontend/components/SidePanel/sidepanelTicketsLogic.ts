@@ -142,7 +142,11 @@ export interface sidepanelTicketsLogicActions {
     initTickets: () => {
         value: true
     }
-    loadMessages: (ticketId: string) => {
+    loadMessages: (
+        ticketId: string,
+        quiet?: boolean
+    ) => {
+        quiet: boolean
         ticketId: string
     }
     loadTickets: () => {
@@ -275,7 +279,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         startPolling: true,
         stopPolling: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
-        loadMessages: (ticketId: string) => ({ ticketId }),
+        loadMessages: (ticketId: string, quiet: boolean = false) => ({ ticketId, quiet }),
         setMessages: (messages: ChatMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -593,10 +597,22 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 cache.pollTimer = null
             }
         },
-        loadMessages: async ({ ticketId }) => {
+        loadMessages: async ({ ticketId, quiet }) => {
             if (!ticketId || !posthog.conversations) {
                 return
             }
+            // A load for a ticket the reader is no longer viewing can never apply its result, so skip
+            // it before touching the shared revision. Otherwise a post-send refresh for a thread they
+            // just left (sendMessage dispatches loadMessages(ticket_id) unconditionally) would bump the
+            // revision and cancel the live load for the ticket they switched to, leaving that thread
+            // showing "No messages yet." until the next poll.
+            if (values.currentTicket?.id !== ticketId) {
+                return
+            }
+            // Tag each load so a newer one wins. The post-send refresh, a poll, and reopening the same
+            // ticket all dispatch loadMessages, so an older request that settles late must not apply
+            // its snapshot or toast over fresher state.
+            const revision = (cache.messageRevision = (cache.messageRevision ?? 0) + 1)
             actions.setMessagesLoading(true)
             try {
                 const allMessages: ConversationMessage[] = []
@@ -606,8 +622,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Fetch all pages of messages using `after` timestamp pagination
                 while (hasMore) {
                     const response = await (posthog.conversations.getMessages as any)(ticketId, after)
-                    // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
-                    if (!response || values.currentTicket?.id !== ticketId) {
+                    // Drop this result if the reader switched tickets or a newer load superseded it,
+                    // so an older snapshot can't overwrite fresher state.
+                    if (!response || values.currentTicket?.id !== ticketId || cache.messageRevision !== revision) {
                         return
                     }
                     const messages = response.messages as ConversationMessage[]
@@ -638,7 +655,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     reason: 'thread_load_failed',
                     error: e,
                 })
-                lemonToast.error('Failed to load messages. Please try again.')
+                // Toast only for the load the reader is actually waiting on. A quiet refresh (the one
+                // that runs right after a successful send) never toasts, and neither does a load a newer
+                // request has already superseded — such as a poll load still in flight when the send's
+                // refresh bumped the revision. Either toast would contradict the "Message sent!" just
+                // shown. The telemetry above still counts every failure so the outage stays measurable.
+                if (!quiet && cache.messageRevision === revision) {
+                    lemonToast.error('Failed to load messages. Please try again.')
+                }
             } finally {
                 actions.setMessagesLoading(false)
             }
@@ -689,7 +713,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         actions.setView('ticket')
                     }
                     actions.loadTickets()
-                    actions.loadMessages(response.ticket_id)
+                    actions.loadMessages(response.ticket_id, true)
                     lemonToast.success('Message sent!')
                     onSuccess()
                 } else {

@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { captureSupportWidgetLoadFailed } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -80,6 +81,8 @@ import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
+/** While message loads keep failing, each retry waits 2^failures longer, capped here (~80s). */
+const MAX_POLL_BACKOFF_STEPS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
 
@@ -1226,8 +1229,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Start message polling using disposables pattern
                 cache.disposables.dispose('messagePolling')
                 cache.discussionPollTick = 0
+                cache.messageLoadFailures = 0
                 cache.disposables.add(() => {
-                    const intervalId = setInterval(() => {
+                    let timeoutId: number | undefined
+                    const poll = (): void => {
                         actions.loadMessages()
                         // A discussion is a slower conversation than the ticket itself, and a Slack
                         // reply landing a few seconds late costs nothing — so it rides the same timer
@@ -1236,8 +1241,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
                             actions.pollDiscussionThread()
                         }
-                    }, MESSAGE_POLL_INTERVAL)
-                    return () => clearInterval(intervalId)
+                        // Back off while loads keep failing. A stuck read must not poll — and toast —
+                        // every 5s; the failure streak set by the last load widens the next gap.
+                        const backoff = Math.min(cache.messageLoadFailures ?? 0, MAX_POLL_BACKOFF_STEPS)
+                        timeoutId = window.setTimeout(poll, MESSAGE_POLL_INTERVAL * 2 ** backoff)
+                    }
+                    timeoutId = window.setTimeout(poll, MESSAGE_POLL_INTERVAL)
+                    return () => window.clearTimeout(timeoutId)
                 }, 'messagePolling')
             } catch (error) {
                 console.error('Failed to load ticket:', error)
@@ -1341,8 +1351,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
-            } catch {
-                lemonToast.error('Failed to load messages')
+                cache.messageLoadFailures = 0
+            } catch (e) {
+                // This loader is polled every few seconds. Count every failure so the outage is
+                // measurable, but show the toast only when a healthy streak first breaks — a
+                // persistent read failure must not stack a fresh toast on every poll.
+                cache.messageLoadFailures = (cache.messageLoadFailures ?? 0) + 1
+                captureSupportWidgetLoadFailed({
+                    surface: 'support_ticket_scene',
+                    reason: 'thread_load_failed',
+                    error: e,
+                })
+                if (cache.messageLoadFailures === 1) {
+                    lemonToast.error('Failed to load messages')
+                }
                 actions.setMessagesLoading(false)
             }
         },

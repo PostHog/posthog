@@ -507,4 +507,127 @@ describe('sidepanelTicketsLogic', () => {
             message_preview: 'here is the error I get',
         })
     })
+
+    // A successful send refreshes the thread. If that refresh throws, the message still went
+    // through, so the reader must not get an error toast contradicting "Message sent!" — but the
+    // failure is still worth counting.
+    it('keeps a failed post-send thread refresh quiet while still counting it', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The composer only shows inside a thread, so the reader is viewing the ticket they reply in;
+        // the post-send refresh loads that same ticket.
+        logic.actions.setCurrentTicket({
+            id: 't1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+        } as ConversationTicket)
+        await expectLogic(logic).toFinishAllListeners()
+        ;(posthog as any).conversations.getMessages = jest.fn().mockRejectedValue(new Error('offline'))
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('' as never)
+        ;(posthog.capture as jest.Mock).mockClear()
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('did this go through?', onSuccess)
+        }).toFinishAllListeners()
+
+        expect(onSuccess).toHaveBeenCalledTimes(1)
+        expect(successToast).toHaveBeenCalledWith('Message sent!')
+        expect(errorToast).not.toHaveBeenCalled()
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(loadFailures[0][1]).toMatchObject({ surface: 'side_panel_tickets', reason: 'thread_load_failed' })
+
+        errorToast.mockRestore()
+        successToast.mockRestore()
+    })
+
+    // The open thread also polls on a timer with a non-quiet load. If that load is still in flight
+    // when a send succeeds, the send's quiet refresh supersedes it — so when the older poll load
+    // then fails it must stay quiet, or it toasts "Failed to load" over the "Message sent!" the
+    // reader just saw. The failure is still worth counting.
+    it('stays quiet when an in-flight poll load fails after a newer load supersedes it', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setCurrentTicket({
+            id: 't1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+        } as ConversationTicket)
+        await expectLogic(logic).toFinishAllListeners()
+
+        // First call is the poll load that fails; the newer load that supersedes it succeeds.
+        ;(posthog as any).conversations.getMessages = jest
+            .fn()
+            .mockRejectedValueOnce(new Error('offline'))
+            .mockResolvedValue({ messages: [], has_more: false })
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            // The poll starts a non-quiet load, then the post-send refresh supersedes it with a
+            // quiet one that bumps the revision before the poll load's failure is handled.
+            logic.actions.loadMessages('t1')
+            logic.actions.loadMessages('t1', true)
+        }).toFinishAllListeners()
+
+        expect(errorToast).not.toHaveBeenCalled()
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(loadFailures[0][1]).toMatchObject({ surface: 'side_panel_tickets', reason: 'thread_load_failed' })
+
+        errorToast.mockRestore()
+    })
+
+    // A reader can open ticket B while a send in ticket A is still pending. When A's send resolves it
+    // refreshes A, but the reader is now on B, so A's doomed refresh must not cancel B's live load and
+    // leave B falsely empty. Guards the revision-bump ordering the earlier fix introduced.
+    it('keeps the newly opened ticket loaded when an older ticket send resolves after the switch', async () => {
+        ;(posthog as any).conversations.getMessages = jest.fn().mockImplementation((ticketId: string) =>
+            Promise.resolve({
+                messages:
+                    ticketId === 'b'
+                        ? [
+                              {
+                                  id: 'm-b',
+                                  content: 'hi from B',
+                                  author_type: 'user',
+                                  author_name: 'B',
+                                  created_at: '2026-07-14T00:00:00Z',
+                              },
+                          ]
+                        : [],
+                has_more: false,
+            })
+        )
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            // The reader switches to B, which starts B's load; then A's late send refreshes A while B's
+            // load is still in flight.
+            logic.actions.setCurrentTicket({
+                id: 'b',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-14T00:00:00Z',
+            } as ConversationTicket)
+            logic.actions.loadMessages('a', true)
+        }).toFinishAllListeners()
+
+        expect(logic.values.currentTicket?.id).toBe('b')
+        expect(logic.values.messages.map((m) => m.id)).toEqual(['m-b'])
+    })
 })
