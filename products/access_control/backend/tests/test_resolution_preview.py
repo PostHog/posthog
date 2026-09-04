@@ -207,6 +207,7 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         assert self.organization.uses_most_specific_access_resolution
         log = ActivityLog.objects.filter(scope="Organization", item_id=str(self.organization.id)).latest("created_at")
         assert log.activity == "updated"
+        assert log.detail is not None
         assert any(
             change["field"] == "uses_most_specific_access_resolution" and change["after"] is True
             for change in log.detail["changes"]
