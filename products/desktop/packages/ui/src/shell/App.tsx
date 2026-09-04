@@ -16,6 +16,8 @@ import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
 import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
 import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
@@ -29,25 +31,30 @@ import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBann
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
-import { resolveActiveScreen } from "@posthog/ui/shell/activeScreen";
 import {
   isBackgroundAccessRecheck,
   nextLastAllowedProjectId,
 } from "@posthog/ui/shell/desktopAccessGate";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
+import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import {
+  rememberStartupLocation,
+  resolveStartupLocation,
+} from "@posthog/ui/shell/startupLocation";
 import { useAppLoadingGateTelemetry } from "@posthog/ui/shell/useAppLoadingGateTelemetry";
 import { useAppVisibilityWatchdog } from "@posthog/ui/shell/useAppVisibilityWatchdog";
-import { useInitialRoute } from "@posthog/ui/shell/useInitialRoute";
 import { RouterProvider } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 interface AppProps {
   /** Host-provided dev diagnostics toolbar, docked below the app content. */
   devToolbar?: ReactNode;
 }
+
+const log = logger.scope("app");
 
 function App({ devToolbar }: AppProps) {
   const { isBootstrapped } = useAuthSession();
@@ -155,12 +162,56 @@ function App({ devToolbar }: AppProps) {
     void ensureSession(startupIdentity, authenticatedClient);
   }, [consent, startupIdentity, authenticatedClient]);
 
-  const initialRouteLoaded = useInitialRoute({
+  // Resolve and load the initial route before mounting the router. Reset when
+  // the user leaves the main app so a later re-entry starts fresh.
+  const [initialRouteLoaded, setInitialRouteLoaded] = useState(false);
+  useEffect(() => {
+    if (!readyForMainApp) {
+      setInitialRouteLoaded(false);
+      return;
+    }
+    if (initialRouteLoaded) return;
+    if (!startupIdentity || !authenticatedClient) return;
+
+    let cancelled = false;
+    const loadInitialRoute = async (): Promise<void> => {
+      try {
+        const { href, firstRun } = await resolveStartupLocation(
+          startupIdentity,
+          authenticatedClient,
+          spacesLayoutEnabledRef.current,
+        );
+        if (firstRun) {
+          showChannelList({ keepForRoute: firstRun.generalChannelId });
+          useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
+        }
+        router.history.replace(href);
+        rememberStartupLocation(startupIdentity, href);
+        await router.load();
+      } catch (error) {
+        log.error("Failed to load initial route", { error });
+      } finally {
+        if (!cancelled) setInitialRouteLoaded(true);
+      }
+    };
+    void loadInitialRoute();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
     readyForMainApp,
+    initialRouteLoaded,
     startupIdentity,
     authenticatedClient,
-    spacesLayoutEnabledRef,
-  });
+  ]);
+
+  useEffect(() => {
+    if (!initialRouteLoaded || !startupIdentity) return;
+    return router.history.subscribe(({ location }) => {
+      rememberStartupLocation(startupIdentity, location.href);
+    });
+  }, [initialRouteLoaded, startupIdentity]);
 
   const mainRef = useRef<HTMLDivElement>(null);
   // Mirrors the "main" branch of renderContent() below; keep the two in sync.
@@ -186,13 +237,18 @@ function App({ devToolbar }: AppProps) {
     return <AppLoadingScreen />;
   }
 
-  const activeScreen = resolveActiveScreen({
-    hasCompletedOnboarding,
-    isAuthenticated,
-    isBlockedByAccessPolicy,
-    consentErrored: consent.status === "error",
-    needsConsent,
-  });
+  // Which screen the app is on. The four pre-router screens render instead of
+  // the RouterProvider, so anything the routed shell mounts is absent there.
+  const activeScreen =
+    !hasCompletedOnboarding && !isBlockedByAccessPolicy
+      ? "onboarding"
+      : !isAuthenticated
+        ? "auth"
+        : isBlockedByAccessPolicy
+          ? "desktop-access"
+          : consent.status === "error" || needsConsent
+            ? "consent"
+            : "main";
 
   const renderContent = () => {
     if (activeScreen === "onboarding") {
