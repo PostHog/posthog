@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::cohorts::cohort_models::CohortId;
+use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_models::FeatureFlagId;
 use crate::properties::property_matching::{
     lookup_key_for, to_string_representation, REGEX_BACKTRACK_LIMIT,
@@ -45,6 +46,21 @@ impl PropertyFilter {
         self.key.parse::<FeatureFlagId>().ok()
     }
 
+    /// The group type index a group filter reads at match time: the filter's explicit
+    /// `group_type_index`, or the condition's effective aggregation index for legacy filters
+    /// without one. `None` for non-group filters, and for group filters with no index in
+    /// reach. Every path that routes a group filter to a property map or a fetch resolves
+    /// through here, so they cannot drift apart.
+    pub fn group_filter_index(
+        &self,
+        effective_aggregation: Option<GroupTypeIndex>,
+    ) -> Option<GroupTypeIndex> {
+        if self.prop_type != PropertyType::Group {
+            return None;
+        }
+        self.group_type_index.or(effective_aggregation)
+    }
+
     /// Returns true if the filter requires DB properties to be evaluated.
     ///
     /// This is true if the filter key is not in the person property overrides, but only for non
@@ -52,9 +68,9 @@ impl PropertyFilter {
     ///
     /// The overrides hold person properties, so they can only satisfy a filter that reads the
     /// person property map. A group filter reads its own group's property map, which no person
-    /// override populates, so a same-named person property says nothing about it. Counting that
-    /// as covered would skip DB preparation and leave the group's properties unfetched at match
-    /// time, where the fail-closed guard then rejects the filter whichever way it points.
+    /// override populates, so a same-named person property says nothing about it. This method
+    /// therefore always selects group filters; the batch preparation scan refines that with the
+    /// request's group context instead — see `FeatureFlagMatcher::group_filter_needs_db_prep`.
     ///
     /// Uses `lookup_key_for` rather than the raw `self.key` so PersonMetadata filters check the
     /// sentinel-prefixed key (e.g. `__posthog_person_metadata__created_at`). Without this, an SDK
@@ -159,6 +175,20 @@ mod tests {
         // properties still have to be fetched.
         let person_tier = HashMap::from([("tier".to_string(), Value::String("free".to_string()))]);
         assert!(filter.requires_db_property(&person_tier));
+    }
+
+    #[test]
+    fn test_group_filter_index_resolves_explicit_index_then_aggregation() {
+        let explicit = mock!(crate::properties::property_models::PropertyFilter, key: "tier".mock_into(), prop_type: PropertyType::Group, group_type_index: Some(2), operator: Some(OperatorType::Exact));
+        assert_eq!(explicit.group_filter_index(Some(1)), Some(2));
+
+        let legacy = mock!(crate::properties::property_models::PropertyFilter, key: "tier".mock_into(), prop_type: PropertyType::Group, operator: Some(OperatorType::Exact));
+        assert_eq!(legacy.group_filter_index(Some(1)), Some(1));
+        assert_eq!(legacy.group_filter_index(None), None);
+
+        // A person filter never resolves to a group map, whatever the aggregation.
+        let person = mock!(crate::properties::property_models::PropertyFilter, key: "tier".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
+        assert_eq!(person.group_filter_index(Some(1)), None);
     }
 
     #[test]

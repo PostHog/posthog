@@ -1781,11 +1781,14 @@ mod tests {
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
-    /// Builds a matcher that knows about a single group type ("organization" at index 0).
-    /// Group-property DB prep is deliberately never run, so `group_properties_pending(0)`
-    /// holds unless the caller marks the index fetched.
+    /// Builds a matcher whose seeded group type mapping knows "organization" at index 0 —
+    /// or, when `mapping_knows_organization` is false, a loaded but empty mapping, the
+    /// stale-cache shape a request sees when the mapping was cached before the group type
+    /// was added. Group-property DB prep is deliberately never run, so
+    /// `group_properties_pending(0)` holds unless the caller marks the index fetched.
     async fn group_matcher_without_group_prep(
         with_group_key: bool,
+        mapping_knows_organization: bool,
     ) -> (TestContext, FeatureFlagMatcher) {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
@@ -1807,7 +1810,12 @@ mod tests {
         );
         // Set in production by `initialize_group_type_mappings_if_needed`, which a bare
         // `is_condition_match` test doesn't reach.
-        matcher.set_group_type_mapping_for_test(GroupTypeMapping::new(organization_at_zero));
+        let seeded_mapping = if mapping_knows_organization {
+            organization_at_zero
+        } else {
+            HashMap::new()
+        };
+        matcher.set_group_type_mapping_for_test(GroupTypeMapping::new(seeded_mapping));
         (context, matcher)
     }
 
@@ -1847,9 +1855,12 @@ mod tests {
     /// Regression test: the group-property analogue of the person `Pending` guard. A
     /// negative operator must not read an unfetched group property map as "this group has
     /// no tier", which would grant the flag to precisely the enterprise organizations the
-    /// condition excludes. The other cases pin the deliberate limits of that guard.
+    /// condition excludes. The other cases pin the deliberate limits of that guard: the
+    /// no-group-key exception applies only after the mapping resolves the filter's index,
+    /// so a stale mapping that predates the group type must not read as "no group key".
     #[rstest::rstest]
     #[case::pending_fails_closed(
+        true,
         true,
         false,
         false,
@@ -1859,22 +1870,33 @@ mod tests {
         true,
         true,
         true,
+        true,
         "a fetched and genuinely empty group has no tier, so is_not should match"
     )]
     #[case::no_group_key_matches(
         false,
+        true,
         false,
         true,
         "no group context should keep pre-existing behavior rather than fail closed"
     )]
+    #[case::stale_mapping_fails_closed(
+        true,
+        false,
+        false,
+        false,
+        "a loaded mapping that lacks the filter's index says nothing about the group, so is_not must not match"
+    )]
     #[tokio::test]
     async fn test_is_condition_match_group_is_not_honors_group_property_fetch_state(
         #[case] with_group_key: bool,
+        #[case] mapping_knows_organization: bool,
         #[case] mark_fetched: bool,
         #[case] expected_match: bool,
         #[case] scenario: &str,
     ) {
-        let (_context, mut matcher) = group_matcher_without_group_prep(with_group_key).await;
+        let (_context, mut matcher) =
+            group_matcher_without_group_prep(with_group_key, mapping_knows_organization).await;
         let flag = mock!(FeatureFlag);
         if mark_fetched {
             matcher
@@ -1914,11 +1936,12 @@ mod tests {
     }
 
     /// Regression test: a real `GroupTypeCacheManager` failure must reach the fail-closed
-    /// guard. Without the mapping the matcher cannot tell "the request sent no organization"
-    /// from "the lookup broke", and the former reading would let `is_not` match an empty
-    /// property map for an organization that is in fact excluded. Driving the failure through
-    /// `prepare_flag_evaluation_state` also pins that the matcher records the error, rather
-    /// than only that a seeded flag is read.
+    /// guard, and its outcome must be reused for the rest of the request. Without the mapping
+    /// the matcher cannot tell "the request sent no organization" from "the lookup broke", and
+    /// the former reading would let `is_not` match an empty property map for an organization
+    /// that is in fact excluded. The batch path also asks for the mapping once during setup
+    /// and once during preparation, and failures are not cached, so without the recorded
+    /// outcome an outage would cost every affected request two failed queries.
     #[tokio::test]
     async fn test_mixed_targeting_is_not_fails_closed_when_mapping_lookup_fails() {
         let context = TestContext::new(None).await;
@@ -1937,29 +1960,69 @@ mod tests {
             )
             .await
             .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"plan": "pro"})),
+            )
+            .await
+            .unwrap();
 
-        let flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        // A matching person filter alongside the group filter keeps the flag in DB
+        // preparation — a failed mapping leaves nothing to fetch for the group filter
+        // itself — and leaves the guard as the only thing stopping the match.
+        let mut flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        flag.filters.groups[0]
+            .properties
+            .as_mut()
+            .unwrap()
+            .push(PropertyFilter {
+                key: "plan".to_string(),
+                value: Some(json!("pro")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            });
+
+        let (group_type_cache, mapping_fetch_calls) = failing_group_type_cache();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             None,
             team.id,
             context.create_postgres_router(),
             cohort_cache,
-            failing_group_type_cache(),
+            group_type_cache,
             Some(HashMap::from([("organization".to_string(), json!("acme"))])),
         );
 
         // A mapping failure is deliberately not propagated: it must not poison person flags in
-        // the same batch, so preparation succeeds and the guard is what stops the match.
-        matcher
-            .prepare_flag_evaluation_state(&[&flag])
+        // the same batch, so evaluation proceeds and the guard is what stops the match.
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await
             .unwrap();
-        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
-        assert!(
-            !match_result.matches,
+        assert_eq!(
+            result.flags.get(&flag.key).unwrap().to_value(),
+            FlagValue::Boolean(false),
             "a failed mapping lookup knows nothing about the organization, so is_not must not match"
+        );
+        assert_eq!(
+            mapping_fetch_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the request must reuse its first failed mapping lookup rather than query again"
         );
     }
 
@@ -2057,6 +2120,58 @@ mod tests {
         assert_eq!(
             match_result.matches, expected_match,
             "the organization's stored tier should decide the flag"
+        );
+    }
+
+    /// Regression test: a group filter the fetch cannot serve must not pull its flag into
+    /// DB preparation. With no usable organization key there is nothing to fetch for the
+    /// filter and matching keeps the old no-group-key result either way, so selecting the
+    /// flag anyway only cost an unnecessary person-property query.
+    #[tokio::test]
+    async fn test_mixed_targeting_without_group_key_skips_db_preparation() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            None,
+        );
+
+        reset_fetch_calls_count();
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get(&flag.key).unwrap().to_value(),
+            FlagValue::Boolean(true),
+            "no group key keeps the pre-existing is_not behavior"
+        );
+        assert_eq!(
+            get_fetch_calls_count(),
+            0,
+            "nothing is fetchable for this flag, so preparation must not run the person query"
         );
     }
 

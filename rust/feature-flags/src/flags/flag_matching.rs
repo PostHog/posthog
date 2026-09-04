@@ -319,11 +319,10 @@ impl PropertyContext<'_> {
             PropertyType::Person | PropertyType::PersonMetadata => {
                 self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP)
             }
-            PropertyType::Group => {
-                let gti = filter.group_type_index.or(self.aggregation);
-                gti.and_then(|idx| self.group_properties.get(&idx))
-                    .unwrap_or(&*EMPTY_PROPERTY_MAP)
-            }
+            PropertyType::Group => filter
+                .group_filter_index(self.aggregation)
+                .and_then(|idx| self.group_properties.get(&idx))
+                .unwrap_or(&*EMPTY_PROPERTY_MAP),
             PropertyType::Cohort | PropertyType::Flag => match self.aggregation {
                 Some(gti) => self
                     .group_properties
@@ -885,6 +884,7 @@ impl FeatureFlagMatcher {
             .prepare_evaluation_state_if_needed(
                 &flags,
                 &overrides.person_property_overrides,
+                &overrides.group_property_overrides,
                 &mut evaluated_flags_map,
             )
             .await;
@@ -929,6 +929,7 @@ impl FeatureFlagMatcher {
         &mut self,
         flags: &[&FeatureFlag],
         person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
     ) -> bool {
         let flags_requiring_db_preparation = flags_require_db_preparation(
@@ -937,6 +938,13 @@ impl FeatureFlagMatcher {
                 .as_ref()
                 .unwrap_or(&HashMap::new()),
             &self.filtered_out_flag_ids,
+            &|filter, effective_aggregation| {
+                self.group_filter_needs_db_prep(
+                    filter,
+                    effective_aggregation,
+                    group_property_overrides.as_ref(),
+                )
+            },
         );
 
         if flags_requiring_db_preparation.is_empty() || self.only_use_override_person_properties {
@@ -1204,10 +1212,8 @@ impl FeatureFlagMatcher {
             let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
             if let Some(properties) = &group.properties {
                 for property in properties {
-                    if property.prop_type == PropertyType::Group {
-                        if let Some(gti) = property.group_type_index.or(condition_aggregation) {
-                            referenced_indexes.insert(gti);
-                        }
+                    if let Some(gti) = property.group_filter_index(condition_aggregation) {
+                        referenced_indexes.insert(gti);
                     }
                 }
             }
@@ -1832,19 +1838,56 @@ impl FeatureFlagMatcher {
         self.group_type_mapping = GroupTypeMappingState::Loaded(mapping);
     }
 
-    /// Whether the request supplied a usable group key for this group type. Without one
+    /// Whether the request supplied a usable group key for this group type name. Without one
     /// there is no group to load properties for, so group filters on that type have no
     /// context at all — distinct from having a key whose properties weren't fetched.
+    fn has_usable_group_key(&self, group_type: &str) -> bool {
+        self.groups.get(group_type).is_some_and(|v| match v {
+            Value::String(s) => !s.is_empty(),
+            Value::Number(_) => true,
+            _ => false,
+        })
+    }
+
+    /// `has_usable_group_key` by group type index. False both when the request omitted the
+    /// group and when the mapping can't resolve the index, so callers that must tell those
+    /// apart resolve the name themselves — see `filter_needs_partial_props`.
     fn has_group_key(&self, group_type_index: GroupTypeIndex) -> bool {
         self.group_type_mapping
             .mapping()
             .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
-            .and_then(|name| self.groups.get(name))
-            .is_some_and(|v| match v {
-                Value::String(s) => !s.is_empty(),
-                Value::Number(_) => true,
-                _ => false,
-            })
+            .is_some_and(|group_type| self.has_usable_group_key(group_type))
+    }
+
+    /// Whether DB preparation would load anything this group filter can use. Selecting a
+    /// filter pulls its whole flag into preparation, and with it the person-property query,
+    /// so a filter only counts when the fetch can serve it: the mapping resolves its index,
+    /// the request carries a usable key for that group type, and no group property override
+    /// already supplies the filtered key. In every other state the fetch would load nothing
+    /// for the filter, and matching handles those states itself — see
+    /// `filter_needs_partial_props`.
+    fn group_filter_needs_db_prep(
+        &self,
+        filter: &PropertyFilter,
+        effective_aggregation: Option<GroupTypeIndex>,
+        group_property_overrides: Option<&HashMap<String, HashMap<String, Value>>>,
+    ) -> bool {
+        let Some(gti) = filter.group_filter_index(effective_aggregation) else {
+            return false;
+        };
+        let Some(group_type) = self
+            .group_type_mapping
+            .mapping()
+            .and_then(|m| m.group_indexes_to_types().get(&gti))
+        else {
+            return false;
+        };
+        if !self.has_usable_group_key(group_type) {
+            return false;
+        }
+        !group_property_overrides
+            .and_then(|overrides| overrides.get(group_type))
+            .is_some_and(|group_overrides| group_overrides.contains_key(&filter.key))
     }
 
     /// Whether a filter must be matched with `partial_props`, i.e. treat an absent key as
@@ -1865,22 +1908,27 @@ impl FeatureFlagMatcher {
 
         // A group filter with no resolvable group type index can't be routed to a group
         // property map at all, so there is nothing to fail closed on.
-        let Some(gti) = filter.group_type_index.or(property_context.aggregation) else {
+        let Some(gti) = filter.group_filter_index(property_context.aggregation) else {
             return false;
         };
 
-        // A failed mapping lookup makes `has_group_key` answer false for every index, which
-        // would read as "no group context" and skip the guard exactly when the properties
-        // are certainly unfetched. Nothing is known about the group here, so fail closed.
-        if matches!(self.group_type_mapping, GroupTypeMappingState::Failed) {
+        // Without a resolved name for the index, nothing is known about the group: the
+        // lookup failed, or a loaded mapping predates the group type (a stale cache entry).
+        // The request may carry this very group under the name that can't be resolved, so
+        // this must not read as "no group context" — fail closed.
+        let Some(group_type) = self
+            .group_type_mapping
+            .mapping()
+            .and_then(|m| m.group_indexes_to_types().get(&gti))
+        else {
             return true;
-        }
+        };
 
         // No group key means no group context whatsoever — the request never claimed to be
         // in a group of this type. Failing closed there would silently stop matching for
         // every caller that doesn't send `groups`, which is a much broader behavior change
         // than the fetch-miss this guard is for, so keep the existing semantics.
-        if !self.has_group_key(gti) {
+        if !self.has_usable_group_key(group_type) {
             return false;
         }
 
@@ -1919,7 +1967,7 @@ impl FeatureFlagMatcher {
                 match prop.prop_type {
                     PropertyType::Person | PropertyType::PersonMetadata => needs_person = true,
                     PropertyType::Group => {
-                        if let Some(gti) = prop.group_type_index.or(effective_aggregation) {
+                        if let Some(gti) = prop.group_filter_index(effective_aggregation) {
                             group_types.insert(gti);
                         }
                     }
@@ -2401,11 +2449,15 @@ impl FeatureFlagMatcher {
                     .aggregation_group_type_index
                     .flatten()
                     .into_iter()
-                    .chain(condition.properties.iter().flatten().filter_map(|prop| {
-                        (prop.prop_type == PropertyType::Group)
-                            .then_some(prop.group_type_index)
+                    .chain(
+                        condition
+                            .properties
+                            .iter()
                             .flatten()
-                    }))
+                            // No aggregation fallback here: the arms above already chain
+                            // every aggregation index, so only explicit indexes are added.
+                            .filter_map(|prop| prop.group_filter_index(None)),
+                    )
             }))
     }
 
