@@ -29,6 +29,8 @@ jest.mock('scenes/sceneLogic', () => ({
 jest.mock('scenes/scenes', () => ({
     sceneConfigurations: {
         CustomerAnalytics: { name: 'Customer analytics', description: 'Analytics for customers', iconType: 'default' },
+        Error404: { name: 'Not found', iconType: 'default' },
+        Metrics: { name: 'Metrics', description: 'Application metrics', iconType: 'default' },
     },
 }))
 
@@ -250,6 +252,19 @@ describe('FeaturePreviewSceneGate', () => {
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
             expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Customer analytics')
+        })
+
+        test('config sceneId overrides the active scene for the title, so a flag-hidden route is not titled "Not found"', () => {
+            setupMocks({ activeSceneId: 'Error404' })
+
+            render(
+                <FeaturePreviewSceneGate config={{ ...BASE_CONFIG, sceneId: 'Metrics' }}>
+                    {CHILDREN}
+                </FeaturePreviewSceneGate>
+            )
+
+            expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Metrics')
+            expect(screen.queryByText('Not found')).not.toBeInTheDocument()
         })
 
         test('does not show toggle for a different feature flag key', () => {
