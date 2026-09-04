@@ -734,6 +734,9 @@ class TestModalSandboxAgentServer:
             )
 
     def test_start_agent_server_raises_on_start_failure(self, mock_sandbox: Any):
+        mock_sandbox.write_file = MagicMock(
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+        )
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
         )

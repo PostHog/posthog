@@ -134,3 +134,9 @@ HEADS: tuple[Head, ...] = (
 )
 
 HEADS_BY_NAME: dict[str, Head] = {head.name: head for head in HEADS}
+# Heads that share a horizon are labeled from the same later snapshot, so a reader that walks the
+# horizons touches each snapshot once instead of once per head.
+HEADS_BY_HORIZON: dict[int, tuple[Head, ...]] = {
+    horizon: tuple(head for head in HEADS if head.horizon_days == horizon)
+    for horizon in sorted({head.horizon_days for head in HEADS})
+}

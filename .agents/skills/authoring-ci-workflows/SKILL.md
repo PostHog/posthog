@@ -360,16 +360,20 @@ Those suites skip `push` and take their master coverage — and their Trunk flak
 
 Crons are offset so the runs do not all fire at once, and the offsets live here rather than in the workflows:
 
-| Workflow          | Minute |
-| ----------------- | ------ |
-| `ci-frontend.yml` | 7      |
-| `ci-nodejs.yml`   | 13     |
-| `ci-backend.yml`  | 23     |
-| `ci-dagster.yml`  | 33     |
-| `ci-python.yml`   | 43     |
-| `ci-mcp.yml`      | 53     |
+| Workflow                            | Minute |
+| ----------------------------------- | ------ |
+| `ci-frontend.yml`                   | 7      |
+| `ci-nodejs.yml`                     | 13     |
+| `ci-backend.yml`                    | 23     |
+| `ci-dagster.yml`                    | 33     |
+| `ci-python.yml`                     | 43     |
+| `ci-mcp.yml`                        | 53     |
+| `ci-backend-update-test-timing.yml` | 17     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
+
+`ci-backend-update-test-timing.yml` sits in the table too.
+It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.

@@ -102,7 +102,7 @@ Actionable and pending-input report details also offer Implement. It opens the s
 
 List cards should prefer fields already present in the list response. Fetching per-card secondary data is acceptable only for small, clearly bounded adornments; avoid new N+1 request patterns without a batching plan.
 
-Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link is the menu's only link action; opening a report remains the row's primary interaction.
+Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link lets users choose a web or Desktop link; opening a report remains the row's primary interaction.
 
 ## Backend Contracts
 

@@ -14,6 +14,7 @@ import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'li
 import { uuid } from 'lib/utils/dom'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { capitalizeFirstLetter, toSentenceCase } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -102,7 +103,7 @@ const fileSystemEntryToSearchItem = (
     return {
         name: itemName,
         displayName,
-        href: item.href || '#',
+        href: item.href || PLACEHOLDER_HREF,
         lastViewedAt: item.last_viewed_at ?? null,
         itemType,
         record: { ...item, iconColor: productIconColor },
@@ -903,7 +904,7 @@ export const searchLogic = kea<searchLogicType>([
                     displayName: product.displayLabel ?? product.path,
                     category: 'tools',
                     productCategory: product.category || null,
-                    href: product.href || '#',
+                    href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
                     searchKeywords: productSearchKeywords[product.path],
@@ -977,7 +978,7 @@ export const searchLogic = kea<searchLogicType>([
                     displayName: item.path,
                     category: 'data-management',
                     productCategory: item.category || null,
-                    href: item.href || '#',
+                    href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
                     tags: item.tags,
                     searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
@@ -1047,7 +1048,7 @@ export const searchLogic = kea<searchLogicType>([
                         displayName,
                         category: 'create',
                         productCategory: item.category || null,
-                        href: item.href || '#',
+                        href: item.href || PLACEHOLDER_HREF,
                         itemType: item.iconType || item.type || null,
                         tags: item.tags,
                         record: {
@@ -1097,7 +1098,7 @@ export const searchLogic = kea<searchLogicType>([
                     displayName: item.path,
                     category: 'people',
                     productCategory: item.category || null,
-                    href: item.href || '#',
+                    href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
                     tags: item.tags,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
@@ -1236,7 +1237,7 @@ export const searchLogic = kea<searchLogicType>([
                         id: `playlist-${item.id}`,
                         name: name ? unescapePath(name) : item.path,
                         category: 'session_recording_playlist',
-                        href: item.href || '#',
+                        href: item.href || PLACEHOLDER_HREF,
                         itemType: 'session_recording_playlist',
                         disabledReason: getEntryAccessDisabledReason(item),
                         record: item as unknown as Record<string, unknown>,
