@@ -514,14 +514,15 @@ def test_mention_qualifies_team_slugs_only(owner: str, expected: str) -> None:
     assert report.mention(owner) == expected
 
 
-def test_body_round_trips_the_state_it_embeds() -> None:
+@pytest.mark.parametrize("soon_id", ["soon", "a.spec.ts::flow a --> b"])
+def test_body_round_trips_the_state_it_embeds(soon_id: str) -> None:
     entries = [
-        make_entry(id="soon", expires=TODAY + timedelta(days=2)),
+        make_entry(id=soon_id, expires=TODAY + timedelta(days=2)),
         make_entry(id="lapsed", added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2)),
     ]
     items = report.collect(entries, TODAY)
     body = report.build_report(items, {}, core.DEFAULT_GRACE_DAYS).body
-    assert report.read_states(body) == {"soon": core.EXPIRING_SOON, "lapsed": core.IN_GRACE}
+    assert report.read_states(body) == {soon_id: core.EXPIRING_SOON, "lapsed": core.IN_GRACE}
     assert report.build_report(items, report.read_states(body), core.DEFAULT_GRACE_DAYS).comment is None
 
 

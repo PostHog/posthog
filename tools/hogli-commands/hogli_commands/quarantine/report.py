@@ -36,6 +36,7 @@ _ORG = "PostHog"
 # Lets a later run read back what the previous one reported, so a comment goes
 # out only when an entry newly slips rather than on every update.
 _STATE_MARKER = "<!-- quarantine-expiry-state:"
+_ESCAPED_GT = "\\u003e"
 
 # Reasons run to several sentences, which makes the digest table unreadable.
 _REASON_LIMIT = 120
@@ -131,9 +132,17 @@ def _body(items: list[Item], grace_days: int, workflow_url: str) -> str:
         "",
         *[line for section in sections if section for line in (*section, "")],
         _footer(workflow_url),
-        f"{_STATE_MARKER} {json.dumps({i.entry.id: i.state for i in items}, sort_keys=True)} -->",
+        _state_marker(items),
     ]
     return "\n".join(lines)
+
+
+def _state_marker(items: list[Item]) -> str:
+    payload = json.dumps({i.entry.id: i.state for i in items}, sort_keys=True)
+    # A jest or playwright test name can hold '-->', which ends the HTML comment
+    # early and truncates the payload. The escape keeps the sequence inside the
+    # comment, and json.loads gives the original id back.
+    return f"{_STATE_MARKER} {payload.replace('>', _ESCAPED_GT)} -->"
 
 
 def _section(title: str, blurb: str, items: list[Item]) -> list[str] | None:
