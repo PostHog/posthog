@@ -22,6 +22,7 @@ reqwest = { workspace = true }
 rmcp = { version = "3", features = ["server", "macros", "transport-streamable-http-server"] }
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
 rustls = { workspace = true }
+rustls-native-certs = "0.8"
 schemars = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
