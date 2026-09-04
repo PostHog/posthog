@@ -179,6 +179,8 @@ export interface RefreshStatus {
     refreshed?: boolean
     error?: Error
     errored?: boolean
+    /** The refresh was cancelled (user hit Refresh mid-flight, or the query timed out and aborted). */
+    aborted?: boolean
     timer?: Date | null
 }
 
@@ -2184,12 +2186,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
                 }),
                 refreshDashboardItems: () => ({}),
-                // Drop only the aborted tile so sibling tiles still in flight stay tracked; wiping the
-                // whole map here would make them count as completed and overstate "X out of Y".
-                abortQuery: (state, { shortId }) => {
-                    const { [shortId]: _aborted, ...rest } = state
-                    return rest
-                },
+                // Mark only this tile cancelled, not loading and not errored. It stays in the map, so
+                // "X out of Y" counts it as settled (a cancelled tile is not in flight) while sibling
+                // tiles still loading keep being tracked. Keeping the entry also lets the card offer a
+                // retry instead of reverting to a silent blank the way a deleted entry did.
+                abortQuery: (state, { shortId }) => ({
+                    ...state,
+                    [shortId]: { aborted: true, timer: state[shortId]?.timer || null },
+                }),
                 cancelDashboardRefresh: () => ({}),
             },
         ],

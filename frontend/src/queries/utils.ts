@@ -80,6 +80,22 @@ import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, Interval
 
 import { LATEST_VERSIONS } from './latest-versions'
 
+/**
+ * True when a query response carries at least one row. A missing `result`/`results` key, an explicit
+ * `null`, and an empty array all read as empty, so callers can tell "loaded but empty" apart from
+ * "has data" without knowing which key a given response kind uses.
+ */
+export function responseHasResults(response?: Record<string, any> | null): boolean {
+    if (!response || typeof response !== 'object') {
+        return false
+    }
+    const value = 'result' in response ? response.result : 'results' in response ? response.results : undefined
+    if (value === null || value === undefined) {
+        return false
+    }
+    return Array.isArray(value) ? value.length > 0 : true
+}
+
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
         isEventsNode(node) ||

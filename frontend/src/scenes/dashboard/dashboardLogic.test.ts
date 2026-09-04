@@ -2185,12 +2185,12 @@ describe('dashboardLogic', () => {
                     )
                     expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 2 })
 
-                    // One tile's query aborts mid-cycle (e.g. a 504). Y must stay pinned at 2 — the pre-fix
-                    // selector derived Y from the live map, so it collapsed as the map shrank — and only the
-                    // aborted tile leaves the status map, so the sibling still in flight keeps being counted
-                    // (a whole-map wipe would drop it and overstate X as "done").
+                    // One tile's query aborts mid-cycle (e.g. a 504). Y stays pinned at 2. The aborted
+                    // tile stays in the map marked cancelled (not loading, not queued), so it counts as
+                    // settled without being dropped, and the sibling still in flight keeps being counted.
                     logic.actions.abortQuery({ queryId: 'q1', queryStartTime: 0, shortId: insight1.short_id })
-                    expect(logic.values.refreshStatus).not.toHaveProperty(insight1.short_id)
+                    expect(logic.values.refreshStatus[insight1.short_id]?.aborted).toBe(true)
+                    expect(logic.values.refreshStatus[insight1.short_id]?.loading).toBeFalsy()
                     expect(logic.values.refreshStatus[insight2.short_id]?.loading).toBe(true)
                     expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
 

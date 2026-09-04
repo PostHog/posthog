@@ -584,6 +584,31 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
     })
 
+    it('does not overwrite a loaded response with emptier cached results on a props change', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        logic = dataNodeLogic({
+            key: 'dashboardTile',
+            query,
+            cachedResults: { result: [1, 2, 3] },
+        })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
+
+        // A dashboard re-renders and passes an emptier cached payload for the same query. The loaded
+        // rows must survive, otherwise a good chart blanks with nobody touching the tile.
+        await expectLogic(logic, () => {
+            dataNodeLogic({ key: 'dashboardTile', query, cachedResults: { result: [] } }).mount()
+        }).toMatchValues({ response: { result: [1, 2, 3] } })
+
+        // Cached results that do carry rows still replace the response.
+        await expectLogic(logic, () => {
+            dataNodeLogic({ key: 'dashboardTile', query, cachedResults: { result: [4, 5, 6] } }).mount()
+        }).toMatchValues({ response: { result: [4, 5, 6] } })
+    })
+
     it('passes filtersOverride to api', async () => {
         const filtersOverride: DashboardFilter = {
             date_from: '2022-12-24T17:00:41.165000Z',

@@ -82,6 +82,36 @@ describe('InsightVizDisplay', () => {
             },
             expected: false,
         },
+        {
+            name: 'rows arrived under the results key → data is present, no hint',
+            params: {
+                isInDashboardContext: true,
+                doNotLoad: false,
+                activeView: InsightType.TRENDS,
+                insightData: { results: [1, 2, 3] },
+            },
+            expected: false,
+        },
+        {
+            name: 'results key present but empty → genuinely empty, no hint',
+            params: {
+                isInDashboardContext: true,
+                doNotLoad: false,
+                activeView: InsightType.TRENDS,
+                insightData: { results: [] },
+            },
+            expected: false,
+        },
+        {
+            name: 'results key nullish and no result → never loaded, show hint',
+            params: {
+                isInDashboardContext: true,
+                doNotLoad: false,
+                activeView: InsightType.TRENDS,
+                insightData: { results: null },
+            },
+            expected: true,
+        },
     ])('shouldShowDashboardInsightRefreshHint: $name', ({ params, expected }) => {
         expect(shouldShowDashboardInsightRefreshHint(params)).toBe(expected)
     })

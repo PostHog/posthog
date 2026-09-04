@@ -21,6 +21,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { SampleDataVariant } from 'scenes/insights/EmptyStates/SampleDataState'
 import {
     SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
     isPropertyValueMath,
@@ -49,7 +50,7 @@ import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { responseHasResults, shouldQueryBeAsync } from '~/queries/utils'
 import {
     ChartDisplayType,
     ExporterFormat,
@@ -101,7 +102,12 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
-/** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
+/**
+ * Dashboard tile: show the refresh hint only when the tile never got numbers back, so the user can
+ * retry. "Never got numbers back" means both `result` and `results` are nullish, because a tile can
+ * carry its rows under either key. An empty array is a loaded-but-empty result, not a failed load, so
+ * it does not trigger the hint (the trends empty state handles that case).
+ */
 export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext,
     doNotLoad,
@@ -116,8 +122,25 @@ export function shouldShowDashboardInsightRefreshHint({
     if (!isInDashboardContext || doNotLoad || activeView === InsightType.WEB_ANALYTICS) {
         return false
     }
-    const rawResult = insightData?.result
-    return rawResult === null || rawResult === undefined
+    return insightData?.result == null && insightData?.results == null
+}
+
+/** Pick the faded sample chart the trends empty state shows behind its copy, matched to the display type. */
+function trendsSampleDataVariant(display?: ChartDisplayType | null): SampleDataVariant {
+    switch (display) {
+        case ChartDisplayType.ActionsPie:
+            return 'pie'
+        case ChartDisplayType.BoldNumber:
+            return 'number'
+        case ChartDisplayType.ActionsTable:
+            return 'table'
+        case ChartDisplayType.ActionsBar:
+        case ChartDisplayType.ActionsBarValue:
+        case ChartDisplayType.ActionsStackedBar:
+            return 'bar'
+        default:
+            return 'line'
+    }
 }
 
 export function InsightVizDisplay({
@@ -322,6 +345,28 @@ export function InsightVizDisplay({
                     />
                 )
             }
+        }
+
+        // A trends tile with an empty response used to fall through to a blank chart, because only
+        // funnels had an empty state here. Render the shared empty state so a valid insight with no
+        // rows reads as "no data" instead of a broken tile. On a dashboard the refresh hint above
+        // handles the never-loaded case, where both result keys are nullish. This branch covers the
+        // loaded-but-empty case, which shows for standalone insights and dashboard tiles alike, so it
+        // passes the dashboard telemetry props.
+        if (
+            activeView === InsightType.TRENDS &&
+            !erroredQueryId &&
+            !insightDataLoading &&
+            !responseHasResults(insightData)
+        ) {
+            return (
+                <InsightEmptyState
+                    heading={context?.emptyStateHeading}
+                    detail={context?.emptyStateDetail}
+                    sampleDataVariant={trendsSampleDataVariant(display)}
+                    insightProps={insightProps}
+                />
+            )
         }
 
         return null
