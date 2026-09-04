@@ -3,6 +3,14 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
+from posthog.hogql.errors import (
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
+)
+
 from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 
@@ -182,3 +190,29 @@ class TestWarmInsightCacheTask(APIBaseTest):
             warm_insight_cache_task(insight.pk, None)
 
         mock_capture_exception.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unresolved_field", QueryError("Unable to resolve field: amount")),
+            ("bad_syntax", HogQLSyntaxError("mismatched input")),
+        ]
+    )
+    @patch("posthog.caching.warming.capture_exception")
+    def test_user_query_errors_are_not_captured(self, _name, error, mock_capture_exception):
+        with patch("posthog.caching.warming.process_query_dict", side_effect=error):
+            insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
+            warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.caching.warming.capture_exception")
+    def test_access_denied_is_still_captured_when_the_creator_keeps_access(self, mock_capture_exception):
+        error = TableAccessDeniedError("Table access denied")
+
+        with patch("posthog.caching.warming.process_query_dict", side_effect=error):
+            insight = Insight.objects.create(
+                team=self.team, created_by=self.user, query={"kind": "TrendsQuery", "series": []}
+            )
+            warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_called_once_with(error)
