@@ -32,6 +32,9 @@ export function useArtifactSharingQuery(
     queryFn: () => sessionService.getTaskArtifactSharing(taskId, artifactId),
     meta: AUTH_SCOPED_QUERY_META,
     staleTime: SHARING_STALE_TIME_MS,
+    // Another client can turn sharing off while the dialog is closed, so each
+    // opening asks the server rather than serving the cached toggle.
+    refetchOnMount: "always",
   });
   return { data, isLoading, isError };
 }

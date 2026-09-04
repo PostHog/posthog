@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { IconDownload } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -48,11 +50,36 @@ export default function ExporterArtifactScene({ artifact }: { artifact: SharedTa
         )
     }
     if (artifact.kind === 'image') {
+        return <SharedImage artifact={artifact} />
+    }
+    return <DownloadCard artifact={artifact} />
+}
+
+/** The page renders before the image endpoint reads storage, so a gone or unreadable
+ * object has to say so instead of leaving a broken-image icon. */
+function SharedImage({ artifact }: { artifact: SharedTaskArtifactPayload }): JSX.Element {
+    const [failed, setFailed] = useState(false)
+
+    if (failed) {
         return (
-            <div className="flex justify-center">
-                <img src={artifact.file_url} alt={artifact.name} className="max-w-full h-auto" />
+            <div className="flex flex-col gap-4">
+                <LemonBanner type="warning">
+                    This image couldn't be loaded. It may no longer be available. Try again, or ask whoever shared it
+                    for a new link.
+                </LemonBanner>
+                <DownloadCard artifact={artifact} />
             </div>
         )
     }
-    return <DownloadCard artifact={artifact} />
+
+    return (
+        <div className="flex justify-center">
+            <img
+                src={artifact.file_url}
+                alt={artifact.name}
+                className="max-w-full h-auto"
+                onError={() => setFailed(true)}
+            />
+        </div>
+    )
 }

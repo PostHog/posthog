@@ -1,7 +1,9 @@
+import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { urls } from 'scenes/urls'
 
 import { SharedCanvasPayload } from '../types'
@@ -12,13 +14,6 @@ const CANVAS_CHANNEL = 'posthog-canvas'
 export const SHARED_VIEW_ERROR = 'unavailable_in_shared_view'
 
 type CanvasTheme = 'light' | 'dark'
-
-function resolveTheme(forcedTheme: CanvasTheme | null): CanvasTheme {
-    if (forcedTheme) {
-        return forcedTheme
-    }
-    return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light'
-}
 
 /**
  * The artifact runtime reads the theme off the URL fragment before first paint, so the
@@ -45,7 +40,10 @@ export default function ExporterCanvasScene({
 }): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const portRef = useRef<MessagePort | null>(null)
-    const theme = resolveTheme(forcedTheme)
+    // The same value `useThemedHtml` puts on the page, so the canvas never renders
+    // dark inside a light page when the share carries no theme of its own.
+    const { isDarkModeOn } = useValues(themeLogic)
+    const theme: CanvasTheme = forcedTheme ?? (isDarkModeOn ? 'dark' : 'light')
     const artifactUrl = canvas.artifact_url
 
     useEffect(() => {

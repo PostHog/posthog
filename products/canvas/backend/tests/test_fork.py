@@ -90,6 +90,32 @@ class TestCanvasFork(CanvasSharingTestBase):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_fork_refuses_a_caller_denied_canvas_access_at_the_resource_level(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        canvas_id = self._create_canvas(name="Revenue board")
+        self._publish_ready(canvas_id)
+        AccessControl.objects.create(team=self.team, resource="canvas", access_level="none")
+        # An editor grant on one canvas is not permission to create another, which is
+        # what a copy is. Without this the grant alone would satisfy the permission layer.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=canvas_id,
+            organization_member=self.organization_membership,
+            access_level="editor",
+        )
+
+        response = self._fork({"source_canvas_id": canvas_id})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        with team_scope(self.team.id):
+            assert Canvas.objects.filter(forked_from_canvas_id=canvas_id).count() == 0
+
     @parameterized.expand(
         [
             ("both sources", {"source_canvas_id": "00000000-0000-0000-0000-000000000000", "share_token": "t"}),

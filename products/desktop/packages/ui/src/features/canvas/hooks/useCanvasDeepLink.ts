@@ -1,10 +1,12 @@
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
+import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   forkCanvasAndOpen,
   setForkCanvasHandler,
 } from "@posthog/ui/features/canvas/utils/forkCanvasAndOpen";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
@@ -28,12 +30,21 @@ const log = logger.scope("canvas-deep-link");
  * (the main process emits rather than queues once a listener is attached, so a
  * discarded payload is unrecoverable). Navigation is safe regardless: the
  * Channels space is flag-gated at the route, which redirects out when off.
+ *
+ * Copying is the exception. The fork endpoint creates a canvas and queues a
+ * build, and the route then redirects a flag-off person away from the copy they
+ * cannot reach, so a "link to a copy" only forks once the flag is on. Off, the
+ * link behaves like a plain canvas link and leaves nothing behind.
  */
 export function useCanvasDeepLink() {
   const trpcReact = useHostTRPC();
   const client = useHostTRPCClient();
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
+  );
+  const bluebirdEnabled = useFeatureFlag(
+    PROJECT_BLUEBIRD_FLAG,
+    import.meta.env.DEV,
   );
 
   // In-app clicks on a "link to a copy" reach the fork through this handler,
@@ -68,13 +79,13 @@ export function useCanvasDeepLink() {
         channel_id: channelId,
         dashboard_id: dashboardId,
       });
-      if (fork) {
+      if (fork && bluebirdEnabled) {
         void forkCanvasAndOpen(client, dashboardId);
         return;
       }
       navigateToChannelDashboard(channelId, dashboardId);
     },
-    [client],
+    [client, bluebirdEnabled],
   );
 
   useEffect(() => {

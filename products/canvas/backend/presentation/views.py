@@ -265,9 +265,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Invoking a verb writes the target resource, so a scoped credential
         # must hold that resource's scope — canvas:write alone is not consent
-        # to create tasks or annotations.
+        # to create tasks or annotations. Every other action defers to the
+        # access-control mixin, which claims the access_control:* scopes for the
+        # routes it adds; returning None here would 403 every scoped caller.
         if getattr(view, "action", None) != "invoke_action":
-            return None
+            return super().dangerously_get_required_scopes(request, view)
         verb = request.data.get("verb") if isinstance(request.data, dict) else None
         entry = CANVAS_ACTIONS.get(verb) if isinstance(verb, str) else None
         if entry is None:
@@ -1284,6 +1286,15 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if user is None or self._is_sandbox_authenticated(request):
             return Response(
                 {"detail": "Copies are made by people; sandbox tokens cannot copy canvases."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # A copy is a new canvas, so it needs the same resource-level rights as
+        # POST canvases/. The permission layer only applies that rule to the
+        # `create` action, where a grant on one specific canvas cannot stand in
+        # for permission to make another.
+        if not self.user_access_control.check_access_level_for_resource("canvas", required_level="editor"):
+            return Response(
+                {"detail": "You do not have editor access to canvases, so you can't make a copy."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         payload = CanvasForkSerializer(data=request.data)

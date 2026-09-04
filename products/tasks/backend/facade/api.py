@@ -9455,7 +9455,7 @@ def get_or_create_shared_task_artifact(
     if latest is None:
         return None
     run, entry = latest
-    anchor, _ = SharedTaskArtifact.objects.for_team(team_id).get_or_create(
+    anchor, created = SharedTaskArtifact.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         task_id=task_uuid,
         name=name,
@@ -9466,6 +9466,8 @@ def get_or_create_shared_task_artifact(
             "created_by_id": user_id,
         },
     )
+    if created:
+        _retain_shared_artifact_object(entry, team_id)
     return anchor.id
 
 
@@ -9478,10 +9480,37 @@ def pin_shared_task_artifact(anchor_id: str | UUID, team_id: int) -> bool:
     if latest is None:
         return False
     run, entry = latest
+    already_pinned = anchor.artifact_id == str(entry["id"])
     anchor.run = run
     anchor.artifact_id = str(entry["id"])
     anchor.save(update_fields=["run", "artifact_id"])
+    if not already_pinned:
+        _retain_shared_artifact_object(entry, team_id)
     return True
+
+
+def _retain_shared_artifact_object(entry: dict, team_id: int) -> None:
+    """Drop the expiry tag from an upload that a public link now serves.
+
+    Uploads are tagged ``ttl_days: 30`` when a run produces them, so without this the
+    link stops serving its file 30 days later while the page still shows its name and
+    size. Tagging replaces the whole tag set, so writing just ``team_id`` clears the
+    expiry. Best effort: storage being unreachable must not stop someone sharing.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    storage_path = entry.get("storage_path")
+    if not storage_path:
+        return
+    try:
+        object_storage.tag(storage_path, {"team_id": str(team_id)})
+    except Exception as exc:
+        logger.warning(
+            "task_run.shared_artifact_retain_failed",
+            storage_path=storage_path,
+            team_id=team_id,
+            error=str(exc),
+        )
 
 
 def shared_task_artifact_versions(

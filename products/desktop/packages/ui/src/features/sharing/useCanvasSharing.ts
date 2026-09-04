@@ -16,7 +16,13 @@ export function useCanvasSharingQuery(dashboardId: string): {
   const { data, isLoading, isError } = useQuery(
     trpc.dashboards.sharing.queryOptions(
       { id: dashboardId },
-      { meta: AUTH_SCOPED_QUERY_META, staleTime: SHARING_STALE_TIME_MS },
+      {
+        meta: AUTH_SCOPED_QUERY_META,
+        staleTime: SHARING_STALE_TIME_MS,
+        // Another client can turn sharing off while the dialog is closed, so
+        // each opening asks the server rather than serving the cached toggle.
+        refetchOnMount: "always",
+      },
     ),
   );
   return { data, isLoading, isError };

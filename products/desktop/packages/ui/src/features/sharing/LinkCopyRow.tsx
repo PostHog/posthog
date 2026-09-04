@@ -52,6 +52,7 @@ export function LinkCopyRow({
             void copyLinkToClipboard(url, copiedDescription, onCopied)
           }
           data-attr={dataAttr}
+          aria-label={`Copy ${label.toLowerCase()}`}
         >
           Copy
         </Button>

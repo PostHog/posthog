@@ -10,9 +10,11 @@ from rest_framework.test import APIClient
 
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models import SharingConfiguration
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.tasks.backend import activity_visibility
 from products.tasks.backend.models import Channel, SharedTaskArtifact, Task, TaskRun
 
 EXPORTED_DATA_OPEN = '<script id="posthog-exported-data" type="application/json">'
@@ -132,6 +134,25 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert published.json()["shared_artifact_id"] == "art-3"
         assert self._shared_payload(access_token)["task_artifact"]["markdown"] == "# Revised\n"
 
+    def test_publishing_drops_the_expiry_tag_of_whichever_upload_is_served(self):
+        with patch("posthog.storage.object_storage.tag") as tag:
+            self._enable_sharing("art-1")
+            first_share = [call.args for call in tag.call_args_list]
+            # Re-enabling with nothing new to publish leaves the pin, so nothing is retagged.
+            self._enable_sharing("art-1")
+            unchanged = [call.args for call in tag.call_args_list]
+            self.newer_run.artifacts.append(
+                _entry("art-3", "report.md", "artifacts/report-v3.md", "text/markdown", "2026-03-01T00:00:00+00:00")
+            )
+            self.newer_run.save(update_fields=["artifacts"])
+            self._enable_sharing("art-3")
+            published = [call.args for call in tag.call_args_list]
+
+        team = {"team_id": str(self.team.id)}
+        assert first_share == [("artifacts/report-v2.md", team)]
+        assert unchanged == first_share
+        assert published == [("artifacts/report-v2.md", team), ("artifacts/report-v3.md", team)]
+
     def test_image_streams_inline_with_nosniff(self):
         access_token = self._enable_sharing("img-1")
         self.client.logout()
@@ -219,3 +240,59 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert read.json()["enabled"] is False
         assert write.status_code == status.HTTP_403_FORBIDDEN, write.json()
         assert not SharedTaskArtifact.objects.for_team(self.team.id).exists()
+
+
+class TestTaskActivityVisibility(APIBaseTest):
+    """A task in someone's personal space is theirs alone, so the `Task`-scoped rows an
+    artifact share writes must not reach another member through the activity feed."""
+
+    def _personal_task(self, owner: User, title: str) -> Task:
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(
+                team=self.team, name=title, channel_type=Channel.ChannelType.PERSONAL, created_by=owner
+            )
+        return Task.objects.create(
+            team=self.team,
+            created_by=owner,
+            channel=channel,
+            title=title,
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+    def test_hidden_ids_cover_another_members_personal_task_only(self):
+        other = User.objects.create_and_join(self.organization, "teammate-activity@example.com", None)
+        theirs = self._personal_task(other, "Theirs")
+        mine = self._personal_task(self.user, "Mine")
+
+        hidden = activity_visibility.hidden_task_ids(self.team.id, self.user)
+        hidden_for_org = activity_visibility.hidden_task_ids_for_org(self.organization.id, self.user)
+
+        assert str(theirs.id) in hidden
+        assert str(mine.id) not in hidden
+        assert str(theirs.id) in hidden_for_org
+        assert str(mine.id) not in hidden_for_org
+
+    def test_team_activity_feed_hides_another_members_personal_task(self):
+        other = User.objects.create_and_join(self.organization, "teammate-feed@example.com", None)
+        theirs = self._personal_task(other, "Theirs")
+        mine = self._personal_task(self.user, "Mine")
+        for task in (theirs, mine):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=None,
+                was_impersonated=False,
+                item_id=str(task.id),
+                scope="Task",
+                activity="share_login_failed",
+                detail=Detail(name="report.md"),
+                force_save=True,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        visible = {row["item_id"] for row in response.json()["results"] if row["scope"] == "Task"}
+        assert str(mine.id) in visible
+        assert str(theirs.id) not in visible
