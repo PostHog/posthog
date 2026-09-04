@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -304,7 +305,9 @@ export const groupLogic = kea<groupLogicType>([
                         }
                     } catch (error) {
                         // Silently fall back to group properties
-                        posthog.captureException(error, { tag: 'group_revenue_analytics_data_query_failed' })
+                        if (shouldReportApiFailure(error)) {
+                            posthog.captureException(error, { tag: 'group_revenue_analytics_data_query_failed' })
+                        }
                         return null
                     }
                 },

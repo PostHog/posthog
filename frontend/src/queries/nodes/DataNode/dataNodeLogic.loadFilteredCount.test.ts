@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -64,5 +65,23 @@ describe('dataNodeLogic - loadFilteredCount', () => {
 
         expect(posthog.captureException).not.toHaveBeenCalled()
         expect(logic.values.filteredCount).toBe(5)
+    })
+
+    // A query that runs out of ClickHouse memory is a handled outcome, not a defect, so the count
+    // loader must not file it. The async path returns a 400 carrying the memory-limit code.
+    it('does not report a handled out-of-memory query failure', async () => {
+        const query: ActorsQuery = { kind: NodeKind.ActorsQuery, select: ['id'] }
+        logic = dataNodeLogic({ key: testUniqueKey, query })
+        logic.mount()
+
+        jest.spyOn(queryModule, 'performQuery').mockRejectedValue(
+            new ApiError('out of memory', 400, undefined, { code: 'clickhouse_memory_limit_exceeded' })
+        )
+
+        logic.actions.loadFilteredCount()
+        await expectLogic(logic).toDispatchActions(['loadFilteredCountSuccess'])
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+        expect(logic.values.filteredCount).toBeNull()
     })
 })

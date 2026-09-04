@@ -20,6 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
@@ -1394,7 +1395,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
+                        if (shouldReportApiFailure(error)) {
+                            posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
+                        }
                         return null
                     }
                 },
@@ -1418,7 +1421,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         if (isBreakpoint(error)) {
                             throw error
                         }
-                        posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
+                        if (shouldReportApiFailure(error)) {
+                            posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
+                        }
                         return null
                     }
                 },

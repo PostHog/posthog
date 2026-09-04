@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
@@ -169,7 +170,9 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         if (!extraSessionProperties.length) {
                             // These are supplementary columns on the recordings list. A backend blip shouldn't
                             // toast, it should just leave this batch's rows without properties.
-                            posthog.captureException(e)
+                            if (shouldReportApiFailure(e)) {
+                                posthog.captureException(e)
+                            }
                             return values.recordingProperties
                         }
                         try {
@@ -178,7 +181,9 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                 QUERY_TAGS
                             )
                         } catch (fallbackError) {
-                            posthog.captureException(fallbackError)
+                            if (shouldReportApiFailure(fallbackError)) {
+                                posthog.captureException(fallbackError)
+                            }
                             return values.recordingProperties
                         }
                         // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch

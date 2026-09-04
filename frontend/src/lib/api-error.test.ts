@@ -94,6 +94,10 @@ describe('api-error', () => {
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
+            ['a 512 query-too-slow', { status: 512 }, false],
+            ['a 513 out-of-memory', { status: 513, code: 'clickhouse_memory_limit_exceeded' }, false],
+            // A polled async query loses the 513 status to a 400 but keeps the out-of-memory code.
+            ['a polled out-of-memory 400', { status: 400, code: 'clickhouse_memory_limit_exceeded' }, false],
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
