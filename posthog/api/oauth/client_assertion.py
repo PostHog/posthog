@@ -133,6 +133,24 @@ def _unverified_subject(assertion: str) -> str:
     return subject if isinstance(subject, str) else ""
 
 
+def _unverified_audience(assertion: str) -> str:
+    """Read ``aud`` without verifying, to report what a rejected assertion was addressed to.
+
+    Safe to log: the audience names this server, while the credential is the signature.
+    """
+    try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
+        claims = jwt.decode(assertion, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return ""
+    audience = claims.get("aud") or ""
+    if isinstance(audience, str):
+        return audience
+    if isinstance(audience, list):
+        return ", ".join(str(entry) for entry in audience)
+    return ""
+
+
 def expected_assertion_audiences(*token_endpoint_paths: str) -> list[str]:
     """Audiences we accept, kept to an explicit set so an assertion minted for another
     service can't be replayed against us.
@@ -311,7 +329,18 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     except jwt.PyJWTError as e:
         # The reason is logged rather than returned: which check failed is useful to us and
         # not something an unauthenticated caller needs.
-        logger.warning("client_assertion_rejected", app_id=str(app.id), error=str(e), error_type=type(e).__name__)
+        addressing = (
+            {"presented_audience": _unverified_audience(assertion), "expected_audiences": audiences}
+            if isinstance(e, jwt.InvalidAudienceError)
+            else {}
+        )
+        logger.warning(
+            "client_assertion_rejected",
+            app_id=str(app.id),
+            error=str(e),
+            error_type=type(e).__name__,
+            **addressing,
+        )
         raise ClientAssertionError("Client assertion is invalid") from e
 
     # RFC 7523 section 3: for client authentication both iss and sub are the client_id.
