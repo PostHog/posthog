@@ -131,10 +131,12 @@ export function WidgetCardHeaderDescription({
     return (
         <div
             className={clsx(
-                'min-w-0 max-h-24 w-full max-w-full self-stretch overflow-y-auto break-words [overflow-wrap:anywhere]',
+                'min-w-0 w-full max-w-full self-stretch break-words [overflow-wrap:anywhere]',
                 compact && 'mt-1'
             )}
             data-slot="widget-card-header-description"
+            // `.CardMeta__description` clamps to three lines, so hand the full text back on hover.
+            title={description}
         >
             <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                 {description}

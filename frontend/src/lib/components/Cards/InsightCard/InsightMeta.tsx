@@ -836,11 +836,15 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {(!compact || showDescription) && !!description && (
-                <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
-                    {description}
-                </LemonMarkdown>
-            )}
+            {(!compact || showDescription) &&
+                !!description && (
+                    // `.CardMeta__description` clamps to three lines, so hand the full text back on hover.
+                    <div title={description}>
+                        <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                            {description}
+                        </LemonMarkdown>
+                    </div>
+                )}
             {!compact && tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
             <LemonTableLoader loading={loading} />
         </>

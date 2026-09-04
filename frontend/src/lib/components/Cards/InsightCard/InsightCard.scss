@@ -33,7 +33,10 @@
     flex: 1;
     flex-direction: column;
     width: 100%;
-    min-height: 0; // Allow flex item to shrink below content size (e.g. when description is toggled)
+
+    // Shrinks below content size (e.g. when the description is toggled), but not past a slice the
+    // chart stays readable in. The header above it does not shrink at all.
+    min-height: 3rem;
     overflow: auto;
     border-radius: 0 0 var(--radius) var(--radius);
 

@@ -2,7 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardPlacement,
+    DashboardTile,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -215,6 +222,31 @@ export const InsightCard: Story = {
             </div>
         )
     },
+}
+
+export const DashboardTileWithLongDescription: Story = {
+    render: () => (
+        // Short tiles are where a long description used to squeeze the chart out of the card.
+        <div className="grid gap-4 grid-cols-2 w-[52rem]">
+            {['h-[160px]', 'h-[320px]'].map((height) => (
+                <InsightCardComponent
+                    key={height}
+                    className={height}
+                    insight={
+                        {
+                            ...EXAMPLE_TRENDS,
+                            name: 'Weekly active users',
+                            description:
+                                'This insight tracks the weekly count of unique users who completed at least one meaningful action in the product, excluding internal traffic and bot sessions, so the number reflects real customer activity rather than automated hits. It is the top-line engagement number the team reviews every Monday.',
+                        } as unknown as QueryBasedInsightModel
+                    }
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement={DashboardPlacement.Dashboard}
+                />
+            ))}
+        </div>
+    ),
 }
 
 export const ErrorStates: Story = {
