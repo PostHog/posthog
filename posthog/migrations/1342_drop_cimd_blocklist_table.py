@@ -7,11 +7,9 @@ class Migration(migrations.Migration):
     dependencies = [("posthog", "1341_organization_uses_most_specific_access_resolution")]
 
     operations = [
-        # Second step of the CIMD blocklist retirement: migration 1334 removed the model from
-        # Django state, and that change has been deployed for a full cycle, so no running code
-        # reads or writes this table. Drop the orphaned table and its stale rows.
+        # Safe only once 1334's state-only removal has rolled out everywhere; no reverse_sql,
+        # since a no-op reversal would leave Django's state claiming a table that is gone.
         migrations.RunSQL(
             sql="DROP TABLE IF EXISTS posthog_cimdblocklistentry;",
-            reverse_sql="",  # No reverse - the table is obsolete and the blocklist feature is gone
         ),
     ]
