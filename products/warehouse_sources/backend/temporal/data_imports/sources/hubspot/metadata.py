@@ -18,6 +18,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.helpers import fetch_data
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.scopes import HubspotForbiddenError
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     HUBSPOT_ENDPOINTS,
     HUBSPOT_METADATA_ENDPOINTS,
@@ -46,6 +47,12 @@ def _iter_pages(
 ) -> Iterator[list[dict[str, Any]]]:
     try:
         yield from fetch_data(path, api_key, refresh_token, source_id=source_id)
+    except HubspotForbiddenError:
+        # `helpers.raise_for_hubspot_status` maps a 403 to this instead of to `requests.HTTPError`,
+        # so it has to be caught by type: it would otherwise sail past the guard below and fail the
+        # whole table on one object type the grant can't read.
+        logger.warning(f"Hubspot: skipping {path} (status=403); the portal cannot read it")
+        return
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else None
         if status in _SKIPPABLE_STATUSES:

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.helpers import raise_for_hubspot_status
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.metadata import (
     METADATA_FETCHERS,
     get_owners_rows,
@@ -141,6 +142,9 @@ class TestMetadataFetchers:
     def test_properties_skips_an_object_type_the_portal_cannot_read(self) -> None:
         # Property definitions are fanned out over every object endpoint, several of which need a
         # scope the connection may not hold. One 403 must not take the whole table down.
+        #
+        # The 403 goes through `raise_for_hubspot_status` rather than being raised as a hand-picked
+        # exception class, so the skip is tested against whatever the fetch path actually raises.
         response = MagicMock()
         response.status_code = 403
 
@@ -148,7 +152,8 @@ class TestMetadataFetchers:
             if path == "/crm/properties/2026-03/deals":
                 yield [{"name": "amount"}]
                 return
-            raise HTTPError("403 Client Error", response=response)
+            # `leads` is scope-gated, so this covers the HubspotMissingScopeError subclass too.
+            raise_for_hubspot_status(response, f"https://api.hubapi.com{path}")
 
         with patch(_FETCH_DATA, new=_fake):
             rows = _call(get_properties_rows)
