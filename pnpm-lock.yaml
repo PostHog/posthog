@@ -186,6 +186,9 @@ overrides:
   '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+  '@connectrpc/connect-node@2.1.1':
+    hash: a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
+    path: patches/@connectrpc__connect-node@2.1.1.patch
   dayjs@1.11.11:
     hash: 2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852
     path: patches/dayjs@1.11.11.patch
@@ -1512,7 +1515,7 @@ importers:
         version: 2.1.1(@bufbuild/protobuf@2.11.0)
       '@connectrpc/connect-node':
         specifier: ^2.1.1
-        version: 2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
+        version: 2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
       '@dsnp/parquetjs':
         specifier: ^1.8.7
         version: 1.8.7
@@ -25793,7 +25796,7 @@ snapshots:
     dependencies:
       commander: 14.0.3
 
-  '@connectrpc/connect-node@2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))':
+  '@connectrpc/connect-node@2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))':
     dependencies:
       '@bufbuild/protobuf': 2.11.0
       '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)
