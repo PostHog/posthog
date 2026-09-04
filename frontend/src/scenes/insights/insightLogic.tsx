@@ -679,6 +679,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     } catch (error: any) {
                         if (error.status === 403 && error.code === 'permission_denied') {
                             actions.setAccessDeniedToInsight()
+                        } else {
+                            // The insight could not be loaded (404, network, or server error). Mark it
+                            // missing so the scene shows the not-found page instead of a stuck skeleton.
+                            actions.setInsightMissing()
                         }
                         throw error
                     }
@@ -696,7 +700,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!insightId) {
                         throw new Error('Cannot update insight: unable to resolve insight id')
                     }
-                    const response = await insightsApi.update(insightId, insightUpdate)
+                    let response: QueryBasedInsightModel
+                    try {
+                        response = await insightsApi.update(insightId, insightUpdate)
+                    } catch (error) {
+                        // The update endpoint's queryset excludes soft-deleted rows, so a deleted
+                        // insight returns 404 with the raw DRF "Not found." Replace it with a
+                        // message that tells the user what happened.
+                        if (error instanceof ApiError && error.status === 404) {
+                            error.detail = 'This insight no longer exists. It may have been deleted.'
+                        }
+                        throw error
+                    }
                     // Call the callback before breakpoint so it fires even if a newer loader
                     // action was dispatched while the API call was in flight. The API call
                     // succeeded, so the callback (e.g. navigation after adding to dashboard)

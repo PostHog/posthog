@@ -540,4 +540,34 @@ describe('insightSceneLogic', () => {
 
         expect(insightApiCall.mock.calls.length).toEqual(callCountAfterInitialLoad)
     })
+
+    describe('insightMissing', () => {
+        // The scene reads this flag to choose between a loading skeleton and the not-found page.
+        // A saved insight that still resolves must not read as missing, or it flashes a false 404.
+        it('stays false while an existing insight loads', async () => {
+            router.actions.push(urls.insightView(Insight42))
+            logic = insightSceneLogic()
+            logic.mount()
+
+            expect(logic.values.insightMissing).toBe(false)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.insightMissing).toBe(false)
+        })
+
+        it('becomes true once a load fails', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [] }],
+                },
+            })
+
+            router.actions.push(urls.insightView('999' as InsightShortId))
+            logic = insightSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.insightMissing).toBe(true)
+        })
+    })
 })

@@ -15,7 +15,8 @@ import { ItemMode } from '~/types'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic)
+    const { insightId, insight, insightMissing, accessDeniedToInsight, insightMode, dashboardId } =
+        useValues(insightSceneLogic)
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -46,11 +47,14 @@ export function InsightScene(): JSX.Element {
         return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
     }
 
-    if (insightLogicRef?.logic?.values?.insightLoading) {
-        return <InsightSkeleton />
+    // Only show the not-found page once a load has actually failed. While the insight still
+    // resolves, or its logic ref swaps after a save from the SQL editor, treat it as loading so
+    // it does not flash a 404.
+    if (insightMissing || accessDeniedToInsight) {
+        return <NotFound object="insight" />
     }
 
-    return <NotFound object="insight" />
+    return <InsightSkeleton />
 }
 
 export const scene: SceneExport = {
