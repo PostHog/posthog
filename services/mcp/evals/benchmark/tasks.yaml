@@ -273,20 +273,21 @@ tasks:
           Reads the current definition first, then edits targeting through update-feature-flag. Does not reach for a
           lifecycle tool, which cannot change targeting. If the flag does not exist, says so.
 
-    # A flag that gates a user-visible change should draw an offer to measure it with an
-    # experiment; an operational flag should not. The pair scores both directions, so a
-    # description that pushes experiments too hard fails the second task.
-    - id: flag-create-offers-experiment
+    # The description asks the agent to weigh an experiment before it creates a flag. The
+    # pair below scores both directions: a user-visible change should route to an experiment,
+    # an operational flag should not. A description that pushes experiments too hard fails the
+    # second task. Both intents settle the choice up front, so a correct agent has a mutation
+    # to make and tool selection scores cleanly.
+    - id: flag-create-routes-to-experiment
       category: feature-flags
       intent:
-          "Create a feature flag called mcp-eval-checkout-redesign for the new checkout page we're rolling out to 20%
-          of users."
-      expected_tools: [create-feature-flag]
-      acceptable_tools: [feature-flag-get-all, feature-flag-get-definition-by-key]
+          "We're putting a new version of our checkout page in front of 20% of users. Set that up — and if an
+          experiment is the better way to tell whether it helped, set that up instead of a plain flag."
+      expected_tools: [experiment-create]
+      acceptable_tools: [feature-flag-get-all, experiment-list]
       success_criteria: >
-          Asks the user whether the redesign should run as an experiment instead, and says an experiment manages its
-          own flag. Does not create an experiment without the user agreeing to it, and does not leave both a flag and
-          an experiment behind.
+          Creates an experiment rather than a bare feature flag, and says the experiment manages its own flag. Does
+          not leave a separate feature flag behind alongside it.
 
     - id: flag-create-killswitch-no-experiment
       category: feature-flags
