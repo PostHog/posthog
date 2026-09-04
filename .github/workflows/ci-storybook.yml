@@ -602,6 +602,18 @@ jobs:
                       products/visual_review/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
+            # Every shard installs the CLI, so this is the highest-volume reader of the
+            # entry vr-setup writes. Restore only: a save here would race the other
+            # shards for one key. npm stores its cache by content, so the entry moves
+            # between the runner home and the container home without a rewrite.
+            - name: Restore VR CLI npm cache
+              if: always() && needs.vr-setup.outputs.run_id != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
+
             - name: Install VR CLI
               if: always() && needs.vr-setup.outputs.run_id != ''
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
