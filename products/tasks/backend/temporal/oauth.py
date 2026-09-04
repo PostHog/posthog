@@ -12,6 +12,7 @@ from posthog.temporal.oauth import (
     McpScopePreset,
     PosthogMcpScopes,
     SandboxOAuthApplication,
+    ScoutScopePosture,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user as _create_wizard_oauth_access_token_for_user,
     resolve_scopes,
@@ -120,6 +121,13 @@ def _workflow_run_scopes(requested: PosthogMcpScopes, state: dict[str, Any] | No
         snapshot = [str(scope) for scope in raw]
     elif isinstance(raw, str) and raw in get_args(McpScopePreset):
         snapshot = cast(McpScopePreset, raw)
+    elif isinstance(raw, dict):
+        # A snapshotted scout posture. Passed through unchecked because `resolve_scopes` reads
+        # it defensively: an unrecognized preset resolves to `read_only`, and the extra write
+        # scopes are intersected with the grantable allowlist there. Skipping the dict instead
+        # would drop the snapshot leg of the intersection, which is the half that stops a
+        # widened request from taking effect.
+        snapshot = cast(ScoutScopePosture, raw)
     if snapshot is not None:
         resolved &= set(resolve_scopes(snapshot, include_internal_scopes=True))
     return sorted(scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES)
