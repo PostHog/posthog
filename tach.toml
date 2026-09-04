@@ -1445,3 +1445,17 @@ expose = [
 from = [
     "products.data_quality",
 ]
+
+[[modules]]
+path = "products.reaper_hog"
+depends_on = ["posthog", "products.experiments", "products.feature_flags"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.reaper_hog",
+]
