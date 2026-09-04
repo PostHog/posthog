@@ -600,3 +600,454 @@ fn record_stash_gauges(stash: &Stash) {
     gauge!("ingestion_consumer_dispatcher_stashed_groups").set(stash.len() as f64);
     gauge!("ingestion_consumer_dispatcher_stashed_messages").set(stash.message_count() as f64);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::routing::RoutingStrategy;
+
+    const A: &str = "http://worker:1";
+    const B: &str = "http://worker:2";
+
+    fn wid(s: &str) -> WorkerId {
+        WorkerId::from(s)
+    }
+
+    fn msg(key: &str) -> SerializedKafkaMessage {
+        SerializedKafkaMessage {
+            topic: "test".to_string(),
+            partition: 0,
+            offset: 0,
+            timestamp: 0,
+            key: Some(key.to_string()),
+            value: None,
+            headers: HashMap::new(),
+        }
+    }
+
+    fn run(key: &str, n: usize) -> KeyRun {
+        KeyRun {
+            routing_key: key.to_string(),
+            messages: (0..n).map(|_| msg(key)).collect(),
+        }
+    }
+
+    /// Snapshot where every listed worker is live, with the given loads.
+    /// Workers in `draining` are marked draining (and excluded from
+    /// healthy/candidates, matching what the dispatcher passes). Workers not
+    /// listed at all are absent from the health map, i.e. dead.
+    fn snapshot(live: &[&str], draining: &[&str], load: &[(&str, usize)]) -> WorkerSnapshot {
+        let healthy: Vec<WorkerId> = live.iter().map(|w| wid(w)).collect();
+        let mut workers: HashMap<WorkerId, WorkerHealth> = HashMap::new();
+        for w in live {
+            workers.insert(
+                wid(w),
+                WorkerHealth {
+                    dead: false,
+                    draining: false,
+                },
+            );
+        }
+        for w in draining {
+            workers.insert(
+                wid(w),
+                WorkerHealth {
+                    dead: false,
+                    draining: true,
+                },
+            );
+        }
+        let load: WorkerLoad = load.iter().map(|(w, n)| (wid(w), *n)).collect();
+        WorkerSnapshot::new(healthy.clone(), healthy, load, workers)
+    }
+
+    fn scheduler() -> PinStashScheduler {
+        PinStashScheduler::new(Router::with_seed(RoutingStrategy::BinPack, 0))
+    }
+
+    fn delivered(worker: &str, keys: &[&str], from_flush: bool) -> Settlement {
+        Settlement {
+            worker: wid(worker),
+            message_count: keys.len(),
+            routing_keys: keys.iter().map(|k| k.to_string()).collect(),
+            from_flush,
+            outcome: SettlementOutcome::Delivered,
+        }
+    }
+
+    fn failed(worker: &str, batch_id: &str, runs: Vec<KeyRun>, from_flush: bool) -> Settlement {
+        Settlement {
+            worker: wid(worker),
+            message_count: runs.iter().map(|r| r.messages.len()).sum(),
+            routing_keys: runs.iter().map(|r| r.routing_key.clone()).collect(),
+            from_flush,
+            outcome: SettlementOutcome::Failed {
+                batch_id: batch_id.to_string(),
+                runs,
+            },
+        }
+    }
+
+    // ---- on_groups: placement ----
+
+    #[test]
+    fn test_fresh_key_is_routed_pinned_and_dispatched_fresh() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+
+        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 2)]);
+
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(effects.dispatches[0].worker, wid(A));
+        assert_eq!(effects.dispatches[0].kind, SendKind::Fresh);
+        assert_eq!(effects.deferred.total(), 0);
+        let pin = sched.pins.get("t:a").expect("key is pinned");
+        assert_eq!(pin.ref_count, 1);
+    }
+
+    #[test]
+    fn test_pinned_key_sticks_to_its_worker_despite_load() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+
+        // B is now available and far less loaded — the pin still wins.
+        sched.register_batch("b2");
+        let effects = sched.on_groups(
+            &snapshot(&[A, B], &[], &[(A, 10_000)]),
+            "b2",
+            vec![run("t:a", 1)],
+        );
+
+        assert_eq!(effects.dispatches[0].worker, wid(A));
+        assert_eq!(sched.pins.get("t:a").unwrap().ref_count, 2);
+    }
+
+    #[test]
+    fn test_intra_batch_placement_accounts_for_earlier_picks() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+
+        // Two fresh equal-size groups, two idle workers: the first pick must
+        // bump the working load so the second group lands on the other worker.
+        let effects = sched.on_groups(
+            &snapshot(&[A, B], &[], &[]),
+            "b1",
+            vec![run("t:a", 3), run("t:b", 3)],
+        );
+
+        assert_eq!(effects.dispatches.len(), 2);
+        assert_ne!(effects.dispatches[0].worker, effects.dispatches[1].worker);
+    }
+
+    #[test]
+    fn test_binpack_places_largest_group_first() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+
+        let effects = sched.on_groups(
+            &snapshot(&[A, B], &[], &[]),
+            "b1",
+            vec![run("t:small", 1), run("t:big", 5)],
+        );
+
+        assert_eq!(
+            effects.dispatches[0].routing_key, "t:big",
+            "heavy hitters drive the load distribution"
+        );
+    }
+
+    #[test]
+    fn test_unroutable_group_is_stashed_not_dropped() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+
+        let effects = sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 2)]);
+
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.unroutable, 1);
+        assert_eq!(sched.pin_count(), 0, "an unrouted group takes no pin");
+        assert!(sched.has_batch("b1"));
+        assert_eq!(sched.stashed_messages(), 2);
+    }
+
+    // ---- on_groups: deferral ----
+
+    #[test]
+    fn test_pinned_key_defers_when_worker_draining() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A, B], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let pinned = sched.pins.get("t:a").unwrap().worker.clone();
+        let pinned_str = pinned.to_string();
+
+        sched.register_batch("b2");
+        let survivor = if pinned == wid(A) { B } else { A };
+        let effects = sched.on_groups(
+            &snapshot(&[survivor], &[&pinned_str], &[]),
+            "b2",
+            vec![run("t:a", 1)],
+        );
+
+        assert!(effects.dispatches.is_empty(), "must not reorder the key");
+        assert_eq!(effects.deferred.drain, 1);
+        assert!(sched.has_batch("b2"));
+    }
+
+    #[test]
+    fn test_pinned_key_defers_when_worker_absent_from_snapshot() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+
+        // A is gone from the health map entirely (removed from the registry):
+        // absent must count as dead, not as healthy.
+        sched.register_batch("b2");
+        let effects = sched.on_groups(&snapshot(&[B], &[], &[]), "b2", vec![run("t:a", 1)]);
+
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.drain, 1);
+    }
+
+    #[test]
+    fn test_deferring_key_keeps_deferring_even_when_worker_recovers() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        sched.register_batch("b2");
+        sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+
+        // A is healthy again, but b2's deferred group hasn't flushed — newer
+        // messages must queue behind it, and count as cascade, not drain.
+        sched.register_batch("b3");
+        let effects = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b3", vec![run("t:a", 1)]);
+
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
+        assert_eq!(effects.deferred.drain, 0);
+    }
+
+    #[test]
+    fn test_unpinned_key_queues_behind_its_stashed_groups() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        // Unroutable: stashed with no pin.
+        sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 1)]);
+
+        // A worker appears, but the stashed group must go first.
+        sched.register_batch("b2");
+        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b2", vec![run("t:a", 1)]);
+
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
+    }
+
+    // ---- on_settled ----
+
+    #[test]
+    fn test_settlement_evicts_idle_pin() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+
+        let effects = sched.on_settled(&snapshot(&[A], &[], &[]), delivered(A, &["t:a"], false));
+
+        assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);
+        assert_eq!(sched.pin_count(), 0);
+    }
+
+    #[test]
+    fn test_settlement_keeps_pin_while_key_still_defers() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        sched.register_batch("b2");
+        sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+
+        // b1's send lands, dropping the ref-count to zero — but b2's deferred
+        // group is still stashed, so the pin must survive for it.
+        let effects = sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(A, &["t:a"], false));
+
+        assert!(effects.evicted_keys.is_empty());
+        assert_eq!(sched.pin_count(), 1);
+    }
+
+    #[test]
+    fn test_stale_settlement_does_not_touch_repointed_pin() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        sched.register_batch("b2");
+        sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+
+        // The deferred flush re-points the pin to B while b1's send is still
+        // unresolved on A.
+        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), "b2");
+        assert_eq!(effects.dispatches[0].worker, wid(B));
+        let ref_count = sched.pins.get("t:a").unwrap().ref_count;
+
+        // b1's resolve from A must not decrement the new pin's ref-count.
+        let effects = sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(A, &["t:a"], false));
+
+        assert!(effects.evicted_keys.is_empty());
+        assert_eq!(sched.pins.get("t:a").unwrap().ref_count, ref_count);
+    }
+
+    #[test]
+    fn test_failed_settlement_restashes_before_releasing_the_key() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A, B], &[], &[]), "b1", vec![run("t:a", 2)]);
+
+        let effects = sched.on_settled(
+            &snapshot(&[A, B], &[], &[]),
+            failed(A, "b1", vec![run("t:a", 2)], false),
+        );
+
+        assert_eq!(effects.deferred.send_failed, 1);
+        assert!(
+            effects.evicted_keys.is_empty(),
+            "the pin must survive: the key still has work to replay"
+        );
+        assert_eq!(sched.stashed_messages(), 2);
+
+        // Newer messages queue behind the replay instead of overtaking it.
+        sched.register_batch("b2");
+        let effects = sched.on_groups(&snapshot(&[A, B], &[], &[]), "b2", vec![run("t:a", 1)]);
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
+    }
+
+    #[test]
+    fn test_failed_flush_keeps_key_deferring() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 1)]);
+        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), "b1");
+        assert_eq!(effects.dispatches.len(), 1);
+
+        // The flushed send fails: the re-stash and the from_flush decrement
+        // must net out so the key never stops deferring across the retry.
+        sched.on_settled(
+            &snapshot(&[A], &[], &[]),
+            failed(A, "b1", vec![run("t:a", 1)], true),
+        );
+
+        sched.register_batch("b2");
+        let effects = sched.on_groups(&snapshot(&[A], &[], &[]), "b2", vec![run("t:a", 1)]);
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
+    }
+
+    // ---- on_deadline ----
+
+    #[test]
+    fn test_deadline_with_nothing_stashed_is_a_noop() {
+        let mut sched = scheduler();
+
+        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), "b1");
+
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.total(), 0);
+        assert!(effects.evicted_keys.is_empty());
+    }
+
+    #[test]
+    fn test_deadline_keeps_group_stashed_when_no_worker_is_healthy() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[], &[], &[]), "b1", vec![run("t:a", 1)]);
+
+        let effects = sched.on_deadline(&snapshot(&[], &[], &[]), "b1");
+
+        assert!(effects.dispatches.is_empty());
+        assert!(sched.has_batch("b1"), "kept for a later deadline");
+        assert_eq!(sched.stashed_messages(), 1);
+    }
+
+    #[test]
+    fn test_flushed_key_keeps_deferring_until_the_flush_settles() {
+        let mut sched = scheduler();
+        sched.register_batch("b1");
+        sched.on_groups(&snapshot(&[A], &[], &[]), "b1", vec![run("t:a", 1)]);
+        sched.register_batch("b2");
+        sched.on_groups(&snapshot(&[B], &[A], &[]), "b2", vec![run("t:a", 1)]);
+        sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(A, &["t:a"], false));
+
+        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), "b2");
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
+        assert_eq!(
+            effects.dispatches[0].worker,
+            wid(B),
+            "re-pinned off the drainer"
+        );
+
+        // The flushed send is in flight but not ACKed — newer messages must
+        // not honor the fresh pin and race it.
+        sched.register_batch("b3");
+        let effects = sched.on_groups(&snapshot(&[B], &[A], &[]), "b3", vec![run("t:a", 1)]);
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
+
+        // The flush ACKs: the deferral clears, the pin evicts, b3's group is
+        // free to flush and the key's life cycle ends clean.
+        let effects = sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(B, &["t:a"], true));
+        assert!(effects.evicted_keys.is_empty(), "b3's group still stashed");
+        let effects = sched.on_deadline(&snapshot(&[B], &[A], &[]), "b3");
+        assert_eq!(effects.dispatches.len(), 1);
+        let effects = sched.on_settled(&snapshot(&[B], &[A], &[]), delivered(B, &["t:a"], true));
+        assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);
+        assert_eq!(sched.pin_count(), 0);
+        assert_eq!(sched.stashed_messages(), 0);
+    }
+
+    // ---- sticky pin at flush time ----
+
+    #[test]
+    fn test_sticky_pin_honored_when_healthy_and_load_comparable() {
+        let mut pins = HashMap::new();
+        pins.insert(
+            "t:a".to_string(),
+            Pin {
+                worker: wid(A),
+                ref_count: 1,
+            },
+        );
+        let healthy = [wid(A), wid(B)];
+        // Load within min * FACTOR + SLACK: an idle candidate must not
+        // disqualify a pin holding a few hundred messages.
+        let load: WorkerLoad = [(wid(A), STICKY_PIN_LOAD_SLACK), (wid(B), 0)].into();
+
+        assert_eq!(sticky_pin_for(&pins, "t:a", &healthy, &load), Some(wid(A)));
+
+        let load: WorkerLoad = [(wid(A), STICKY_PIN_LOAD_SLACK + 1), (wid(B), 0)].into();
+        assert_eq!(
+            sticky_pin_for(&pins, "t:a", &healthy, &load),
+            None,
+            "beyond the slack the pin yields to load"
+        );
+    }
+
+    #[test]
+    fn test_sticky_pin_declined_when_worker_unhealthy() {
+        let mut pins = HashMap::new();
+        pins.insert(
+            "t:a".to_string(),
+            Pin {
+                worker: wid(A),
+                ref_count: 1,
+            },
+        );
+
+        assert_eq!(
+            sticky_pin_for(&pins, "t:a", &[wid(B)], &WorkerLoad::new()),
+            None
+        );
+        assert_eq!(
+            sticky_pin_for(&pins, "t:other", &[wid(A)], &WorkerLoad::new()),
+            None,
+            "no pin, no stickiness"
+        );
+    }
+}
