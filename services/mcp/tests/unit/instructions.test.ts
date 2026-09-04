@@ -166,6 +166,7 @@ describe('buildToolDomainsBlock', () => {
             'end',
             'freeze',
             'launch',
+            'move',
             'patch',
             'pause',
             'publish',

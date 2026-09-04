@@ -113,6 +113,7 @@ import {
 import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
+import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
@@ -280,10 +281,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      // A plan presented for approval renders as the full PlanApprovalView
-      // card — folded into a "N tool calls" chip, the plan the user is being
-      // asked to approve is invisible. Same exemption as buildThreadGroups.
-      if (isPlanItem(item)) {
+      if (isPlanItem(item) || isShowActionsItem(item)) {
         flush();
         out.push(item);
         continue;

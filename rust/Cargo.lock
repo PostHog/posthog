@@ -8987,14 +8987,18 @@ dependencies = [
  "reqwest 0.12.28",
  "rmcp",
  "rust_decimal",
+ "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "tokio",
  "tokio-postgres",
+ "tokio-postgres-rustls",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9019,6 +9023,7 @@ dependencies = [
  "regex",
  "rust_decimal",
  "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "serde",
  "serde_json",
  "serde_yaml",

@@ -575,6 +575,7 @@ class EventDefinitionViewSet(
             # The single-object event-definition update path logs under the "changed" verb.
             activity="changed",
         )
+        self.validate_bulk_tag_changes(objects, validated["action"], validated["tags"])
         updated = apply_bulk_tag_changes(
             objects, validated["action"], validated["tags"], activity_context=activity_context
         )
