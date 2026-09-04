@@ -114,9 +114,8 @@ deeper, so the product is half-migrated.
 
 ### Tier 4: everything else
 
-Still on `ProductIntroduction`: engineering analytics,
-comments, ingestion warnings (v1 and v2),
-and Max conversation history.
+Still on `ProductIntroduction`: comments, ingestion warnings (v1 and v2), and Max conversation
+history.
 
 Hand-rolled empty states: review hog, streamlit apps, groups (`GroupsIntroduction`), persons, and
 the LLM analytics sessions tab.
