@@ -221,6 +221,16 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 True,
             ),
+            # The filters schema accepts an explicit `properties: null`, and the flag matcher
+            # reads it as no targeting, so both sides must count the group as a full rollout.
+            (
+                "group_with_null_properties",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": None}]},
+                },
+                True,
+            ),
             # Multivariate flag with no release conditions: the checker needs a fully rolled out
             # condition before it calls a variant flag stale, so the empty-groups arm above must
             # not catch this one.

@@ -62,14 +62,15 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
 def _full_rollout_group_exists(extra_condition: str = "") -> str:
     """SQL that finds a release condition serving everyone: 100% rollout, no property targeting.
 
-    An absent `properties` key means the same as `[]` here, so that the predicate agrees with
-    `FeatureFlagStatusChecker.is_group_fully_rolled_out`, which defaults the key to an empty list.
+    An absent `properties` key and an explicit JSON `null` both mean the same as `[]` here, so
+    that the predicate agrees with `FeatureFlagStatusChecker.is_group_fully_rolled_out`, which
+    reads all three as no targeting. A JSON `null` is not a SQL NULL, so it needs its own arm.
     """
     return f"""
         EXISTS (
             SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
             WHERE elem->>'rollout_percentage' = '100'
-            AND (elem->'properties' IS NULL OR elem->'properties' = '[]'::jsonb)
+            AND (elem->'properties' IS NULL OR elem->'properties' IN ('[]'::jsonb, 'null'::jsonb))
             {extra_condition}
         )
     """
@@ -359,7 +360,8 @@ class FeatureFlagStatusChecker:
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")
-        properties = group.get("properties", [])
+        # The filters schema allows an explicit null here, which means no targeting, same as `[]`.
+        properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
@@ -375,7 +377,7 @@ class FeatureFlagStatusChecker:
         # The fully rolled out release condition must have no properties set.
         for release_condition in release_conditions:
             rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties", [])
+            properties = release_condition.get("properties") or []
             if rollout_percentage == 100 and len(properties) == 0:
                 logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
                 return True
