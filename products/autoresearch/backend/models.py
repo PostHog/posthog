@@ -39,11 +39,18 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # db_constraint=False on team/user FKs: creating a real constraint takes a
     # SHARE ROW EXCLUSIVE lock on the hot parent table (see /django-migrations).
-    team = models.ForeignKey(
-        "posthog.Team", on_delete=models.CASCADE, related_name="autoresearch_pipelines", db_constraint=False
-    )
+    # related_name="+" on every relation into core: a reverse accessor on Team or User is a
+    # boundary crossing no import linter can see, and nothing needs to read autoresearch rows
+    # off a team. Callers go through the facade.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, db_constraint=False
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        db_constraint=False,
+        related_name="+",
     )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
@@ -142,9 +149,8 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey(
-        "posthog.Team", on_delete=models.CASCADE, related_name="autoresearch_%(class)ss", db_constraint=False
-    )
+    # See AutoresearchPipeline.team: no reverse accessor on the core model.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
 
     # See AutoresearchPipeline.all_teams: framework internals need an unscoped
     # `_default_manager`; concrete subclasses set `Meta.default_manager_name = "all_teams"`.
@@ -371,7 +377,13 @@ class AutoresearchSuggestion(PipelineScopedModel):
 
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="suggestions")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, db_constraint=False
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        db_constraint=False,
+        related_name="+",
     )
 
     prompt = models.TextField(help_text="Free-text hypothesis or direction for the agent to explore")

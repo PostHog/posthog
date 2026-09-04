@@ -153,6 +153,7 @@ class Migration(migrations.Migration):
                         db_index=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
@@ -161,7 +162,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="autoresearch_pipelines",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -270,7 +271,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="autoresearch_%(class)ss",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -356,7 +357,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="autoresearch_%(class)ss",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -434,6 +435,7 @@ class Migration(migrations.Migration):
                         db_index=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
@@ -450,7 +452,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="autoresearch_%(class)ss",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -535,7 +537,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="autoresearch_%(class)ss",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -636,7 +638,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="autoresearch_%(class)ss",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
