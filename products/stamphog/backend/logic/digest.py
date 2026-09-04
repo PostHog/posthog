@@ -743,22 +743,32 @@ def _grazed(pr: PullRequest, audience: PullRequestAudience | None) -> bool:
     return audience is not None and audience.owned_file_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES
 
 
+@frozen
+class _AudienceMerges:
+    """The merges one audience is told about, with its rows still positionally matched.
+
+    ``partial_indexes`` names the positions the team owns only part of, for the scope check. They
+    are read off the same walk that decided which positions survive, because the prompt hands the
+    model those positions as its indexes.
+    """
+
+    prs: list[PullRequest]
+    audiences: list[PullRequestAudience] | None
+    partial_indexes: frozenset[int]
+
+
 def _drop_unaddressed(
     prs: list[PullRequest], audiences: list[PullRequestAudience] | None, team_slug: str
-) -> tuple[list[PullRequest], list[PullRequestAudience] | None, frozenset[int]]:
-    """The merges this audience is actually told about, with its rows still positionally matched.
+) -> _AudienceMerges:
+    """The merges this audience is actually told about.
 
     Two rules, both about a merge this team owns only part of, and both applied before any model
     reads it. A graze reached the team through a single file of a large change. A merge whose
     reviewed summary names owning teams and not this one was described by a reviewer that had the
     diff and found nothing to say about this team's files, so it is somebody else's news.
-
-    The third return value names the kept positions the team owns only part of, for the scope
-    check. It is read off the same walk, because that walk already decided which positions survive
-    and the prompt hands the model those positions as its indexes.
     """
     if not audiences:
-        return prs, audiences, frozenset()
+        return _AudienceMerges(prs=prs, audiences=audiences, partial_indexes=frozenset())
 
     kept_prs: list[PullRequest] = []
     kept_audiences: list[PullRequestAudience] = []
@@ -784,7 +794,7 @@ def _drop_unaddressed(
             partial_indexes.add(len(kept_prs))
         kept_prs.append(pr)
         kept_audiences.append(audience)
-    return kept_prs, kept_audiences, frozenset(partial_indexes)
+    return _AudienceMerges(prs=kept_prs, audiences=kept_audiences, partial_indexes=frozenset(partial_indexes))
 
 
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:
@@ -802,11 +812,11 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     # Everything the audience claimed, which is what the channel's "3 of 11" line counts.
     considered = len(prs)
     team_slug = _audience_team_slug(audiences)
-    prs, audiences, partial_indexes = _drop_unaddressed(prs, audiences, team_slug)
-    if not prs:
+    told = _drop_unaddressed(prs, audiences, team_slug)
+    if not told.prs:
         return _build_summary(considered, [])
 
-    team_id = prs[0].team_id
+    team_id = told.prs[0].team_id
     try:
         client = build_anthropic_client(
             "stamphog",
@@ -816,13 +826,13 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
             distinct_id=team_distinct_id(team_id),
         )
         picked = _parse_selection(
-            _complete(client, team_id, _build_selection_prompt(prs, audiences, team_slug)),
-            dict(enumerate(prs)),
-            partial_indexes,
+            _complete(client, team_id, _build_selection_prompt(told.prs, told.audiences, team_slug)),
+            dict(enumerate(told.prs)),
+            told.partial_indexes,
         )
     except Exception as e:
         logger.warning("stamphog_digest_summarize_fallback", team_id=team_id, error=str(e))
-        return _fallback_summary(prs, considered)
+        return _fallback_summary(told.prs, considered)
 
     # Built before the headline is asked for, so the headline call sees the railed list rather than
     # everything the model kept. A rail that trimmed the thread after the fact would reopen exactly
@@ -830,7 +840,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     summary = _build_summary(considered, picked)
     if not summary.prs:
         return summary
-    return replace(summary, headline=_request_headline(client, team_id, summary.prs, prs, team_slug))
+    return replace(summary, headline=_request_headline(client, team_id, summary.prs, told.prs, team_slug))
 
 
 def _complete(client: Any, team_id: int, prompt: str, *, max_tokens: int = _DIGEST_MAX_TOKENS) -> str:
