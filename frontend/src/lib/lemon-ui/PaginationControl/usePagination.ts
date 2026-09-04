@@ -28,7 +28,9 @@ export function usePagination<T>(
         [location, searchParams, hashParams, push, syncPageToUrl] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
-    const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
+    // Keep an explicit zero as zero, so an empty controlled table gets a real page count and disables its arrows.
+    // A missing entryCount stays null, so callers that paginate through `onForward` alone keep working.
+    const entryCount: number | null = pagination?.controlled ? (pagination.entryCount ?? null) : dataSource.length
     const pageCount: number | null =
         entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
     const currentPage: number | null = pagination?.controlled

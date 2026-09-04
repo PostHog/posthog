@@ -38,4 +38,18 @@ describe('usePagination', () => {
         expect(result.current.dataSourcePage).toEqual(['b'])
         expect(router.values.searchParams.page).toBeUndefined()
     })
+
+    it('gives an empty controlled table zero pages, so the next arrow can disable', () => {
+        const { result } = renderHook(() =>
+            usePagination([], { controlled: true, pageSize: 10, currentPage: 1, entryCount: 0 })
+        )
+        expect(result.current.entryCount).toBe(0)
+        expect(result.current.pageCount).toBe(0)
+    })
+
+    it('leaves page count unknown when a controlled table omits entryCount', () => {
+        const { result } = renderHook(() => usePagination([], { controlled: true, pageSize: 10, currentPage: 1 }))
+        expect(result.current.entryCount).toBeNull()
+        expect(result.current.pageCount).toBeNull()
+    })
 })
