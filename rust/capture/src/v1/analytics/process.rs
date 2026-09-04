@@ -12,7 +12,7 @@ use super::constants::{
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_AI_EVENT_TOO_BIG,
-    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_NON_AI_EVENT,
+    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_MISROUTED_EVENT,
     DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
     ILLEGAL_DISTINCT_IDS,
 };
@@ -120,7 +120,7 @@ async fn run_pipeline(
     }
 
     if state.capture_mode == CaptureMode::Ai {
-        drop_non_ai_events(state, context, &mut events);
+        drop_misrouted_events(state, context, &mut events, true);
     }
 
     // Nothing left to process — return 200 with per-event drops.
@@ -857,8 +857,30 @@ async fn apply_restrictions(
 /// offenders drop, since v1 reports per-event outcomes; the v0 path on this
 /// deployment rejects the whole request (`CaptureError::NonAiEventOnAiLane`)
 /// because its contract has no way to say less. The gate runs before quota and
-/// restrictions so a refused event spends neither.
-fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+/// Drop events posted to the wrong lane's endpoint, in whichever direction
+/// this deployment can be wrong about.
+///
+/// `serves_ai_lane` is the lane this deployment exists to serve, so an event
+/// is misrouted exactly when `on_ai_lane` disagrees with it. capture-ai drops
+/// analytics events; capture-analytics drops AI-lane events. Neither can
+/// forward to the other -- they produce to different Kafka clusters -- so a
+/// drop with a customer-visible warning is the whole remedy available here.
+///
+/// The gate on capture-ai also carries a governance reason: that deployment
+/// loads only the AI restriction slice, so an analytics event surviving there
+/// would ingest governed by nothing.
+///
+/// Gate on the event name, not the destination: `on_ai_lane` documents why the
+/// destination is the wrong question. `should_publish` rather than
+/// `result == Ok` so a Warning event -- which also publishes -- cannot ride the
+/// wrong lane out. Neither case is reachable at this point today; both make the
+/// gate correct on its own terms rather than on its position in the pipeline.
+fn drop_misrouted_events(
+    state: &router::State,
+    context: &Context,
+    events: &mut [WrappedEvent],
+    serves_ai_lane: bool,
+) {
     let mut dropped: u64 = 0;
     // Identifiers for the warning, kept only while exactly one event offended.
     // With several they would be an arbitrary pick, and the count already says
@@ -866,18 +888,12 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
     let mut single_offender: Option<(String, Uuid)> = None;
 
     for event in events.iter_mut() {
-        // Gate on the event name, not the destination: `on_ai_lane` documents
-        // why the destination is the wrong question. `should_publish` rather
-        // than `result == Ok` so a Warning event -- which also publishes --
-        // cannot ride an analytics lane out of an AI deployment. Neither case
-        // is reachable at this point today; both make the gate correct on its
-        // own terms rather than on its position in the pipeline.
-        if !event.should_publish() || on_ai_lane(event) {
+        if !event.should_publish() || on_ai_lane(event) == serves_ai_lane {
             continue;
         }
         event.result = EventResult::Drop;
         event.destination = Destination::Drop;
-        event.details = Some(DETAIL_NON_AI_EVENT);
+        event.details = Some(DETAIL_MISROUTED_EVENT);
         dropped += 1;
         single_offender = match dropped {
             1 => Some((event.event.event.clone(), event.uuid)),
@@ -889,22 +905,22 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
         return;
     }
 
-    metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "non_ai_event").increment(dropped);
-    // DEBUG, not WARN: a client sending the wrong event name is not an operator
-    // problem, and the SDKs route on the `$ai_` prefix while this gate is the
-    // narrower name allowlist, so it is expected to fire at client volume. The
-    // counter above carries the alerting signal and the warning below tells the
-    // project owner.
+    // One reason for both directions: the emitting deployment already
+    // distinguishes them on every metric series.
+    metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "misrouted_event").increment(dropped);
+    // DEBUG, not WARN: a client posting to the wrong endpoint is not an
+    // operator problem, and the SDKs route on the `$ai_` prefix while the lane
+    // is the narrower name allowlist, so it is expected to fire at client
+    // volume. The counter above carries the alerting signal and the warning
+    // below tells the project owner.
     crate::ctx_log!(
         Level::DEBUG,
         context,
         dropped_events = dropped,
-        "dropped non-AI events sent to the AI lane"
+        serves_ai_lane = serves_ai_lane,
+        "dropped events posted to the wrong lane"
     );
 
-    // The same `invalid_ai_event` type the v0 AI endpoint emits for an event
-    // name off the allowlist: identical mistake, so a reader of the v2 warnings
-    // table doesn't have to learn a second vocabulary for it.
     let mut details = serde_json::Map::new();
     if let Some((event_name, uuid)) = single_offender {
         details.insert(
@@ -913,11 +929,13 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
         );
         details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
     }
+    // `path` rides along in the warning context, so the reader can tell which
+    // way the misroute went without a second warning type.
     emit_request_warning(
         state.ingestion_warning_emitter.as_deref(),
         &context.warning_context(),
         CAPTURE_V1_ANALYTICS,
-        WarningType::InvalidAiEvent,
+        WarningType::MisroutedEvent,
         details,
         dropped,
     );
@@ -4447,7 +4465,7 @@ mod tests {
                 assert_eq!(entry.result, EventResult::Ok);
             } else {
                 assert_eq!(entry.result, EventResult::Drop);
-                assert_eq!(entry.details, Some(DETAIL_NON_AI_EVENT));
+                assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
             }
         }
         assert!(!resp.has_retry, "a gated batch must not signal retry");
@@ -4484,7 +4502,7 @@ mod tests {
         let (_, entry) = &resp.entries()[0];
         assert_eq!(entry.result, expected, "event={event_name}");
         if expected == EventResult::Drop {
-            assert_eq!(entry.details, Some(DETAIL_NON_AI_EVENT));
+            assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
         }
     }
 
@@ -4533,7 +4551,7 @@ mod tests {
         assert_eq!(entries.len(), 3, "every event still gets a verdict");
         for (_, entry) in entries {
             assert_eq!(entry.result, EventResult::Drop);
-            assert_eq!(entry.details, Some(DETAIL_NON_AI_EVENT));
+            assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
         }
         assert!(!resp.has_retry, "a fully gated batch must not signal retry");
         ts.mock_producer
@@ -4565,7 +4583,7 @@ mod tests {
         let mut events = vec![test_utils::wrapped_event("$ai_generation", "user-1")
             .with_destination(destination.clone())];
 
-        drop_non_ai_events(&ts.state, &ctx, &mut events);
+        drop_misrouted_events(&ts.state, &ctx, &mut events, true);
 
         assert_eq!(
             events[0].result,
@@ -4587,15 +4605,15 @@ mod tests {
         let mut events = vec![test_utils::wrapped_event("$pageview", "user-1")
             .with_destination(Destination::AiEvents)];
 
-        drop_non_ai_events(&ts.state, &ctx, &mut events);
+        drop_misrouted_events(&ts.state, &ctx, &mut events, true);
 
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::Drop);
-        assert_eq!(events[0].details, Some(DETAIL_NON_AI_EVENT));
+        assert_eq!(events[0].details, Some(DETAIL_MISROUTED_EVENT));
     }
 
     #[tokio::test]
-    async fn ai_mode_non_ai_drop_emits_the_invalid_ai_event_warning() {
+    async fn ai_mode_non_ai_drop_emits_the_misrouted_event_warning() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
             .with_capture_mode(CaptureMode::Ai)
@@ -4610,7 +4628,7 @@ mod tests {
 
         let emitted = collector.emitted();
         assert_eq!(emitted.len(), 1);
-        assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+        assert_eq!(emitted[0].warning, WarningType::MisroutedEvent);
         assert_eq!(emitted[0].count, 1);
         assert_eq!(
             emitted[0].extra_details.get("eventName"),
@@ -4710,7 +4728,7 @@ mod tests {
     /// only the count rides along, the same rule the validation-drop warnings
     /// follow.
     #[tokio::test]
-    async fn ai_mode_several_non_ai_drops_report_a_count_without_identifiers() {
+    async fn ai_mode_several_misroutes_report_a_count_without_identifiers() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
             .with_capture_mode(CaptureMode::Ai)
@@ -4723,7 +4741,7 @@ mod tests {
 
         let emitted = collector.emitted();
         assert_eq!(emitted.len(), 1);
-        assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+        assert_eq!(emitted[0].warning, WarningType::MisroutedEvent);
         assert_eq!(emitted[0].count, 2);
         assert!(!emitted[0].extra_details.contains_key("eventName"));
         assert!(!emitted[0].extra_details.contains_key("eventUuid"));
