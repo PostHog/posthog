@@ -639,11 +639,11 @@ export interface taxonomicFilterLogicMeta {
             topMatchItems: (TaxonomicDefinitionTypes & {
                 group: TaxonomicFilterGroupType
             })[],
-            suggestedFilterGroupOrder: any
+            suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
         ) => TopMatchItem[]
         topMatchItemsWithSkeletons: (
             redistributedTopMatchItems: TopMatchItem[],
-            suggestedFilterGroupOrder: any,
+            suggestedFilterGroupOrder: TaxonomicFilterGroupType[],
             loadingGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
             searchQuery: string,
@@ -2338,9 +2338,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     .join('')
             },
         ],
-        // The order the cross-category "All" list renders its groups in. Every consumer of that
-        // list must read this, so the skeleton rows and the revealed rows land in the same place.
         suggestedFilterGroupOrder: [
+            // The order the cross-category "All" list renders its groups in. Every consumer of that
+            // list must read this, so the skeleton rows and the revealed rows land in the same place.
             (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
             (
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -2364,7 +2364,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ],
             (
                 redistributed: TopMatchItem[],
-                nonMetaGroups: TaxonomicFilterGroupType[],
+                groupOrder: TaxonomicFilterGroupType[],
                 loadingGroupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
                 searchQuery: string,
@@ -2389,14 +2389,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // when a slower group finishes.
                 if (!revealBarrierOpen) {
                     const result: SkeletonItem[] = []
-                    for (const groupType of nonMetaGroups) {
+                    for (const groupType of groupOrder) {
                         result.push(...buildSkeletons(groupType))
                     }
                     return result
                 }
 
                 const result: (TopMatchItem | SkeletonItem)[] = []
-                for (const groupType of nonMetaGroups) {
+                for (const groupType of groupOrder) {
                     const groupItems = redistributed.filter((item) => item.group === groupType)
                     if (groupItems.length > 0) {
                         result.push(...groupItems)

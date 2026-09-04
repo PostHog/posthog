@@ -1714,38 +1714,41 @@ describe('redistributeTopMatches', () => {
 })
 
 describe('demoteValueShortcutGroups', () => {
-    it('moves value shortcut groups below the name matching groups', () => {
-        expect(
-            demoteValueShortcutGroups([
+    it.each([
+        {
+            description: 'moves value shortcut groups below the name matching groups',
+            groupTypes: [
                 TaxonomicFilterGroupType.PageviewUrls,
                 TaxonomicFilterGroupType.EmailAddresses,
                 TaxonomicFilterGroupType.Events,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
-            ])
-        ).toEqual([
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.PageviewUrls,
-            TaxonomicFilterGroupType.EmailAddresses,
-        ])
-    })
-
-    it('keeps the relative order inside each set', () => {
-        expect(
-            demoteValueShortcutGroups([
+            ],
+            expected: [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EmailAddresses,
+            ],
+        },
+        {
+            description: 'keeps the relative order inside each set',
+            groupTypes: [
                 TaxonomicFilterGroupType.EmailAddresses,
                 TaxonomicFilterGroupType.PageviewUrls,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.Events,
-            ])
-        ).toEqual([
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.EmailAddresses,
-            TaxonomicFilterGroupType.PageviewUrls,
-        ])
+            ],
+            expected: [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.PageviewUrls,
+            ],
+        },
+    ])('$description', ({ groupTypes, expected }) => {
+        expect(demoteValueShortcutGroups(groupTypes)).toEqual(expected)
     })
 })
 
