@@ -627,8 +627,8 @@ jobs:
 
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
-            # may not contain it. Cache the store inline instead, sharing the same
-            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
+            # may not contain it. Restore the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action.
             - name: Get pnpm store path
               id: pnpm-store
               shell: bash
@@ -697,13 +697,6 @@ jobs:
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Log in to Docker Hub
               continue-on-error: true
