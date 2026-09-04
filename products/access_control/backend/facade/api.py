@@ -317,7 +317,7 @@ def set_object_access_control(
             resource=resource,
             resource_id=input.resource_id,
             organization_member_id=input.organization_member_id,
-            role_id=input.role_id,
+            role_id=cast(UUID | str, input.role_id),
         ).delete()
         return None
 
@@ -326,7 +326,7 @@ def set_object_access_control(
         resource=resource,
         resource_id=input.resource_id,
         organization_member_id=input.organization_member_id,
-        role_id=input.role_id,
+        role_id=cast(UUID | str, input.role_id),
         defaults={"access_level": input.access_level},
         create_defaults={"access_level": input.access_level, "created_by_id": input.created_by_id},
     )
