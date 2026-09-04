@@ -10,6 +10,8 @@ import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../../trends/shared/compareDimming'
 import { humanizeSeriesLabel } from '../../trends/shared/humanizeSeriesLabel'
 import { computeMagnitudeAxisIds } from '../../trends/shared/magnitudeAxisIds'
+import { buildTrendsYAxisConfig } from '../../trends/shared/trendsAxisFormat'
+import type { YFormatterFields } from '../../trends/shared/trendsChartDisplayOptions'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -40,15 +42,6 @@ export interface BuildStickinessSeriesOpts<R extends StickinessResultLike, M = u
     getLabel?: (r: R) => string
 }
 
-/** Convert raw counts to percentages of `count`. Mirrors the legacy `showPercentView`
- * behavior in LineGraph: each y-value becomes its share of the series total. */
-export function toPercentData(data: number[], count: number): number[] {
-    if (!count) {
-        return data.slice()
-    }
-    return data.map((v) => (v / count) * 100)
-}
-
 export function buildStickinessMainSeries<R extends StickinessResultLike, M = unknown>(
     r: R,
     index: number,
@@ -63,7 +56,7 @@ export function buildStickinessMainSeries<R extends StickinessResultLike, M = un
     return {
         key: String(r.id),
         label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
-        data: toPercentData(r.data, r.count),
+        data: r.data,
         color,
         yAxisId,
         meta,
@@ -76,10 +69,7 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
     results: R[],
     opts: BuildStickinessSeriesOpts<R, M>
 ): Series<M>[] {
-    // Group on the rendered (percent-converted) values, not the raw counts.
-    const yAxisIds = opts.showMultipleYAxes
-        ? computeMagnitudeAxisIds(results.map((r) => toPercentData(r.data, r.count)))
-        : undefined
+    const yAxisIds = opts.showMultipleYAxes ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
     return results.map((r, index) => buildStickinessMainSeries(r, index, opts, yAxisIds?.[index]))
 }
 
@@ -89,11 +79,6 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
 export function buildStickinessLabels(count: number, interval: string | null | undefined): string[] {
     const prefix = capitalizeFirstLetter(interval ?? 'day')
     return Array.from({ length: count }, (_, i) => `${prefix} ${i}`)
-}
-
-/** Emit `85.0%`-style ticks — legacy parity with `${value.toFixed(1)}%` in LineGraph. */
-export function stickinessPercentFormatter(value: number): string {
-    return `${value.toFixed(1)}%`
 }
 
 export const STICKINESS_TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
@@ -110,19 +95,24 @@ export function buildStickinessTooltipTitle(
     }
 }
 
-/** Shared stickiness y-axis: percent tick formatter + linear/log scale toggle. */
+/** Shared stickiness y-axis. Delegates to the trends formatter so stickiness shows a plain
+ * count by default like every other insight type, while still respecting an explicit
+ * aggregation axis format (currency, duration, etc.) if one is set on the insight. */
 export function buildStickinessYAxisConfig(opts: {
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     yAxisScaleType?: StickinessYAxisScaleType
     showGrid?: boolean
 }): YAxisConfig {
-    return {
-        scale: opts.yAxisScaleType === 'log10' ? 'log' : 'linear',
+    return buildTrendsYAxisConfig(opts.trendsFilter, false, opts.baseCurrency, {
+        yAxisScaleType: opts.yAxisScaleType,
         showGrid: opts.showGrid ?? true,
-        tickFormatter: stickinessPercentFormatter,
-    }
+    })
 }
 
 export interface BuildStickinessLineTimeSeriesConfigOpts {
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     yAxisScaleType?: StickinessYAxisScaleType
     showGrid?: boolean
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
@@ -135,7 +125,12 @@ export function buildStickinessLineTimeSeriesConfig(
 ): TimeSeriesLineChartConfig {
     return {
         // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
-        yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),
+        yAxis: buildStickinessYAxisConfig({
+            trendsFilter: opts.trendsFilter,
+            baseCurrency: opts.baseCurrency,
+            yAxisScaleType: opts.yAxisScaleType,
+            showGrid: opts.showGrid,
+        }),
         valueLabels: opts.valueLabels,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
