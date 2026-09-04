@@ -382,11 +382,7 @@ export function BoardStage({
   return (
     <div
       ref={paneRef}
-      className={
-        focusedId === null
-          ? "relative h-full w-full overflow-hidden"
-          : "fixed inset-0 z-[80] overflow-hidden bg-(--gray-1)"
-      }
+      className="relative h-full w-full overflow-hidden"
       onWheel={whenOnBoard(pointer.onOverlayWheel)}
       onPointerMove={(event) =>
         onCursor(
