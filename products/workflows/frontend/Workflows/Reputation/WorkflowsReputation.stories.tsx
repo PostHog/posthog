@@ -49,7 +49,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             daily: gmailSeries(),
         },
         {
-            isp: 'Outlook',
+            isp: 'ExchangeOnline',
             emails_sent: 12600,
             delivery_rate: 0.98,
             bounce_rate: 0.004,
@@ -58,7 +58,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             daily: steadySeries(0.98),
         },
         {
-            isp: 'Apple',
+            isp: 'Icloud',
             emails_sent: 8100,
             // Steady, but steadily poor: the case an auto-scaled axis would draw as a flat line
             // indistinguishable from a healthy provider.

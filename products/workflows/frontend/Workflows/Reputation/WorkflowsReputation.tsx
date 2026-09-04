@@ -175,6 +175,21 @@ function AwsFindings({ aws }: { aws: AwsTenantReputationApi }): JSX.Element | nu
 // A single point is a reading, not a trend, so the column stays empty until there are two.
 const MIN_TREND_POINTS = 2
 
+// SES names providers as one capitalized word, which is not how people write most of them. Only
+// the names that read wrong are listed; anything absent is shown as SES reports it, so a provider
+// added to SES_ISP_DIMENSIONS still renders without a matching entry here.
+const ISP_DISPLAY_NAMES: Record<string, string> = {
+    Aol: 'AOL',
+    ExchangeOnline: 'Microsoft Exchange Online',
+    Gmx: 'GMX',
+    Icloud: 'Apple iCloud',
+    'Unknown ISP': 'Unknown provider',
+}
+
+function ispDisplayName(isp: string): string {
+    return ISP_DISPLAY_NAMES[isp] ?? isp
+}
+
 // Every row is drawn against the same dates: the days any provider sent on. A provider only appears
 // on its own send days, so without this each row stretches its own handful of dates across the full
 // width — a provider whose last send was two weeks ago ends level with one that sent yesterday, and
@@ -200,7 +215,7 @@ function DeliveryTrend({ isp, dates }: { isp: IspSendingHealthApi; dates: string
         <Sparkline
             data={alignToDates(isp, dates)}
             labels={dates}
-            name={`${isp.isp} delivery rate (%)`}
+            name={`${ispDisplayName(isp.isp)} delivery rate (%)`}
             type="line"
             renderTooltipValue={(value) => `${value.toFixed(1)}%`}
             // Fixed 0-100 rather than auto-scaled per row: these are read against each other, and
@@ -244,7 +259,9 @@ function IspBreakdown({
                     {
                         title: 'Provider',
                         key: 'isp',
-                        render: (_, row: IspSendingHealthApi) => <span className="font-semibold">{row.isp}</span>,
+                        render: (_, row: IspSendingHealthApi) => (
+                            <span className="font-semibold">{ispDisplayName(row.isp)}</span>
+                        ),
                     },
                     {
                         title: 'Delivery rate',

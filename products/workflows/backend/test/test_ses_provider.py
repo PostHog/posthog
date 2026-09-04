@@ -689,6 +689,32 @@ class TestGetIdentityIspMetrics(TestCase):
         # No delivery series means no trend to draw, rather than a line flat at zero.
         assert rows[0].daily == ()
 
+    def test_a_rejected_batch_drops_only_its_own_providers(self):
+        # SES validates dimension values per request, so a name it will not accept fails every
+        # query sent with it. The whole call used to raise, which the endpoint turned into no
+        # breakdown at all, so one unusable provider name hid every usable one.
+        def respond(Queries):
+            if any(query["Dimensions"]["ISP"] == "Mail.ru" for query in Queries):
+                raise ClientError({"Error": {"Code": "BadRequestException"}}, "BatchGetMetricData")
+            return {
+                "Results": [
+                    {"Id": query["Id"], "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)], "Values": [100]}
+                    for query in Queries
+                ]
+            }
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+
+        with self.assertLogs("products.workflows.backend.providers.ses", level="WARNING") as logs:
+            rows = self.provider.get_identity_isp_metrics(
+                [TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo", "Mail.ru"]
+            )
+
+        assert any("SES rejected a metric batch" in line for line in logs.output)
+        # Five metrics per provider divide the ten-query batch, so the rejected name travels alone
+        # and the two that SES accepts still answer.
+        assert [row.isp for row in rows] == ["Gmail", "Yahoo"]
+
     def test_daily_series_skips_buckets_with_no_sends(self):
         self._serve_series(
             {

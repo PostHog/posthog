@@ -764,7 +764,22 @@ class SESProvider:
                 raise TimeoutError(
                     f"SES metric queries exceeded {METRIC_QUERY_BUDGET_SECONDS}s for {domain_count} domain(s)"
                 )
-            response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
+            try:
+                response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
+            except ClientError as rejection:
+                if rejection.response.get("Error", {}).get("Code") != "BadRequestException":
+                    raise
+                # SES validates dimension values per request, so one name it will not accept fails
+                # every query sent alongside it. Failing the batch instead of the call costs the
+                # providers in it rather than the whole breakdown. A batch holds whole providers:
+                # ISP_METRICS divides METRIC_QUERY_BATCH_SIZE, so none is split across two.
+                subjects = [plan.subjects[query["Id"]] for query in batch]
+                failed.update(subjects)
+                logger.warning(
+                    "SES rejected a metric batch; dropping its providers",
+                    extra={"providers": sorted({subject.isp for subject in subjects})},
+                )
+                continue
             for result in response.get("Results", []):
                 buckets = buckets_by_subject[plan.subjects[result["Id"]]]
                 # AWS documents Values as "cumulative / sum" without saying which, so this reads
