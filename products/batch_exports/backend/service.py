@@ -6,7 +6,6 @@ from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Q
 
 import structlog
 import temporalio
@@ -1379,21 +1378,23 @@ async def afetch_last_run_records_completed(
 
     Returns None when no usable run exists (e.g. the first ever run, or a frequency change).
     """
-    queryset = BatchExportRun.objects.filter(
-        Q(batch_export_id=parent_id) | Q(batch_export_on_demand_id=parent_id),
+    candidates = BatchExportRun.objects.filter(
         status=BatchExportRun.Status.COMPLETED,
         records_completed__isnull=False,
     )
     if before_or_at_interval_end is not None:
-        queryset = queryset.filter(data_interval_end__lte=before_or_at_interval_end)
+        candidates = candidates.filter(data_interval_end__lte=before_or_at_interval_end)
     if not_older_than is not None:
-        queryset = queryset.filter(data_interval_end__gte=not_older_than)
-
-    run = (
-        await queryset.order_by("-data_interval_end")
-        .values("records_completed", "data_interval_start", "data_interval_end")
-        .afirst()
+        candidates = candidates.filter(data_interval_end__gte=not_older_than)
+    newest_first = candidates.order_by("-data_interval_end").values(
+        "records_completed", "data_interval_start", "data_interval_end"
     )
+
+    # One indexed lookup per parent kind. An `OR` across both parents makes Postgres sort every run
+    # of the export instead of seeking the newest one, so we keep the two lookups apart.
+    run = await newest_first.filter(batch_export_id=parent_id).afirst()
+    if run is None:
+        run = await newest_first.filter(batch_export_on_demand_id=parent_id).afirst()
     if run is None:
         return None
     if matching_interval_duration is not None:
