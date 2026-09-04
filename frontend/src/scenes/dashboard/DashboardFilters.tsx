@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -9,49 +9,9 @@ import { urls } from 'scenes/urls'
 import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
-import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
-
-/**
- * Edit-mode actions for the filter bar.
- *
- * One Cancel discards everything. On large dashboards that don't auto-preview, an
- * "Apply filters" button appears so the user can preview pending filter changes before
- * committing — Save applies any still-unapplied filters as part of persisting, so it's
- * always safe to skip Apply and go straight to Save.
- */
-function DashboardEditActions(): JSX.Element | null {
-    const { dashboardMode, layoutEditMode, canEditDashboard, showApplyFiltersBanner, loadingPreview } =
-        useValues(dashboardLogic)
-    const { applyFilters } = useActions(dashboardLogic)
-
-    if (dashboardMode !== DashboardMode.Edit || layoutEditMode || !canEditDashboard) {
-        return null
-    }
-
-    return (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <DashboardEditSaveCancelButtons
-                withShortcuts
-                applyFiltersButton={
-                    showApplyFiltersBanner ? (
-                        <LemonButton
-                            data-attr="dashboard-apply-filters"
-                            type="secondary"
-                            size="small"
-                            loading={loadingPreview}
-                            onClick={applyFilters}
-                            tooltip="Preview these filters. Large dashboards don't auto-apply — Save will apply and persist them too."
-                        >
-                            Apply filters
-                        </LemonButton>
-                    ) : null
-                }
-            />
-        </div>
-    )
-}
+import { DashboardUnsavedChangesIndicator } from './DashboardUnsavedChangesIndicator'
 
 interface DashboardFilterBarProps {
     backTo?: { url: string; name: string }
@@ -59,12 +19,11 @@ interface DashboardFilterBarProps {
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
     const { placement, dashboard, dashboardMode, hasVariables } = useValues(dashboardLogic)
-
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
                 <div className="flex min-w-0 flex-1 flex-col gap-2 @2xl/dashboard-filters:flex-row @2xl/dashboard-filters:justify-between items-start @4xl/dashboard-filters:items-center">
-                    <div className="flex min-w-0 flex-1 flex-wrap gap-x-2 gap-y-2 items-center">
+                    <div className="flex min-w-0 flex-1 flex-wrap gap-4 items-center">
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
@@ -74,7 +33,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
-                        <DashboardEditActions />
+                        {placement === DashboardPlacement.Dashboard && <DashboardUnsavedChangesIndicator />}
                     </div>
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
