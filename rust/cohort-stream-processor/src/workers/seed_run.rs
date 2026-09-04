@@ -15,7 +15,7 @@ use std::num::NonZeroUsize;
 use cohort_core::seed::{ConditionHash, PersonSeed, ReconcileTile, SeedTile};
 use uuid::Uuid;
 
-use crate::consumers::seeds::{SeedSkipReason, SeedWork};
+use crate::consumers::seeds::{ConsumedSeed, SeedSkipReason, SeedWork};
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterCatalog, TeamId};
 use crate::stage1::key::LeafStateKey;
@@ -41,6 +41,17 @@ pub(crate) struct OffsetSpan {
 pub(crate) struct Admitted<T> {
     pub work: T,
     pub offset: SeedOffset,
+}
+
+impl From<ConsumedSeed> for Admitted<SeedWork> {
+    /// Drops `partition` and `broker_ts_ms`: only the consumer's holdover reads those, and a seed
+    /// that reached the worker has left the holdover behind.
+    fn from(seed: ConsumedSeed) -> Self {
+        Self {
+            work: seed.work,
+            offset: SeedOffset(seed.offset),
+        }
+    }
 }
 
 /// A non-empty run of one seed kind, applied as one unit. Construction is the only place emptiness

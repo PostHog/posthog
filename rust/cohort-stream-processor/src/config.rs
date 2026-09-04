@@ -75,12 +75,26 @@ pub struct Config {
     #[envconfig(default = "128")]
     pub partition_channel_buffer: usize,
 
-    /// Per-partition ceiling on un-drained events in a worker's channel — the binding intake bound
-    /// (the 128-slot buffer counts sub-batches, not the events inside them). Worst case in channels
-    /// ≈ `cap × owned_partitions × avg_event_bytes`. Tune down if soak RSS runs hot; too low churns
-    /// pause/resume.
+    /// Per-partition ceiling on un-drained events in a worker's **live** lane — the binding intake
+    /// bound (the 128-slot buffer counts sub-batches, not the events inside them). Seeds have their
+    /// own lane and their own cap, [`PARTITION_INTAKE_MAX_SEEDS`](Self::partition_intake_max_seeds).
+    /// Worst case in channels ≈ `cap × owned_partitions × avg_event_bytes`. Tune down if soak RSS
+    /// runs hot; too low churns pause/resume.
     #[envconfig(from = "PARTITION_INTAKE_MAX_EVENTS", default = "1024")]
     pub partition_intake_max_events: usize,
+
+    /// The seed lane's capacity, in seeds, for one partition worker. The lane holds one seed per
+    /// slot, so this value *is* the seed intake cap — there is no separate counter.
+    ///
+    /// The resident bound per partition is `cap + COHORT_SEED_APPLY_BATCH_MAX`: `recv_many` frees
+    /// the slots it takes at the start of a seed turn and the dispatcher refills them while the
+    /// turn runs, which is wanted — the next turn is already full when this one ends.
+    ///
+    /// Additive with the event cap, so a revoke or shutdown drain now covers up to this many seeds
+    /// **plus** `PARTITION_INTAKE_MAX_EVENTS` events per partition. At the default that is about
+    /// four quanta of seeds, seconds of drain at the rates the apply path sustains.
+    #[envconfig(from = "PARTITION_INTAKE_MAX_SEEDS", default = "1024")]
+    pub partition_intake_max_seeds: usize,
 
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
@@ -698,6 +712,12 @@ impl Config {
         }
     }
 
+    /// The seed lane's capacity for one partition worker. Validated at startup, so a zero here is
+    /// a bug rather than a config error.
+    pub fn seed_lane_cap(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.partition_intake_max_seeds).unwrap_or(NonZeroUsize::MIN)
+    }
+
     pub fn reconcile_tick_interval(&self) -> Duration {
         Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
@@ -814,6 +834,12 @@ impl Config {
         ensure!(
             self.cohort_seed_apply_batch_max_rows > 0,
             "COHORT_SEED_APPLY_BATCH_MAX_ROWS must be greater than zero.",
+        );
+        // A zero-capacity mpsc channel panics on construction, so the first worker spawn would
+        // take the pod down.
+        ensure!(
+            self.partition_intake_max_seeds > 0,
+            "PARTITION_INTAKE_MAX_SEEDS must be greater than zero (it is the seed lane's capacity in seeds).",
         );
 
         let pacing = self.seed_pacing_config()?;
@@ -1119,6 +1145,7 @@ mod tests {
             cohort_event_name_gating_enabled: true,
             partition_channel_buffer: 128,
             partition_intake_max_events: 1024,
+            partition_intake_max_seeds: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
             kafka_client_id: String::new(),
@@ -1318,8 +1345,17 @@ mod tests {
             .to_string()
             .contains("COHORT_SEED_APPLY_BATCH_MAX_ROWS"),);
 
-        // `1` is the documented hatch back to the per-seed apply, so it must start.
+        // A zero-capacity seed lane would panic the first worker spawn, so it must be refused too.
         config.cohort_seed_apply_batch_max_rows = 1;
+        config.partition_intake_max_seeds = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("PARTITION_INTAKE_MAX_SEEDS"),);
+
+        // `1` is the documented hatch back to the per-seed apply, so it must start.
+        config.partition_intake_max_seeds = 1;
         assert!(config.validate_startup().is_ok());
         assert_eq!(config.seed_run_budget().seeds.get(), 1);
     }
@@ -1487,6 +1523,8 @@ mod tests {
     fn intake_and_boot_ordering_knobs_default_and_override_from_env() {
         let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(defaults.partition_intake_max_events, 1024);
+        assert_eq!(defaults.partition_intake_max_seeds, 1024);
+        assert_eq!(defaults.seed_lane_cap().get(), 1024);
         assert_eq!(defaults.kafka_queued_max_messages_kbytes, 131_072);
         assert_eq!(defaults.kafka_queued_min_messages, 2000);
         assert_eq!(
@@ -1496,6 +1534,7 @@ mod tests {
 
         let env: std::collections::HashMap<String, String> = [
             ("PARTITION_INTAKE_MAX_EVENTS", "512"),
+            ("PARTITION_INTAKE_MAX_SEEDS", "64"),
             ("COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", "65536"),
             ("COHORT_KAFKA_QUEUED_MIN_MESSAGES", "1000"),
             ("COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", "30000"),
@@ -1505,6 +1544,7 @@ mod tests {
         .collect();
         let config = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(config.partition_intake_max_events, 512);
+        assert_eq!(config.seed_lane_cap().get(), 64);
         assert_eq!(
             config.fetch_queue_config().queued_max_messages_kbytes,
             65536
