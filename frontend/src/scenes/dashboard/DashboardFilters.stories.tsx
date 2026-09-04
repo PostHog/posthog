@@ -5,6 +5,8 @@ import { router } from 'kea-router'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
+import { NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     DashboardMode,
@@ -28,6 +30,7 @@ type FilterBarState =
     | 'layout'
     | 'narrow'
     | 'large'
+    | 'sql-overrides'
 
 const DASHBOARD_ID = 955
 
@@ -62,16 +65,69 @@ const largeDashboard: DashboardType<QueryBasedInsightModel> = {
     ),
 }
 
+const SQL_VARIABLE_IDS = ['organization', 'region', 'plan']
+
+const sqlVariablesDashboard: DashboardType<QueryBasedInsightModel> = {
+    ...dashboard,
+    tiles: [
+        {
+            id: 1,
+            layouts: {},
+            color: null,
+            insight: {
+                id: 1,
+                short_id: 'sql-variables',
+                name: 'SQL variable preview',
+                query: {
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'select {variables.organization}, {variables.region}, {variables.plan}',
+                        variables: Object.fromEntries(
+                            SQL_VARIABLE_IDS.map((variableId) => [variableId, { variableId, code_name: variableId }])
+                        ),
+                    },
+                    chartSettings: {},
+                    tableSettings: {},
+                },
+            } as unknown as QueryBasedInsightModel,
+        },
+    ],
+    persisted_variables: Object.fromEntries(
+        [
+            ['organization', 'example.com'],
+            ['region', 'North America'],
+            ['plan', 'enterprise'],
+        ].map(([variableId, value]) => [variableId, { variableId, code_name: variableId, value, isNull: false }])
+    ),
+}
+
 function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Element {
     let storyDashboard = dashboard
     if (state === 'large') {
         storyDashboard = largeDashboard
+    }
+    if (state === 'sql-overrides') {
+        storyDashboard = sqlVariablesDashboard
     }
     if (state === 'temporary-viewer') {
         storyDashboard = { ...dashboard, user_access_level: AccessControlLevel.Viewer }
     }
     const logic = dashboardLogic({ id: DASHBOARD_ID, dashboard: storyDashboard })
     logic.mount()
+
+    if (state === 'sql-overrides') {
+        variableDataLogic.mount()
+        variableDataLogic.actions.loadVariablesSuccess(
+            SQL_VARIABLE_IDS.map((variableId) => ({
+                id: variableId,
+                name: `QA ${variableId}`,
+                code_name: variableId,
+                type: 'String',
+                default_value: '',
+            }))
+        )
+    }
 
     if (state === 'temporary' || state === 'temporary-combined' || state === 'temporary-viewer') {
         const filters = encodeURLFilters(
@@ -170,4 +226,8 @@ export const NarrowUnsavedFilters: Story = {
 
 export const LargeDashboardUnsavedFilters: Story = {
     args: { state: 'large' },
+}
+
+export const SqlOverridesBeforeAdvancedOptions: Story = {
+    args: { state: 'sql-overrides' },
 }
