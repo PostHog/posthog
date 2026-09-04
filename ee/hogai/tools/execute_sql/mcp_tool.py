@@ -1,5 +1,6 @@
 import re
 
+import structlog
 from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantHogQLQuery, HogQLNotice, HogQLQuery
@@ -21,6 +22,8 @@ from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
 from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestion, extract_unknown_tables
+
+logger = structlog.get_logger(__name__)
 
 
 class ExecuteSQLMCPToolArgs(BaseModel):
@@ -150,13 +153,20 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             parsed_query = parse_select(query, placeholders={})
         except Exception:
             return QueryWarnings(taxonomy=[], scan=[])
-        table_names = get_table_names(parsed_query)
-        return QueryWarnings(
-            taxonomy=validate_taxonomy_references(parsed_query, self._team, table_names),
-            # A query that reads every event is the other silent failure: it runs, slowly, and an agent
-            # that never sees the cost keeps building on it.
-            scan=EventsScanHeuristic(self._team, self._get_database()).run(parsed_query).warnings,
-        )
+        # Advisory: these warnings must never cost the caller its results. They are collected
+        # before the query runs, and the scan check reads Redis, so an outage here would turn a
+        # working call into an error. Both sibling surfaces fail open the same way.
+        try:
+            table_names = get_table_names(parsed_query)
+            return QueryWarnings(
+                taxonomy=validate_taxonomy_references(parsed_query, self._team, table_names),
+                # A query that reads every event is the other silent failure: it runs, slowly, and an agent
+                # that never sees the cost keeps building on it.
+                scan=EventsScanHeuristic(self._team, self._get_database()).run(parsed_query).warnings,
+            )
+        except Exception:
+            logger.exception("mcp_execute_sql_query_warnings_failed", team_id=self._team.pk)
+            return QueryWarnings(taxonomy=[], scan=[])
 
 
 @frozen

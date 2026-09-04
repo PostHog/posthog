@@ -2,6 +2,8 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog.schema import HogQLNotice, HogQLQuery
 
@@ -224,6 +226,25 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("performance_warnings", all_events_content)
         self.assertIn("reads every event in its date range", all_events_content)
+
+    @parameterized.expand([("get",), ("set",)])
+    async def test_cache_failure_leaves_the_results_intact(self, cache_method: str):
+        # The warnings are advisory and are collected before the query runs, so a Redis blip must
+        # cost the caller its hint, never its results.
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+
+        with patch(
+            f"posthog.hogql.events_scan.cache.{cache_method}",
+            side_effect=RedisConnectionError("Error 111 connecting to redis"),
+        ):
+            content = await self.tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query="SELECT count() FROM events WHERE properties.plan = 'pro' AND timestamp >= now() - INTERVAL 7 DAY"
+                ),
+            )
+
+        self.assertNotIn("performance_warnings", content)
+        self.assertNotIn("Error 111", content)
 
     async def test_no_scan_warning_for_event_filtered_query(self):
         content = await self.tool.execute(
