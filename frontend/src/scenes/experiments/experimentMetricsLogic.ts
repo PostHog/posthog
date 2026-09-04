@@ -92,6 +92,22 @@ const metricsInOrder = (experiment: Experiment, type: 'primary' | 'secondary'): 
     return [...(inline as ExperimentMetric[]), ...sharedMetrics]
 }
 
+/**
+ * Every metric uuid on the experiment now, across primary and secondary (inline + shared). Metrics without
+ * a uuid are skipped: they can't be matched against a run's per-uuid results, so they never signal a gap.
+ */
+const currentMetricUuids = (experiment: Experiment): string[] =>
+    [
+        ...metricsInOrder(experiment, 'primary').map((metric) => metric.uuid),
+        ...metricsInOrder(experiment, 'secondary').map((metric) => metric.uuid),
+    ].filter((uuid): uuid is string => !!uuid)
+
+/** Metric uuids a run resolved: a computed result or a recorded failure. */
+const coveredMetricUuids = (recalculation: ExperimentMetricsRecalculationApi): string[] => [
+    ...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid),
+    ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
+]
+
 type MetricErrorState = { detail: string } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
@@ -693,14 +709,23 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
 
                     /**
-                     * We have no per-metric staleness signal, so a results + failures count short of the total
-                     * means the run diverged: re-run to heal it. This recovery is generic (it also fires after a
-                     * reset and relaunch), so advance the window with experiment_config_change rather than reuse a
-                     * cutoff that may predate the new start_date.
+                     * Heal a completed run that does not cover every current metric. Two cases:
+                     * 1. The run diverged: its own resolved count fell short of its total (also fires after a
+                     *    reset and relaunch).
+                     * 2. A metric was added after this run finished, so a current metric uuid is absent from the
+                     *    run's results. The run's own counts look complete, so only a uuid comparison catches it.
+                     * Otherwise the new metric shows a perpetual loading state, since nothing else re-runs on
+                     * page load. Advance the window with experiment_config_change rather than reuse a cutoff that
+                     * may predate the new start_date.
                      */
+                    const coveredUuids = new Set(coveredMetricUuids(recalculation))
+                    const missingCurrentMetric = currentMetricUuids(props.experiment).some(
+                        (uuid) => !coveredUuids.has(uuid)
+                    )
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed &&
-                        recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics
+                        (recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
+                            missingCurrentMetric)
                     ) {
                         actions.triggerRecalculation('experiment_config_change')
                         return
@@ -743,12 +768,22 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * If we have a recalculation in flight, and the user has changed the experiment or the metrics configuration,
-                 * we schedule a new recalculation with the corresponding trigger.
+                 * A config change while a run is active queues a rerun; the terminal branch (poll, or a
+                 * terminal-on-create) drains it. Guard on the run status, not isRecalculating: a transient
+                 * loadLatestRecalculation fetch also flips isRecalculating, and queueing against it strands the
+                 * rerun forever, because that fetch never polls and so never drains the queue.
+                 *
+                 * `cache.createInFlight` closes the window between the create POST firing and
+                 * setCurrentRecalculation landing the pending run: during that round-trip currentRecalculation
+                 * still holds the previous terminal status, so without this a second config change would post
+                 * again, and the backend would dedupe it to the active run and drop its trigger.
                  */
+                const runStatus = values.currentRecalculation?.status
+                const runInFlight =
+                    runStatus === RECALCULATION_STATUSES.pending || runStatus === RECALCULATION_STATUSES.in_progress
                 if (
                     (trigger === 'experiment_config_change' || trigger === 'metric_config_change') &&
-                    values.isRecalculating
+                    (runInFlight || cache.createInFlight)
                 ) {
                     actions.setQueuedRerun(trigger)
                     return
@@ -783,6 +818,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * Cleared by setCurrentRecalculation on success, or in the catch below on failure.
                  */
                 actions.setRecalculationLoading(true)
+                // Mark the create in flight synchronously so a second config change during the POST round-trip
+                // queues instead of posting a duplicate the backend would dedupe and drop. Cleared in finally.
+                cache.createInFlight = true
                 try {
                     const { projectId, experimentId } = resolvedIds
 
@@ -825,6 +863,16 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                          */
                         applyResults(recalculation)
                         emitTerminalEvent(recalculation)
+                        // Terminal-on-create arms no poll, so drain any rerun queued during this create here,
+                        // the way the poll's terminal branch does. Otherwise a config change made mid-create
+                        // would strand. Clear createInFlight first so the drained rerun creates instead of
+                        // re-queuing against this finished create.
+                        cache.createInFlight = false
+                        const queued = values.queuedRerun
+                        if (queued) {
+                            actions.setQueuedRerun(null)
+                            actions.triggerRecalculation(queued)
+                        }
                     } else {
                         if (trigger === 'manual' && !recalculation.is_existing) {
                             lemonToast.info(
@@ -839,6 +887,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      */
                     actions.setRecalculationLoading(false)
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
+                } finally {
+                    cache.createInFlight = false
                 }
             },
             /**
