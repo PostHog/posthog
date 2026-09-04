@@ -675,14 +675,23 @@ impl IngestionConsumer {
 
         // One ledger call per partition keeps the lock and the gauge labels
         // off the per-message path.
+        let mut redelivered: Vec<(TopicPartition, Vec<Offset>)> = Vec::new();
         for (topic_partition, partition) in &partitions {
-            // The ledger counts both outcomes and publishes what the window
-            // holds, so the charge needs no follow-up here.
-            let _ = self.topic_offset_ledger.charge(
+            // The ledger counts every outcome and publishes what the window
+            // holds, so only the offsets it already holds need follow-up.
+            let charged = self.topic_offset_ledger.charge(
                 topic_partition,
                 partition.generation,
                 partition.charges.iter().copied(),
             );
+            if let Ok(outcome) = charged {
+                if !outcome.duplicates.is_empty() {
+                    redelivered.push((topic_partition.clone(), outcome.duplicates));
+                }
+            }
+        }
+        if !redelivered.is_empty() {
+            drop_redelivered(&mut accumulator, &mut partitions, redelivered);
         }
 
         Ok(CollectedBatch {
@@ -775,6 +784,52 @@ impl IngestionConsumer {
         counter!("ingestion_consumer_offset_commits_total").increment(1);
 
         Ok(())
+    }
+}
+
+/// Drop the message copies the ledger recognised as offsets it already
+/// holds. The ledger keeps one slot and one charge per offset, so a further
+/// copy must reach no worker: processing it would be work the consumer can
+/// prove is duplicate, and the poll's charge would stop stating what the
+/// workers hold. Exactly the recognised copies go, so a poll that delivered
+/// an offset twice keeps the copy that founded the slot and still completes
+/// it. The span follows what the partition still holds, so completions keep
+/// landing on this poll, and a partition left with nothing leaves the batch.
+/// Reached only when a charge recognised a redelivery.
+fn drop_redelivered(
+    accumulator: &mut Accumulator,
+    partitions: &mut HashMap<TopicPartition, PartitionDeliveries>,
+    redelivered: Vec<(TopicPartition, Vec<Offset>)>,
+) {
+    for (topic_partition, duplicates) in redelivered {
+        let mut copies: HashMap<Offset, usize> = HashMap::new();
+        for offset in duplicates {
+            *copies.entry(offset).or_default() += 1;
+        }
+        let kept = accumulator.remove_offsets(Partition(topic_partition.partition), &copies);
+        let Some((first, last)) = kept else {
+            partitions.remove(&topic_partition);
+            continue;
+        };
+        let Some(partition) = partitions.get_mut(&topic_partition) else {
+            continue;
+        };
+        partition.span = OffsetSpan {
+            first: first.0,
+            last: last.0,
+        };
+        // The settlement completes the charges, so every dropped copy leaves
+        // them; the copy the ledger charged stays and completes its slot.
+        let mut left = copies;
+        partition
+            .charges
+            .retain(|(offset, _)| match left.get_mut(offset) {
+                Some(remaining) if *remaining > 0 => {
+                    *remaining -= 1;
+                    false
+                }
+                _ => true,
+            });
     }
 }
 
@@ -1062,6 +1117,125 @@ mod tests {
 
         assert_eq!(in_flight[0].covered, 0);
         assert_eq!(in_flight[0].accepted, 0);
+    }
+
+    /// One collected poll: `deliveries` are `(partition, offset)` pairs in
+    /// delivery order, each one message keyed by its partition.
+    fn collected(
+        deliveries: &[(i32, i64)],
+    ) -> (Accumulator, HashMap<TopicPartition, PartitionDeliveries>) {
+        let mut accumulator = Accumulator::default();
+        let mut partitions: HashMap<TopicPartition, PartitionDeliveries> = HashMap::new();
+        for &(partition, offset) in deliveries {
+            let delivery = Delivery {
+                offset,
+                charge: Charge {
+                    events: 1,
+                    bytes: 10,
+                },
+                kafka_ts: 0,
+                lag_ms: None,
+            };
+            let key = TopicPartition::new("test", partition);
+            match partitions.get_mut(&key) {
+                Some(entry) => entry.record(0, || 0, &delivery),
+                None => {
+                    partitions.insert(key, PartitionDeliveries::new(0, 0, &delivery));
+                }
+            }
+            accumulator.push(
+                Partition(partition),
+                SerializedKafkaMessage {
+                    topic: "test".to_string(),
+                    partition,
+                    offset,
+                    timestamp: 0,
+                    key: Some(format!("key-{partition}")),
+                    value: None,
+                    headers: HashMap::new(),
+                }
+                .into(),
+            );
+        }
+        (accumulator, partitions)
+    }
+
+    fn charged_offsets(
+        partitions: &HashMap<TopicPartition, PartitionDeliveries>,
+        partition: i32,
+    ) -> Vec<i64> {
+        partitions[&TopicPartition::new("test", partition)]
+            .charges
+            .iter()
+            .map(|(offset, _)| offset.0)
+            .collect()
+    }
+
+    #[test]
+    fn dropping_redelivered_offsets_shrinks_the_batch_to_what_is_dispatched() {
+        let (mut accumulator, mut partitions) =
+            collected(&[(0, 10), (0, 11), (0, 12), (1, 40), (1, 41)]);
+
+        drop_redelivered(
+            &mut accumulator,
+            &mut partitions,
+            vec![(TopicPartition::new("test", 0), vec![Offset(10), Offset(12)])],
+        );
+
+        assert_eq!(accumulator.message_count(), 3);
+        assert_eq!(charged_offsets(&partitions, 0), vec![11]);
+        assert_eq!(
+            partitions[&TopicPartition::new("test", 0)].span,
+            OffsetSpan {
+                first: 11,
+                last: 11
+            },
+            "the span covers only what the poll still holds"
+        );
+        assert_eq!(
+            charged_offsets(&partitions, 1),
+            vec![40, 41],
+            "another partition is untouched"
+        );
+    }
+
+    #[test]
+    fn a_partition_emptied_by_redelivery_leaves_the_batch() {
+        let (mut accumulator, mut partitions) = collected(&[(0, 10), (1, 40)]);
+
+        drop_redelivered(
+            &mut accumulator,
+            &mut partitions,
+            vec![(TopicPartition::new("test", 0), vec![Offset(10)])],
+        );
+
+        assert_eq!(accumulator.message_count(), 1);
+        assert!(!partitions.contains_key(&TopicPartition::new("test", 0)));
+        assert_eq!(charged_offsets(&partitions, 1), vec![40]);
+    }
+
+    #[test]
+    fn a_poll_delivering_one_offset_twice_keeps_the_copy_it_charged() {
+        // The ledger founded the slot on the first copy of offset 11 and
+        // reported the second, so exactly one copy may be dispatched and
+        // exactly one charge may complete it.
+        let (mut accumulator, mut partitions) = collected(&[(0, 10), (0, 11), (0, 11)]);
+
+        drop_redelivered(
+            &mut accumulator,
+            &mut partitions,
+            vec![(TopicPartition::new("test", 0), vec![Offset(11)])],
+        );
+
+        assert_eq!(accumulator.message_count(), 2);
+        assert_eq!(charged_offsets(&partitions, 0), vec![10, 11]);
+        assert_eq!(
+            partitions[&TopicPartition::new("test", 0)].span,
+            OffsetSpan {
+                first: 10,
+                last: 11
+            }
+        );
     }
 
     #[test]

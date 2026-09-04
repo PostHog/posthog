@@ -11,3 +11,6 @@ workspace = true
 metrics = { workspace = true }
 rdkafka = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+metrics-util = { workspace = true }
