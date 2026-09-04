@@ -103,6 +103,70 @@ impl<K: Hash + Eq + Clone, M> Accumulator<K, M> {
         self.message_count
     }
 
+    /// Drop, from one partition, as many messages at each offset as
+    /// `offsets` asks for, together with any group they leave empty. A poll
+    /// can hold the same offset more than once, so removal counts copies
+    /// rather than matching every message at that offset; the copies met
+    /// first go. Returns the lowest and highest offset the partition still
+    /// holds, or `None` when it holds nothing.
+    ///
+    /// Linear over the poll, for callers that learn only after collection
+    /// that a message must not be dispatched. The collection path itself
+    /// never calls it.
+    pub fn remove_offsets(
+        &mut self,
+        partition: Partition,
+        offsets: &HashMap<Offset, usize>,
+    ) -> Option<(Offset, Offset)> {
+        let mut wanted = offsets.clone();
+        let mut removed = 0;
+        for group in &mut self.groups {
+            if group.partition != partition {
+                continue;
+            }
+            let before = group.messages.len();
+            group
+                .messages
+                .retain(|message| match wanted.get_mut(&message.offset) {
+                    Some(copies) if *copies > 0 => {
+                        *copies -= 1;
+                        false
+                    }
+                    _ => true,
+                });
+            removed += before - group.messages.len();
+        }
+        if removed > 0 {
+            self.message_count -= removed;
+            self.groups.retain(|group| !group.is_empty());
+            self.reindex();
+        }
+        let mut bounds: Option<(Offset, Offset)> = None;
+        for group in self.groups.iter().filter(|g| g.partition == partition) {
+            for message in &group.messages {
+                bounds = Some(match bounds {
+                    None => (message.offset, message.offset),
+                    Some((first, last)) => (first.min(message.offset), last.max(message.offset)),
+                });
+            }
+        }
+        bounds
+    }
+
+    /// Rebuild the key index after group positions moved.
+    fn reindex(&mut self) {
+        self.group_index_by_key.clear();
+        for (index, group) in self.groups.iter().enumerate() {
+            let Some(key) = group.key.clone() else {
+                continue;
+            };
+            self.group_index_by_key
+                .entry(group.partition)
+                .or_default()
+                .insert(key, index);
+        }
+    }
+
     pub fn into_groups(self) -> Vec<Group<K, M>> {
         self.groups
     }
@@ -156,6 +220,75 @@ mod tests {
         );
         let bodies: Vec<i64> = groups[0].messages.iter().map(|m| m.message).collect();
         assert_eq!(bodies, vec![0, 2]);
+    }
+
+    #[test]
+    fn removing_offsets_drops_the_messages_and_the_groups_they_empty() {
+        let mut acc = Accumulator::default();
+        push(&mut acc, 0, 0, Some("a"));
+        push(&mut acc, 0, 1, Some("b"));
+        push(&mut acc, 0, 2, Some("a"));
+        push(&mut acc, 1, 1, Some("a"));
+
+        let bounds = acc.remove_offsets(
+            Partition(0),
+            &HashMap::from([(Offset(1), 1), (Offset(2), 1)]),
+        );
+
+        assert_eq!(bounds, Some((Offset(0), Offset(0))));
+        assert_eq!(acc.message_count(), 2);
+        // Key "a" on partition 0 still groups later messages, so the index
+        // has to follow the group that moved.
+        push(&mut acc, 0, 3, Some("a"));
+        let groups = acc.into_groups();
+        let shapes: Vec<(Partition, Option<&str>, Vec<Offset>)> = groups
+            .iter()
+            .map(|g| (g.partition, g.key, offsets(g)))
+            .collect();
+        assert_eq!(
+            shapes,
+            vec![
+                (Partition(0), Some("a"), vec![Offset(0), Offset(3)]),
+                (Partition(1), Some("a"), vec![Offset(1)]),
+            ]
+        );
+    }
+
+    #[test]
+    fn removing_every_offset_of_a_partition_reports_no_bounds() {
+        let mut acc = Accumulator::default();
+        push(&mut acc, 0, 0, Some("a"));
+        push(&mut acc, 1, 7, None);
+
+        let bounds = acc.remove_offsets(Partition(0), &HashMap::from([(Offset(0), 1)]));
+
+        assert_eq!(bounds, None);
+        assert_eq!(acc.message_count(), 1, "other partitions are untouched");
+    }
+
+    #[test]
+    fn removing_offsets_drops_only_as_many_copies_as_asked() {
+        let mut acc = Accumulator::default();
+        push(&mut acc, 0, 4, Some("a"));
+        push(&mut acc, 0, 4, Some("a"));
+        push(&mut acc, 0, 5, Some("a"));
+
+        let bounds = acc.remove_offsets(Partition(0), &HashMap::from([(Offset(4), 1)]));
+
+        assert_eq!(bounds, Some((Offset(4), Offset(5))));
+        assert_eq!(acc.message_count(), 2, "one copy of offset 4 stays");
+    }
+
+    #[test]
+    fn removing_offsets_a_partition_never_held_changes_nothing() {
+        let mut acc = Accumulator::default();
+        push(&mut acc, 0, 4, Some("a"));
+        push(&mut acc, 0, 6, Some("a"));
+
+        let bounds = acc.remove_offsets(Partition(0), &HashMap::from([(Offset(5), 1)]));
+
+        assert_eq!(bounds, Some((Offset(4), Offset(6))));
+        assert_eq!(acc.message_count(), 2);
     }
 
     #[test]
