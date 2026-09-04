@@ -410,6 +410,7 @@ describe('experimentActivityDescriber', () => {
             const text = textOf(result)
             expect(text).toContain('launched experiment')
             expect(text).not.toContain('status')
+            expect(text).not.toContain(': on')
         })
 
         it('keeps a row for a comment-only conclusion edit', () => {

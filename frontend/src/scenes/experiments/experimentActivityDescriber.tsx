@@ -100,6 +100,10 @@ const humanizeExperimentChange = (
 }
 
 const appendPreposition = (item: string | JSX.Element): string | JSX.Element => {
+    // A part that ends with a colon already introduces the experiment name.
+    if (extractText(item).trimEnd().endsWith(':')) {
+        return item
+    }
     const preposition = getPreposition(item)
     return typeof item === 'string' ? (
         `${item} ${preposition}`
