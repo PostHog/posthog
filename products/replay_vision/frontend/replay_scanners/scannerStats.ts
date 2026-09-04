@@ -114,34 +114,42 @@ export function daysFromDateRange(dateFrom: string | null, dateTo: string | null
     return Math.max(1, to.diff(from, 'day'))
 }
 
-// Past this age a first sweep that never completed means something is stuck (throttled or stalled),
+// Past this age a first scan that produced nothing means something is stuck (throttled or stalled),
 // so the UI should fall back to the normal empty states instead of promising results indefinitely.
 const FIRST_RESULTS_MAX_AGE_MINUTES = 60
 
 /**
- * True while a just-created scanner has no settled observations yet: its first sweep hasn't completed
- * (last_swept_at is seeded before created_at and only advances when a sweep tick finishes) or its
- * first observations are still processing.
+ * True while a just-created scanner has no results to chart yet: its first scheduled scan is still
+ * running or its first observations are still processing.
+ *
+ * The scanner itself (enabled + able to scan + age) is the source of truth, so a stats call that is
+ * slow, failing, or not yet loaded can't flash the generic "no matching events" empty state during
+ * the activation moment. Stats only clears the pending state, once it positively reports a settled
+ * observation; until then a young enabled scanner stays pending. A scanner that cannot scan — its
+ * credit cap is already reached, or sampling is paused at 0 — is never pending, so the panel never
+ * promises a first scan that can never run.
  */
 export function isAwaitingFirstResults(
     stats: ObservationStatsApi | null,
-    scanner: Pick<ReplayScanner, 'enabled' | 'created_at' | 'last_swept_at'> | null,
+    scanner: Pick<ReplayScanner, 'enabled' | 'created_at' | 'limit_reached' | 'sampling_rate'> | null,
     now: Dayjs = dayjs()
 ): boolean {
-    // The wizard's unsaved form lacks the timestamps, so it can never read as pending.
-    if (!stats || !scanner?.enabled || !scanner.created_at || !scanner.last_swept_at) {
+    // The wizard's unsaved form lacks the timestamp, so it can never read as pending.
+    if (!scanner?.enabled || !scanner.created_at) {
         return false
     }
-    const counts = stats.status_counts
-    if (counts.succeeded + counts.failed + counts.ineligible > 0) {
+    // A capped or paused scanner runs no scans, so it never awaits a first result — same eligibility
+    // rule as the scan-drought banner (scanDrought.ts).
+    if (scanner.limit_reached || scanner.sampling_rate === 0) {
         return false
     }
-    const createdAt = dayjs(scanner.created_at)
     // Minutes rather than hours, since dayjs truncates diffs to whole units.
-    if (now.diff(createdAt, 'minute') >= FIRST_RESULTS_MAX_AGE_MINUTES) {
+    if (now.diff(dayjs(scanner.created_at), 'minute') >= FIRST_RESULTS_MAX_AGE_MINUTES) {
         return false
     }
-    return counts.in_flight > 0 || dayjs(scanner.last_swept_at).isBefore(createdAt)
+    const counts = stats?.status_counts
+    // A settled observation means the first scan landed, so the chart has something to show.
+    return !counts || counts.succeeded + counts.failed + counts.ineligible === 0
 }
 
 export interface SummarizerFacetStats {

@@ -1259,23 +1259,6 @@ describe('replayScannerLogic', () => {
         })
     })
 
-    describe('scannerWatermarkRefreshed', () => {
-        // Guards the background watermark refresh against regressing to the full loadScannerSuccess
-        // path, which resets the form from the server and refires the observation loads.
-        it('advances the sweep watermark without resetting form edits or reloading observations', async () => {
-            logic.actions.loadScannerSuccess({ ...logic.values.scanner!, id: 'abc', name: 'Loaded' })
-            logic.actions.setScannerValues({ name: 'Edited' })
-
-            const refreshed = { ...logic.values.scanner!, name: 'Loaded', last_swept_at: '2026-08-13T10:00:00Z' }
-            // toDispatchActions moves the history pointer past the setup's own setScannerValues first.
-            await expectLogic(logic, () => logic.actions.scannerWatermarkRefreshed(refreshed))
-                .toDispatchActions(['scannerWatermarkRefreshed'])
-                .toNotHaveDispatchedActions(['setScannerValues', 'loadObservations', 'loadObservationStats'])
-            expect(logic.values.scanner?.name).toBe('Edited')
-            expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
-        })
-    })
-
     describe('shouldGuardScannerNavigation', () => {
         const scannerId = 'abc-123'
         const configure = urls.replayVisionScannerConfigure(scannerId)

@@ -23,11 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { IntervalType } from '~/types'
 
-import {
-    visionScannersImpactRetrieve,
-    visionScannersObservationsStatsRetrieve,
-    visionScannersRetrieve,
-} from '../generated/api'
+import { visionScannersImpactRetrieve, visionScannersObservationsStatsRetrieve } from '../generated/api'
 import type { ObservationStatsApi, ScannerImpactApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -51,7 +47,7 @@ import {
     deriveSummarizerFacetStats,
     isAwaitingFirstResults,
 } from './scannerStats'
-import { type ReplayScanner, type ScannerFormValues, type ScannerType, scannerFromApi } from './types'
+import { type ReplayScanner, type ScannerFormValues, type ScannerType } from './types'
 
 export interface ScannerOverviewLogicProps {
     scannerId: string
@@ -136,9 +132,6 @@ export interface scannerOverviewLogicValues {
 export interface scannerOverviewLogicActions {
     loadScannerSuccess: (scanner: ScannerFormValues) => {
         scanner: ScannerFormValues
-    } // replayScannerLogic
-    scannerWatermarkRefreshed: (scanner: ReplayScanner) => {
-        scanner: ReplayScanner
     } // replayScannerLogic
     clearOverviewFilters: () => {
         value: true
@@ -246,7 +239,7 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
     connect((props: ScannerOverviewLogicProps) => ({
         values: [replayScannerLogic({ id: props.scannerId }), ['scanner']],
         // Bound at build time, so dispatching into the scanner logic can't depend on it being mounted.
-        actions: [replayScannerLogic({ id: props.scannerId }), ['loadScannerSuccess', 'scannerWatermarkRefreshed']],
+        actions: [replayScannerLogic({ id: props.scannerId }), ['loadScannerSuccess']],
     })),
 
     actions({
@@ -450,25 +443,8 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             actions.loadOverviewStats()
             actions.loadOverviewImpact()
         }
-        // Pending also hangs off the scanner's sweep watermark, which only the scanner endpoint
-        // reports; without refreshing it a first sweep that matches nothing would never clear
-        // pending. Fetched directly because loadScanner flips scannerLoading, which blanks the scene,
-        // and dispatched through the dedicated watermark action so a background refetch can't reset
-        // the scanner form or refire the observation loads.
-        const refreshScannerWatermark = async (): Promise<void> => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId || props.scannerId === 'new') {
-                return
-            }
-            try {
-                const response = await visionScannersRetrieve(String(teamId), props.scannerId)
-                actions.scannerWatermarkRefreshed(scannerFromApi(response))
-            } catch {
-                // A failed background refresh just waits for the next poll tick.
-            }
-        }
-        // Each tick refreshes stats and the sweep watermark in the background, so the pending panel
-        // dissolves into the real Overview on its own. Failing ticks keep polling without toasting
+        // Each tick reloads stats in the background, so the pending panel dissolves into the real
+        // Overview once the first observation settles. Failing ticks keep polling without toasting
         // (see the loadOverviewStats catch); the panel surfaces them via firstScanCheckFailing.
         const firstScanPollTick = (): void => {
             if (!values.firstScanPending) {
@@ -476,10 +452,9 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                 return
             }
             // Re-arm at tick time rather than response time, so the gap stays one interval per tick
-            // however the stats and watermark responses interleave.
+            // whatever the stats response's latency.
             scheduleObservationPoll(cache.disposables, true, firstScanPollTick, FIRST_SCAN_POLL_INTERVAL_MS)
             actions.loadOverviewStats()
-            void refreshScannerWatermark()
         }
         // The single owner of the poll timer and the pending latch, run after every action that can
         // move firstScanPending: arms once per pending spell (the tick re-arms itself), stops the
@@ -519,10 +494,9 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             },
             loadOverviewStatsSuccess: syncFirstScanPoll,
             loadOverviewStatsFailure: syncFirstScanPoll,
-            scannerWatermarkRefreshed: syncFirstScanPoll,
-            // Impact needs the scanner type; refire once the scanner (and its type) resolves. The
-            // poll syncs too: pending depends on the sweep watermark, which may resolve after the
-            // first stats response.
+            // Impact needs the scanner type; refire once the scanner (and its type) resolves. The poll
+            // syncs too: a fresh scanner only reads as pending once it resolves, which can land after
+            // the first stats response.
             loadScannerSuccess: () => {
                 actions.loadOverviewImpact()
                 syncFirstScanPoll()

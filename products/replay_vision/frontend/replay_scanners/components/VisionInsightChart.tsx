@@ -19,6 +19,11 @@ interface VisionInsightChartProps {
     className?: string
     /** Custom handler for data point clicks (must be stable/memoized). Without one, charts stay static. */
     onDataPointClick?: QueryContext['onDataPointClick']
+    /** Replaces the generic "no matching events" empty state, so a scanner reads its own zero-result copy. */
+    emptyStateHeading?: string
+    emptyStateDetail?: string
+    /** Message shown on the retry overlay when a query fails or times out. Defaults to a generic line. */
+    errorMessage?: string
 }
 
 /** Vision events all belong to one synthetic person, so the generic persons modal would only list meaningless actors. */
@@ -63,12 +68,15 @@ export function VisionInsightChart({
     insightProps,
     className,
     onDataPointClick,
+    emptyStateHeading,
+    emptyStateDetail,
+    errorMessage,
 }: VisionInsightChartProps): JSX.Element {
     const chartQuery = useMemo(() => embeddedVisionChartQuery(query), [query])
     const chartProps = useMemo(() => adHocInsightProps(insightProps, chartQuery), [insightProps, chartQuery])
     const context = useMemo<QueryContext>(
-        () => ({ insightProps: chartProps, onDataPointClick }),
-        [chartProps, onDataPointClick]
+        () => ({ insightProps: chartProps, onDataPointClick, emptyStateHeading, emptyStateDetail }),
+        [chartProps, onDataPointClick, emptyStateHeading, emptyStateDetail]
     )
     const logic = insightVizDataLogic(chartProps)
     const { insightData, insightDataLoading } = useValues(logic)
@@ -85,7 +93,7 @@ export function VisionInsightChart({
                         <Spinner className="text-2xl" />
                     ) : (
                         <>
-                            <span className="text-muted text-sm">Couldn't load this chart.</span>
+                            <span className="text-muted text-sm">{errorMessage ?? "Couldn't load this chart."}</span>
                             <LemonButton size="small" type="secondary" onClick={() => loadData('force_async')}>
                                 Retry
                             </LemonButton>
