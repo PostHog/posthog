@@ -49,7 +49,10 @@ def _tile_to_template_tile(tile: DashboardTile) -> dict[str, Any] | None:
 def dashboard_to_template_payload(dashboard: Dashboard) -> dict[str, Any]:
     """Describe a dashboard in the body that `create_from_template_json` accepts.
 
-    The payload holds no team, user, or object ids, so a different PostHog instance can import it.
+    The payload holds no team, user, dashboard, or insight ids, so a different PostHog instance can import it.
+    Tiles still hold project-scoped references: the ids of the resources a widget points at, and the action ids,
+    cohort ids, and warehouse table names inside an insight query. Those resolve against the target project, so
+    the same id can select a different object there.
     """
     tiles = [_tile_to_template_tile(tile) for tile in DashboardTile.dashboard_queryset(dashboard.tiles.all())]
     return {

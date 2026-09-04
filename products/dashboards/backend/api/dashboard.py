@@ -3592,8 +3592,12 @@ class DashboardsViewSet(
         Export a dashboard as a template body.
 
         POST the body back under a `template` key to `create_from_template_json`, in this project, another
-        project, or another PostHog instance, to recreate the dashboard there. Widget tiles keep the ids of the
-        resources they point at, so those resources must also exist in the target project.
+        project, or another PostHog instance, to recreate the dashboard there.
+
+        Some references stay tied to the source project. Widget tiles keep the ids of the resources they point
+        at. Insight queries keep the ids of any action or cohort they filter on, and the names of any data
+        warehouse tables they read. Check that each of those exists in the target project before you import,
+        because an id that resolves there can point at a different object.
         """
         return Response(dashboard_to_template_payload(self.get_object()))
 
