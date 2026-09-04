@@ -18,7 +18,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils/arrays'
 import { pluralize } from 'lib/utils/strings'
@@ -78,10 +77,6 @@ export function Playlist({
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const playlistListRef = useRef<HTMLDivElement>(null)
-    const { ref: playlistRef, size } = useResizeBreakpoints({
-        0: 'small',
-        750: 'medium',
-    })
 
     const lastScrollPositionRef = useRef(0)
     // state, not a ref: the virtualizer must re-initialize when the scroll container mounts
@@ -281,14 +276,10 @@ export function Playlist({
                 </div>
             )}
             <div
-                ref={playlistRef}
                 data-attr="session-recordings-playlist"
                 className={clsx(
                     'Playlist flex flex-row items-start justify-start h-full w-full min-w-60 min-h-82 overflow-hidden border rounded',
-                    {
-                        'Playlist--wide': size !== 'small',
-                        'Playlist--embedded border-0': embedded,
-                    }
+                    { 'Playlist--embedded border-0': embedded }
                 )}
             >
                 <div
