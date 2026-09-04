@@ -25,6 +25,7 @@ import {
   type BedrockGatewayVariant,
   type CloudRegion,
   classifyGatewayLimitError,
+  classifyPromptFailure,
   type ExecutionMode,
   flattenSelectOptions,
   getBackoffDelay,
@@ -4480,6 +4481,18 @@ export class SessionService {
       const errorDetails = (error as { data?: { details?: string } }).data
         ?.details;
 
+      // The app cancelled this turn to make room for a mid-turn message
+      // (steer): the turn ended on purpose, the user's message still sends,
+      // and the agent keeps working. Report it as cancelled so the caller
+      // stays quiet instead of toasting the raw abort text. The cancel and
+      // replacement-turn path already owns the session state, so leave it be.
+      if (classifyPromptFailure(error, errorDetails).kind === "cancelled") {
+        this.d.log.info("Prompt turn cancelled", {
+          taskRunId: session.taskRunId,
+        });
+        return { stopReason: "cancelled" };
+      }
+
       this.d.store.clearOptimisticItems(session.taskRunId);
 
       const limitCause = classifyGatewayLimitError(errorMessage, errorDetails);
@@ -5063,6 +5076,11 @@ export class SessionService {
             });
           }
         }
+      }
+      // A send the app cancelled is not a failure — stay quiet like the local
+      // path does.
+      if (classifyPromptFailure(error).kind === "cancelled") {
+        return { stopReason: "cancelled" };
       }
       throw error;
     }

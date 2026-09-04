@@ -75,7 +75,15 @@ function createHarness() {
     },
     "tryAutoRecoverLocalSession",
   );
-  return { service, sessions, store, promptMutate, recoverSpy, usageLimitShow };
+  return {
+    service,
+    sessions,
+    store,
+    promptMutate,
+    recoverSpy,
+    usageLimitShow,
+    deps,
+  };
 }
 
 type RecoverSpy = ReturnType<typeof createHarness>["recoverSpy"];
@@ -147,6 +155,28 @@ describe("SessionService prompt recovery on fatal session errors", () => {
       expect(store.setSession).toHaveBeenCalledWith(
         expect.objectContaining({ taskRunId: TASK_RUN_ID, status: "error" }),
       );
+    },
+  );
+});
+
+describe("SessionService turn cancellation", () => {
+  it.each([
+    ["a bare abort message", new Error("This operation was aborted")],
+    [
+      "an AbortError name",
+      Object.assign(new Error("boom"), { name: "AbortError" }),
+    ],
+  ])(
+    "reports %s as cancelled without toasting or recovering",
+    async (_case, error) => {
+      const { service, promptMutate, recoverSpy, deps } = createHarness();
+      promptMutate.mockRejectedValue(error);
+
+      const result = await service.sendPrompt(TASK_ID, "actually, stop");
+
+      expect(result).toEqual({ stopReason: "cancelled" });
+      expect(recoverSpy).not.toHaveBeenCalled();
+      expect(deps.toast.error).not.toHaveBeenCalled();
     },
   );
 });

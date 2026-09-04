@@ -145,6 +145,36 @@ function includesAny(
   return patterns.some((pattern) => lower.includes(pattern));
 }
 
+/**
+ * Markers of a turn the app itself cancelled — the user sent a message
+ * mid-turn (steer), so the running turn was interrupted to let the message
+ * land. A bare abort surfaces as one of these strings, or as an AbortError.
+ * The turn ending is expected, not a failure. A genuine cloud command timeout
+ * carries its own explicit message, so it stays a failure.
+ */
+const CANCELLED_ERROR_PATTERNS = [
+  "this operation was aborted",
+  "the user aborted a request",
+] as const;
+
+export function isCancelledError(
+  error: unknown,
+  errorMessage: string,
+  errorDetails?: string,
+): boolean {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "AbortError"
+  ) {
+    return true;
+  }
+  return (
+    includesAny(errorMessage, CANCELLED_ERROR_PATTERNS) ||
+    includesAny(errorDetails, CANCELLED_ERROR_PATTERNS)
+  );
+}
+
 export function isRateLimitError(
   errorMessage: string,
   errorDetails?: string,
@@ -197,6 +227,7 @@ export function isTurnEndedWithoutResponseError(
 }
 
 export type PromptFailureKind =
+  | "cancelled"
   | "usage_limit"
   | "transient"
   | "authentication"
@@ -216,6 +247,14 @@ export function classifyPromptFailure(
   errorType?: string,
 ): PromptFailure {
   const message = getErrorMessage(error) || String(error);
+  if (isCancelledError(error, message, errorDetails)) {
+    return {
+      kind: "cancelled",
+      message,
+      retryable: false,
+      limitCause: null,
+    };
+  }
   const limitCause = classifyGatewayLimitError(message, errorDetails);
   if (limitCause !== null || isRateLimitError(message, errorDetails)) {
     return {

@@ -167,6 +167,8 @@ describe("classifyGatewayLimitError", () => {
 
 describe("classifyPromptFailure", () => {
   it.each([
+    ["This operation was aborted", undefined, "cancelled", false],
+    ["The user aborted a request.", undefined, "cancelled", false],
     ["Rate limit exceeded", undefined, "usage_limit", false],
     ["Cloud usage limit reached", undefined, "usage_limit", false],
     ["API Error: 529 overloaded", undefined, "transient", true],
@@ -179,11 +181,19 @@ describe("classifyPromptFailure", () => {
     ],
     ["Authentication required", undefined, "authentication", true],
     ["process exited", undefined, "fatal_session", true],
+    // A genuine cloud command timeout is a real failure, not an app cancel,
+    // so it must not be swallowed as "cancelled".
+    ["Cloud command timed out after 5 minutes", undefined, "unknown", false],
     ["invalid model", undefined, "unknown", false],
   ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
     expect(
       classifyPromptFailure(new Error(message), undefined, errorType),
     ).toMatchObject({ kind, retryable });
+  });
+
+  it("classifies an AbortError by name even when the message differs", () => {
+    const error = Object.assign(new Error("boom"), { name: "AbortError" });
+    expect(classifyPromptFailure(error)).toMatchObject({ kind: "cancelled" });
   });
 });
 

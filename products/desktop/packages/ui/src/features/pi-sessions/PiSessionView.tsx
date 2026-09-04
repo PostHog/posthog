@@ -245,6 +245,11 @@ function usePiFailureNotice(failure: PiControllerSessionState["error"]): void {
     if (!failure || failure.scope !== "operation") {
       return;
     }
+    // A turn the app cancelled to make room for a mid-turn message is not a
+    // failure the user needs to see.
+    if (failure.kind === "cancelled") {
+      return;
+    }
     if (failure.kind === "usage_limit") {
       useUsageLimitStore
         .getState()
