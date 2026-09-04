@@ -548,6 +548,44 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedColorChanges).toBe(true)
         })
 
+        it('keeps saved settings when an older layout save finishes later', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const staleLayoutResponse = logic.values.dashboard!
+            let finishLayoutSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+                throw new Error('Layout save resolver is unavailable')
+            }
+            const layoutSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+                finishLayoutSave = resolve
+            })
+            jest.spyOn(api, 'update')
+                .mockReturnValueOnce(layoutSave)
+                .mockImplementationOnce(async () => ({
+                    ...logic.values.dashboard!,
+                    persisted_filters: { date_from: '-7d' },
+                }))
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const modifiedLayouts = {
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+            logic.actions.updateLayouts(modifiedLayouts)
+            logic.actions.saveLayoutChanges()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+                logic.actions.saveDashboardChanges()
+            }).toDispatchActions(['saveDashboardChangesSuccess'])
+
+            finishLayoutSave(staleLayoutResponse)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-7d' })
+        })
+
         it('saves dashboard settings only when requested', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const successToast = jest.spyOn(lemonToast, 'success')

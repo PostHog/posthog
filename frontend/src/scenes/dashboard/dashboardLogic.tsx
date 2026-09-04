@@ -1683,14 +1683,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             payload
                         )
+                        const latestDashboard = values.dashboard ?? currentDashboard
                         const updatedDashboard =
                             scope === 'colors'
-                                ? { ...persistedDashboard, tiles: currentDashboard.tiles }
+                                ? { ...persistedDashboard, tiles: latestDashboard.tiles }
                                 : {
                                       ...persistedDashboard,
-                                      breakdown_colors: currentDashboard.breakdown_colors,
-                                      data_color_theme_id: currentDashboard.data_color_theme_id,
+                                      breakdown_colors: latestDashboard.breakdown_colors,
+                                      data_color_theme_id: latestDashboard.data_color_theme_id,
                                   }
+                        updatedDashboard.persisted_filters = latestDashboard.persisted_filters
+                        updatedDashboard.persisted_variables = latestDashboard.persisted_variables
                         if (scope === 'colors' && breakdownColorsChanged) {
                             eventUsageLogic.actions.reportDashboardBreakdownColorsSaved(
                                 values.dashboard,
