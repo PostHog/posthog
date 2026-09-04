@@ -11,7 +11,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.facade.api import resolve_group_keys_by_email
-from products.customer_analytics.backend.logic.account_member_search import get_account_member_search_staff_user
 from products.customer_analytics.backend.models import Account
 
 logger = structlog.get_logger(__name__)
@@ -96,13 +95,11 @@ def _match_accounts_by_person_group(team: Team, emails: list[str]) -> tuple[dict
 def _match_accounts_by_organization_membership(
     team: Team, emails: list[str]
 ) -> tuple[dict[str, MatchedAccount], set[str]]:
-    if get_account_member_search_staff_user(team) is None:
-        return {}, set()
-
+    member_emails = [email for email in emails if email.rsplit("@", 1)[-1] != "posthog.com"]
     users_by_email: dict[str, list[User]] = {}
     for user in (
         User.objects.annotate(normalized_email=Lower("email"))
-        .filter(normalized_email__in=emails, is_active=True)
+        .filter(normalized_email__in=member_emails, is_active=True)
         .only("id", "email")
     ):
         users_by_email.setdefault(user.email.lower(), []).append(user)
@@ -143,7 +140,12 @@ def _unresolved_emails(emails: list[str], matched: dict[str, MatchedAccount], am
     return [email for email in emails if email not in matched and email not in ambiguous]
 
 
-def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, MatchedAccount]:
+def _match_accounts_for_emails(
+    team: Team,
+    emails: list[str],
+    *,
+    use_organization_membership: bool,
+) -> dict[str, MatchedAccount]:
     normalized_emails = sorted(normalize_emails(emails))
     if not normalized_emails:
         return {}
@@ -162,12 +164,13 @@ def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Matche
     matched.update(person_group_matches)
     ambiguous.update(person_group_ambiguous)
 
-    organization_matches, organization_ambiguous = _match_accounts_by_organization_membership(
-        team,
-        _unresolved_emails(normalized_emails, matched, ambiguous),
-    )
-    matched.update(organization_matches)
-    ambiguous.update(organization_ambiguous)
+    if use_organization_membership:
+        organization_matches, organization_ambiguous = _match_accounts_by_organization_membership(
+            team,
+            _unresolved_emails(normalized_emails, matched, ambiguous),
+        )
+        matched.update(organization_matches)
+        ambiguous.update(organization_ambiguous)
 
     domain_matches, _ = _match_accounts_by_account_property(
         team,
@@ -178,3 +181,11 @@ def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Matche
     )
     matched.update(domain_matches)
     return matched
+
+
+def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, MatchedAccount]:
+    return _match_accounts_for_emails(team, emails, use_organization_membership=False)
+
+
+def match_accounts_for_gmail_emails(team: Team, emails: list[str]) -> dict[str, MatchedAccount]:
+    return _match_accounts_for_emails(team, emails, use_organization_membership=True)

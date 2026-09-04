@@ -21,35 +21,17 @@ ACCOUNT_MEMBER_SEARCH_MAX_ORGANIZATIONS = 100
 EU_ORGANIZATION_MEMBERS_VIEW = "eu_org_members"
 
 
-def _is_account_member_search_enabled(team: Team, user: User) -> bool:
-    return user.is_staff and posthog_feature_flag_enabled(
-        CUSTOMER_ANALYTICS_CSP_FLAG,
-        str(user.distinct_id),
-        organization_id=team.organization_id,
-        team_id=team.id,
-    )
-
-
-def get_account_member_search_staff_user(team: Team) -> User | None:
-    active_memberships = OrganizationMembership.objects.filter(
-        organization_id=team.organization_id,
-        user__is_active=True,
-    )
-    if active_memberships.filter(user__is_staff=False).exists():
-        return None
-
-    staff_user = (
-        User.objects.filter(
-            organization_membership__organization_id=team.organization_id,
-            is_active=True,
-            is_staff=True,
+def is_account_member_search_enabled(team: Team, user: User) -> bool:
+    return (
+        user.is_active
+        and user.is_staff
+        and posthog_feature_flag_enabled(
+            CUSTOMER_ANALYTICS_CSP_FLAG,
+            str(user.distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.id,
         )
-        .order_by("id")
-        .first()
     )
-    if staff_user is None or not _is_account_member_search_enabled(team, staff_user):
-        return None
-    return staff_user
 
 
 def _list_us_organization_ids(email: str) -> tuple[str, ...]:
@@ -106,7 +88,7 @@ def _list_eu_organization_ids(team: Team, user: User, email: str) -> tuple[str, 
 
 
 def list_account_external_ids_by_member_email(*, team: Team, user: User, email: str) -> tuple[str, ...]:
-    if not _is_account_member_search_enabled(team, user):
+    if not is_account_member_search_enabled(team, user):
         return ()
 
     organization_ids = _list_us_organization_ids(email)
