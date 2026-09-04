@@ -8,7 +8,9 @@ description: |
     instead of fragmenting across runner-arch casings or per-workflow keys.
 
     Also pre-seeds the Node tool cache (`node-toolcache-<os>-<arch>-<version>`,
-    master-gated save) so setup-node makes no GitHub API calls on a hit.
+    master-gated save) so setup-node makes no GitHub API calls on a hit, and the
+    pnpm install itself (`setup-pnpm-<os>-<arch>-<version>-<action-hash>`) so a
+    job does not download pnpm from the npm registry.
 
     Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
     every run (PRs included, and the post-save can't be gated) and keys on
@@ -39,12 +41,60 @@ inputs:
 runs:
     using: composite
     steps:
+        # pnpm/action-setup wipes ~/setup-pnpm and runs `npm ci` there on every
+        # job, so each job downloads pnpm from registry.npmjs.org. A registry
+        # stall therefore hits every Node job at once and can outlast a job's
+        # timeout-minutes. The install is identical for a given pnpm version, so
+        # cache the result and skip the action when it is already on disk.
+        - name: Resolve pnpm version
+          id: pnpm-version
+          shell: bash
+          # An empty version disables the cache steps, so the action installs as
+          # before. The key must pin the exact version, because the restored
+          # directory holds that version and nothing revalidates it.
+          run: |
+              version=$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"pnpm@\([^"+]*\)".*/\1/p' package.json | head -1)
+              [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || version=""
+              echo "version=$version" >> "$GITHUB_OUTPUT"
+
+        # The action's own pinned SHA decides which bootstrap pnpm `npm ci`
+        # installs, so hash this file to invalidate the cache when the pin moves.
+        - name: Restore pnpm setup
+          id: setup-pnpm
+          if: steps.pnpm-version.outputs.version != ''
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ~/setup-pnpm
+              key: setup-pnpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.pnpm-version.outputs.version }}-${{ hashFiles('.github/actions/pnpm-install/action.yml') }}
+
         - name: Install pnpm
+          if: steps.setup-pnpm.outputs.cache-hit != 'true'
           uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
         - name: Fix node-gyp permissions
           shell: bash
           run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
+        # Reproduce what the action exports on a hit. PNPM_HOME/bin holds the
+        # self-updated target version and PNPM_HOME holds the bootstrap symlinks,
+        # so bin must win on PATH. GITHUB_PATH prepends each line in turn, which
+        # means the last line written ends up first.
+        - name: Use cached pnpm
+          if: steps.setup-pnpm.outputs.cache-hit == 'true'
+          shell: bash
+          run: |
+              pnpm_home="$HOME/setup-pnpm/node_modules/.bin"
+              echo "PNPM_HOME=$pnpm_home" >> "$GITHUB_ENV"
+              echo "$pnpm_home" >> "$GITHUB_PATH"
+              echo "$pnpm_home/bin" >> "$GITHUB_PATH"
+
+        # Save only on the default branch, for the same reasons as the pnpm store save below.
+        - name: Save pnpm setup
+          if: github.ref == 'refs/heads/master' && steps.pnpm-version.outputs.version != '' && steps.setup-pnpm.outputs.cache-hit != 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ~/setup-pnpm
+              key: setup-pnpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.pnpm-version.outputs.version }}-${{ hashFiles('.github/actions/pnpm-install/action.yml') }}
 
         - name: Resolve Node version
           id: node-version
