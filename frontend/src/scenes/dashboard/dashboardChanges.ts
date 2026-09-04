@@ -99,7 +99,8 @@ function formatTestAccounts(filterTestAccounts: DashboardFilter['filterTestAccou
     if (filterTestAccounts === null || filterTestAccounts === undefined) {
         return 'Default'
     }
-    return filterTestAccounts ? 'Included' : 'Excluded'
+    // A true filterTestAccounts filters internal and test users out.
+    return filterTestAccounts ? 'Excluded' : 'Included'
 }
 
 function getChangeStatus(previousExists: boolean, currentExists: boolean): DashboardFilterChange['status'] {

@@ -58,6 +58,21 @@ describe('getDashboardFilterChanges', () => {
         ])
     })
 
+    it.each([
+        ['excludes test accounts when the filter is turned on', true, 'Excluded'],
+        ['includes test accounts when the filter is turned off', false, 'Included'],
+    ])('%s', (_name, filterTestAccounts, expectedValue) => {
+        expect(getDashboardFilterChanges({}, { filterTestAccounts })).toEqual([
+            { label: 'Test accounts', previousValue: [], value: [expectedValue], status: 'new' },
+        ])
+    })
+
+    it('lists a switch from excluded to included test accounts', () => {
+        expect(getDashboardFilterChanges({ filterTestAccounts: true }, { filterTestAccounts: false })).toEqual([
+            { label: 'Test accounts', previousValue: ['Excluded'], value: ['Included'], status: 'changed' },
+        ])
+    })
+
     it('lists an explicit property-filter clear', () => {
         expect(getDashboardFilterChanges({}, { properties: [] })).toEqual([
             { label: 'Property filters', previousValue: [], value: ['No property filters'], status: 'new' },
