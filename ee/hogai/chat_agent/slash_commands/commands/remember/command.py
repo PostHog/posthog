@@ -21,8 +21,11 @@ class RememberCommand(SlashCommand):
         """Extract the content to remember from the last human message."""
         for msg in reversed(state.messages):
             if isinstance(msg, HumanMessage):
-                content = msg.content
-                if content.startswith(SlashCommandName.FIELD_REMEMBER):
+                # Match the same way the handler node does, or it routes here and we store nothing
+                content = msg.content.strip()
+                if content == SlashCommandName.FIELD_REMEMBER:
+                    return ""
+                if content.startswith(SlashCommandName.FIELD_REMEMBER + " "):
                     return content[len(SlashCommandName.FIELD_REMEMBER) :].strip()
                 return None
         return None
@@ -34,7 +37,7 @@ class RememberCommand(SlashCommand):
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
-                        content="Please provide something to remember. Usage: `/remember <fact to remember>`",
+                        content="I didn't store anything, because there was nothing to remember. Usage: `/remember <fact to remember>`",
                         id=str(uuid4()),
                     )
                 ]
@@ -46,7 +49,7 @@ class RememberCommand(SlashCommand):
             return PartialAssistantState(messages=[AssistantMessage(content=str(e), id=str(uuid4()))])
 
         return PartialAssistantState(
-            messages=[AssistantMessage(content="I'll remember that for you.", id=str(uuid4()))]
+            messages=[AssistantMessage(content=f"Got it, I've remembered: {memory_content}", id=str(uuid4()))]
         )
 
     async def _append_to_memory(self, content: str) -> None:
