@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, sele
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { isBrowserNetworkFailure } from 'lib/api-error'
 // eslint-disable-next-line import/no-cycle
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -70,15 +71,6 @@ export interface ComponentIncidentAlert {
 }
 
 const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
-
-// A failed `fetch` to an external host throws a `TypeError` ("Failed to fetch", "NetworkError when
-// attempting to fetch resource", "Load failed", ...). These are expected and outside our control —
-// ad blockers, tracking-protection extensions, DNS hiccups, brief status-page outages — so they're
-// noise in error tracking rather than real defects. A genuine bug here would surface as a different
-// error type (e.g. a `SyntaxError` from `response.json()`), which we still want to capture.
-function isNetworkError(error: unknown): boolean {
-    return error instanceof TypeError
-}
 
 // incident.io component name for the PostHog AI service. An incident is treated as affecting AI only
 // when it tags a component with this exact name under the current region's group (see getRelevantGroupName).
@@ -281,17 +273,28 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         summary: [
             null as Summary | null,
             {
                 loadSummary: async () => {
+                    // Only a deployment with a region group can act on the summary. Everywhere else
+                    // (see getRelevantGroupName) every selector below discards it, so the request buys
+                    // nothing. Skipping it also removes the `TypeError: Failed to fetch` that a
+                    // deployment without egress to posthogstatus.com reports on every poll.
+                    // `relevantGroupName` is null until preflight resolves, so the loadPreflightSuccess
+                    // listener starts the poll when the region arrives late.
+                    if (!values.relevantGroupName) {
+                        return null
+                    }
+
                     // The incident.io status page is external (posthogstatus.com), so the fetch can fail
                     // for reasons outside our control: ad blockers, tracking-protection extensions, DNS
                     // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
                     // via the rawStatus selector). We report a reachable-but-erroring status page (non-2xx)
                     // and unexpected errors, but skip the expected network-level failures so they don't
-                    // pollute error tracking as a recurring issue.
+                    // pollute error tracking as a recurring issue. A genuine bug here surfaces as a
+                    // different error, such as a `SyntaxError` from `response.json()`, and still reports.
                     try {
                         const response = await fetch(`${STATUS_PAGE_BASE}/api/v1/summary`)
                         if (!response.ok) {
@@ -304,7 +307,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                         const data: Summary = await response.json()
                         return data
                     } catch (error) {
-                        if (!isNetworkError(error)) {
+                        if (!isBrowserNetworkFailure(error)) {
                             posthog.captureException(error)
                         }
                         return null
@@ -379,6 +382,11 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         loadSummarySuccess: () => {
             setIncidentStatus(values.status)
 
+            if (!values.relevantGroupName) {
+                // The loader fetched nothing, so there is nothing to refresh.
+                return
+            }
+
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => actions.loadSummary(), REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)
@@ -389,6 +397,13 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                 actions.loadSummary()
             } else {
                 cache.disposables.dispose('refreshTimeout')
+            }
+        },
+        // The afterMount load can run before preflight resolves, and the region is unknown until then.
+        // Start the poll once preflight says which deployment this is.
+        [preflightLogic.actionTypes.loadPreflightSuccess]: () => {
+            if (!values.summary && !values.summaryLoading) {
+                actions.loadSummary()
             }
         },
     })),
