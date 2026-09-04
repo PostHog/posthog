@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.web_analytics.backend.api import WebAnalyticsViewSet
+from products.web_analytics.backend.api.custom_bot_rules import CustomBotRuleViewSet
 from products.web_analytics.backend.api.heatmaps_api import (
     HeatmapScreenshotViewSet,
     HeatmapViewSet,
@@ -38,5 +39,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"web_analytics_path_cleaning_suggestions",
         WebAnalyticsPathCleaningSuggestionViewSet,
         "project_web_analytics_path_cleaning_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_bot_rules",
+        CustomBotRuleViewSet,
+        "project_web_analytics_bot_rules",
         ["team_id"],
     )

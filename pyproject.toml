@@ -768,6 +768,7 @@ ignore_imports = [
     "products.skills.backend.routes -> products.skills.backend.api.skills",
     "products.surveys.backend.routes -> products.surveys.backend.api.survey",
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api",
+    "products.web_analytics.backend.routes -> products.web_analytics.backend.api.custom_bot_rules",
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.heatmaps_api",
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_achievements",
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_filter_preset",
