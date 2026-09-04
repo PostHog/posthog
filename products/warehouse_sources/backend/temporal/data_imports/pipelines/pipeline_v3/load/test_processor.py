@@ -685,6 +685,75 @@ class TestPostImportTrigger:
         assert isinstance(captured_exception, RPCError)
 
 
+class TestCdcResolutionOverride:
+    """Buffered CDC consumption must resolve positions even when the rollout flag is off.
+
+    Without resolution the load position freezes, the buffer consumer proves nothing consumed,
+    and S3 expires the unread changes after 14 days — silent data loss (#90169)."""
+
+    @parameterized.expand(
+        [
+            # (consumes_buffer, flag_enabled, expect_resolution)
+            ("buffered_overrides_disabled_flag", True, False, True),
+            ("flag_enabled_without_buffer", False, True, True),
+            ("neither_skips_resolution", False, False, False),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.persist_load_position")
+    @patch(f"{_PROCESSOR}._resolve_cdc_positions")
+    @patch(f"{_PROCESSOR}._enrich_cdc_rows", side_effect=lambda pa_table, **_: pa_table)
+    @patch(f"{_PROCESSOR}.scheduled_sync_consumes_buffer")
+    @patch(f"{_PROCESSOR}.is_cdc_write_resolution_enabled")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_buffered_consumption_forces_resolution(
+        self,
+        _case: str,
+        consumes_buffer: bool,
+        flag_enabled: bool,
+        expect_resolution: bool,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        mock_flag: MagicMock,
+        mock_consumes: MagicMock,
+        _enrich: MagicMock,
+        mock_resolve: MagicMock,
+        mock_persist: MagicMock,
+        _partial: AsyncMock,
+        _analytics: MagicMock,
+    ) -> None:
+        mock_flag.return_value = flag_enabled
+        mock_consumes.return_value = consumes_buffer
+        mock_resolve.return_value = (pa.table({"id": [1]}), 42)
+
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(cdc_write_mode="append_only"))
+
+        if expect_resolution:
+            mock_resolve.assert_called_once()
+            mock_persist.assert_called_once()
+        else:
+            mock_resolve.assert_not_called()
+            mock_persist.assert_not_called()
+
+
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
 class TestEnrichCdcRows:
     """Cross-batch CDC enrichment against a real local Delta table."""

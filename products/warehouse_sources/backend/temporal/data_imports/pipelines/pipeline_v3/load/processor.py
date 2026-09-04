@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     resolve_batch,
     verify_delete_enrichment,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import scheduled_sync_consumes_buffer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
     supports_partial_data_loading,
@@ -940,8 +941,13 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
-        resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
-            export_signal.team_id, schema_id_str, export_signal.run_uuid
+        # Buffered CDC consumption requires resolution: without a persisted load position the buffer
+        # consumer never proves files consumed, so it deletes nothing and S3 expires the unread
+        # changes. Force resolution on for those schemas, the same override the pipeline-version
+        # check uses, so a narrowed or failed rollout flag cannot cause silent data loss.
+        resolution_enabled = cdc_write_mode is not None and (
+            scheduled_sync_consumes_buffer(schema)
+            or is_cdc_write_resolution_enabled(export_signal.team_id, schema_id_str, export_signal.run_uuid)
         )
 
         pa_table = _enrich_cdc_rows(
