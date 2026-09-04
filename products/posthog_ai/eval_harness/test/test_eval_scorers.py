@@ -271,6 +271,10 @@ def test_skill_triggered_skips_when_the_case_declares_no_direction(expected: dic
             0.0,
             "execute-sql",
         ),
+        # Any typed query-* runner counts, not only trends/funnel: a runner
+        # outside the original four (web analytics here) is still
+        # answer-producing, so it scores as the answer rather than being skipped.
+        ([("query-web-stats", {"query": {}}, {"results": []})], 1.0, "query-web-stats"),
     ],
 )
 def test_answer_tool_call_not_reads_answer_not_last_call(

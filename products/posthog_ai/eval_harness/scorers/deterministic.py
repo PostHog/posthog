@@ -6,14 +6,25 @@ from products.posthog_ai.eval_harness.log_parser import LogParser, is_schema_dis
 
 from .contract import Score, Scorer
 
-ANSWER_QUERY_TOOL_NAMES: frozenset[str] = frozenset(
-    {"execute-sql", "query-trends", "query-funnel", "query-retention", "query-stickiness", "query-lifecycle"}
-)
-"""Tools that produce a query result answering the user's question.
+QUERY_TOOL_PREFIX = "query-"
+"""Prefix marking a typed query runner. The MCP server treats every ``query-*``
+tool as a typed runner (see the ``query-run`` fallback in ``tools/exec.ts``),
+so new runners are covered without an enumerated list going stale."""
 
-Discovery, schema, and skill calls (``ToolSearch``, ``read-data-schema``, bare
-``exec``) are intermediary: they run constantly in a healthy run and never
-count as the answer. Only these query-producing tools can be the answer."""
+EXECUTE_SQL_TOOL = "execute-sql"
+
+
+def is_answer_query_tool(name: str) -> bool:
+    """True when a tool produces a query result that can answer the user's question.
+
+    The typed ``query-*`` runners (trends, funnel, retention, stickiness,
+    lifecycle, paths, web analytics, llm-trace, and their ``-actors``
+    variants) and arbitrary ``execute-sql`` are the answer-producing tools.
+    Discovery, schema, and skill calls (``ToolSearch``, ``read-data-schema``,
+    bare ``exec``) are intermediary: they run constantly in a healthy run and
+    never count as the answer.
+    """
+    return name == EXECUTE_SQL_TOOL or name.startswith(QUERY_TOOL_PREFIX)
 
 
 class ExitCodeZero(Scorer):
@@ -138,7 +149,7 @@ class AnswerToolCallNot(Scorer):
     validation call. This scorer reads the *answer-producing* call instead.
 
     A call counts as answer-producing when it succeeded, is a query-producing
-    tool (``ANSWER_QUERY_TOOL_NAMES`` — the typed ``query-*`` runners and
+    tool (``is_answer_query_tool``: a typed ``query-*`` runner or
     ``execute-sql``), and is not a schema discovery lookup
     (``is_schema_discovery_call`` drops ``execute-sql`` queries against
     ``information_schema``). Intermediary calls like ``ToolSearch``,
@@ -184,7 +195,7 @@ class AnswerToolCallNot(Scorer):
         answer_calls = [
             call
             for call in parser.get_tool_calls()
-            if not call.is_error and call.name in ANSWER_QUERY_TOOL_NAMES and not is_schema_discovery_call(call)
+            if not call.is_error and is_answer_query_tool(call.name) and not is_schema_discovery_call(call)
         ]
         if not answer_calls:
             return Score(name=self._name(), score=None, metadata={"reason": "No answer-producing tool call"})
