@@ -19,7 +19,7 @@ const getTeamStoragePrefix = (): string => {
     return `${getCurrentTeamId()}__`
 }
 
-const getUserStoragePrefix = (): string => {
+export const getUserStoragePrefix = (): string => {
     return `${getCurrentUserIdOrNone() ?? 'anonymous'}__${getTeamStoragePrefix()}`
 }
 

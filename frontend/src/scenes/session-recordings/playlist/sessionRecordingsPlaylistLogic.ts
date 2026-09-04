@@ -27,6 +27,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { filterTestAccountsDefaultStorage } from 'lib/utils/filterTestAccountsDefault'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
@@ -173,11 +174,6 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
-const getDefaultFilterTestAccounts = (): boolean => {
-    const stored = localStorage.getItem('default_filter_test_accounts')
-    return stored === 'true'
-}
-
 // The sort the user explicitly picked in the list settings. It wins over the relevance
 // rollout/experiment default, so users who prefer another order aren't re-defaulted
 // into relevance on every visit and filter reset. Keyed per team, like the playlist
@@ -202,7 +198,7 @@ export const getDefaultFilters = (
     pinnedFilters?: UniversalFiltersGroup,
     urlFilters?: Partial<RecordingUniversalFilters>
 ): RecordingUniversalFilters => {
-    const filterTestAccounts = getDefaultFilterTestAccounts()
+    const filterTestAccounts = filterTestAccountsDefaultStorage.get() ?? false
     // Person/group pages (personUUID/pinnedFilters) and deep links with pre-applied filters
     // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
     // where recency is the better default than relevance
@@ -347,7 +343,27 @@ export function asUniversalFilters(
     if (!filters) {
         return undefined
     }
-    return isUniversalFilters(filters) ? filters : convertLegacyFiltersToUniversalFilters({}, filters)
+    const universalFilters = isUniversalFilters(filters) ? filters : convertLegacyFiltersToUniversalFilters({}, filters)
+    return coerceStoredFilterValues(universalFilters)
+}
+
+/**
+ * Some stored filters hold their scalars as strings, e.g. `"true"` or `"null"`. `isValidRecordingFilters`
+ * then rejects the whole set, so applying a saved filter silently falls back to the default filters
+ * instead of to what the user saved.
+ */
+function coerceStoredFilterValues(filters: RecordingUniversalFilters): RecordingUniversalFilters {
+    const { filter_test_accounts, date_from, date_to } = filters as unknown as Record<string, unknown>
+    // Callers render the result, so keep the same object when there is nothing to coerce
+    if (!isString(filter_test_accounts) && date_from !== 'null' && date_to !== 'null') {
+        return filters
+    }
+    return {
+        ...filters,
+        ...(isString(filter_test_accounts) ? { filter_test_accounts: filter_test_accounts === 'true' } : {}),
+        ...(date_from === 'null' ? { date_from: null } : {}),
+        ...(date_to === 'null' ? { date_to: null } : {}),
+    }
 }
 
 export function convertLegacyFiltersToUniversalFilters(

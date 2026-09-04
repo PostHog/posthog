@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { filterTestAccountsDefaultStorage } from 'lib/utils/filterTestAccountsDefault'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '../../../types'
@@ -79,16 +80,17 @@ export const filterTestAccountsDefaultsLogic = kea<filterTestAccountsDefaultsLog
     }),
     listeners({
         setTeamDefault: ({ value }) => {
-            localStorage.setItem('default_filter_test_accounts', value.toString())
+            filterTestAccountsDefaultStorage.set(value)
         },
         setLocalDefault: ({ value }) => {
-            localStorage.setItem('default_filter_test_accounts', value.toString())
+            filterTestAccountsDefaultStorage.set(value)
         },
     }),
     events(({ actions }) => ({
         afterMount: () => {
-            if (localStorage.getItem('default_filter_test_accounts') !== null) {
-                actions.setDefault(localStorage.getItem('default_filter_test_accounts') === 'true')
+            const stored = filterTestAccountsDefaultStorage.get()
+            if (stored !== null) {
+                actions.setDefault(stored)
             }
         },
     })),
