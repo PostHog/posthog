@@ -9,6 +9,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_
 from unittest import TestCase
 from unittest.mock import patch
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -21,6 +22,7 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import (
+    CLICKHOUSE_ACCESS_DENIED_ERROR_CODE,
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     MaterializedColumnDetails,
@@ -651,3 +653,30 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             mat_col_none.has_ngram_lower_index,
             mat_col_none.has_bloom_filter_lower_index,
         ) == (False, False, False, False)
+
+    def test_get_all_falls_back_when_indices_grant_missing(self):
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={"prop_with_index": "value"},
+        )
+        materialize("events", "prop_with_index", create_minmax_index=True)
+        _clear_materialized_columns_cache("events")
+
+        from ee.clickhouse.materialized_columns import columns as columns_module
+
+        real_sync_execute = columns_module.sync_execute
+
+        def fake_sync_execute(query, *args, **kwargs):
+            # The introspection user has no grant on system.data_skipping_indices.
+            if "data_skipping_indices" in query:
+                raise ServerException("Not enough privileges", code=CLICKHOUSE_ACCESS_DENIED_ERROR_CODE)
+            return real_sync_execute(query, *args, **kwargs)
+
+        with patch.object(columns_module, "sync_execute", side_effect=fake_sync_execute):
+            columns = list(MaterializedColumn.get_all("events"))
+
+        column = next(c for c in columns if c.details.property_name == "prop_with_index")
+        # The column is still found, but its index flags read as absent instead of raising.
+        assert column.has_minmax_index is False
