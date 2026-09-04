@@ -6,6 +6,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 export interface LemonRadioOption<T extends React.Key> {
     label: string | JSX.Element
     description?: string | JSX.Element
+    inlineControl?: JSX.Element
     value: T
     disabledReason?: string
     'data-attr'?: string
@@ -45,7 +46,7 @@ export function LemonRadio<T extends React.Key>({
                 className
             )}
         >
-            {options.map(({ value, label, disabledReason, description, ...optionProps }) => {
+            {options.map(({ value, label, disabledReason, description, inlineControl, ...optionProps }) => {
                 const content = (
                     <label
                         key={value}
@@ -82,15 +83,23 @@ export function LemonRadio<T extends React.Key>({
                         )}
                     </label>
                 )
+                const optionContent = inlineControl ? (
+                    <div key={value} className="flex min-w-0 items-center gap-2">
+                        {content}
+                        <div className="min-w-0 flex-1 font-normal">{inlineControl}</div>
+                    </div>
+                ) : (
+                    content
+                )
 
                 if (disabledReason) {
                     return (
                         <Tooltip key={value} title={disabledReason}>
-                            {content}
+                            {optionContent}
                         </Tooltip>
                     )
                 }
-                return content
+                return optionContent
             })}
         </div>
     )

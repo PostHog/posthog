@@ -137,6 +137,25 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
             label: 'Other',
             disabledReason: answerSaving ? 'Saving answer' : undefined,
             'data-attr': 'feature-question-other-option',
+            inlineControl: (
+                <LemonInput
+                    value={customAnswer}
+                    onFocus={() => {
+                        if (selectedAnswer !== OTHER_ANSWER_VALUE) {
+                            selectAnswer(artefact.id, '')
+                        }
+                    }}
+                    onChange={(value) => selectAnswer(artefact.id, value)}
+                    placeholder="Type an answer"
+                    size="xsmall"
+                    transparentBackground
+                    fullWidth
+                    disabledReason={answerSaving ? 'Saving answer' : undefined}
+                    className="max-w-xl !rounded-none !border-x-0 !border-t-0 !bg-transparent !px-1"
+                    aria-label="Other answer"
+                    data-attr="feature-question-custom-answer"
+                />
+            ),
         },
     ]
     const submitDisabledReason = !answering
@@ -169,19 +188,16 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
                         aria-label="Answer choices"
                     />
                 ) : null}
-                <LemonInput
-                    value={options.length > 0 ? customAnswer : answering ? answerDraft : ''}
-                    onFocus={() => {
-                        if (selectedAnswer !== OTHER_ANSWER_VALUE) {
-                            selectAnswer(artefact.id, '')
-                        }
-                    }}
-                    onChange={(value) => selectAnswer(artefact.id, value)}
-                    placeholder={options.length > 0 ? 'Enter another answer' : 'Enter your answer'}
-                    disabled={answerSaving}
-                    className={options.length > 0 ? 'ml-6 max-w-2xl' : undefined}
-                    data-attr="feature-question-custom-answer"
-                />
+                {options.length === 0 ? (
+                    <LemonInput
+                        value={answering ? answerDraft : ''}
+                        onFocus={() => selectAnswer(artefact.id, '')}
+                        onChange={(value) => selectAnswer(artefact.id, value)}
+                        placeholder="Enter your answer"
+                        disabledReason={answerSaving ? 'Saving answer' : undefined}
+                        data-attr="feature-question-custom-answer"
+                    />
+                ) : null}
                 <div className="flex justify-end">
                     <LemonButton
                         size="small"
