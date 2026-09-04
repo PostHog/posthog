@@ -97,7 +97,9 @@ registerAsyncFunction('postHogGetTicket', {
                 message_count: 0,
                 last_message_at: null,
                 last_message_text: null,
-                first_customer_message_text: null,
+                // The real ticket API omits this field unless the caller opts in, so only include
+                // it here when the workflow asked for it, keeping a mocked preview true to runtime.
+                ...(args[0]?.include_first_customer_message_text === true ? { first_customer_message_text: null } : {}),
                 unread_team_count: 0,
                 unread_customer_count: 0,
                 sla: null,
