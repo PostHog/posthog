@@ -25,6 +25,8 @@ use crate::{
 pub struct WarmingLimits {
     pub eventprops_per_team: i64,
     pub propdefs_per_team: i64,
+    // Rows per event-property statement; see the config field for why chunking matters.
+    pub chunk_size: i64,
 }
 
 impl WarmingLimits {
@@ -32,6 +34,7 @@ impl WarmingLimits {
         Self {
             eventprops_per_team: config.cache_warming_eventprops_per_team_limit,
             propdefs_per_team: config.cache_warming_propdefs_per_team_limit,
+            chunk_size: config.cache_warming_chunk_size.max(1),
         }
     }
 }
@@ -157,9 +160,18 @@ pub async fn run_warming_worker(
 /// group name while Postgres stores the resolved index, and they are a sliver of
 /// write volume.
 ///
-/// Loaded rows describe successful past writes, so inserting them satisfies the same
-/// invariant as the optimistic insert on the write path: `Some` property types only
-/// enter the cache when the row is known non-null in Postgres.
+/// The event-property scan is keyset-paginated: with the COALESCE prefix pinned by
+/// equality, ORDER BY (event, property) is the index order, so each chunk resumes
+/// the same range scan where the previous one stopped and every statement stays
+/// bounded to seconds even on the largest teams.
+///
+/// A row the cache already covers is not re-inserted. The live write path races
+/// this scan, and its optimistic inserts can be fresher than the query snapshot
+/// (a property typed after the scan started); overwriting would downgrade that
+/// entry and cost a redundant no-op upsert later. Loaded rows describe successful
+/// past writes, so what does get inserted satisfies the same invariant as the
+/// write path: `Some` property types only enter the cache when the row is known
+/// non-null in Postgres.
 pub async fn warm_team(
     pool: &PgPool,
     cache: &Cache,
@@ -168,21 +180,52 @@ pub async fn warm_team(
     limits: WarmingLimits,
 ) -> Result<(u64, u64), sqlx::Error> {
     let mut eventprops: u64 = 0;
-    let mut rows = sqlx::query_as::<_, (String, String)>(
-        r#"SELECT event, property FROM posthog_eventproperty
-           WHERE COALESCE(project_id, team_id::bigint) = $1 LIMIT $2"#,
-    )
-    .bind(project_id)
-    .bind(limits.eventprops_per_team)
-    .fetch(pool);
-    while let Some((event, property)) = rows.try_next().await? {
-        cache.insert(Update::EventProperty(EventProperty {
-            team_id,
-            project_id,
-            event,
-            property,
-        }));
-        eventprops += 1;
+    let mut keyset: Option<(String, String)> = None;
+    loop {
+        let remaining = limits.eventprops_per_team - eventprops as i64;
+        if remaining <= 0 {
+            break;
+        }
+        let chunk_limit = limits.chunk_size.min(remaining);
+        let query = if let Some((last_event, last_property)) = keyset.take() {
+            sqlx::query_as::<_, (String, String)>(
+                r#"SELECT event, property FROM posthog_eventproperty
+                   WHERE COALESCE(project_id, team_id::bigint) = $1
+                     AND (event, property) > ($3, $4)
+                   ORDER BY event, property LIMIT $2"#,
+            )
+            .bind(project_id)
+            .bind(chunk_limit)
+            .bind(last_event)
+            .bind(last_property)
+        } else {
+            sqlx::query_as::<_, (String, String)>(
+                r#"SELECT event, property FROM posthog_eventproperty
+                   WHERE COALESCE(project_id, team_id::bigint) = $1
+                   ORDER BY event, property LIMIT $2"#,
+            )
+            .bind(project_id)
+            .bind(chunk_limit)
+        };
+
+        let rows = query.fetch_all(pool).await?;
+        let chunk_rows = rows.len() as i64;
+        keyset = rows.last().cloned();
+        for (event, property) in rows {
+            let update = Update::EventProperty(EventProperty {
+                team_id,
+                project_id,
+                event,
+                property,
+            });
+            if !cache.covers(&update) {
+                cache.insert(update);
+            }
+            eventprops += 1;
+        }
+        if chunk_rows < chunk_limit {
+            break;
+        }
     }
     metrics::counter!(CACHE_WARMING_ROWS, &[("cache", "eventprops")]).increment(eventprops);
 
@@ -206,7 +249,7 @@ pub async fn warm_team(
         // An unparseable stored type warms as untyped: the first typed sighting then
         // re-issues one upsert, which the DB guard no-ops. Never lossy.
         let property_type: Option<PropertyValueType> = property_type.and_then(|s| s.parse().ok());
-        cache.insert(Update::Property(PropertyDefinition {
+        let update = Update::Property(PropertyDefinition {
             team_id,
             project_id,
             name,
@@ -214,7 +257,10 @@ pub async fn warm_team(
             property_type,
             event_type,
             group_type_index: None,
-        }));
+        });
+        if !cache.covers(&update) {
+            cache.insert(update);
+        }
         propdefs += 1;
     }
     metrics::counter!(CACHE_WARMING_ROWS, &[("cache", "propdefs")]).increment(propdefs);

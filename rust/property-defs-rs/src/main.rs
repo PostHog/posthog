@@ -161,8 +161,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             &config.database_read_url
         };
+        let statement_timeout_ms = config.cache_warming_statement_timeout_secs * 1000;
         let warm_pool = PgPoolOptions::new()
             .max_connections(config.cache_warming_concurrency.max(1) as u32)
+            .after_connect(move |conn, _meta| {
+                Box::pin(async move {
+                    sqlx::Executor::execute(
+                        &mut *conn,
+                        format!("SET statement_timeout = {statement_timeout_ms}").as_str(),
+                    )
+                    .await?;
+                    Ok(())
+                })
+            })
             .connect_lazy(read_url)?;
         let (warming, rx) = Warming::new(config.cache_warming_queue_depth);
         tokio::spawn(run_warming_worker(

@@ -39,10 +39,12 @@ fn prop(name: &str, property_type: Option<PropertyValueType>) -> Update {
     })
 }
 
+// chunk_size 2 so every test walks the keyset pagination, boundaries included.
 fn limits(eventprops: i64, propdefs: i64) -> WarmingLimits {
     WarmingLimits {
         eventprops_per_team: eventprops,
         propdefs_per_team: propdefs,
+        chunk_size: 2,
     }
 }
 
@@ -80,6 +82,53 @@ async fn test_warm_team_covers_previously_written_rows(db: PgPool) {
     // sighting through to fill the NULL type.
     assert!(warmed.contains_key(&prop("misc", None)));
     assert!(!warmed.contains_key(&prop("misc", Some(PropertyValueType::Boolean))));
+}
+
+// Five rows through chunk_size 2 exercise the keyset continuation across full
+// chunks, a partial final chunk, and the boundary rows between chunks.
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_warm_team_chunks_cover_all_rows(db: PgPool) {
+    let config = Config::init_with_defaults().unwrap();
+    let writer_cache = Arc::new(Cache::new(1000, 1000, 1000));
+    let props = ["a", "b", "c", "d", "e"];
+    let batch = props
+        .iter()
+        .map(|p| event_prop("$pageview", p))
+        .collect::<Vec<_>>();
+    process_batch(&config, writer_cache, &db, batch, &test_lifecycle_handle()).await;
+
+    let warmed = Cache::new(1000, 1000, 1000);
+    let (eventprops, _) = warm_team(&db, &warmed, TEAM, PROJECT, limits(100, 100))
+        .await
+        .unwrap();
+    assert_eq!(eventprops, 5);
+    for p in props {
+        assert!(warmed.contains_key(&event_prop("$pageview", p)));
+    }
+}
+
+// The live write path races the warm scan and can be fresher than the query
+// snapshot: a property typed by the pipeline must not be downgraded by a stale
+// untyped row read from Postgres.
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_warm_team_does_not_downgrade_fresher_cache_state(db: PgPool) {
+    let config = Config::init_with_defaults().unwrap();
+    let writer_cache = Arc::new(Cache::new(1000, 1000, 1000));
+    let batch = vec![prop("misc", None)];
+    process_batch(&config, writer_cache, &db, batch, &test_lifecycle_handle()).await;
+
+    let warmed = Cache::new(1000, 1000, 1000);
+    let typed = prop("misc", Some(PropertyValueType::String));
+    warmed.insert(typed.clone());
+
+    warm_team(&db, &warmed, TEAM, PROJECT, limits(100, 100))
+        .await
+        .unwrap();
+
+    assert!(
+        warmed.contains_key(&typed),
+        "the stale untyped row must not overwrite the typed entry"
+    );
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

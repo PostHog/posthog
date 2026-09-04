@@ -41,11 +41,28 @@ pub struct Config {
     pub cache_warming_concurrency: usize,
 
     // Per-team row caps. Teams with more rows than this get a partial warm: the remainder
-    // of their keyspace recurs too rarely to cache, so reading it buys nothing.
-    #[envconfig(default = "2000000")]
+    // of their keyspace recurs too rarely to cache, so reading it buys nothing. Sized so
+    // legitimate large teams (a few million event-property pairs) warm fully and only the
+    // pathological cardinality outliers truncate.
+    #[envconfig(default = "3000000")]
     pub cache_warming_eventprops_per_team_limit: i64,
-    #[envconfig(default = "1000000")]
+    #[envconfig(default = "250000")]
     pub cache_warming_propdefs_per_team_limit: i64,
+
+    // Event-property rows fetched per statement. The COALESCE predicate rules out
+    // index-only scans (an expression index cannot satisfy them), so every warmed row
+    // pays a heap fetch and an uncapped scan of a large cold team runs for minutes.
+    // Keyset-paginated chunks keep each statement bounded to seconds, release the
+    // warming connection between chunks, and pin the planner to the index (the ORDER BY
+    // makes the LIMIT-driven seq-scan flip on very large teams impossible).
+    #[envconfig(default = "100000")]
+    pub cache_warming_chunk_size: i64,
+
+    // Backstop only; chunking is what bounds statement runtime. Kills a runaway warm
+    // query, freeing the connection; the team retries on a later event, cheaper for the
+    // pages the first attempt already faulted in.
+    #[envconfig(default = "120")]
+    pub cache_warming_statement_timeout_secs: u64,
 
     // Teams waiting to be warmed. When the queue is full a team is dropped and re-noticed
     // on a later event, so a deep rebalance cannot pile up unbounded work.

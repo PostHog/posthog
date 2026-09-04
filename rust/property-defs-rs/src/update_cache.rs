@@ -198,7 +198,23 @@ impl Cache {
     /// cold at eviction time and the cache degrades to FIFO: live keys cycle
     /// out and each cycle costs a useless definition upsert against Postgres.
     pub fn contains_key(&self, key: &Update) -> bool {
-        let (covered, hits, misses) = match key {
+        let (covered, hits, misses) = self.coverage(key);
+        if covered {
+            hits.increment(1);
+        } else {
+            misses.increment(1);
+        }
+        covered
+    }
+
+    /// As `contains_key`, but without touching the hit/miss counters. For cache
+    /// warming, whose lookups say nothing about pipeline dedup effectiveness.
+    pub fn covers(&self, key: &Update) -> bool {
+        self.coverage(key).0
+    }
+
+    fn coverage(&self, key: &Update) -> (bool, &Counter, &Counter) {
+        match key {
             Update::Event(def) => {
                 let lookup = EventDefKeyRef {
                     team_id: def.team_id,
@@ -235,13 +251,7 @@ impl Cache {
                 };
                 (covered, &self.propdefs.hits, &self.propdefs.misses)
             }
-        };
-        if covered {
-            hits.increment(1);
-        } else {
-            misses.increment(1);
         }
-        covered
     }
 
     pub fn insert(&self, key: Update) {
