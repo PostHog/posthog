@@ -26,6 +26,7 @@ from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS, u
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.temporal.alerts.delivery import (
     ALERT_THROTTLE_KEY_PREFIX,
+    DELIVERY_OUTCOME_EVENT,
     PENDING_CLAIM_TTL,
     AlertDeliveryError,
     deliver_alert_notifications,
@@ -523,15 +524,32 @@ class TestSlackThreadDelivery(AlertTestMixin):
                 integration=self.integration,
                 config={"channel": "C0456"},
             )
-        client.chat_postMessage.side_effect = [Exception("channel archived"), {"channel": "C0456", "ts": "333.444"}]
+        client.chat_postMessage.side_effect = [
+            Exception("channel archived"),
+            {"channel": "C0456", "ts": "333.444"},
+            {"channel": "C0123", "ts": "111.222"},
+        ]
+        capture = MagicMock()
+        capture_patch = patch(
+            "products.error_tracking.backend.temporal.alerts.delivery.ph_background_capture", return_value=capture
+        )
+        capture_patch.start()
+        self.addCleanup(capture_patch.stop)
 
+        inputs = self._inputs("$error_tracking_issue_created")
         with self.assertRaises(AlertDeliveryError):
-            deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+            deliver_alert_notifications(inputs)
 
         assert client.chat_postMessage.call_count == 2
         with team_scope(self.team.id):
             rooted = [t for t in ErrorTrackingAlertThread.objects.filter(issue=self.issue) if t.external_ref.get("ts")]
         assert len(rooted) == 1
+
+        # The retry posts only the failed destination and reports only that one again.
+        assert deliver_alert_notifications(inputs) == 1
+        assert client.chat_postMessage.call_count == 3
+        outcomes = sorted(call.kwargs["properties"]["outcome"] for call in capture.call_args_list)
+        assert outcomes == ["delivered", "delivered", "failed"]
 
     @parameterized.expand([("not_in_channel",), ("channel_not_found",), ("token_revoked",), ("missing_scope",)])
     def test_terminal_slack_errors_are_recorded_and_not_retried(self, code):
@@ -993,6 +1011,46 @@ class TestAlertThrottlingAndOutcomes(AlertTestMixin):
         assert get_client().get(key) == b"someone-else"
         thread.refresh_from_db()
         assert thread.external_ref == {}
+
+    def test_every_planned_delivery_reports_a_product_analytics_outcome(self):
+        # One destination delivers, one is rejected for good, and the second opener of the
+        # same issue is throttled: each planned delivery leaves exactly one outcome event.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        with team_scope(self.team.id):
+            alert.destinations.create(
+                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0456"}
+            )
+        terminal = self._slack_error("channel_not_found")
+
+        def post(**kwargs):
+            if kwargs["channel"] == "C0456":
+                raise terminal
+            return {"channel": "C0123", "ts": "1.2"}
+
+        client.chat_postMessage.side_effect = post
+        capture = MagicMock()
+        with patch(
+            "products.error_tracking.backend.temporal.alerts.delivery.ph_background_capture", return_value=capture
+        ):
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+            self._prune_threads(alert)
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_created", notification_id="n-2"))
+
+        events = [call.kwargs for call in capture.call_args_list]
+        assert {event["event"] for event in events} == {DELIVERY_OUTCOME_EVENT}
+        assert all(event["distinct_id"] == str(self.team.uuid) for event in events)
+        outcomes = sorted((event["properties"]["outcome"], event["properties"]["notification_id"]) for event in events)
+        assert outcomes == [
+            ("delivered", "notif-1"),
+            ("rejected", "notif-1"),
+            ("throttled", "n-2"),
+            ("throttled", "n-2"),
+        ]
+        rejected = next(event["properties"] for event in events if event["properties"]["outcome"] == "rejected")
+        assert rejected["slack_error"] == "channel_not_found"
+        assert rejected["is_opener"] is True
 
     def test_successful_delivery_records_outcome_and_resets_failures(self):
         self._mock_slack()
