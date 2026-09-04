@@ -22,7 +22,7 @@
                     "type": "null"
                 }
             ],
-            "description": "JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are \"type\" (by usage type) and \"team\" (by project). Pass `[\"type\"]` for per-usage-type series, or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require \"type\"; do not pass `[\"team\"]` by itself. Omit for a single aggregate series. Sending a bare string like \"type,team\" will fail with a 400 error."
+            "description": "JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are \"type\" (by product) and \"team\" (by project). Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for a single aggregate series. Sending a bare string like \"type,team\" will fail with a 400 error."
         },
         "end_date": {
             "anyOf": [
@@ -44,7 +44,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Time bucket size, one of \"day\" or \"week\". Default \"day\"."
+            "description": "Time bucket size, one of \"day\", \"week\" or \"month\". Default \"day\"."
         },
         "page_size": {
             "anyOf": [
