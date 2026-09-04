@@ -166,6 +166,12 @@ export const MODELS: readonly CatalogModel[] = [
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
     label: "GPT-5.6 Luna",
   },
+  {
+    id: "gpt-6-astra",
+    runtimeAdapter: "codex",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    label: "GPT-6 Astra",
+  },
 ];
 
 /** The model a run uses when it pins none. */
@@ -185,6 +191,11 @@ export interface ModelFamily {
 // local session can drive one. The longest matching prefix wins, so the
 // declaration order below is free.
 export const FAMILY_REASONING_EFFORTS: readonly ModelFamily[] = [
+  {
+    runtimeAdapter: "codex",
+    prefix: "gpt-6-astra",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+  },
   {
     runtimeAdapter: "codex",
     prefix: "gpt-5.6",

@@ -96,6 +96,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX),
     CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX),
     CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX),
+    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX),
 )
 
 # Depths a whole model family exposes, used when no exact id matches. OpenAI ships
@@ -103,6 +104,7 @@ MODELS: tuple[CatalogModel, ...] = (
 # running against the user's own subscription can drive one, so the tier a family supports has
 # to answer for those too. The longest matching prefix wins, so declaration order is free.
 FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (CODEX, "gpt-6-astra", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
 )
