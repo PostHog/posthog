@@ -5254,11 +5254,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setButtonTileId(null)
             if (method === 'POP' && values.dashboard) {
                 actions.setDashboardSettingsDraft({
-                    ...values.currentDashboardSettings,
                     filters: combineDashboardFilters(
                         values.savedDashboardSettings.filters,
                         parseURLFilters(searchParams)
                     ),
+                    // Browser history carries SQL variables as well as filters. Until the variable
+                    // definitions load there is nothing to map the URL values onto, so the current
+                    // values stay.
+                    variables: values.initialVariablesLoaded
+                        ? { ...values.savedDashboardSettings.variables, ...values.urlVariables }
+                        : values.currentDashboardSettings.variables,
                 })
                 if (values.canAutoPreview) {
                     actions.refreshDashboardItems({

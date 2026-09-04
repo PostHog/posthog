@@ -2895,6 +2895,20 @@ describe('dashboardLogic', () => {
             })
         }
 
+        const popToSearchParams = async (searchParams: Record<string, string>): Promise<void> => {
+            await expectLogic(logic, () => {
+                router.actions.locationChanged({
+                    method: 'POP',
+                    pathname: '/dashboard/12',
+                    search: '',
+                    searchParams,
+                    hash: '',
+                    hashParams: {},
+                    url: '/dashboard/12',
+                })
+            }).toFinishAllListeners()
+        }
+
         it.each([
             ['url override (non-null)', 'url-val', undefined, undefined, 'url-val', false],
             ['url override (null)', null, undefined, undefined, null, true],
@@ -2980,6 +2994,32 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsState).toBe('saved')
             expect(logic.values.dashboardSettingsChanges).toEqual([])
             expect(router.values.searchParams).toEqual({})
+        })
+
+        const historyCases: [string, Record<string, string>, string][] = [
+            [
+                'restores the override the URL carries',
+                { [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({ organization: 'url-val' }) },
+                'url-val',
+            ],
+            ['restores the saved value when the URL drops the override', {}, 'persisted'],
+        ]
+
+        it.each(historyCases)('browser history moves SQL variables: %s', async (_name, searchParams, expectedValue) => {
+            await mountDashboardWithVariable({
+                urlValue: 'url-val',
+                dashboardOverride: { value: 'persisted', isNull: false },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+            }).toFinishAllListeners()
+
+            await popToSearchParams(searchParams)
+
+            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
+                expect.objectContaining({ value: expectedValue })
+            )
         })
 
         it('discards filter and SQL variable changes and restores the saved settings', async () => {
