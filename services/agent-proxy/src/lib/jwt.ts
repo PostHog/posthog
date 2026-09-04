@@ -76,6 +76,14 @@ function assertIsTerminalClaim(payload: Record<string, unknown>): boolean {
     return isTerminal ?? false
 }
 
+function assertThinTailClaim(payload: Record<string, unknown>): boolean {
+    const thinTail = payload['thin_tail']
+    if (thinTail !== undefined && typeof thinTail !== 'boolean') {
+        throw new Error('Token has invalid claim: thin_tail must be a boolean')
+    }
+    return thinTail ?? false
+}
+
 function assertOriginProductClaim(payload: Record<string, unknown>): string {
     const originProduct = payload['origin_product']
     if (originProduct !== undefined && typeof originProduct !== 'string') {
@@ -137,6 +145,7 @@ export async function validateStreamReadToken(token: string, publicKeys: CryptoK
 // Audience: posthog:sandbox_event_ingest
 // Required claims: run_id (string), task_id (string), team_id (integer)
 // Optional claims: presence_gated (boolean, absent means false),
+//                  thin_tail (boolean, absent means false),
 //                  origin_product (string, absent means "unknown")
 // Algorithm: RS256, no clockTolerance (matches Python leeway=0 default)
 //
@@ -150,6 +159,7 @@ export async function validateSandboxEventIngestToken(
     return {
         ...assertStreamClaims(claims),
         presenceGated: assertPresenceGatedClaim(claims),
+        thinTail: assertThinTailClaim(claims),
         originProduct: assertOriginProductClaim(claims),
     }
 }

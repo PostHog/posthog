@@ -112,6 +112,7 @@ export interface SandboxEventIngestTokenPayload {
     taskId: string
     teamId: number
     presenceGated: boolean
+    thinTail: boolean
     originProduct: string
 }
 

@@ -59,6 +59,7 @@ interface TokenOptions {
     signingKey?: CryptoKey
     presenceGated?: unknown
     isTerminal?: unknown
+    thinTail?: unknown
     originProduct?: unknown
 }
 
@@ -73,6 +74,7 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
         signingKey,
         presenceGated,
         isTerminal,
+        thinTail,
         originProduct,
     } = opts
 
@@ -82,6 +84,9 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
     }
     if (isTerminal !== undefined) {
         claims['is_terminal'] = isTerminal
+    }
+    if (thinTail !== undefined) {
+        claims['thin_tail'] = thinTail
     }
     if (originProduct !== undefined) {
         claims['origin_product'] = originProduct
@@ -257,7 +262,29 @@ describe('jwt', () => {
             expect(payload.taskId).toBe('task-abc-123')
             expect(payload.teamId).toBe(42)
             expect(payload.presenceGated).toBe(false)
+            expect(payload.thinTail).toBe(false)
         })
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+        ])('carries a thin_tail claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, thinTail: claim })
+            const payload = await validateSandboxEventIngestToken(token, keys.publicKeys)
+
+            expect(payload.thinTail).toBe(expected)
+        })
+
+        it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(
+            'rejects a non-boolean thin_tail claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, thinTail: claim })
+
+                await expect(validateSandboxEventIngestToken(token, keys.publicKeys)).rejects.toThrow(
+                    'thin_tail must be a boolean'
+                )
+            }
+        )
 
         it.each([
             { name: 'true', claim: true, expected: true },
