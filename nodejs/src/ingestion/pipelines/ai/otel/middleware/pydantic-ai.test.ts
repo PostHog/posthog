@@ -292,6 +292,21 @@ describe('pydantic-ai middleware', () => {
             expect(event.properties!['$ai_output_state']).toBe('Sunny, 25°C')
         })
 
+        it.each([
+            ['number', '42'],
+            ['boolean', 'true'],
+            ['null', 'null'],
+        ])('keeps a %s result as a string, which the conversation view can render', (_label, value) => {
+            const event = createEvent('$ai_span', {
+                $ai_parent_id: 'parent-1',
+                'logfire.msg': 'running tool: roll_die',
+                [resultKey]: value,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_state']).toBe(value)
+        })
+
         it('keeps tool arguments as a string when JSON parsing fails', () => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',

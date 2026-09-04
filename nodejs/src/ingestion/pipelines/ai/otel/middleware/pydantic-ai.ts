@@ -20,6 +20,9 @@ const LOGFIRE_STRIP_KEYS = [
 const TOOL_ARGUMENT_KEYS = ['gen_ai.tool.call.arguments', 'tool_arguments']
 const TOOL_RESULT_KEYS = ['gen_ai.tool.call.result', 'tool_response']
 
+// Tool arguments and results arrive as strings. A tool that returns a Python scalar sends bare
+// text such as `42` or `true`, which parses into a JSON primitive that the conversation view
+// cannot render, so keep the parsed value only when it is an object or an array.
 function firstToolValue(props: Record<string, unknown>, keys: string[]): unknown {
     for (const key of keys) {
         const value = props[key]
@@ -30,7 +33,8 @@ function firstToolValue(props: Record<string, unknown>, keys: string[]): unknown
             return value
         }
         try {
-            return parseJSON(value)
+            const parsed = parseJSON(value)
+            return typeof parsed === 'object' && parsed !== null ? parsed : value
         } catch {
             return value
         }
