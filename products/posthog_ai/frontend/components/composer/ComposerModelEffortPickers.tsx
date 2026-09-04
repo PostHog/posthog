@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconRevert } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -49,6 +49,16 @@ export interface ComposerModelEffortPickersProps {
      * offered as disabled. `null`/omitted means nothing is running and every harness is selectable.
      */
     lockedRuntimeAdapter?: string | null
+    /** The selection shown is the resolved default (user/project preference), not an explicit pick for
+     * this run — the model trigger renders a "Default ·" prefix so that's visible at a glance. */
+    isDefaultSelection?: boolean
+    /** Clears the explicit pick so the run falls back to the resolved default. Omit on a surface with no
+     * configured default and the reset row falls back to the ladder's balanced notch. */
+    onResetToDefault?: () => void
+    /** Takes the user to where the default itself is configured. Passed as a callback rather than a URL so
+     * the picker stays free of the app's routing, and an embedding host can send its own audience
+     * somewhere else. Omit and the row is absent. */
+    onOpenDefaultSettings?: () => void
 }
 
 interface PickerSectionProps {
@@ -83,9 +93,9 @@ function PickerSection({ title, current, value, onValueChange, children }: Picke
  * send time), the new-task composer wires it to the form that seeds the first run.
  *
  * One chip opens the Faster/Smarter capability slider, whose stops are model + effort pairings from the shared ladder.
- * Behind Advanced sits the full Harness → Model → Reasoning cascade and a reset row. This mirrors the desktop app's
- * merged model + reasoning control so the two surfaces read the same. Every option comes from the passed catalogue;
- * nothing about a specific model is hardcoded here.
+ * Behind Advanced sits the full Harness → Model → Reasoning cascade; a single reset row closes both views. This mirrors
+ * the desktop app's merged model + reasoning control so the two surfaces read the same. Every option comes from the
+ * passed catalogue; nothing about a specific model is hardcoded here.
  */
 export function ComposerModelEffortPickers({
     models,
@@ -94,6 +104,9 @@ export function ComposerModelEffortPickers({
     onModelChange,
     onEffortChange,
     lockedRuntimeAdapter,
+    isDefaultSelection = false,
+    onResetToDefault,
+    onOpenDefaultSettings,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const [advanced, setAdvanced] = useState(false)
@@ -152,6 +165,9 @@ export function ComposerModelEffortPickers({
         }
     }
 
+    // With neither a configured default to fall back to nor a ladder to land on, there is nothing to reset to.
+    const showReset = Boolean(onResetToDefault) || stops.length > 0
+
     // Deferred until the menu has finished closing: applying mid-animation re-renders the list the user is
     // watching disappear.
     const selectAndClose = (apply: () => void): void => {
@@ -183,7 +199,7 @@ export function ComposerModelEffortPickers({
             <DropdownMenuTrigger
                 render={
                     <Button variant="outline" size="sm">
-                        {modelLabel}
+                        {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
                         )}
@@ -257,21 +273,6 @@ export function ComposerModelEffortPickers({
                                 ))}
                             </PickerSection>
                         )}
-
-                        {stops.length > 0 && (
-                            <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    onClick={() =>
-                                        // The middle notch is the balanced default for the whole ladder.
-                                        selectAndClose(() => selectStop(stops[Math.floor((stops.length - 1) / 2)]))
-                                    }
-                                >
-                                    <IconRevert />
-                                    Reset to default
-                                </DropdownMenuItem>
-                            </>
-                        )}
                     </>
                 ) : (
                     <ComposerReasoningSlider
@@ -283,6 +284,34 @@ export function ComposerModelEffortPickers({
                             setAdvanced(true)
                         }}
                     />
+                )}
+
+                {(showReset || onOpenDefaultSettings) && <DropdownMenuSeparator />}
+
+                {/* One reset for both meanings of "default": drop the pick so the configured project/user
+                    default applies where a surface knows about one, else land on the ladder's balanced
+                    notch. Two rows for the two notions read as a duplicate, since only one ever acts. */}
+                {showReset && (
+                    <DropdownMenuItem
+                        disabled={Boolean(onResetToDefault) && isDefaultSelection}
+                        onClick={() =>
+                            selectAndClose(
+                                onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)]))
+                            )
+                        }
+                    >
+                        <IconRevert />
+                        Reset to default
+                    </DropdownMenuItem>
+                )}
+
+                {/* Sits under the reset row because that's where the question arises: reverting to a default
+                    you disagree with is the moment you want to change it. */}
+                {onOpenDefaultSettings && (
+                    <DropdownMenuItem onClick={() => selectAndClose(onOpenDefaultSettings)}>
+                        <IconGear />
+                        Change default
+                    </DropdownMenuItem>
                 )}
             </DropdownMenuContent>
         </DropdownMenu>

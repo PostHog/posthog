@@ -117,7 +117,8 @@ export interface productSetupLogicMeta {
         tasksWithState: (
             allTasks: SetupTask[],
             savedOnboardingTasks: Record<string, ActivationTaskStatus | null>,
-            hasReverseProxy: boolean | null
+            hasReverseProxy: boolean | null,
+            currentTeam: TeamPublicType | TeamType | null
         ) => SetupTaskWithState[]
         activeTasks: (tasksWithState: SetupTaskWithState[]) => SetupTaskWithState[]
         completedTasks: (tasksWithState: SetupTaskWithState[]) => SetupTaskWithState[]
@@ -251,30 +252,41 @@ export const productSetupLogic = kea<productSetupLogicType>([
             }),
         ],
         tasksWithState: [
-            (s) => [s.allTasks, s.savedOnboardingTasks, s.hasReverseProxy],
+            (s) => [s.allTasks, s.savedOnboardingTasks, s.hasReverseProxy, s.currentTeam],
             (
                 allTasks: import('lib/components/ProductSetup').SetupTask[],
                 savedOnboardingTasks: Record<string, ActivationTaskStatus | null>,
-                hasReverseProxy: boolean | null
+                hasReverseProxy: boolean | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): SetupTaskWithState[] => {
-                return allTasks.map((task) => {
-                    // Check for auto-completion conditions
-                    let isAutoCompleted = false
-
-                    // Reverse proxy task auto-completes if proxy is detected
-                    if (task.id === SetupTaskId.SetUpReverseProxy && hasReverseProxy) {
-                        isAutoCompleted = true
+                // A task auto-completes when a team flag already proves it is done, even without a saved status.
+                const isAutoCompleted = (taskId: SetupTaskId): boolean => {
+                    if (taskId === SetupTaskId.SetUpReverseProxy && hasReverseProxy) {
+                        return true
                     }
+                    // The install page reads `ingested_event`, so the checklist must trust the same flag.
+                    if (taskId === SetupTaskId.IngestFirstEvent && currentTeam?.ingested_event) {
+                        return true
+                    }
+                    return false
+                }
 
-                    const completed =
-                        isAutoCompleted || savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED
-                    const skipped = savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED
+                // Resolve completion for any task id, including a dependency that this product's list does not
+                // show, so the checkmark and the dependency gate read one completion rule.
+                const isCompleted = (taskId: SetupTaskId): boolean =>
+                    isAutoCompleted(taskId) || savedOnboardingTasks[taskId] === ActivationTaskStatus.COMPLETED
+                // Completion wins over a stale skip: a task the user skipped but later actually finished is
+                // genuinely done, so it counts once instead of as both completed and skipped.
+                const isSkipped = (taskId: SetupTaskId): boolean =>
+                    !isCompleted(taskId) && savedOnboardingTasks[taskId] === ActivationTaskStatus.SKIPPED
 
-                    // Check dependencies
+                return allTasks.map((task) => {
+                    // A dependency is satisfied when it is completed or skipped, even when the dependency is not
+                    // itself one of this product's tasks. This matches the checkmark rule.
                     let lockedReason: string | undefined
                     if (task.dependsOn) {
                         for (const depId of task.dependsOn) {
-                            if (savedOnboardingTasks[depId] !== ActivationTaskStatus.COMPLETED) {
+                            if (!isCompleted(depId) && !isSkipped(depId)) {
                                 const depTask = allTasks.find((t) => t.id === depId)
                                 lockedReason = depTask
                                     ? `Complete "${depTask.title}" first`
@@ -286,8 +298,8 @@ export const productSetupLogic = kea<productSetupLogicType>([
 
                     return {
                         ...task,
-                        completed,
-                        skipped,
+                        completed: isCompleted(task.id),
+                        skipped: isSkipped(task.id),
                         lockedReason,
                     }
                 })

@@ -77,6 +77,8 @@ interface SQLEditorProps {
     hideRunButton?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
+    /** Floor for a dragged query pane. Notebook cells pass a smaller one than the scene. */
+    queryPaneMinHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
 }
@@ -98,6 +100,7 @@ export function SQLEditor({
     hideRunButton,
     onShareTab,
     queryPaneDefaultHeight,
+    queryPaneMinHeight,
     autoFocusQueryPane,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
@@ -128,6 +131,7 @@ export function SQLEditor({
             sidebarRef,
             databaseTreeRef,
             queryPaneDefaultHeight,
+            queryPaneMinHeight,
             biEditorResizerProps: {
                 containerRef: biEditorRef,
                 logicKey: 'bi-editor-pane',
@@ -158,10 +162,10 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }
-    }, [mode, tabId, queryPaneDefaultHeight])
+    }, [mode, tabId, queryPaneDefaultHeight, queryPaneMinHeight])
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
-        null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
+        null as [Monaco, importedEditor.IStandaloneCodeEditor | null] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
@@ -170,6 +174,21 @@ export function SQLEditor({
             setMonacoAndEditor(null)
         }
     })
+
+    // The SQL/BI view toggle and the sidebar "Query" action tear the editor widget down and
+    // rebuild it while this scene stays mounted. Nothing else clears the cached reference, so the
+    // logic keeps a disposed editor as a prop. Drop only the editor the instant Monaco disposes it,
+    // and keep the Monaco namespace: `Uri` and `editor.createModel`/`getModel` stay valid after the
+    // widget is gone, so createTab can still prepare a tab before the next editor mounts.
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+        const disposable = editor.onDidDispose(() =>
+            setMonacoAndEditor((current) => (current ? [current[0], null] : null))
+        )
+        return () => disposable.dispose()
+    }, [editor])
 
     const logic = sqlEditorLogic({
         tabId: tabId || '',

@@ -69,6 +69,7 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
     ateam,
+    gcs_integration,
 ):
     """Test that the insert_into_s3_activity_from_stage function ends up with data into GCS.
 
@@ -105,9 +106,7 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url="https://storage.googleapis.com",
+        integration_id=gcs_integration.id,
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
@@ -174,6 +173,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
     data_interval_end,
     model: BatchExportModel,
     ateam,
+    gcs_integration,
 ):
     """Test that the insert_into_s3_activity_from_stage function splits up large files into
     multiple parts based on the max file size configuration.
@@ -224,9 +224,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url="https://storage.googleapis.com",
+        integration_id=gcs_integration.id,
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,

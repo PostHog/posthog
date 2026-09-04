@@ -124,6 +124,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -948,9 +949,10 @@ class SignalReportViewSet(
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
-    # open like any other.
+    # open like any other. `pr_checks` and `pr_comments` are there because that same view renders the
+    # read-only PR panel whatever the report's status is.
     _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
-        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed", "pr_checks", "pr_comments"}
     )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
@@ -1123,7 +1125,8 @@ class SignalReportViewSet(
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
         return SignalReport.reports_for_task_ids_filter(
-            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -1604,10 +1607,10 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
-            # The suggested questions were written against the prose this edit replaces, so they go
+            # The suggested prompts were written against the prose this edit replaces, so they go
             # down with it — the same rule the research pipeline applies when it rewrites a summary.
-            # Leaving them would offer questions about a report that no longer says what they ask
-            # about, and this field is read-only here, so nothing could take them back down.
+            # Leaving them would offer prompts about a report that no longer says what they point
+            # at, and this field is read-only here, so nothing could take them back down.
             if report.suggested_prompts:
                 report.suggested_prompts = []
                 update_fields.append("suggested_prompts")
@@ -3405,6 +3408,9 @@ def append_suggested_reviewers(
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
     attribution = ArtefactAttribution.from_user(user_id)
+    # Read off the request here: scout note forwarding runs after commit, where there is no request.
+    scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+    scoped_team_id_tuple = tuple(scoped_team_ids) if scoped_team_ids is not None else None
 
     # Resolve any user_uuid → canonical github_login via team org membership.
     uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]
@@ -3532,17 +3538,6 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
         )
-        # on_commit so a rolled-back edit emits nothing, matching every other reviewer write path.
-        transaction.on_commit(
-            partial(
-                capture_suggested_reviewers_resolved,
-                team_id=team.id,
-                report_id=str(report_id),
-                github_logins=[entry["github_login"] for entry in new_content],
-                source="user_edit",
-            )
-        )
-
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
         # membership changes by a human, not agent writes or order-only rewrites.
@@ -3550,12 +3545,18 @@ def append_suggested_reviewers(
         # hand-crafted prior row may carry duplicates) so before/after read symmetrically.
         prior_logins = list(dict.fromkeys(prior_logins))
         new_logins = [entry["github_login"] for entry in new_content]
+        correction: ReviewerCorrection | None = None
         if attribution.kind == "user" and set(prior_logins) != set(new_logins):
+            # Read impersonation once: the activity row records it, and a support-staff edit made
+            # while impersonating must not become scout routing precedent. The reviewer-corrections
+            # profile already excludes impersonated rows (`_recent_reviewer_corrections`), so the
+            # note channel gates on the same signal to keep the two reviewer-correction paths agreeing.
+            was_impersonated = is_impersonated_session(request)
             log_activity(
                 organization_id=None,
                 team_id=team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=was_impersonated,
                 item_id=report_id,
                 scope="SignalReport",
                 activity="suggested_reviewers_changed",
@@ -3586,7 +3587,56 @@ def append_suggested_reviewers(
                     actor_user_id=attribution.user_id,
                 )
 
+            # The same correction also steers the scouts that route on the logins it changed, which
+            # is the only return path a scout has for routing memory it already cached — but only for
+            # a genuine team edit. An impersonated operator edit is not team ownership evidence, so it
+            # steers nothing, matching the reviewer-corrections profile's impersonation filter.
+            if not was_impersonated:
+                new_login_set = set(new_logins)
+                correction = ReviewerCorrection(
+                    report_id=str(report_id),
+                    added_logins=tuple(added_logins),
+                    removed_logins=tuple(login for login in prior_logins if login not in new_login_set),
+                    actor_user_id=user_id,
+                    scoped_team_ids=scoped_team_id_tuple,
+                )
+
+        # on_commit so a rolled-back edit emits and steers nothing, matching every other reviewer
+        # write path.
+        transaction.on_commit(
+            partial(
+                _record_reviewer_edit,
+                team=team,
+                report_id=str(report_id),
+                github_logins=new_logins,
+                correction=correction,
+            )
+        )
+
     return new_artefact, seen
+
+
+def _record_reviewer_edit(
+    *,
+    team: Team,
+    report_id: str,
+    github_logins: list[str],
+    correction: ReviewerCorrection | None,
+) -> None:
+    """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
+
+    Forwarding runs first so the analytics event can report what it achieved. `correction` is None
+    for an agent write or an order-only rewrite, neither of which tells a scout anything.
+    """
+    forwarded = forward_reviewer_correction_note(team=team, correction=correction) if correction else None
+    capture_suggested_reviewers_resolved(
+        team_id=team.id,
+        report_id=report_id,
+        github_logins=github_logins,
+        source="user_edit",
+        correction_notes_written=len(forwarded.note_ids) if forwarded else None,
+        correction_note_targets=forwarded.targets_resolved if forwarded else None,
+    )
 
 
 @extend_schema_view(

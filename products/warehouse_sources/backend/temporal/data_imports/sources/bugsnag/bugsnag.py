@@ -122,6 +122,26 @@ def _fetch_list_page(
     return data, _parse_next_url(response.headers.get("Link", ""))
 
 
+def _fetch_list_page_or_stop(
+    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger, is_first_page: bool
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Like `_fetch_list_page`, but ends pagination gracefully at BugSnag's depth ceiling.
+
+    BugSnag's deep list endpoints (errors, events) cap how far pagination can go, yet still emit a
+    `next` cursor in the Link header past that ceiling and then reject the very cursor they gave us
+    with a 422. That's deterministic — retrying never clears it — so on a follow-up page we treat
+    the 422 as end-of-data and keep the rows already pulled rather than failing the whole sync. A
+    422 on the first page is left to propagate: BugSnag didn't hand us that cursor."""
+    try:
+        return _fetch_list_page(session, url, headers, logger)
+    except requests.HTTPError as e:
+        response = e.response
+        if not is_first_page and response is not None and response.status_code == 422:
+            logger.warning("BugSnag pagination ceiling reached; stopping this collection early")
+            return [], None
+        raise
+
+
 def _iter_all_pages(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> Iterator[dict[str, Any]]:
@@ -187,8 +207,10 @@ def _iter_top_level(
     else:
         url = _build_url(f"{BUGSNAG_BASE_URL}{config.path}", {"per_page": config.page_size})
 
+    first_page = True
     while True:
-        items, next_url = _fetch_list_page(session, url, headers, logger)
+        items, next_url = _fetch_list_page_or_stop(session, url, headers, logger, is_first_page=first_page)
+        first_page = False
         # Checkpoint the CURRENT page, not next_url: a chunk can be yielded part-way through this
         # page, so on resume we must re-fetch this page and re-batch every item (merge dedupes the
         # already-yielded ones) rather than skip ahead and drop the items still in the batcher.
@@ -238,8 +260,10 @@ def _iter_fan_out(
         url = resume_url or _build_url(f"{BUGSNAG_BASE_URL}{path}", {"per_page": config.page_size})
         resume_url = None  # only the resumed-into parent uses the saved URL; the rest start fresh
 
+        first_page = True
         while True:
-            items, next_url = _fetch_list_page(session, url, headers, logger)
+            items, next_url = _fetch_list_page_or_stop(session, url, headers, logger, is_first_page=first_page)
+            first_page = False
             # Checkpoint the CURRENT page (and parent), not next_url. The batcher is shared across
             # parents and can yield part-way through this page, so resume must re-fetch this exact
             # page and re-batch every item (merge dedupes the already-yielded ones). Saving next_url

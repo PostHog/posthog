@@ -4276,6 +4276,87 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
+ * The default AI run triple stored at team or user level.
+ *
+ * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+ * their responses. `runtime_adapter` and `model` must be set together; send all three
+ * as null to clear a stored preference.
+ */
+export interface TasksAIRunPreferencesApi {
+    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+     * @nullable
+     */
+    model?: string | null
+    /** Default reasoning effort for models that expose an effort control.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+}
+
+/**
+ * * `user` - user
+ * * `team` - team
+ * * `none` - none
+ */
+export type TasksResolvedAIRunDefaultsSourceEnumApi =
+    (typeof TasksResolvedAIRunDefaultsSourceEnumApi)[keyof typeof TasksResolvedAIRunDefaultsSourceEnumApi]
+
+export const TasksResolvedAIRunDefaultsSourceEnumApi = {
+    User: 'user',
+    Team: 'team',
+    None: 'none',
+} as const
+
+/**
+ * The AI run triple a new run will effectively use when the caller pins nothing,
+ * plus which preference level supplied it.
+ */
+export interface TasksResolvedAIRunDefaultsApi {
+    /**
+     * Effective default runtime adapter, or null when no preference is stored.
+     * @nullable
+     */
+    runtime_adapter: string | null
+    /**
+     * Effective default model identifier, or null when no preference is stored.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Effective default reasoning effort, or null when unset or unsupported.
+     * @nullable
+     */
+    reasoning_effort: string | null
+    /** Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.
+     *
+     * * `user` - user
+     * * `team` - team
+     * * `none` - none */
+    source: TasksResolvedAIRunDefaultsSourceEnumApi
+}
+
+/**
+ * The requesting user's per-project tasks configuration.
+ */
+export interface TasksUserConfigResponseApi {
+    /** The requesting user's per-project default AI run triple; all fields null when unset. */
+    ai_run_preferences: TasksAIRunPreferencesApi
+    /** The defaults a new run will use when no explicit runtime selection is sent. */
+    resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+}
+
+/**
  * The team's active onboarding wizard cloud run, used to rehydrate
  * the setup-progress FAB when the run was started server-side (drop flow).
  */
@@ -4291,6 +4372,14 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+/**
+ * Team-level tasks configuration.
+ */
+export interface TasksTeamConfigResponseApi {
+    /** Project-wide default AI run triple; all fields null when unset. */
+    ai_run_preferences: TasksAIRunPreferencesApi
 }
 
 /**
@@ -4670,6 +4759,8 @@ export const TaskRunEnvironmentEnumApi = {
 } as const
 
 export interface TaskRunSummaryApi {
+    /** ID of the latest run. */
+    id: string
     status: TaskRunStatusEnumApi | null
     environment: TaskRunEnvironmentEnumApi | null
 }
@@ -4682,6 +4773,11 @@ export interface TaskSummaryDTOApi {
     title: string
     /** @nullable */
     repository: string | null
+    /**
+     * ID of the user who created the task, or null for system-created tasks.
+     * @nullable
+     */
+    created_by_id: number | null
     created_at: string
     updated_at: string
     origin_product?: string
@@ -5235,6 +5331,28 @@ export type TasksRunsStreamRetrieveParams = {
 }
 
 export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksConfigListParams = {
     /**
      * Number of results to return per page.
      */
