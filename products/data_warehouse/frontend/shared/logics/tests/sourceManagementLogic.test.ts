@@ -51,7 +51,7 @@ describe('sourceManagementLogic', () => {
                 results: [
                     {
                         status: 'Failed',
-                        has_running_schema: true,
+                        schema_status_names: { Running: ['Customers'] },
                     },
                 ],
             } as any)

@@ -173,21 +173,15 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
-                            const counts = SCHEMA_STATUS_ORDER.map((status) => ({
-                                status,
-                                schemas:
+                            const counts = SCHEMA_STATUS_ORDER.map((status) => {
+                                const schemaNames =
                                     'schemas' in source
-                                        ? source.schemas.filter(
-                                              (schema) => schema.should_sync && schema.status === status
-                                          )
-                                        : undefined,
-                                count:
-                                    'schemas' in source
-                                        ? source.schemas.filter(
-                                              (schema) => schema.should_sync && schema.status === status
-                                          ).length
-                                        : (source.schema_status_counts[status] ?? 0),
-                            })).filter(({ count }) => count > 0)
+                                        ? source.schemas
+                                              .filter((schema) => schema.should_sync && schema.status === status)
+                                              .map((schema) => schema.label ?? schema.name)
+                                        : (source.schema_status_names[status] ?? [])
+                                return { status, schemaNames, count: schemaNames.length }
+                            }).filter(({ count }) => count > 0)
 
                             if (counts.length === 0) {
                                 // Source has schemas but none are enabled — source.status can be stale
@@ -218,15 +212,15 @@ export function ManagedSourcesTable(): JSX.Element {
                             const sourceUrl = urls.dataWarehouseSource(`managed-${source.id}`)
                             return (
                                 <div className="flex flex-wrap gap-1">
-                                    {counts.map(({ status, schemas, count }) => (
+                                    {counts.map(({ status, schemaNames, count }) => (
                                         <Tooltip
                                             key={status}
                                             interactive
                                             title={
-                                                schemas ? (
+                                                schemaNames.length > 0 ? (
                                                     <ul className="list-disc pl-4 m-0">
-                                                        {schemas.map((s) => (
-                                                            <li key={s.id}>{s.label ?? s.name}</li>
+                                                        {schemaNames.map((schemaName) => (
+                                                            <li key={schemaName}>{schemaName}</li>
                                                         ))}
                                                     </ul>
                                                 ) : undefined

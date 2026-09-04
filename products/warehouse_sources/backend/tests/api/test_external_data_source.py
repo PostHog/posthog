@@ -273,11 +273,12 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(result["rows_synced"], 50)
         self.assertEqual(result["status"], ExternalDataSchema.Status.RUNNING)
         self.assertEqual(result["latest_error"], "still syncing")
-        self.assertEqual(result["syncing_schemas_count"], 2)
-        self.assertTrue(result["has_running_schema"])
         self.assertEqual(
-            result["schema_status_counts"],
-            {ExternalDataSchema.Status.RUNNING: 1, ExternalDataSchema.Status.COMPLETED: 1},
+            result["schema_status_names"],
+            {
+                ExternalDataSchema.Status.RUNNING: ["Customers"],
+                ExternalDataSchema.Status.COMPLETED: ["Orders"],
+            },
         )
 
     def test_summary_treats_null_deletion_flags_as_not_deleted(self):

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
@@ -14,7 +13,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, JSONObject
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
 
@@ -1590,7 +1589,7 @@ class ExternalDataSourceSummaryAnnotations(Protocol):
     _summary_latest_error: str | None
     _summary_schemas_count: int
     _summary_rows_synced: int
-    _summary_syncing_schema_statuses: list[str | None] | None
+    _summary_syncing_schemas: list[dict[str, str | None]] | None
 
 
 class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -1602,9 +1601,7 @@ class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, seri
     last_run_at = serializers.SerializerMethodField(read_only=True)
     schemas_count = serializers.SerializerMethodField(read_only=True)
     rows_synced = serializers.SerializerMethodField(read_only=True)
-    syncing_schemas_count = serializers.SerializerMethodField(read_only=True)
-    has_running_schema = serializers.SerializerMethodField(read_only=True)
-    schema_status_counts = serializers.SerializerMethodField(read_only=True)
+    schema_status_names = serializers.SerializerMethodField(read_only=True)
     engine = serializers.ChoiceField(
         source="connection_metadata.engine",
         read_only=True,
@@ -1637,9 +1634,7 @@ class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, seri
             "user_access_level",
             "schemas_count",
             "rows_synced",
-            "syncing_schemas_count",
-            "has_running_schema",
-            "schema_status_counts",
+            "schema_status_names",
         ]
         read_only_fields = fields
 
@@ -1676,20 +1671,18 @@ class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, seri
     def get_rows_synced(self, instance: ExternalDataSource) -> int:
         return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_rows_synced
 
-    def _syncing_schema_statuses(self, instance: ExternalDataSource) -> list[str | None]:
-        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_syncing_schema_statuses or []
+    def _syncing_schemas(self, instance: ExternalDataSource) -> list[dict[str, str | None]]:
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_syncing_schemas or []
 
-    @extend_schema_field(serializers.IntegerField())
-    def get_syncing_schemas_count(self, instance: ExternalDataSource) -> int:
-        return len(self._syncing_schema_statuses(instance))
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_has_running_schema(self, instance: ExternalDataSource) -> bool:
-        return ExternalDataSchema.Status.RUNNING in self._syncing_schema_statuses(instance)
-
-    @extend_schema_field(serializers.DictField(child=serializers.IntegerField()))
-    def get_schema_status_counts(self, instance: ExternalDataSource) -> dict[str, int]:
-        return dict(Counter(status for status in self._syncing_schema_statuses(instance) if status is not None))
+    @extend_schema_field(serializers.DictField(child=serializers.ListField(child=serializers.CharField())))
+    def get_schema_status_names(self, instance: ExternalDataSource) -> dict[str, list[str]]:
+        names_by_status: dict[str, list[str]] = {}
+        for schema in self._syncing_schemas(instance):
+            status_value = schema["status"]
+            name = schema["name"]
+            if status_value is not None and name is not None:
+                names_by_status.setdefault(status_value, []).append(name)
+        return names_by_status
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
@@ -2299,11 +2292,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 .values("total")[:1]
             )
             schema_count = schemas.values("source_id").annotate(total=Count("id")).values("total")[:1]
-            syncing_schema_statuses = (
+            syncing_schemas = (
                 schemas.filter(should_sync=True)
                 .values("source_id")
-                .annotate(statuses=ArrayAgg("status"))
-                .values("statuses")[:1]
+                .annotate(
+                    schema_details=ArrayAgg(
+                        JSONObject(status="status", name=Coalesce("label", "name")), order_by="name"
+                    )
+                )
+                .values("schema_details")[:1]
             )
             latest_error = schemas.filter(latest_error__isnull=False).order_by("name").values("latest_error")[:1]
 
@@ -2324,7 +2321,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     _summary_latest_error=Subquery(latest_error),
                     _summary_rows_synced=Coalesce(Subquery(synced_rows), Value(0), output_field=IntegerField()),
                     _summary_schemas_count=Coalesce(Subquery(schema_count), Value(0), output_field=IntegerField()),
-                    _summary_syncing_schema_statuses=Subquery(syncing_schema_statuses),
+                    _summary_syncing_schemas=Subquery(syncing_schemas),
                 )
                 .prefetch_related(latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"))
                 .order_by(self.ordering)

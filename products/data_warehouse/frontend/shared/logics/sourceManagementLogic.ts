@@ -53,7 +53,7 @@ export const isActivelySyncing = (sources: PaginatedResponse<ExternalDataSourceL
             source.status === ExternalDataJobStatus.Running ||
             ('schemas' in source
                 ? source.schemas.some((schema) => schema.status === ExternalDataSchemaStatus.Running)
-                : source.has_running_schema)
+                : (source.schema_status_names[ExternalDataSchemaStatus.Running]?.length ?? 0) > 0)
     )
 
 // Pages that actually render the sources list and want live sync-status updates. The 10s poll
@@ -502,7 +502,6 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     : {
                           ...clonedSource,
                           status: ExternalDataJobStatus.Running,
-                          has_running_schema: true,
                       }
 
             actions.loadSourcesSuccess({

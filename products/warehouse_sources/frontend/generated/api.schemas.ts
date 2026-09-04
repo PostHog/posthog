@@ -13170,7 +13170,7 @@ export interface SourceCredentialApi {
     expires_at: string
 }
 
-export type ExternalDataSourceSummaryApiSchemaStatusCounts = { [key: string]: number }
+export type ExternalDataSourceSummaryApiSchemaStatusNames = { [key: string]: string[] }
 
 /**
  * Source-level fields for index pages, without the potentially huge nested schema payload.
@@ -13202,9 +13202,7 @@ export interface ExternalDataSourceSummaryApi {
     readonly user_access_level: string | null
     readonly schemas_count: number
     readonly rows_synced: number
-    readonly syncing_schemas_count: number
-    readonly has_running_schema: boolean
-    readonly schema_status_counts: ExternalDataSourceSummaryApiSchemaStatusCounts
+    readonly schema_status_names: ExternalDataSourceSummaryApiSchemaStatusNames
 }
 
 export interface PaginatedExternalDataSourceSummaryListApi {
