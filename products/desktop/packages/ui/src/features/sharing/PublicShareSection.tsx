@@ -1,6 +1,7 @@
 import { Label, Switch, Text } from "@posthog/quill";
 import { type ReactNode, useId } from "react";
 import { LinkCopyRow } from "./LinkCopyRow";
+import { ShareSection } from "./ShareSection";
 
 export interface PublicShareState {
   enabled: boolean;
@@ -8,9 +9,11 @@ export interface PublicShareState {
 }
 
 /**
- * The "anyone with the link" toggle. Renders nothing when `sharing` is null:
- * that is the service saying the backend has no sharing route for this kind of
- * thing yet, and a section that cannot work is worse than no section.
+ * The "Public link" section: a heading with the on/off switch, one line on what
+ * the link shows, and the link itself while sharing is on. Renders nothing when
+ * `sharing` is null: that is the service saying the backend has no sharing
+ * route for this kind of thing yet, and a section that cannot work is worse
+ * than no section.
  */
 export function PublicShareSection({
   sharing,
@@ -31,11 +34,12 @@ export function PublicShareSection({
   isPending: boolean;
   onToggle: (enabled: boolean) => void;
   publicUrl: string | null;
+  /** One line on what the public link shows, for the current on/off state. */
   description: string;
   /** Why sharing cannot be turned on right now; shown in place of the description. */
   disabledReason?: string;
   dataAttrPrefix: string;
-  /** Extra controls that only apply while sharing is on. */
+  /** Extra rows that only apply while sharing is on. */
   children?: ReactNode;
 }) {
   const switchId = useId();
@@ -57,8 +61,9 @@ export function PublicShareSection({
   if (!sharing) return null;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-3">
+    <ShareSection
+      title={<Label htmlFor={switchId}>Public link</Label>}
+      control={
         <Switch
           id={switchId}
           checked={sharing.enabled}
@@ -66,17 +71,14 @@ export function PublicShareSection({
           onCheckedChange={(checked) => onToggle(checked)}
           data-attr={`${dataAttrPrefix}-public-toggle`}
         />
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <Label htmlFor={switchId}>Share publicly</Label>
-          <Text size="xs" variant="muted">
-            {disabledReason ?? description}
-          </Text>
-        </div>
-      </div>
+      }
+      description={disabledReason ?? description}
+    >
       {sharing.enabled ? (
         <>
           <LinkCopyRow
             label="Public link"
+            hideLabel
             url={publicUrl}
             copiedDescription="Anyone with the link can view."
             dataAttr={`${dataAttrPrefix}-copy-public-link`}
@@ -84,6 +86,6 @@ export function PublicShareSection({
           {children}
         </>
       ) : null}
-    </div>
+    </ShareSection>
   );
 }

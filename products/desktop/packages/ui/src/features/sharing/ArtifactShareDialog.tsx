@@ -7,12 +7,13 @@ import {
   sharedResourceUrl,
 } from "@posthog/ui/utils/posthogLinks";
 import { useQuery } from "@tanstack/react-query";
-import { AccessSection } from "./AccessSection";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { PublicShareSection } from "./PublicShareSection";
 import { fileLinkHasUnpublishedChanges } from "./publicLink";
 import { ShareDialog } from "./ShareDialog";
+import { ShareSection } from "./ShareSection";
 import type { ShareVisibility } from "./shareTarget";
+import { teamLinkDescription } from "./teamLinkCopy";
 import {
   useArtifactSharingQuery,
   useSetArtifactSharing,
@@ -43,16 +44,24 @@ export function ArtifactShareBodyView({
   newerUploadExists,
   onToggle,
 }: ArtifactShareBodyViewProps) {
+  const publicDescription = sharing?.enabled
+    ? "Anyone with the link sees the file as it was when you shared it."
+    : "Anyone with the link can view a snapshot of the file.";
+
   return (
     <div className="flex flex-col gap-5">
-      <LinkCopyRow
-        label="Team link"
-        description="For people on your team. Opens the file straight in PostHog Desktop, inside its task."
-        url={appUrl}
-        copiedDescription="Anyone on your team with access to the task can open the file."
-        dataAttr="share-artifact-copy-link"
-      />
-      <AccessSection visibility={visibility} noun="file" />
+      <ShareSection
+        title="Team link"
+        description={teamLinkDescription(visibility, "file")}
+      >
+        <LinkCopyRow
+          label="Team link"
+          hideLabel
+          url={appUrl}
+          copiedDescription="Anyone on your team with access to the task can open the file."
+          dataAttr="share-artifact-copy-link"
+        />
+      </ShareSection>
       <Separator />
       <PublicShareSection
         sharing={sharing}
@@ -60,7 +69,7 @@ export function ArtifactShareBodyView({
         isError={isError}
         isPending={isPending}
         publicUrl={publicUrl}
-        description="Anyone with the link can view the file as it was when you shared it. Changes made after that stay private until you publish them."
+        description={publicDescription}
         dataAttrPrefix="share-artifact"
         onToggle={onToggle}
       >
@@ -70,8 +79,7 @@ export function ArtifactShareBodyView({
             variant="muted"
             data-attr="share-artifact-newer-upload"
           >
-            The file changed after you shared it. Publish the changes to update
-            the public link.
+            Changes since you shared aren't public yet.
           </Text>
         )}
       </PublicShareSection>

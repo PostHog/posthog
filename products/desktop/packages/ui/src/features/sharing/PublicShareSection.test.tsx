@@ -31,7 +31,7 @@ describe("PublicShareSection", () => {
   ])("shows the %s state instead of the toggle", (_name, overrides, text) => {
     renderSection(overrides);
     expect(screen.getByText(text)).toBeTruthy();
-    expect(screen.queryByText("Share publicly")).toBeNull();
+    expect(screen.queryByText("Public link")).toBeNull();
   });
 
   it("renders nothing when the backend cannot share this kind of thing", () => {
@@ -46,7 +46,7 @@ describe("PublicShareSection", () => {
     "only offers the public link while sharing is %s",
     (_name, enabled, expectLink) => {
       renderSection({ sharing: { enabled, accessToken: "tok" } });
-      expect(screen.getByText("Share publicly")).toBeTruthy();
+      expect(screen.getByText("Public link")).toBeTruthy();
       expect(
         screen.queryByDisplayValue("https://us.posthog.com/shared/tok") !==
           null,

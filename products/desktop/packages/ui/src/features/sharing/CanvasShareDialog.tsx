@@ -1,5 +1,14 @@
 import type { CanvasSharing } from "@posthog/core/canvas/dashboardSchemas";
-import { Button, Label, Separator, Switch, Text } from "@posthog/quill";
+import {
+  Button,
+  Label,
+  Separator,
+  Switch,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
@@ -10,12 +19,14 @@ import {
   sharedResourceUrl,
 } from "@posthog/ui/utils/posthogLinks";
 import { useId } from "react";
-import { AccessSection } from "./AccessSection";
+import { copyLinkToClipboard } from "./copyLink";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { PublicShareSection } from "./PublicShareSection";
 import { publicLinkHasUnpublishedChanges } from "./publicLink";
 import { ShareDialog } from "./ShareDialog";
+import { ShareSection } from "./ShareSection";
 import type { ShareSurface, ShareVisibility } from "./shareTarget";
+import { teamLinkDescription } from "./teamLinkCopy";
 import { useCanvasSharingQuery, useSetCanvasSharing } from "./useCanvasSharing";
 
 export interface CanvasShareBodyViewProps {
@@ -56,26 +67,52 @@ export function CanvasShareBodyView({
   onForkLinkCopied,
 }: CanvasShareBodyViewProps) {
   const allowForkingId = useId();
+  const publicDescription = sharing?.enabled
+    ? "Anyone with the link sees the canvas as it was when you shared it. Live data isn't shown."
+    : "Anyone with the link can view a snapshot of the canvas. Live data isn't shown.";
 
   return (
     <div className="flex flex-col gap-5">
-      <LinkCopyRow
-        label="Team link"
-        description="For people on your team. Opens the canvas straight in PostHog Desktop."
-        url={appUrl}
-        copiedDescription="Anyone on your team with access can open the canvas."
-        dataAttr="share-canvas-copy-link"
-        onCopied={onLinkCopied}
-      />
-      <LinkCopyRow
-        label="Link to a copy"
-        description="Whoever opens it gets their own editable copy in their personal space. This canvas stays as it is."
-        url={forkUrl}
-        copiedDescription="Opening it creates a copy of the canvas."
-        dataAttr="share-canvas-copy-fork-link"
-        onCopied={onForkLinkCopied}
-      />
-      <AccessSection visibility={visibility} noun="canvas" />
+      <ShareSection
+        title="Team link"
+        description={teamLinkDescription(visibility, "canvas")}
+      >
+        <LinkCopyRow
+          label="Team link"
+          hideLabel
+          url={appUrl}
+          copiedDescription="Anyone on your team with access can open the canvas."
+          dataAttr="share-canvas-copy-link"
+          onCopied={onLinkCopied}
+        />
+        {forkUrl ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="link-muted"
+                  size="xs"
+                  className="self-start"
+                  onClick={() =>
+                    void copyLinkToClipboard(
+                      forkUrl,
+                      "Opening it creates a copy of the canvas.",
+                      onForkLinkCopied,
+                    )
+                  }
+                  data-attr="share-canvas-copy-fork-link"
+                >
+                  Copy template link
+                </Button>
+              }
+            />
+            <TooltipContent>
+              Whoever opens it gets their own editable copy in their personal
+              space. This canvas stays as it is.
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
+      </ShareSection>
       {isPubliclyShareable ? (
         <>
           <Separator />
@@ -85,7 +122,7 @@ export function CanvasShareBodyView({
             isError={isError}
             isPending={isPending}
             publicUrl={publicUrl}
-            description="Anyone with the link can view the canvas as it was when you shared it. Changes made after that stay private until you publish them. Live data isn't shown."
+            description={publicDescription}
             disabledReason={disabledReason}
             dataAttrPrefix="share-canvas"
             onToggle={onToggle}
@@ -96,11 +133,10 @@ export function CanvasShareBodyView({
                 variant="muted"
                 data-attr="share-canvas-newer-version"
               >
-                The canvas changed after you shared it. Publish the changes to
-                update the public link.
+                Changes since you shared aren't public yet.
               </Text>
             )}
-            <div className="flex items-start gap-3">
+            <div className="flex items-center gap-3">
               <Switch
                 id={allowForkingId}
                 checked={sharing?.allowForking ?? false}
@@ -108,13 +144,9 @@ export function CanvasShareBodyView({
                 onCheckedChange={(checked) => onAllowForkingChange(checked)}
                 data-attr="share-canvas-allow-forking-toggle"
               />
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <Label htmlFor={allowForkingId}>Let viewers make a copy</Label>
-                <Text size="xs" variant="muted">
-                  Anyone with the link can copy the canvas into their own
-                  PostHog project.
-                </Text>
-              </div>
+              <Label htmlFor={allowForkingId}>
+                Let viewers copy this canvas
+              </Label>
             </div>
           </PublicShareSection>
         </>
