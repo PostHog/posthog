@@ -22,6 +22,7 @@ from langchain_core.outputs import ChatResult
 from langchain_openai import ChatOpenAI
 from openai import APIError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from pydantic import PrivateAttr
 from temporalio.exceptions import ApplicationError
 
 from posthog.cloud_utils import is_cloud
@@ -43,26 +44,30 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     re-roll a flex capacity refusal. This override retries just the failing chat
     completion with service_tier="default", so an agent loop keeps its completed
     turns instead of rerunning from scratch. Build flex clients with max_retries=0:
-    the tier switch is the retry.
+    the tier switch is the retry. The first fallback latches the client to standard,
+    so a flex brownout costs one timeout per agent run, not one per call.
     """
 
     flex_fallback_timeout: float | None = None
+    _flex_latched: bool = PrivateAttr(default=False)
+
+    def _standard_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        standard = {**kwargs, "service_tier": "default"}
+        if self.flex_fallback_timeout is not None:
+            standard["timeout"] = self.flex_fallback_timeout
+        return standard
 
     def _fallback_kwargs_or_raise(self, error: APIError, kwargs: dict[str, Any]) -> dict[str, Any]:
-        if self.service_tier != "flex" or not is_flex_recoverable(error):
+        if self._flex_latched or self.service_tier != "flex" or not is_flex_recoverable(error):
             raise error
         logger.warning(
             "labeling_flex_call_fell_back",
-            error=str(error),
             error_type=type(error).__name__,
+            status_code=getattr(error, "status_code", None),
             model=self.model_name,
         )
-        fallback = {**kwargs, "service_tier": "default"}
-        if self.flex_fallback_timeout is not None:
-            # The openai SDK's create() takes timeout as a per-request option, so the
-            # standard call gets a standard-sized budget instead of the tight flex one.
-            fallback["timeout"] = self.flex_fallback_timeout
-        return fallback
+        self._flex_latched = True
+        return self._standard_kwargs(kwargs)
 
     def _generate(
         self,
@@ -71,6 +76,8 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        if self._flex_latched:
+            kwargs = self._standard_kwargs(kwargs)
         try:
             return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
@@ -85,6 +92,8 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        if self._flex_latched:
+            kwargs = self._standard_kwargs(kwargs)
         try:
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:

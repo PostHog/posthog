@@ -226,7 +226,7 @@ class TestBuildOpenAIChatClient:
                 "gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d", flex=False
             )
 
-        # Flex: 120s x 1 attempt (the standard rerun is the retry); standard: 240s x 2 = 480s.
+        # Flex: 120s x 1 attempt (the standard-tier fallback call is the retry); standard: 240s x 2 = 480s.
         # Both fit the 600s activity budget, where the old 600s x 3 attempts per call could not.
         assert flex_client.request_timeout == LABELING_FLEX_CALL_TIMEOUT
         assert flex_client.max_retries == 0
@@ -282,6 +282,7 @@ class TestFlexFirstChatOpenAI:
             APIStatusError("flex timeout", response=httpx.Response(408, request=_FLEX_REQUEST), body=None),
             InternalServerError("gateway 504", response=httpx.Response(504, request=_FLEX_REQUEST), body=None),
             APITimeoutError(request=_FLEX_REQUEST),
+            APIStatusError("conflict", response=httpx.Response(409, request=_FLEX_REQUEST), body=None),
         ],
     )
     def test_recoverable_flex_failure_retries_that_call_on_standard(self, error):
@@ -307,6 +308,21 @@ class TestFlexFirstChatOpenAI:
             llm.invoke("label the clusters")
 
         assert llm.client.with_raw_response.create.call_count == 1
+
+    def test_first_fallback_latches_the_client_to_standard(self):
+        llm = _flex_client()
+        llm.client = _mock_create(
+            RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None),
+            _COMPLETION,
+            _COMPLETION,
+        )
+
+        llm.invoke("label the clusters")
+        llm.invoke("label the next cluster")
+
+        third = llm.client.with_raw_response.create.call_args_list[2]
+        assert third.kwargs["service_tier"] == "default"
+        assert third.kwargs["timeout"] == 240.0
 
     def test_standard_client_never_falls_back(self):
         llm = _flex_client(service_tier=None)

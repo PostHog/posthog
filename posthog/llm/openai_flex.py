@@ -31,11 +31,12 @@ def is_flex_recoverable(error: APIError) -> bool:
 
     Recoverable: a capacity refusal (429), a connection reset or client timeout
     (APIConnectionError covers its APITimeoutError subclass), any 5xx (the ai-gateway answers
-    504 at its buffered-response ceiling), and 408, which OpenAI's flex docs use for a
-    server-side flex timeout and the SDK raises as the bare APIStatusError. Anything else
+    504 at its buffered-response ceiling), and 408/409, which the SDK's own retry loop also
+    retries and raises as the bare APIStatusError (OpenAI's flex docs use 408 for a
+    server-side flex timeout). Anything else
     (400 bad request, auth errors) is a configuration problem the standard tier shares, so it
     propagates instead of masking itself behind a fallback.
     """
     if isinstance(error, RateLimitError | APIConnectionError | InternalServerError):
         return True
-    return isinstance(error, APIStatusError) and error.status_code == 408
+    return isinstance(error, APIStatusError) and error.status_code in (408, 409)
