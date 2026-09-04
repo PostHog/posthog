@@ -66,6 +66,7 @@ export function HogFlowTreeStep({
                 dragged && 'opacity-50'
             )}
             data-attr="workflow-tree-step"
+            id={`workflow-tree-step-${action.id}`}
         >
             <Button
                 type="button"

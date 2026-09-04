@@ -45,6 +45,7 @@ describe('buildWorkflowTree', () => {
             ['no'],
         ])
         expect(tree.nodes[1].joinActionId).toBe('shared')
+        expect(tree.nodes[1].joinAction?.id).toBe('shared')
     })
 
     it('keeps immediate routes empty and exposes their insertion edges', () => {
