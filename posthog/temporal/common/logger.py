@@ -98,9 +98,22 @@ class Logger:
             self.produce(produce_message)
 
     def produce(self, message: bytes) -> None:
-        """Produce message to `self.queue`."""
-        if self.queue and self.loop:
-            asyncio.run_coroutine_threadsafe(self.queue.put(message), self.loop)
+        """Produce message to `self.queue`.
+
+        Sync activities run in worker threads that can outlive the event loop captured
+        at worker startup. A log line is droppable, so a loop that is closed or closing
+        must not raise into the code that logs.
+        """
+        if not self.queue or not self.loop or self.loop.is_closed():
+            return
+
+        coro = self.queue.put(message)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, self.loop)
+        except RuntimeError:
+            # The loop can close between the check above and this call. Nothing awaits the
+            # coroutine then, so close it to avoid a "never awaited" warning at collection.
+            coro.close()
 
     def write(self, message: str) -> None:
         """Write messages to file using write logger."""
