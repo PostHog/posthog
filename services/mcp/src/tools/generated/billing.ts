@@ -2,17 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { BillingSpendRetrieveQueryParams, BillingUsageRetrieveQueryParams } from '@/generated/billing/api'
+import * as orvalSchemas from '@/generated/billing/api'
 import { omitResponseFields, withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const BillingOverviewGetSchema = z.object({})
+const BillingOverviewGetSchema = () => z.object({})
 
-const billingOverviewGet = (): ToolBase<typeof BillingOverviewGetSchema, Schemas.BillingOverviewResponse> => ({
+const billingOverviewGet = (): ToolBase<
+    ReturnType<typeof BillingOverviewGetSchema>,
+    Schemas.BillingOverviewResponse
+> => ({
     name: 'billing-overview-get',
-    schema: BillingOverviewGetSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof BillingOverviewGetSchema>) => {
+    schema: BillingOverviewGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingOverviewGetSchema>>) => {
         const result = await context.api.request<Schemas.BillingOverviewResponse>({
             method: 'GET',
             path: `/api/billing/`,
@@ -50,34 +52,37 @@ const billingOverviewGet = (): ToolBase<typeof BillingOverviewGetSchema, Schemas
     },
 })
 
-const BillingSpendGetSchema = BillingSpendRetrieveQueryParams.extend({
-    start_date: BillingSpendRetrieveQueryParams.shape['start_date'].describe(
-        'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
-    ),
-    end_date: BillingSpendRetrieveQueryParams.shape['end_date'].describe(
-        "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
-    ),
-    team_ids: BillingSpendRetrieveQueryParams.shape['team_ids'].describe(
-        'JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org.'
-    ),
-    usage_types: BillingSpendRetrieveQueryParams.shape['usage_types'].describe(
-        'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-    ),
-    breakdowns: BillingSpendRetrieveQueryParams.shape['breakdowns'].describe(
-        'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
-    ),
-    interval: BillingSpendRetrieveQueryParams.shape['interval'].describe(
-        'Time bucket size, one of "day" or "week". Default "day".'
-    ),
-})
+const BillingSpendGetSchema = () => {
+    const BillingSpendRetrieveQueryParams = orvalSchemas.BillingSpendRetrieveQueryParams()
+    return BillingSpendRetrieveQueryParams.extend({
+        start_date: BillingSpendRetrieveQueryParams.shape['start_date'].describe(
+            'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
+        ),
+        end_date: BillingSpendRetrieveQueryParams.shape['end_date'].describe(
+            "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
+        ),
+        team_ids: BillingSpendRetrieveQueryParams.shape['team_ids'].describe(
+            "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
+        ),
+        usage_types: BillingSpendRetrieveQueryParams.shape['usage_types'].describe(
+            'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
+        ),
+        breakdowns: BillingSpendRetrieveQueryParams.shape['breakdowns'].describe(
+            'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
+        ),
+        interval: BillingSpendRetrieveQueryParams.shape['interval'].describe(
+            'Time bucket size, one of "day" or "week". Default "day".'
+        ),
+    })
+}
 
 const billingSpendGet = (): ToolBase<
-    typeof BillingSpendGetSchema,
+    ReturnType<typeof BillingSpendGetSchema>,
     WithInformationalResponse<Schemas.BillingTimeSeriesResponse>
 > => ({
     name: 'billing-spend-get',
-    schema: BillingSpendGetSchema,
-    handler: async (context: Context, params: z.infer<typeof BillingSpendGetSchema>) => {
+    schema: BillingSpendGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingSpendGetSchema>>) => {
         const result = await context.api.request<Schemas.BillingTimeSeriesResponse>({
             method: 'GET',
             path: `/api/billing/spend/`,
@@ -98,34 +103,37 @@ const billingSpendGet = (): ToolBase<
     },
 })
 
-const BillingUsageGetSchema = BillingUsageRetrieveQueryParams.extend({
-    start_date: BillingUsageRetrieveQueryParams.shape['start_date'].describe(
-        'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
-    ),
-    end_date: BillingUsageRetrieveQueryParams.shape['end_date'].describe(
-        "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
-    ),
-    team_ids: BillingUsageRetrieveQueryParams.shape['team_ids'].describe(
-        'JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org.'
-    ),
-    usage_types: BillingUsageRetrieveQueryParams.shape['usage_types'].describe(
-        'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-    ),
-    breakdowns: BillingUsageRetrieveQueryParams.shape['breakdowns'].describe(
-        'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
-    ),
-    interval: BillingUsageRetrieveQueryParams.shape['interval'].describe(
-        'Time bucket size, one of "day" or "week". Default "day".'
-    ),
-})
+const BillingUsageGetSchema = () => {
+    const BillingUsageRetrieveQueryParams = orvalSchemas.BillingUsageRetrieveQueryParams()
+    return BillingUsageRetrieveQueryParams.extend({
+        start_date: BillingUsageRetrieveQueryParams.shape['start_date'].describe(
+            'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
+        ),
+        end_date: BillingUsageRetrieveQueryParams.shape['end_date'].describe(
+            "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
+        ),
+        team_ids: BillingUsageRetrieveQueryParams.shape['team_ids'].describe(
+            "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
+        ),
+        usage_types: BillingUsageRetrieveQueryParams.shape['usage_types'].describe(
+            'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
+        ),
+        breakdowns: BillingUsageRetrieveQueryParams.shape['breakdowns'].describe(
+            'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
+        ),
+        interval: BillingUsageRetrieveQueryParams.shape['interval'].describe(
+            'Time bucket size, one of "day" or "week". Default "day".'
+        ),
+    })
+}
 
 const billingUsageGet = (): ToolBase<
-    typeof BillingUsageGetSchema,
+    ReturnType<typeof BillingUsageGetSchema>,
     WithInformationalResponse<Schemas.BillingTimeSeriesResponse>
 > => ({
     name: 'billing-usage-get',
-    schema: BillingUsageGetSchema,
-    handler: async (context: Context, params: z.infer<typeof BillingUsageGetSchema>) => {
+    schema: BillingUsageGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingUsageGetSchema>>) => {
         const result = await context.api.request<Schemas.BillingTimeSeriesResponse>({
             method: 'GET',
             path: `/api/billing/usage/`,

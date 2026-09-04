@@ -1,4 +1,5 @@
 import secrets
+import datetime
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
@@ -89,13 +91,46 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     # path injects no parent column (check run ids are globally unique), so the webhook row already
     # matches the poll row and needs no reshaping.
     "check_runs": "check_run",
+    # The one mapped event with no nesting key at all: the status fields sit at the top level of
+    # the body, wrapped in commit/repository/sender/branches objects the poll row never carries.
+    # The template rebuilds the row from the top-level fields and injects commit_sha from the
+    # event's `sha`, which is the column the poll fan-out copies off the parent commit.
+    "commit_statuses": "status",
+    # The three comment tables all nest the row under `comment`, and GitHub's comment objects are
+    # the same shape its REST list endpoints return, so the template only unwraps them. Their
+    # initial_lookback_days stays non-zero, which leaves them poll-capable: the poll bootstraps the
+    # table and the webhook takes over once initial_sync_complete is set.
+    "issue_comments": "issue_comment",
+    "pull_request_comments": "pull_request_review_comment",
+    "commit_comments": "commit_comment",
 }
 
+# GitHub's own checkbox label for each mapped event, used to build the manual webhook setup
+# instructions. Deriving that list from the map keeps it from drifting: it already lost `Check
+# runs` once, which silently left manually-created hooks missing a mapped event.
+GITHUB_WEBHOOK_EVENT_LABELS: dict[str, str] = {
+    "workflow_job": "Workflow jobs",
+    "workflow_run": "Workflow runs",
+    "pull_request_review": "Pull request reviews",
+    "deployment": "Deployments",
+    "deployment_status": "Deployment statuses",
+    "check_run": "Check runs",
+    "status": "Statuses",
+    "issue_comment": "Issue comments",
+    "pull_request_review_comment": "Pull request review comments",
+    "commit_comment": "Commit comments",
+}
+
+# Rendered into the manual setup instructions. A mapped event with no label raises on import, so
+# drift fails in CI rather than shipping instructions that miss an event.
+GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
+    f"   - {GITHUB_WEBHOOK_EVENT_LABELS[event]}" for event in dict.fromkeys(GITHUB_WEBHOOK_RESOURCE_MAP.values())
+)
+
 # Everything else stays poll-only. GitHub does emit events for several of the other tables, but the
-# template lands `body[eventType]` as the row and these nest the object under a different key —
-# `alert` for the code-scanning/Dependabot/secret-scanning alerts, `comment` for issue and review
-# comments, `forkee` for forks, `commit` for statuses — so each needs its own reshaping branch
-# before its webhook rows would match what the poll path writes.
+# template lands `body[eventType]` as the row and these nest the object under a different key
+# (`alert` for the code-scanning/Dependabot/secret-scanning alerts, `forkee` for forks), so each
+# needs its own reshaping branch before its webhook rows would match what the poll path writes.
 
 
 @SourceRegistry.register
@@ -108,6 +143,10 @@ class GithubSource(
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"
     api_docs_url = "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
+    # GitHub keeps a REST API version answerable for at least 24 months after the next one ships,
+    # then returns 410 Gone. 2022-11-28 is superseded by the 2026-03-10 default, so its earliest
+    # sunset is 2028-03-10 (24 months after that release).
+    deprecated_versions = (VersionDeprecation(version="2022-11-28", sunset_at=datetime.date(2028, 3, 10)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -210,14 +249,15 @@ class GithubSource(
                     ),
                 ],
             ),
-            webhookSetupCaption="""To set up the webhook manually, repeat these steps for **each selected repository**, using the **same Secret** every time:
+            webhookSetupCaption=f"""To set up the webhook manually, repeat these steps for **each selected repository**, using the **same Secret** every time:
 
 1. Go to the repository's **Settings > Webhooks** on GitHub
 2. Click **Add webhook**
 3. Paste the webhook URL shown below into the **Payload URL** field
 4. Set **Content type** to **application/json**
 5. Enter a **Secret** and add the same value to the **Signing secret** field below
-6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events**, then tick:
+{GITHUB_WEBHOOK_EVENT_CHECKLIST}
 7. Click **Add webhook**
 
 If automatic creation failed with a permissions error, the fix depends on how you connected:
@@ -275,6 +315,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # deleted repository or one the connection can no longer see.
             "GitHub repository is not accessible": "This repository is no longer available on GitHub. It may have been deleted, or your connection may have lost access to it. Update the source with a repository you can still reach, or reconnect your GitHub account.",
             "404 Client Error": "GitHub couldn't find this repository. Check that it still exists and that your connection can access it.",
+            # Every GitHub call carries the source's pinned version in the X-GitHub-Api-Version
+            # header, and GitHub answers 410 Gone once a version is sunset (2022-11-28 reaches this
+            # 24 months after the 2026-03-10 release). 410 is permanent, so retrying loops forever;
+            # disable the schema and point the user at the version repin instead.
+            "410 Client Error": "GitHub no longer serves the API version this source is pinned to. Update the source to a supported version, then sync again.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.

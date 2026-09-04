@@ -16,7 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):
@@ -46,7 +46,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"], "event": "test_event"}},
         )
         self.dashboard.tiles.create(
             insight=insight,
@@ -84,7 +84,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"], "event": "test_event"}},
         )
         self.dashboard.tiles.create(
             insight=insight,
@@ -143,8 +143,8 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             team=self.team,
             created_by=self.user,
             query={
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "test_event"}],
+                "kind": "DataTableNode",
+                "source": {"kind": "EventsQuery", "select": ["*"], "event": "test_event"},
             },
         )
 
@@ -154,8 +154,8 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             team=self.team,
             created_by=self.user,
             query={
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "secret_event"}],
+                "kind": "DataTableNode",
+                "source": {"kind": "EventsQuery", "select": ["*"], "event": "secret_event"},
             },
         )
 
@@ -200,8 +200,8 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             team=self.team,
             created_by=self.user,
             query={
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "original_event"}],
+                "kind": "TracesQuery",
+                "searchTerm": "original_event",
                 "dateRange": {"date_from": "-7d"},
             },
         )
@@ -234,7 +234,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         # The response should contain the original query, not the overridden one
         response_data = response.json()
         original_query = response_data.get("query", {})
-        assert original_query.get("series", [{}])[0].get("event") == "original_event"
+        assert original_query.get("searchTerm") == "original_event"
 
         # CRITICAL: This is the vulnerability - the date range should NOT be overridden to -365d
         # It should remain the original -7d from the insight definition
@@ -248,7 +248,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         Test that variables_override parameter is ignored when using sharing access tokens.
         Variables only work in HogQL queries, not TrendsQuery.
         """
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         # Create an insight variable first
         variable = InsightVariable.objects.create(
@@ -336,8 +336,8 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             team=other_team,
             created_by=self.user,
             query={
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "other_team_event"}],
+                "kind": "DataTableNode",
+                "source": {"kind": "EventsQuery", "select": ["*"], "event": "other_team_event"},
             },
         )
 
@@ -367,14 +367,20 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="On Dashboard",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "dashboard_event"}]},
+            query={
+                "kind": "DataTableNode",
+                "source": {"kind": "EventsQuery", "select": ["*"], "event": "dashboard_event"},
+            },
         )
 
         insight_not_on_dashboard = Insight.objects.create(
             name="Not on Dashboard",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "secret_event"}]},
+            query={
+                "kind": "DataTableNode",
+                "source": {"kind": "EventsQuery", "select": ["*"], "event": "secret_event"},
+            },
         )
 
         # Add only one to the dashboard
@@ -419,7 +425,10 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             f"/api/environments/{self.team.id}/insights/?sharing_access_token={sharing_config.access_token}",
             {
                 "name": "Malicious Insight",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "malicious_event"}]},
+                "query": {
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["*"], "event": "malicious_event"},
+                },
             },
         )
         assert response.status_code in [401, 403], (
@@ -431,7 +440,10 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             f"/api/environments/{self.team.id}/insights/",
             {
                 "name": "Malicious Insight",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "malicious_event"}]},
+                "query": {
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["*"], "event": "malicious_event"},
+                },
                 "sharing_access_token": sharing_config.access_token,
             },
         )
@@ -468,7 +480,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"], "event": "test_event"}},
         )
         self.dashboard.tiles.create(
             insight=insight,
@@ -538,7 +550,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"], "event": "test_event"}},
         )
         self.dashboard.tiles.create(
             insight=insight,

@@ -42,7 +42,7 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
@@ -229,7 +229,7 @@ def _process_events_data(
     ]
     for item in response.results:
         event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
-        if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
+        if event_def and is_hidden_from_assistant(event_def):
             continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
@@ -255,9 +255,7 @@ def _process_events_data(
 
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
-            if event_name not in context_event_names and (
-                event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
-            ):
+            if event_name not in context_event_names and is_hidden_from_assistant(event_core_definition):
                 continue  # Skip irrelevant events but keep events the user has added to the context
             if core_description := _format_core_event_description(event_core_definition):
                 event_data["description"] = core_description

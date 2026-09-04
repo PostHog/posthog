@@ -1,5 +1,6 @@
 import json
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -64,9 +65,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
@@ -123,8 +124,33 @@ class LLMPromptViewSet(
 
     def _prompt_not_found_response(self, prompt_name: str) -> Response:
         return Response(
-            {"detail": f"Prompt with name '{prompt_name}' not found."},
+            {
+                "detail": (
+                    f"No prompt matching '{prompt_name}' in this project. "
+                    "List the project's prompts to see which names exist."
+                )
+            },
             status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def _resolve_prompt_name(self, prompt_name: str) -> str | None:
+        """Map the path segment onto a prompt name, accepting the `id` UUID of any of the prompt's
+        versions as well as the name itself. Both identify one prompt, and every list and get
+        response carries the id, so a caller holding one should not have to look the name up.
+        An id resolves to the prompt, never to the version it came from, so callers pin a version
+        with `version` or `label` rather than by holding that version's id.
+        Returns None when the segment is a UUID matching no prompt in this project."""
+        try:
+            version_id = UUID(prompt_name)
+        except ValueError:
+            return prompt_name
+        # Nothing stops a prompt from being named like a UUID, so the literal name wins the tie.
+        if LLMPrompt.objects.filter(team=self.team, deleted=False, name=prompt_name).exists():
+            return prompt_name
+        return (
+            LLMPrompt.objects.filter(team=self.team, deleted=False, id=version_id)
+            .values_list("name", flat=True)
+            .first()
         )
 
     def _serialize_prompt(self, prompt: LLMPrompt) -> dict[str, Any]:
@@ -264,11 +290,29 @@ class LLMPromptViewSet(
         version = cast(int | None, query_params.get("version"))
         label = cast(str | None, query_params.get("label"))
         content_mode = cast(str, query_params.get("content", "full"))
-        prompt = get_prompt_by_name_from_cache(self.team, prompt_name, version, label=label)
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+        prompt = get_prompt_by_name_from_cache(self.team, resolved_name, version, label=label)
         if prompt is None:
             if label is not None:
                 return Response(
-                    {"detail": f"Prompt '{prompt_name}' not found or has no label '{label}'."},
+                    {
+                        "detail": (
+                            f"No prompt matching '{prompt_name}' with label '{label}'. "
+                            "Fetch it without a label to see which labels it has."
+                        )
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if version is not None:
+                return Response(
+                    {
+                        "detail": (
+                            f"No prompt matching '{prompt_name}' at version {version}. "
+                            "Fetch it without a version to see which versions it has."
+                        )
+                    },
                     status=status.HTTP_404_NOT_FOUND,
                 )
             return self._prompt_not_found_response(prompt_name)
@@ -285,6 +329,11 @@ class LLMPromptViewSet(
         if auth_error is not None:
             return auth_error
 
+        # PATCH shares the GET's route, so the segment has to mean the same thing on both verbs.
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+
         payload = LLMPromptPublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -292,7 +341,7 @@ class LLMPromptViewSet(
             published_prompt = publish_prompt_version(
                 self.team,
                 user=cast(User, request.user),
-                prompt_name=prompt_name,
+                prompt_name=resolved_name,
                 prompt_payload=payload.validated_data.get("prompt"),
                 edits=payload.validated_data.get("edits"),
                 config=payload.validated_data.get("config"),

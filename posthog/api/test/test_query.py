@@ -21,17 +21,14 @@ from rest_framework import status
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
-    CachedRetentionQueryResponse,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
-    MeanRetentionCalculation,
     PersonPropertyFilter,
     PropertyOperator,
-    RetentionQuery,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -51,8 +48,8 @@ from posthog.llm.completions import OpenAICompletion
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from products.managed_warehouse.backend.facade.feature_flags import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -1168,41 +1165,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = CachedHogQLQueryResponse.model_validate(api_response)
         assert response.results[0][0] == variable_override_value
 
-    @patch("posthog.api.query.process_query_model")
-    def test_upgrades_query(self, mock_process_query):
-        mock_process_query.return_value = CachedRetentionQueryResponse(
-            cache_key="cache_123",
-            is_cached=False,
-            last_refresh="2023-10-16T12:00:00Z",
-            next_allowed_client_refresh="2023-10-16T14:00:00Z",
-            results=[],
-            timezone="UTC",
-        )
-
-        self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "RetentionQuery",
-                    "retentionFilter": {
-                        "period": "Day",
-                        "totalIntervals": 8,
-                        "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                        "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                        "retentionType": "retention_first_time",
-                        "showMean": True,
-                    },
-                },
-                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
-            },
-        ).json()
-
-        mock_process_query.assert_called_once()
-        updated_query = mock_process_query.call_args.args[1]
-        assert isinstance(updated_query, RetentionQuery)
-        assert updated_query.version == 2
-        assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
-
 
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
@@ -1263,14 +1225,12 @@ class TestQueryRetrieve(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("enabled_ready", True, True, 200),
-            ("disabled_ready", False, True, 200),
-            ("enabled_revoked", True, False, 404),
-            ("disabled_revoked", False, False, 404),
+            ("ready", True, 200),
+            ("revoked", False, 404),
         ]
     )
-    def test_managed_warehouse_query_status_checks_reader_readiness_without_flag_revocation(
-        self, _name: str, flag_enabled: bool, reader_configured: bool, expected_status: int
+    def test_managed_warehouse_query_status_checks_reader_readiness_without_feature_flag_lookup(
+        self, _name: str, reader_configured: bool, expected_status: int
     ) -> None:
         source = ExternalDataSource.objects.create(
             source_id="managed-source",
@@ -1307,13 +1267,13 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
 
         with patch(
-            "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
-            return_value=flag_enabled,
-        ) as managed_warehouse_sql_editor_flag:
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=AssertionError("query-status authorization must not evaluate a product feature flag"),
+        ) as feature_flag_lookup:
             response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
 
         self.assertEqual(response.status_code, expected_status)
-        managed_warehouse_sql_editor_flag.assert_not_called()
+        feature_flag_lookup.assert_not_called()
         if not reader_configured:
             self.assertEqual(response.json()["detail"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE)
             self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)
@@ -1374,61 +1334,8 @@ class TestQueryDraftSql(APIBaseTest):
         hit_openai_mock.assert_called_once()
 
 
-class TestQueryUpgrade(APIBaseTest):
-    def test_upgrades_valid_query(self):
-        query = {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7, "showMean": True}}
-
-        response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "query": {
-                    "kind": "RetentionQuery",
-                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
-                    "version": 2,
-                }
-            },
-        )
-
-
 class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
-
-    @patch("posthog.api.query.process_query_model")
-    def test_trends_query_includes_formatted_results(self, mock_process_query_model):
-        mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100, 200, 150],
-                    "labels": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                    "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                    "count": 450,
-                    "label": "$pageview",
-                    "action": {
-                        "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                        "id": "$pageview",
-                        "type": "events",
-                    },
-                }
-            ],
-            "is_cached": False,
-        }
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn("results", data)
-        self.assertIn("formatted_results", data)
-        self.assertIn("$pageview", data["formatted_results"])
-        self.assertIn("100", data["formatted_results"])
-        self.assertIn("|", data["formatted_results"])
 
     @patch("posthog.api.query.process_query_model")
     def test_hogql_query_includes_formatted_results(self, mock_process_query_model):
@@ -1453,22 +1360,14 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.query.process_query_model")
     def test_no_formatted_results_without_header(self, mock_process_query_model):
         mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100],
-                    "labels": ["2024-01-01"],
-                    "days": ["2024-01-01"],
-                    "count": 100,
-                    "label": "$pageview",
-                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
-                }
-            ],
+            "results": [["sign up", 10]],
+            "columns": ["event", "count"],
             "is_cached": False,
         }
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1503,22 +1402,14 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
             setattr(mock_settings, attr, getattr(__import__("posthog").settings, attr))
 
         mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100],
-                    "labels": ["2024-01-01"],
-                    "days": ["2024-01-01"],
-                    "count": 100,
-                    "label": "$pageview",
-                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
-                }
-            ],
+            "results": [["sign up", 10]],
+            "columns": ["event", "count"],
             "is_cached": False,
         }
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
@@ -1529,59 +1420,40 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # An explicit ISO timestamp (including midnight Z) is an exact boundary, not a calendar day.
-            ("explicit_midnight", "2026-07-09T00:00:00Z", "to 2026-07-09 00:00:00"),
-            ("explicit_time_of_day", "2026-07-09T14:30:00Z", "to 2026-07-09 14:30:00"),
-            # A bare calendar day keeps the default end-of-day rounding so the last day stays included.
-            ("bare_date", "2026-07-09", "to 2026-07-09 23:59:59"),
+            # An MCP caller passing a full timestamp means an exact boundary, so the range is marked
+            # explicit and keeps the time of day instead of snapping to end of day.
+            ("mcp_explicit_midnight", True, "2026-07-09T00:00:00Z", True),
+            ("mcp_explicit_time_of_day", True, "2026-07-09T14:30:00Z", True),
+            # A bare calendar day carries no time of day, so it keeps the default end-of-day rounding
+            # and the last day stays in range.
+            ("mcp_bare_date", True, "2026-07-09", False),
+            # The web UI serialises fixed calendar ranges as naive timestamps and relies on that same
+            # rounding, so a non-MCP request must never have its boundary marked explicit.
+            ("non_mcp_explicit_timestamp", False, "2026-07-09T00:00:00Z", False),
         ]
     )
     @patch("posthog.api.query.process_query_model")
-    def test_mcp_funnel_respects_explicit_timestamp_date_to(
-        self, _name, date_to, expected_range_suffix, mock_process_query_model
+    def test_explicit_date_boundary_marking(
+        self, _name, is_mcp_client, date_to, expected_explicit, mock_process_query_model
     ):
-        mock_process_query_model.return_value = {
-            "results": [
-                {"name": "$pageview", "count": 10, "average_conversion_time": None, "median_conversion_time": None}
-            ],
-            "is_cached": False,
-        }
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
-                }
-            },
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        formatted = response.json()["formatted_results"]
-        self.assertIn(expected_range_suffix, formatted)
-
-    @patch("posthog.api.query.process_query_model")
-    def test_non_mcp_request_does_not_mark_explicit_date(self, mock_process_query_model):
-        # The web UI serialises fixed calendar ranges as naive timestamps and relies on end-of-day
-        # rounding, so a non-MCP request must never have its date boundary marked explicit.
         mock_process_query_model.return_value = {"results": [], "is_cached": False}
 
-        self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": "2026-07-09T00:00:00Z"},
-                }
-            },
-        )
+        url = f"/api/environments/{self.team.id}/query/"
+        # `_mark_explicit_date_boundaries` reads `dateRange` off any query, so the kind is incidental.
+        # It only has to be one core owns, or this test drags a product's runners back into core's inputs.
+        payload = {
+            "query": {
+                "kind": "TracesQuery",
+                "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
+            }
+        }
+        if is_mcp_client:
+            self.client.post(url, payload, HTTP_X_POSTHOG_CLIENT="mcp")
+        else:
+            self.client.post(url, payload)
 
         executed_query = mock_process_query_model.call_args.args[1]
-        self.assertFalse(executed_query.dateRange.explicitDate)
+        self.assertEqual(bool(executed_query.dateRange.explicitDate), expected_explicit)
 
 
 class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):

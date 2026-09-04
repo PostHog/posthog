@@ -1,5 +1,4 @@
 import {
-  type ChangedFile,
   isTerminalStatus,
   type Task,
   type TaskRunStatus,
@@ -60,5 +59,3 @@ export function deriveCloudRunState(
 
   return { prUrl, effectiveBranch, repo, cloudStatus, isRunActive };
 }
-
-export type { ChangedFile };

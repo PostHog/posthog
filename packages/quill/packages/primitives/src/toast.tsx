@@ -76,8 +76,16 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         </span>
                     )}
                     <div className="flex-1 min-w-0">
-                        {toastTitle && <div className="quill-toast-card__title">{toastTitle}</div>}
-                        {toastDescription && <div className="quill-toast-card__description">{toastDescription}</div>}
+                        {toastTitle && (
+                            <div className="quill-toast-card__title" data-base-ui-swipe-ignore>
+                                {toastTitle}
+                            </div>
+                        )}
+                        {toastDescription && (
+                            <div className="quill-toast-card__description" data-base-ui-swipe-ignore>
+                                {toastDescription}
+                            </div>
+                        )}
                     </div>
                 </div>
                 {action && (

@@ -14,6 +14,7 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
@@ -33,7 +34,7 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
     skip_because_of_weekend,
 )
-from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
+from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -48,6 +49,7 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
@@ -108,6 +110,17 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
         return await get_alerts()
 
 
+def _has_active_destinations(alert: AlertConfiguration) -> bool:
+    return (
+        count_active_alert_destinations(
+            team_id=alert.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids={"$insight_alert_firing"},
+        )
+        > 0
+    )
+
+
 @temporalio.activity.defn
 async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResult:
     """Load the alert, validate its config, and decide whether to evaluate."""
@@ -133,6 +146,12 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 insight_id=alert.insight_id,
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
+
+        wants_email = bool(alert.get_subscribed_users_emails())
+        if wants_email and not is_email_available() and not _has_active_destinations(alert):
+            reason = "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
+            disable_invalid_alert(alert, reason, notify_subscribers=False, error_code="email_unavailable")
+            return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=reason)
 
         # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
         # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
@@ -302,7 +321,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         # A non-transient failure: write the errored check and return. Transient errors were
         # re-raised above for the retry policy, and the investigation gating below only fires on a
-        # FIRING transition, so the errored path skips it.
+        # FIRING check, so the errored path skips it.
         if error is not None:
             with transaction.atomic():
                 alert = (
@@ -329,14 +348,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 
-            if should_trigger_investigation(
-                alert,
-                previous_state=previous_state,
-                new_state=alert_check.state,
-            ):
-                if claim_investigation_slot(alert, alert_check):
-                    should_start_investigation = True
-                    should_gate_notification = bool(alert.investigation_gates_notifications)
+            investigation = decide_investigation(alert, alert_check)
+            if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
+                should_start_investigation = True
+                should_gate_notification = investigation.is_first_of_episode and bool(
+                    alert.investigation_gates_notifications
+                )
 
             # Claim the cooldown slot inside the transaction so a flapping or
             # concurrently-retried alert can't pile up investigations.

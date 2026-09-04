@@ -66,8 +66,17 @@ class TestGetModelAccessError:
 
         feature_enabled_mock.assert_not_called()
 
-    @pytest.mark.parametrize("model", ["moonshotai/kimi-k3", "  MoonshotAI/Kimi-K3  "])
-    def test_gated_model_is_allowed_when_the_flag_is_on(self, model):
+    @pytest.mark.parametrize(
+        "model, flag_key",
+        [
+            ("moonshotai/kimi-k3", "tasks-kimi-k3"),
+            ("  MoonshotAI/Kimi-K3  ", "tasks-kimi-k3"),
+            ("deepseek-ai/deepseek-v4-flash-0731", "posthog-code-deepseek-model"),
+            ("zai-org/glm-5.3", "posthog-code-glm-53-model"),
+            ("zai-org/glm-5.3-flash", "posthog-code-glm-53-flash-model"),
+        ],
+    )
+    def test_gated_model_is_allowed_when_the_flag_is_on(self, model, flag_key):
         with (
             override_settings(DEBUG=False),
             patch(
@@ -77,7 +86,7 @@ class TestGetModelAccessError:
         ):
             assert get_model_access_error(model, distinct_id="d-1") is None
 
-        assert feature_enabled_mock.call_args.args[0] == "tasks-kimi-k3"
+        assert feature_enabled_mock.call_args.args[0] == flag_key
         assert feature_enabled_mock.call_args.kwargs["distinct_id"] == "d-1"
 
     @pytest.mark.parametrize(

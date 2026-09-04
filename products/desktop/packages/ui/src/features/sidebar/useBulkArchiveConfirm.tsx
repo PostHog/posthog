@@ -48,9 +48,9 @@ export function useBulkArchiveConfirm(
         runningCount={confirm?.runningCount ?? 0}
         stopsCloudSandbox={Boolean(confirm?.stopsCloudSandbox)}
         isArchiving={actions.isArchiving}
-        onConfirm={async () => {
-          await actions.archiveSelected();
+        onConfirm={() => {
           setConfirm(null);
+          void actions.archiveSelected();
         }}
         onCancel={() => setConfirm(null)}
       />

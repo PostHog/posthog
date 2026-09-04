@@ -15,7 +15,7 @@ from products.review_hog.backend.temporal.activities import (
 
 # The true network boundary: first_for_team_repository probes GitHub with an authenticated
 # GET /repos/{repository} per candidate integration row.
-_CAN_ACCESS = "posthog.models.integration.GitHubIntegration.installation_can_access_repository"
+_CAN_ACCESS = "posthog.models.integration.github.GitHubIntegration.installation_can_access_repository"
 
 
 class TestInstallationAuth(BaseTest):

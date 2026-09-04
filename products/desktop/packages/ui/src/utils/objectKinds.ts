@@ -14,6 +14,7 @@ import {
   ShieldCheckIcon,
   SparkleIcon,
   SquaresFourIcon,
+  TrayIcon,
   UserIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -43,7 +44,15 @@ export interface ObjectKindDef {
   block?: boolean;
 }
 
-export const OBJECT_KINDS: Record<string, ObjectKindDef> = {
+/**
+ * The brand primary (orange in light, yellow in dark): PostHog object icons
+ * carry it wherever they appear so PostHog-native artifacts read as PostHog at
+ * a glance next to files and PRs. Passed as the phosphor `color` prop (an SVG
+ * fill), which quill highlight rules can't reset the way `currentColor` can.
+ */
+export const POSTHOG_OBJECT_ICON_COLOR = "var(--primary)";
+
+const OBJECT_KINDS: Record<string, ObjectKindDef> = {
   insight: {
     icon: ChartLineIcon,
     kindLabel: "Insight",
@@ -105,6 +114,12 @@ export const OBJECT_KINDS: Record<string, ObjectKindDef> = {
     source: "Conversations",
     webPath: (id) => `/support/tickets/${id}`,
   },
+  report: {
+    icon: TrayIcon,
+    kindLabel: "Inbox report",
+    source: "Inbox",
+    webPath: (id) => `/inbox/${id}`,
+  },
   trace: {
     icon: SparkleIcon,
     kindLabel: "LLM trace",
@@ -156,7 +171,7 @@ const OBJECT_KIND_ALIASES: Record<string, string> = {
   sql: "hogql",
 };
 
-export const GENERIC_OBJECT_KIND: ObjectKindDef = {
+const GENERIC_OBJECT_KIND: ObjectKindDef = {
   icon: PulseIcon,
   kindLabel: "Evidence",
   source: "PostHog",

@@ -6,6 +6,8 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { ExperimentStatus } from '~/types'
 
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+
 import {
     getExperimentChangeDescription,
     getHoldoutChangeDescription,
@@ -13,7 +15,6 @@ import {
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
 } from './activity-descriptions'
-import { StatusTag } from './ExperimentView/StatusTag'
 
 //exporting so the linter doesn't complain about this not being used
 export const ExperimentDetails = ({
@@ -265,6 +266,28 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
+        .with({ activity: 'paused' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['paused experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'resumed' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['resumed experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
         .with({ activity: 'exposure_frozen' }, ({ item_id, detail }) => {
             return {
                 description: (
@@ -318,6 +341,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                             .otherwise(() => null)
                     )
                     .filter((part): part is string | JSX.Element => part !== null)
+            }
+
+            if (isExperiment && changes.length > 0 && listParts.length === 0) {
+                // humanize() skips log items with a null description
+                return { description: null }
             }
 
             if (isExperiment && changes.length > 0 && listParts.length > 0) {

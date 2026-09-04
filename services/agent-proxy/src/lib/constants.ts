@@ -13,6 +13,14 @@ export const STREAM_TTL_SECONDS = 6 * 60 * 60 // 21600
 // (mirrors SANDBOX_EVENT_INGEST_TOKEN_TTL in connection_token.py).
 export const SEQUENCE_TTL_SECONDS = STREAM_TTL_SECONDS + 3600 // 25200
 
+// Drain window for a stream after its terminal sentinel
+// (mirrors TASK_RUN_STREAM_COMPLETED_TIMEOUT in redis_stream.py).
+export const STREAM_COMPLETED_TTL_SECONDS = Math.min(30 * 60, Math.floor(STREAM_TTL_SECONDS / 3)) // 1800
+
+export const STREAM_WATCHED_TTL_SECONDS = 5 * 60
+
+export const WATCHED_REFRESH_INTERVAL_MS = 120_000
+
 // Redis XADD MAXLEN ~ (approximate trim, not exact).
 export const STREAM_MAX_LENGTH = 5_000
 
@@ -28,6 +36,10 @@ export const WAIT_TIMEOUT_MS = 300_000
 
 // Idle threshold before emitting a keepalive SSE event
 export const KEEPALIVE_INTERVAL_MS = 20_000
+
+// Per-connection cap before a graceful rotation
+// (mirrors TASK_RUN_STREAM_CONNECTION_MAX_SECONDS in api.py)
+export const CONNECTION_MAX_MS = 15 * 60 * 1000
 
 // Redis SET NX EX throttle window for the Temporal heartbeat callback (seconds)
 export const HEARTBEAT_THROTTLE_SECONDS = 30
@@ -89,11 +101,13 @@ export const SANDBOX_EVENT_INGEST_AUDIENCE = 'posthog:sandbox_event_ingest'
 // normal stream events do not — they carry only "id:" and "data:").
 export const SSE_EVENT_KEEPALIVE = 'keepalive'
 export const SSE_EVENT_STREAM_END = 'stream-end'
+export const SSE_EVENT_END = 'end'
 export const SSE_EVENT_ERROR = 'error'
 
 // SSE payload shapes (byte-identical to Python format_sse_event call sites)
 export const SSE_PAYLOAD_KEEPALIVE: Record<string, string> = { type: 'keepalive' }
 export const SSE_PAYLOAD_STREAM_END: Record<string, string> = { status: 'complete' }
+export const SSE_PAYLOAD_ROTATED: Record<string, string> = { type: 'rotated' }
 
 export function makeSseErrorPayload(error: string): Record<string, string> {
     return { error }

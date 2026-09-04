@@ -12,6 +12,7 @@ use cohort_core::filters::TeamId;
 use cohort_core::DayIdx;
 use serde::{Deserialize, Serialize};
 
+use super::backoff::AttemptCount;
 use super::ids::{ChunkId, ClaimEpoch, RunId, SChunkMs};
 use super::person::PersonRange;
 use super::window::DomainError;
@@ -170,6 +171,38 @@ pub struct ChunkSpec {
     pub s_chunk: SChunkMs,
     /// `Some` ⇔ person chunk (behavioral chunks never write the range columns).
     pub person_range: Option<PersonRange>,
+    /// This claim's attempt number, as the claim UPDATE returned it. Recovery reads it to size the
+    /// chunk's retry wait, so the wait grows with the failures this chunk has actually taken.
+    pub attempt: AttemptCount,
+}
+
+/// How many bytes one chunk's ClickHouse scan moved: `received` off the wire (still compressed) and
+/// `decoded` after decompression. The pair is what turns a slow chunk into a diagnosis, because it
+/// separates a scan that read a lot of data from one that read little and spent its time on CPU.
+///
+/// A scan that halts mid-stream reports only what it had already read, which is the honest number:
+/// bytes the client never pulled were never transferred.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScanVolume {
+    received_bytes: u64,
+    decoded_bytes: u64,
+}
+
+impl ScanVolume {
+    pub const fn new(received_bytes: u64, decoded_bytes: u64) -> Self {
+        Self {
+            received_bytes,
+            decoded_bytes,
+        }
+    }
+
+    pub const fn received_bytes(self) -> u64 {
+        self.received_bytes
+    }
+
+    pub const fn decoded_bytes(self) -> u64 {
+        self.decoded_bytes
+    }
 }
 
 /// Freshly claimed and locked; minted only by `store.claim_next` (or `test_support`).
@@ -187,17 +220,18 @@ impl ClaimedChunk {
         self.spec
     }
 
-    /// Pure transition: attach the scanned tiles. No DB effect.
-    pub fn into_scanned(self, tiles: Vec<SeedTile>) -> ScannedChunk {
-        ScannedChunk::new(self.spec, tiles)
+    /// Pure transition: attach the scanned tiles and the volume the scan moved. No DB effect.
+    pub fn into_scanned(self, tiles: Vec<SeedTile>, volume: ScanVolume) -> ScannedChunk {
+        ScannedChunk::new(self.spec, tiles, volume)
     }
 
     /// Pure transition for the person path: the chunk's seeds were streamed out as they were
-    /// scanned, so only the count remains. No DB effect.
-    pub fn into_streamed(self, seeds_produced: u64) -> StreamedChunk {
+    /// scanned, so only the count and the volume remain. No DB effect.
+    pub fn into_streamed(self, seeds_produced: u64, volume: ScanVolume) -> StreamedChunk {
         StreamedChunk {
             spec: self.spec,
             seeds_produced,
+            volume,
         }
     }
 }
@@ -208,6 +242,7 @@ impl ClaimedChunk {
 pub struct StreamedChunk {
     spec: ChunkSpec,
     seeds_produced: u64,
+    volume: ScanVolume,
 }
 
 impl StreamedChunk {
@@ -218,17 +253,26 @@ impl StreamedChunk {
     pub const fn seeds_produced(&self) -> u64 {
         self.seeds_produced
     }
+
+    pub const fn volume(&self) -> ScanVolume {
+        self.volume
+    }
 }
 
 /// Scanned into tiles but not yet marked produced.
 pub struct ScannedChunk {
     spec: ChunkSpec,
     tiles: Vec<SeedTile>,
+    volume: ScanVolume,
 }
 
 impl ScannedChunk {
-    pub(crate) fn new(spec: ChunkSpec, tiles: Vec<SeedTile>) -> Self {
-        Self { spec, tiles }
+    pub(crate) fn new(spec: ChunkSpec, tiles: Vec<SeedTile>, volume: ScanVolume) -> Self {
+        Self {
+            spec,
+            tiles,
+            volume,
+        }
     }
 
     pub const fn spec(&self) -> ChunkSpec {
@@ -238,6 +282,10 @@ impl ScannedChunk {
     pub fn tiles(&self) -> &[SeedTile] {
         &self.tiles
     }
+
+    pub const fn volume(&self) -> ScanVolume {
+        self.volume
+    }
 }
 
 impl std::fmt::Debug for ScannedChunk {
@@ -246,6 +294,7 @@ impl std::fmt::Debug for ScannedChunk {
             .debug_struct("ScannedChunk")
             .field("spec", &self.spec)
             .field("tiles", &self.tiles.len())
+            .field("volume", &self.volume)
             .finish()
     }
 }

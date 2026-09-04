@@ -28,7 +28,7 @@ Common reinventions and what to use instead:
 
 If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork. If you do end up building custom, stay on brand: system tokens and primitives only, matching the surrounding scene's density and flatness — and none of the generic AI-generated look (purple/blue gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion). The full slop-tell catalog is in the `/writing-ui-components` skill.
 
-The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 4 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
+The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 5 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
 > LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
@@ -60,7 +60,7 @@ When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API inter
 
 Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
 
-## Rule 4 — Structure and abstraction
+## Rule 5 — Structure and abstraction
 
 Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Load it before creating, moving, splitting, or restructuring any component or frontend file, extracting a shared component, or renaming frontend symbols. The always-on core:
 
@@ -69,6 +69,19 @@ Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Lo
 - **Interactive elements are real `<button>`/`<a>`** — that's what `LemonButton`/quill triggers render. Never `onClick` on a `<div>`/Card.
 - **Loading, empty, and error are three different screens.** Never derive "empty" from data that hasn't resolved — branch on the loading/unknown state first.
 - **Renames sweep code symbols completely; wire strings stay frozen.** Event names, property names/values, flag keys, `data-attr` values, storage keys, and URL paths are API (dashboards, rollouts, and Playwright depend on them) — pin them with a comment instead of renaming.
+
+## Rule 6 — A narrow scene is normal; a phone is not
+
+Every surface a person reads has to hold up in a narrow scene.
+The width a component gets is not the window width: the nav sidebar takes ~215px, an open side panel ~512px more, and the scene pads 32px on top.
+So a 1280px window with the side panel open leaves a scene about 520px wide — narrower than a `md:` breakpoint ever fires at.
+That is a normal working setup, not an edge case, and it is the case agents skip.
+
+- **Break on the container, not the viewport.** `md:`/`lg:`/`xl:` track the window, so they fire long after the real space ran out. Container queries track the space the component actually has. `layout/navigation-3000/Navigation.tsx` names `main-content` and `main-content-container`, so `@min-[48rem]/main-content:` follows the main column. A shared component declares its own container instead, because it must respond wherever a caller places it — `lib/lemon-ui/LemonBanner/LemonBanner.tsx` is the pattern.
+- **Nothing clips and nothing scrolls sideways.** Rows of buttons, tags, or chips get `flex-wrap`. Long strings truncate. Side-by-side halves stack. An unwrapped action row is the most common miss.
+- **Cut decoration before content.** When something has to go at a narrow width, drop the illustration or the padding, not the explanation or the primary action.
+- **Do not build for mobile.** No phone-width layouts, no touch-sized targets, no `sm:` variants for a viewport nobody runs the app at. "Narrow" means a docked panel on a laptop.
+- **Look at it, don't reason about it.** Render the surface at a few widths before calling the work done. A story with a pinned container width snapshots the narrow case, so a regression shows up in visual review.
 
 ## Typecheck & typegen cadence (don't over-run these)
 

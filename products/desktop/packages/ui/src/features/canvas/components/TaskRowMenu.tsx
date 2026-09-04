@@ -1,12 +1,17 @@
 import {
   ArchiveIcon,
+  ArrowSquareOutIcon,
   CaretRightIcon,
+  DotsThreeIcon,
   FolderSimpleIcon,
+  MagnifyingGlassIcon,
   PencilSimpleIcon,
   PushPinIcon,
   PushPinSlashIcon,
   SquaresFourIcon,
+  StopCircle,
   TrashIcon,
+  UserSwitchIcon,
 } from "@phosphor-icons/react";
 import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
@@ -18,45 +23,66 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
   DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
+import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
+import { useTaskAnalysis } from "@posthog/ui/features/task-detail/components/TaskAnalysisButton";
 import {
   type MenuFlyoutItem,
   MenuSubFlyout,
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
-import { type ComponentType, type ReactNode, useMemo } from "react";
+import {
+  type ComponentType,
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 
 /**
  * What a row's menu can do. The row owns the handlers because they're the same
  * ones its list already has (pin, archive, delete, rename inline); only filing —
  * which needs the channel list and a mutation — belongs to the menu.
  *
- * Canvases share this menu but not all of it: they can be pinned and deleted,
- * and they can't be filed to a space or given a command-centre cell, both of
- * which are task-shaped. `kind` is what decides, so a canvas gets a menu of the
- * actions it has rather than a full one with half its items dead.
+ * Canvases share this menu but not all of it: they can be added to the command
+ * centre, pinned, filed, and deleted. `kind` decides which remaining actions
+ * apply.
  */
 export interface TaskRowMenuProps {
   kind: "task" | "canvas";
   id: string;
   title: string;
   isPinned: boolean;
-  /** The channel this task is already filed to, ticked in "File to…". */
+  task?: Task;
+  /** The channel this item is already filed to, ticked in "File to…". */
   channelId?: string;
   /** Absent when the command centre is full, which disables the item. */
   onAddToCommandCenter?: () => void;
   /** Absent where there's no inline rename to open — canvases, for now. */
   onRename?: () => void;
+  onStop?: () => void;
   onTogglePin: () => void;
+  /** Canvases supply their own filing mutation; task filing is shared here. */
+  onFile?: (channelId: string) => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
+  /** Owner-only: handing a task to a colleague needs a confirm dialog. */
+  onHandoff?: () => void;
 }
 
 // The two menus differ only in which primitives draw them, so the item list is
@@ -80,6 +106,30 @@ const CONTEXT_PARTS: MenuParts = {
   SubTrigger: ContextMenuSubTrigger,
 };
 
+const DROPDOWN_PARTS: MenuParts = {
+  Item: DropdownMenuItem,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
+};
+
+function TaskAnalysisMenuItem({
+  Item,
+  task,
+}: {
+  Item: MenuParts["Item"];
+  task: Task;
+}): ReactElement | null {
+  const { canAnalyze, isPending, run } = useTaskAnalysis(task);
+  if (!canAnalyze) return null;
+
+  return (
+    <Item disabled={isPending} onClick={run}>
+      <MagnifyingGlassIcon size={14} />
+      {isPending ? "Analyzing…" : "Run analysis"}
+    </Item>
+  );
+}
+
 /**
  * The row's actions, in the order the native menu used: the edits, then the
  * places a task can be sent, then the destructive one last.
@@ -99,8 +149,10 @@ function TaskRowMenuItems({
     import.meta.env.DEV,
   );
   const isTask = menu.kind === "task";
-  const { channels } = useChannels({ enabled: bluebirdEnabled && isTask });
+  const analysisTask = isTask && menu.task?.latest_run ? menu.task : null;
+  const { channels } = useChannels({ enabled: bluebirdEnabled });
   const fileToChannel = useFileTaskToChannel();
+  const openBrowserTab = useOpenBrowserTab();
 
   const channelItems: MenuFlyoutItem[] = channels.map((channel) => ({
     id: channel.id,
@@ -109,8 +161,27 @@ function TaskRowMenuItems({
     starred: channel.starred,
   }));
 
+  // A canvas lives in one space, so its new-tab URL needs that space's id; a
+  // task has a channel-independent route, so it opens even when the row is
+  // listed outside its own space (activity, saved search).
+  const newTabHref = isTask
+    ? `/tasks/${menu.id}`
+    : menu.channelId
+      ? `/spaces/${menu.channelId}/dashboards/${menu.id}`
+      : null;
+  const canOpenInNewTab = newTabHref !== null;
+
   return (
     <>
+      <Item
+        disabled={!canOpenInNewTab}
+        onClick={() => {
+          if (newTabHref) openBrowserTab(newTabHref);
+        }}
+      >
+        <ArrowSquareOutIcon size={14} />
+        Open in new tab
+      </Item>
       <Item onClick={menu.onTogglePin}>
         {menu.isPinned ? (
           <PushPinSlashIcon size={14} />
@@ -125,16 +196,21 @@ function TaskRowMenuItems({
           Rename
         </Item>
       )}
-      {isTask && (
-        <Item
-          disabled={!menu.onAddToCommandCenter}
-          onClick={menu.onAddToCommandCenter}
-        >
-          <SquaresFourIcon size={14} />
-          Add to Command Center
+      {analysisTask && <TaskAnalysisMenuItem Item={Item} task={analysisTask} />}
+      {menu.onStop && (
+        <Item onClick={menu.onStop}>
+          <StopCircle size={14} />
+          Stop task
         </Item>
       )}
-      {isTask && channelItems.length > 0 && (
+      <Item
+        disabled={!menu.onAddToCommandCenter}
+        onClick={menu.onAddToCommandCenter}
+      >
+        <SquaresFourIcon size={14} />
+        Add to Command Center…
+      </Item>
+      {channelItems.length > 0 && (isTask || menu.onFile) && (
         <Sub>
           <SubTrigger>
             <FolderSimpleIcon size={14} />
@@ -146,11 +222,19 @@ function TaskRowMenuItems({
               placeholder="Search spaces…"
               emptyLabel="No spaces"
               onSelect={(channelId) =>
-                fileToChannel(channelId, menu.id, menu.title)
+                menu.kind === "canvas"
+                  ? menu.onFile?.(channelId)
+                  : fileToChannel(channelId, menu.id, menu.title)
               }
             />
           </MenuSubFlyout>
         </Sub>
+      )}
+      {isTask && menu.onHandoff && (
+        <Item onClick={menu.onHandoff}>
+          <UserSwitchIcon size={14} />
+          Hand off…
+        </Item>
       )}
       {menu.onArchive && (
         <Item onClick={menu.onArchive}>
@@ -254,6 +338,30 @@ function TaskRowBulkMenuItems({
  * `onSubmenuOpenChange` reports the one thing that *is* a popup ("File to…"), so
  * a hover surface can stay open while the pointer is inside it.
  */
+export function TaskRowDropdownMenu({ menu }: { menu: TaskRowMenuProps }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label={`Options for ${menu.title || "task"}`}
+            onClick={(event) => event.stopPropagation()}
+          />
+        }
+      >
+        <DotsThreeIcon size={14} weight="bold" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <TaskRowMenuItems parts={DROPDOWN_PARTS} menu={menu} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function TaskRowMenuList({
   menu,
   onAction,
@@ -329,8 +437,19 @@ export function TaskRowContextMenu({
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
+  const holdSidebarPeek = useHoldSidebarPeek();
+  const handleOpenChange = useCallback(
+    (open: boolean): void => {
+      if (!open || useSidebarPeekStore.getState().peek) {
+        holdSidebarPeek(open);
+      }
+      onOpenChange?.(open);
+    },
+    [holdSidebarPeek, onOpenChange],
+  );
+
   return (
-    <ContextMenu onOpenChange={onOpenChange}>
+    <ContextMenu onOpenChange={handleOpenChange}>
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>

@@ -52,6 +52,11 @@ from posthog.web_bot_auth import http_message_signatures_directory
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
+from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
+from products.customer_analytics.backend.presentation.views.internal import (
+    InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
+    InternalAccountView as CustomerAnalyticsInternalAccountView,
+)
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -151,10 +156,27 @@ def _dispatch_installation_event(
     return handle_installation_event(payload)
 
 
+def _dispatch_installation_repositories_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from posthog.api.github_callback.installation_events import handle_installation_repositories_event
+
+    return handle_installation_repositories_event(payload)
+
+
 def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str) -> None:
     from products.tasks.backend.facade.webhooks import handle_github_event_for_loops
 
     handle_github_event_for_loops(event_type, payload, delivery_id)
+    return None
+
+
+def _dispatch_workflow_triggers(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> None:
+    from products.workflows.backend.github_workflow_events import emit_github_event
+
+    emit_github_event(event_type, payload, delivery_id)
     return None
 
 
@@ -166,23 +188,31 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     "issues": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "issue_comment": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "pull_request": [
         ("tasks_pr_backstop", _dispatch_pull_request_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "pull_request_review": [
         ("tasks_pr_review", _dispatch_pull_request_review_event),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
     ],
+    "installation_repositories": [
+        ("installation_repositories", _dispatch_installation_repositories_event),
+    ],
     "push": [
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
 }
 
@@ -614,6 +644,20 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
+    ),
+    # Ticket route for the CDP worker's workflow actions (auth: scoped service JWT)
+    path(
+        "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
+        csrf_exempt(ConversationsInternalTicketView.as_view()),
+    ),
+    # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account",
+        csrf_exempt(CustomerAnalyticsInternalAccountView.as_view()),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account/custom_property_values",
+        csrf_exempt(CustomerAnalyticsInternalAccountCustomPropertiesView.as_view()),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

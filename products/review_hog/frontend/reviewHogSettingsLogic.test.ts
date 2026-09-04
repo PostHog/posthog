@@ -186,13 +186,13 @@ describe('reviewHogSettingsLogic', () => {
         expect(requestBody).toMatchObject({ run_mode: 'resolve_only' })
     })
 
-    it('an already-reviewed PR informs without arming the watch', async () => {
+    it.each([
+        ['already_reviewed', 200, ''],
+        ['joined_running_review', 202, 'wf-running'],
+    ])('a %s response informs without arming the watch', async (status, code, workflowId) => {
         useMocks({
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
-                    200,
-                    { workflow_id: '', status: 'already_reviewed' },
-                ],
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [code, { workflow_id: workflowId, status }],
             },
         })
         logic.mount()
@@ -215,7 +215,7 @@ describe('reviewHogSettingsLogic', () => {
             post: {
                 '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
                     403,
-                    { error: "ReviewHog reviews can't be started from this project yet" },
+                    { error: "PostHog Review can't start reviews from this project yet" },
                 ],
             },
         })

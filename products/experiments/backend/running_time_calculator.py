@@ -132,7 +132,15 @@ def calculate_sample_size(
         # Count / Sum / Ratio / Retention: N = (16 · variance) / d²
         sample_size_formula = (SAMPLE_SIZE_Z_FACTOR * variance) / d**2
 
-    return math.ceil(sample_size_formula * number_of_variants)
+    sample_size = math.ceil(sample_size_formula * number_of_variants)
+
+    # A funnel baseline above 1 flips the (1 - p) term negative, and the delta method can return a
+    # negative variance for ratio/retention. Both make the sample size non-positive, which has no
+    # meaning as a count and downstream renders as a negative running time. Treat it as no estimate.
+    if sample_size <= 0:
+        return None
+
+    return sample_size
 
 
 def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMetricType) -> float | None:

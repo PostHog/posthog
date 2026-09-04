@@ -3,12 +3,14 @@ import {
   getLocalDayKey,
   type WorkspaceMode,
 } from "@posthog/shared";
+import type { TaskListGroupingChangedProperties } from "@posthog/shared/analytics-events";
 import type {
   Task,
   TaskRunStatus,
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
+import { getRepositoryInfo, repositoryLabel } from "../sidebar/groupTasks";
 import { taskActivityAt, taskActivityTimestamp } from "../tasks/taskActivity";
 import type { DashboardRecord } from "./dashboardSchemas";
 
@@ -38,6 +40,15 @@ export interface ChannelItemModel {
   needsInput: boolean;
   /** There is activity here you haven't seen. */
   unread: boolean;
+  /**
+   * Where the session's work sits, resolved once here: the row, its card and
+   * the repository grouping all read this, so they cannot answer the question
+   * three ways. Null for a canvas, and for a session with no repository and no
+   * checkout on this client.
+   */
+  repository: ChannelItemRepository | null;
+  /** The branch its work is on, from the local checkout or the run. */
+  branch: string | null;
   authorUser: UserBasic | null;
   authorName: string | null;
   authorUuid: string | null;
@@ -51,6 +62,13 @@ export interface ChannelItemModel {
    * than a second pass over every row.
    */
   task: Task | null;
+}
+
+/** A repository, as a grouping key and as a reader names it. */
+export interface ChannelItemRepository {
+  /** Case-folded full path, so two spellings of one repository group together. */
+  key: string;
+  label: string;
 }
 
 export interface ChannelItemOwner {
@@ -79,13 +97,27 @@ function isOwnedBy(
 export interface ChannelSessionFacts {
   needsInputTaskIds: ReadonlySet<string>;
   viewedTimestamps: Readonly<Record<string, TaskTimestamp>>;
-  workspaceModeByTaskId: ReadonlyMap<string, WorkspaceMode>;
+  /** The local checkout, where this client has one: where it is, and on what. */
+  workspaceByTaskId: ReadonlyMap<string, ChannelWorkspaceFacts>;
+}
+
+/** What a session's local checkout says about it. */
+export interface ChannelWorkspaceFacts {
+  mode?: WorkspaceMode;
+  folderPath?: string;
+  branch?: string;
+  /**
+   * A synthetic scratch dir for a repo-less session, not a checkout. Its
+   * folderPath is `<scratchBase>/<taskId>`, so resolving a repository from it
+   * would label the session by its own id — skip it.
+   */
+  isScratch?: boolean;
 }
 
 const NO_SESSION_FACTS: ChannelSessionFacts = {
   needsInputTaskIds: new Set(),
   viewedTimestamps: {},
-  workspaceModeByTaskId: new Map(),
+  workspaceByTaskId: new Map(),
 };
 
 /**
@@ -146,40 +178,50 @@ export function buildChannelItems({
     authorName: d.createdBy ?? null,
     authorUuid: d.createdByUuid ?? null,
     templateId: d.templateId,
+    repository: null,
+    branch: null,
     task: null,
   }));
 
-  const taskItems: ChannelItemModel[] = feedTasks.flatMap((task) =>
-    archivedTaskIds.has(task.id)
-      ? []
-      : [
-          {
-            key: `task:${task.id}`,
-            kind: "task" as const,
-            id: task.id,
-            title: task.title || "Untitled task",
-            ts: taskActivityTimestamp(task, "updated") || 0,
-            createdAt: Date.parse(task.created_at) || 0,
-            pinned: pinnedTaskIds.has(task.id),
-            rawStatus: task.latest_run?.status ?? null,
-            environment: environmentOf(
-              task,
-              sessionFacts.workspaceModeByTaskId.get(task.id),
-            ),
-            source: sourceOf(task),
-            needsInput: sessionFacts.needsInputTaskIds.has(task.id),
-            unread: isTaskUnread(
-              taskActivityAt(task),
-              sessionFacts.viewedTimestamps[task.id],
-            ),
-            authorUser: task.created_by ?? null,
-            authorName: null,
-            authorUuid: task.created_by?.uuid ?? null,
-            templateId: null,
-            task,
-          },
-        ],
-  );
+  const taskItems: ChannelItemModel[] = feedTasks.flatMap((task) => {
+    if (archivedTaskIds.has(task.id)) return [];
+    const workspace = sessionFacts.workspaceByTaskId.get(task.id);
+    const repository = getRepositoryInfo(
+      task,
+      workspace?.isScratch ? undefined : workspace?.folderPath,
+    );
+    return [
+      {
+        key: `task:${task.id}`,
+        kind: "task" as const,
+        id: task.id,
+        title: task.title || "Untitled task",
+        ts: taskActivityTimestamp(task, "updated") || 0,
+        createdAt: Date.parse(task.created_at) || 0,
+        pinned: pinnedTaskIds.has(task.id),
+        rawStatus: task.latest_run?.status ?? null,
+        environment: environmentOf(task, workspace?.mode),
+        source: sourceOf(task),
+        needsInput: sessionFacts.needsInputTaskIds.has(task.id),
+        unread: isTaskUnread(
+          taskActivityAt(task),
+          sessionFacts.viewedTimestamps[task.id],
+        ),
+        authorUser: task.created_by ?? null,
+        authorName: null,
+        authorUuid: task.created_by?.uuid ?? null,
+        templateId: null,
+        repository: repository
+          ? {
+              key: repository.fullPath,
+              label: repositoryLabel(repository) ?? repository.name,
+            }
+          : null,
+        branch: workspace?.branch ?? task.latest_run?.branch ?? null,
+        task,
+      },
+    ];
+  });
 
   const all = [...canvasItems, ...taskItems].sort((a, b) => b.ts - a.ts);
   return ownedBy ? all.filter((item) => isOwnedBy(item, ownedBy)) : all;
@@ -214,6 +256,23 @@ export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
 
 /** Newest activity first, which is what a session list is for. */
 export const DEFAULT_CHANNEL_ITEM_SORT: ChannelItemSort = "recent";
+
+/**
+ * The space list's sort, in the vocabulary the shared task-list events use:
+ * "recent" and the sidebar's "updated" are the same scale under two names, and
+ * binding them here is what keeps one property from meaning two things.
+ */
+export function channelItemSortEvent(
+  sort: ChannelItemSort,
+): TaskListGroupingChangedProperties["sort_by"] {
+  return sort === "recent" ? "updated" : sort;
+}
+
+/** What the list's section headers stand for. */
+export type ChannelItemGrouping = "date" | "repository";
+
+/** Days, because when something happened is what a session list is scanned by. */
+export const DEFAULT_CHANNEL_ITEM_GROUPING: ChannelItemGrouping = "date";
 
 /**
  * Whether the list is narrowed — what lights the filter button up. The search
@@ -350,6 +409,7 @@ export function groupChannelItems(
   items: readonly ChannelItemModel[],
   sort: ChannelItemSort,
   now: Date = new Date(),
+  grouping: ChannelItemGrouping = DEFAULT_CHANNEL_ITEM_GROUPING,
 ): ChannelItemSection[] {
   const sections: ChannelItemSection[] = [];
 
@@ -360,6 +420,10 @@ export function groupChannelItems(
 
   const rest = items.filter((item) => !item.pinned);
   if (rest.length === 0) return sections;
+  if (grouping === "repository") {
+    sections.push(...repositorySections(rest));
+    return sections;
+  }
   if (sort === "alpha") {
     sections.push({ key: "all", label: null, items: rest });
     return sections;
@@ -379,4 +443,36 @@ export function groupChannelItems(
     sections.push({ key, label: formatShortDayLabel(ts, now), items: [item] });
   }
   return sections;
+}
+
+/** The repository a row belongs under, or null where it names none. */
+const NO_REPOSITORY_KEY = "repo:none";
+
+/**
+ * One section per repository, in the order the sorted list first reaches each
+ * one — so a repository-grouped list still opens on the most recent work rather
+ * than on whichever repository sorts first alphabetically. Sessions with no
+ * repository are a run of their own at the end, where they don't interrupt the
+ * named ones.
+ */
+function repositorySections(
+  items: readonly ChannelItemModel[],
+): ChannelItemSection[] {
+  const byRepo = new Map<string, ChannelItemSection>();
+  for (const item of items) {
+    const key = item.repository
+      ? `repo:${item.repository.key}`
+      : NO_REPOSITORY_KEY;
+    const label = item.repository?.label ?? "No repository";
+    const open = byRepo.get(key);
+    if (open) {
+      open.items.push(item);
+      continue;
+    }
+    byRepo.set(key, { key, label, items: [item] });
+  }
+
+  const sections = [...byRepo.values()];
+  const unnamed = sections.filter((s) => s.key === NO_REPOSITORY_KEY);
+  return [...sections.filter((s) => s.key !== NO_REPOSITORY_KEY), ...unnamed];
 }

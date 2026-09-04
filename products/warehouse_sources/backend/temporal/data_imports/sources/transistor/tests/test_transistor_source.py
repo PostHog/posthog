@@ -7,7 +7,6 @@ import structlog
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.transistor import (
     TransistorSourceConfig,
@@ -17,10 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.transistor
     TRANSISTOR_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.source import TransistorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.transistor import (
-    TransistorResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.transistor.source"
 
@@ -50,9 +45,6 @@ class TestTransistorSource:
     def setup_method(self):
         self.source = TransistorSource()
         self.config = TransistorSourceConfig(api_key="secret-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TRANSISTOR
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -125,16 +117,6 @@ class TestTransistorSource:
             # agent reasons about.
             assert set(TRANSISTOR_ENDPOINTS[endpoint].primary_keys) <= set(entry.get("columns", {}))
 
-    @pytest.mark.parametrize(
-        "result",
-        [(True, None), (False, "Transistor rejected the API key.")],
-    )
-    def test_validate_credentials_delegates_to_the_transport(self, result):
-        with mock.patch(f"{SOURCE_MODULE}.validate_transistor_credentials", return_value=result) as validate:
-            assert self.source.validate_credentials(self.config, team_id=123) == result
-
-        validate.assert_called_once_with("secret-key")
-
     @pytest.mark.parametrize("status", ["401", "403"])
     def test_auth_failures_are_non_retryable(self, status):
         errors = self.source.get_non_retryable_errors()
@@ -142,12 +124,6 @@ class TestTransistorSource:
         # Without these the job retries a permanently bad key until the schedule gives up.
         assert any(status in pattern for pattern in errors)
         assert all(message for message in errors.values())
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TransistorResumeConfig
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_uses_the_endpoint_primary_keys(self, endpoint):

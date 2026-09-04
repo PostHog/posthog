@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Get tenant-safe live worker, session, queue, and capacity data for the current organization.
  * @summary Get managed warehouse monitoring snapshot
  */
-export const DataWarehouseManagedWarehouseMonitoringRetrieveParams = /* @__PURE__ */ zod.object({
+export const DataWarehouseManagedWarehouseMonitoringRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -24,7 +24,7 @@ export const DataWarehouseManagedWarehouseMonitoringRetrieveParams = /* @__PURE_
  * Get one allow-listed monitoring metric for the current organization and trailing time window.
  * @summary Get managed warehouse monitoring time series
  */
-export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = /* @__PURE__ */ zod.object({
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -34,7 +34,7 @@ export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = /
 
 export const dataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryWindowDefault = `24h`
 
-export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams = () => zod.object({
     metric: zod
         .enum([
             'query_rate',
@@ -58,7 +58,7 @@ export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParam
         ),
 })
 
-export const InsightVariablesCreateParams = /* @__PURE__ */ zod.object({
+export const InsightVariablesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -68,7 +68,7 @@ export const InsightVariablesCreateParams = /* @__PURE__ */ zod.object({
 
 export const insightVariablesCreateBodyNameMax = 400
 
-export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
+export const InsightVariablesCreateBody = () => zod.object({
     name: zod.string().max(insightVariablesCreateBodyNameMax).describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
@@ -93,7 +93,7 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
-export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const InsightVariablesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this insight variable.'),
     project_id: zod
         .string()
@@ -104,7 +104,7 @@ export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const insightVariablesPartialUpdateBodyNameMax = 400
 
-export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const InsightVariablesPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(insightVariablesPartialUpdateBodyNameMax)
@@ -134,7 +134,7 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
-export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({
+export const InsightVariablesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this insight variable.'),
     project_id: zod
         .string()
@@ -150,7 +150,7 @@ export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
  * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
  */
-export const SavedQueryColumnAnnotationsListParams = /* @__PURE__ */ zod.object({
+export const SavedQueryColumnAnnotationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -158,7 +158,7 @@ export const SavedQueryColumnAnnotationsListParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const SavedQueryColumnAnnotationsListQueryParams = /* @__PURE__ */ zod.object({
+export const SavedQueryColumnAnnotationsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     saved_query_id: zod
@@ -174,7 +174,7 @@ export const SavedQueryColumnAnnotationsListQueryParams = /* @__PURE__ */ zod.ob
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
  * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
  */
-export const SavedQueryColumnAnnotationsCreateParams = /* @__PURE__ */ zod.object({
+export const SavedQueryColumnAnnotationsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -182,7 +182,7 @@ export const SavedQueryColumnAnnotationsCreateParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const SavedQueryColumnAnnotationsCreateBody = /* @__PURE__ */ zod
+export const SavedQueryColumnAnnotationsCreateBody = () => zod
     .object({
         saved_query: zod.string().describe('ID of the data warehouse saved query (view) this annotation describes.'),
         column_name: zod
@@ -206,7 +206,7 @@ export const SavedQueryColumnAnnotationsCreateBody = /* @__PURE__ */ zod
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
  * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
-export const WarehouseColumnAnnotationsListParams = /* @__PURE__ */ zod.object({
+export const WarehouseColumnAnnotationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -214,7 +214,7 @@ export const WarehouseColumnAnnotationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const WarehouseColumnAnnotationsListQueryParams = /* @__PURE__ */ zod.object({
+export const WarehouseColumnAnnotationsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     table_id: zod.string().optional().describe('Only return annotations for this data warehouse table.'),
@@ -227,7 +227,7 @@ export const WarehouseColumnAnnotationsListQueryParams = /* @__PURE__ */ zod.obj
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
  * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
-export const WarehouseColumnAnnotationsCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseColumnAnnotationsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -235,7 +235,7 @@ export const WarehouseColumnAnnotationsCreateParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const WarehouseColumnAnnotationsCreateBody = /* @__PURE__ */ zod
+export const WarehouseColumnAnnotationsCreateBody = () => zod
     .object({
         table: zod.string().describe('ID of the data warehouse table this annotation describes.'),
         column_name: zod
@@ -259,7 +259,7 @@ export const WarehouseColumnAnnotationsCreateBody = /* @__PURE__ */ zod
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
  * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
-export const WarehouseColumnAnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const WarehouseColumnAnnotationsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this warehouse column annotation.'),
     project_id: zod
         .string()
@@ -268,7 +268,7 @@ export const WarehouseColumnAnnotationsPartialUpdateParams = /* @__PURE__ */ zod
         ),
 })
 
-export const WarehouseColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod
+export const WarehouseColumnAnnotationsPartialUpdateBody = () => zod
     .object({
         table: zod.string().optional().describe('ID of the data warehouse table this annotation describes.'),
         column_name: zod
@@ -289,7 +289,7 @@ export const WarehouseColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export const WarehouseSavedQueriesListParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -297,7 +297,7 @@ export const WarehouseSavedQueriesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const WarehouseSavedQueriesListQueryParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesListQueryParams = () => zod.object({
     page: zod.number().optional().describe('A page number within the paginated result set.'),
     search: zod.string().optional().describe('A search term.'),
 })
@@ -305,7 +305,7 @@ export const WarehouseSavedQueriesListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export const WarehouseSavedQueriesCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -321,7 +321,7 @@ export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsDefault
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMax = 2592000
 
-export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
+export const WarehouseSavedQueriesCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -404,7 +404,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export const WarehouseSavedQueriesRetrieveParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod
         .string()
@@ -416,7 +416,7 @@ export const WarehouseSavedQueriesRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export const WarehouseSavedQueriesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod
         .string()
@@ -433,7 +433,7 @@ export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSeconds
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSecondsMax = 2592000
 
-export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
+export const WarehouseSavedQueriesPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -522,7 +522,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
-export const WarehouseSavedQueriesDestroyParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod
         .string()
@@ -534,7 +534,7 @@ export const WarehouseSavedQueriesDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Enable materialization for this saved query, at the requested sync frequency or daily.
  */
-export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesMaterializeCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod
         .string()
@@ -545,7 +545,7 @@ export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.
 
 export const warehouseSavedQueriesMaterializeCreateBodySyncFrequencyDefault = `24hour`
 
-export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
+export const WarehouseSavedQueriesMaterializeCreateBody = () => zod
     .object({
         sync_frequency: zod
             .enum(['15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
@@ -563,7 +563,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
  * Undo materialization, revert back to the original view.
  * (i.e. delete the materialized table and the schedule)
  */
-export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesRevertMaterializationCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod
         .string()
@@ -580,7 +580,7 @@ export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneL
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsMax = 2592000
 
-export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
+export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
     .object({
         deleted: zod.boolean().nullish(),
         name: zod
@@ -676,7 +676,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
 /**
  * Run this saved query.
  */
-export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesRunCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod
         .string()
@@ -687,7 +687,7 @@ export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
 
 export const warehouseSavedQueriesRunCreateBodyFullRefreshDefault = false
 
-export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
+export const WarehouseSavedQueriesRunCreateBody = () => zod
     .object({
         full_refresh: zod
             .boolean()
@@ -701,7 +701,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
 /**
  * Return the recent run history (up to 5 most recent) for this materialized view.
  */
-export const WarehouseSavedQueriesRunHistoryRetrieveParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesRunHistoryRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
     project_id: zod
         .string()
@@ -711,10 +711,122 @@ export const WarehouseSavedQueriesRunHistoryRetrieveParams = /* @__PURE__ */ zod
 })
 
 /**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const WarehouseTablesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const warehouseTablesCreateBodyNameMax = 128
+
+export const warehouseTablesCreateBodyUrlPatternMax = 500
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax = 200
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax = 150
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax = 150
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneEmailMax = 254
+
+export const warehouseTablesCreateBodyCredentialAccessKeyMax = 500
+
+export const warehouseTablesCreateBodyCredentialAccessSecretMax = 500
+
+export const WarehouseTablesCreateBody = () => zod
+    .object({
+        deleted: zod.boolean().nullish().describe('Whether the table is soft-deleted and hidden from queries.'),
+        name: zod
+            .string()
+            .max(warehouseTablesCreateBodyNameMax)
+            .describe(
+                'Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.'
+            ),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            )
+            .describe(
+                'File format of the objects the pattern matches. Every matched file must share this format.\n\n\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod
+            .string()
+            .max(warehouseTablesCreateBodyUrlPatternMax)
+            .describe(
+                "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
+            ),
+        credential: zod.object({
+            id: zod.string().optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                    email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'student',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                })
+                .optional(),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
+            access_key: zod
+                .string()
+                .max(warehouseTablesCreateBodyCredentialAccessKeyMax)
+                .describe(
+                    'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
+                ),
+            access_secret: zod
+                .string()
+                .max(warehouseTablesCreateBodyCredentialAccessSecretMax)
+                .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
+        }),
+        options: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe(
+                'Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.'
+            ),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
  * Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. Not for tables managed by an external data source sync — those refresh on their own schedule.
  * @summary Refresh table schema from source
  */
-export const WarehouseTablesRefreshSchemaCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseTablesRefreshSchemaCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse table.'),
     project_id: zod
         .string()

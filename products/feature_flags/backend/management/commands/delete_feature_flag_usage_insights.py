@@ -33,7 +33,7 @@ from products.feature_flags.backend.api.feature_flag import (
     USAGE_DASHBOARD_NAME_PREFIX,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Tags each activity-log entry so a sweep's deletions are distinguishable from a user's.
 _JOB_TYPE = "delete_feature_flag_usage_insights"
@@ -289,7 +289,7 @@ class Command(BaseCommand):
         return deletable
 
     def _soft_delete(self, insights: list[_Candidate]) -> None:
-        """Mirror InsightViewSet.bulk_delete (products/product_analytics/backend/api/insight.py): soft-delete
+        """Mirror InsightViewSet.bulk_delete (products/product_analytics/backend/presentation/insight.py): soft-delete
         the insights and their tiles, then log each removal as system activity.
 
         Three of bulk_delete's steps are deliberately dropped: its alert teardown, because `_keep_ids`

@@ -6,13 +6,15 @@ recognizable.
 
 import datetime as dt
 from dataclasses import asdict
+from typing import cast
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -20,13 +22,17 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.models import User
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
+    explain_metric_bucket,
+    get_metrics_overview,
     list_metric_attribute_keys,
     list_metric_attribute_values,
+    list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
     run_metric_query,
@@ -34,6 +40,7 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
@@ -45,13 +52,26 @@ from products.metrics.backend.facade.enums import AttributeScope, FilterOp, Metr
 __all__ = ["MetricsViewSet"]
 
 
+class MetricAttributeScope(models.TextChoices):
+    RESOURCE = "resource", "resource"
+    ATTRIBUTE = "attribute", "attribute"
+    AUTO = "auto", "auto"
+
+
+class Op(models.TextChoices):
+    EQ = "eq", "eq"
+    NEQ = "neq", "neq"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+
+
 class _MetricFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
         max_length=255,
         help_text="Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
     )
     op = serializers.ChoiceField(
-        choices=["eq", "neq", "regex", "not_regex"],
+        choices=Op.choices,
         default="eq",
         help_text="Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.",
     )
@@ -61,7 +81,7 @@ class _MetricFilterSerializer(serializers.Serializer):
         help_text="Value to compare against. For regex operators this is the pattern.",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.",
     )
@@ -73,7 +93,7 @@ class _MetricGroupBySerializer(serializers.Serializer):
         help_text="Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.",
     )
@@ -95,7 +115,7 @@ class _MetricClauseSerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
         help_text="Aggregation applied per time bucket; same semantics as the top-level aggregation.",
     )
@@ -120,6 +140,17 @@ class _MetricClauseSerializer(serializers.Serializer):
     )
 
 
+class MetricQueryInterval(models.TextChoices):
+    SECOND = "second", "second"
+    MINUTE = "minute", "minute"
+    MINUTE_5 = "minute_5", "minute_5"
+    MINUTE_15 = "minute_15", "minute_15"
+    HOUR = "hour", "hour"
+    HOUR_6 = "hour_6", "hour_6"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -133,9 +164,9 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
-        help_text="Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
+        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
     )
     quantile = serializers.FloatField(
         required=False,
@@ -157,7 +188,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.",
     )
     interval = serializers.ChoiceField(
-        choices=["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        choices=MetricQueryInterval.choices,
         required=False,
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
@@ -285,7 +316,7 @@ class _MetricAnomalyBodySerializer(serializers.Serializer):
         help_text="End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         required=False,
         allow_null=True,
         help_text="Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).",
@@ -326,6 +357,12 @@ class _MetricAnomalyDimensionSerializer(serializers.Serializer):
     )
 
 
+class MetricAnomalyDirection(models.TextChoices):
+    UP = "up", "up"
+    DOWN = "down", "down"
+    FLAT = "flat", "flat"
+
+
 class _MetricAnomalyReportSerializer(serializers.Serializer):
     metric_name = serializers.CharField(help_text="Metric that was characterized.")
     aggregation = serializers.CharField(help_text="Aggregation used (auto-picked when not specified).")
@@ -342,7 +379,7 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
         help_text="anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself."
     )
     direction = serializers.ChoiceField(
-        choices=["up", "down", "flat"], help_text="Which way the metric moved versus the baseline."
+        choices=MetricAnomalyDirection.choices, help_text="Which way the metric moved versus the baseline."
     )
     onset_time = serializers.CharField(
         allow_null=True,
@@ -361,6 +398,33 @@ class _HasMetricsResponseSerializer(serializers.Serializer):
     hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
 
 
+class _MetricsOverviewServiceSerializer(serializers.Serializer):
+    service_name = serializers.CharField(help_text="Service that reported metrics inside the window.")
+    metric_names = serializers.IntegerField(help_text="Distinct metric names this service reported in the window.")
+    series = serializers.IntegerField(
+        help_text="Distinct series (metric + label-set combinations) this service reported in the window."
+    )
+    last_seen = serializers.CharField(help_text="When this service's newest datapoint arrived, ISO 8601.")
+
+
+class _MetricsOverviewResponseSerializer(serializers.Serializer):
+    last_seen = serializers.CharField(
+        allow_null=True,
+        help_text="When the newest datapoint arrived across all series, ISO 8601. Unlike the counts this ignores the window, so it still answers 'when did ingestion stop'. Null when nothing was ever ingested.",
+    )
+    metric_names = serializers.IntegerField(help_text="Distinct metric names reported inside the window.")
+    series = serializers.IntegerField(
+        help_text="Distinct series (metric + label-set combinations) reported inside the window."
+    )
+    lookback_seconds = serializers.IntegerField(
+        help_text="Length of the rollup window in seconds, so consumers can label the counts."
+    )
+    services = _MetricsOverviewServiceSerializer(
+        many=True,
+        help_text="Per-service rollup for the window, largest series count first. Capped at the 500 largest.",
+    )
+
+
 class _MetricValuesParamsSerializer(serializers.Serializer):
     value = serializers.CharField(
         required=False,
@@ -376,6 +440,26 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max number of names to return. Defaults to 100; maximum 1000.",
     )
+    service = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=None,
+        max_length=1024,
+        help_text=(
+            "Comma-separated services to narrow the list to, e.g. `service=web,worker`. "
+            "Omit for every service. Send it empty to select only series whose sender "
+            "did not set `service.name`. A service name containing a comma cannot be "
+            "selected."
+        ),
+    )
+
+    def validate_service(self, value: str | None) -> list[str]:
+        # Absent and empty mean different things, which is why the default is None
+        # rather than "": omitting the param leaves the picker unscoped, while
+        # sending it empty scopes to the senders that set no service name.
+        if value is None:
+            return []
+        return [service.strip() for service in value.split(",")]
 
 
 class _MetricNameSerializer(serializers.Serializer):
@@ -479,8 +563,14 @@ class _MetricAttributeValuesResponseSerializer(serializers.Serializer):
 
 class _MetricSamplesBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
         max_length=255,
-        help_text="Exact metric name to list raw emissions for (e.g. 'http.server.duration').",
+        help_text=(
+            "Exact metric name to list raw emissions for (e.g. 'http.server.duration'). "
+            "Omit to list emissions across all metric names — allowed only with traceId "
+            "(the trace->metrics pivot)."
+        ),
     )
     dateFrom = serializers.DateTimeField(
         help_text="Lower bound (inclusive) for the sample window. ISO 8601.",
@@ -495,6 +585,24 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         max_length=255,
         help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
     )
+    spanId = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.",
+    )
+    metricType = serializers.ChoiceField(
+        choices=[t.value for t in MetricType],
+        required=False,
+        allow_null=True,
+        help_text="Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates ANDed together, matched against each emission's series. Pass the same filters used for the chart so the emissions listed are the ones behind it.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=100,
@@ -502,6 +610,13 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max emissions to return, newest first. Defaults to 100, capped at 1000.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("metricName") and not attrs.get("traceId"):
+            raise serializers.ValidationError("metricName or traceId is required.")
+        if attrs.get("spanId") and not attrs.get("traceId"):
+            raise serializers.ValidationError("spanId requires traceId.")
+        return attrs
 
 
 class _MetricSamplesRequestSerializer(serializers.Serializer):
@@ -547,6 +662,159 @@ class _MetricSamplesResponseSerializer(serializers.Serializer):
     )
 
 
+class _MetricErrorSpikesParamsSerializer(serializers.Serializer):
+    dateFrom = serializers.DateTimeField(
+        help_text="Lower bound (inclusive) for the spike window. ISO 8601.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        help_text="Upper bound (exclusive) for the spike window. Defaults to now if omitted.",
+    )
+
+
+class _MetricErrorSpikeSerializer(serializers.Serializer):
+    detected_at = serializers.CharField(help_text="When the error spike was detected, ISO 8601.")
+    issue_id = serializers.CharField(help_text="Error Tracking issue that spiked.")
+    issue_name = serializers.CharField(
+        allow_null=True,
+        help_text="Issue name, if one is set.",
+    )
+
+
+class _MetricErrorSpikesResponseSerializer(serializers.Serializer):
+    results = _MetricErrorSpikeSerializer(
+        many=True,
+        help_text=(
+            "Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet "
+            "scoped to a specific metric's service."
+        ),
+    )
+
+
+class _MetricExplainBodySerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        max_length=255,
+        help_text="Exact metric name whose bucket should be taken apart.",
+    )
+    metricType = serializers.ChoiceField(
+        choices=[t.value for t in MetricType],
+        required=False,
+        allow_null=True,
+        help_text="Constrain the bucket to one metric type. A name can exist as several types; without this, rows of every type sharing the name are decomposed together.",
+    )
+    aggregation = serializers.ChoiceField(
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+        default="sum",
+        help_text="The aggregation whose result should be explained. 'histogram_quantile' is rejected: it reduces bucket-count arrays rather than scalar samples, so there is no per-series value to lay out.",
+    )
+    quantile = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Quantile in (0, 1) applied across series. Defaults to 0.95 for the 'p95' aggregation.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates ANDed together, matching the chart the point came from.",
+    )
+    bucketStart = serializers.DateTimeField(
+        help_text="Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601.",
+    )
+    interval = serializers.ChoiceField(
+        choices=MetricQueryInterval.choices,
+        help_text="Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("aggregation") == "histogram_quantile":
+            raise serializers.ValidationError(
+                "'histogram_quantile' cannot be decomposed: it reduces bucket-count arrays rather than scalar samples."
+            )
+        return attrs
+
+
+class _MetricExplainRequestSerializer(serializers.Serializer):
+    query = _MetricExplainBodySerializer(help_text="The chart point to take apart.")
+
+
+class _MetricSampleViewSerializer(serializers.Serializer):
+    time = serializers.CharField(help_text="Sample timestamp, ISO 8601.")
+    value = serializers.FloatField(help_text="Raw stored reading, before any reduction.")
+
+
+class _MetricSeriesBreakdownSerializer(serializers.Serializer):
+    service_name = serializers.CharField(help_text="Service that reported this series.")
+    labels = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Per-data-point attributes identifying the series.",
+    )
+    resource_labels = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Resource attributes identifying the scrape target.",
+    )
+    samples = _MetricSampleViewSerializer(
+        many=True,
+        help_text="The series' raw samples in this bucket, oldest first, trimmed for display.",
+    )
+    sample_count = serializers.IntegerField(
+        help_text="How many samples the series actually sent, even when 'samples' was trimmed."
+    )
+    samples_truncated = serializers.BooleanField(help_text="Whether 'samples' lists fewer samples than arrived.")
+    value = serializers.FloatField(
+        allow_null=True,
+        help_text="What this series contributed after the per-series reduction. Null for percentiles, which read the pooled readings and so have no single per-series contribution.",
+    )
+
+
+class _MetricBucketDecompositionSerializer(serializers.Serializer):
+    metric_name = serializers.CharField(help_text="Metric that was decomposed.")
+    metric_type = serializers.CharField(help_text="OTel metric type observed in the bucket.")
+    temporality = serializers.CharField(
+        allow_blank=True,
+        help_text="OTel aggregation temporality observed in the bucket ('cumulative', 'delta', or empty for gauges).",
+    )
+    aggregation = serializers.CharField(help_text="Aggregation that was explained.")
+    bucket_start = serializers.CharField(help_text="Start of the explained bucket, ISO 8601.")
+    interval = serializers.CharField(help_text="Bucket size the point was plotted at.")
+    temporal_reducer = serializers.ChoiceField(
+        choices=["none", "last", "avg_over_time", "sum_over_time", "increase", "pooled_samples"],
+        help_text="How each series' samples were collapsed to one value: 'last' for an instant gauge reading, 'avg_over_time' for an average, 'sum_over_time' for delta counters, 'increase' for cumulative counters, and 'pooled_samples' for percentiles, which skip the per-series step entirely.",
+    )
+    spatial_reducer = serializers.ChoiceField(
+        choices=["sum", "avg", "min", "max", "quantile", "count_series"],
+        help_text="How the per-series values were combined into the bucket's number.",
+    )
+    series = _MetricSeriesBreakdownSerializer(
+        many=True,
+        help_text="The series behind the point, largest contributors first, trimmed for display.",
+    )
+    series_count = serializers.IntegerField(help_text="How many series reported in the bucket.")
+    sample_count = serializers.IntegerField(help_text="How many raw samples the bucket held across all series.")
+    series_truncated = serializers.BooleanField(help_text="Whether 'series' lists fewer series than reported.")
+    rows_truncated = serializers.BooleanField(
+        help_text="Whether the bucket held more raw rows than the decomposition reads. Totals are computed only over the rows that were read."
+    )
+    reference_value = serializers.FloatField(
+        allow_null=True,
+        help_text="The bucket's value recomputed from the raw samples, independently of the query builders. Null when no series reported.",
+    )
+    actual_value = serializers.FloatField(
+        allow_null=True,
+        help_text="The value the product would plot for this point. Null when the query returned no row.",
+    )
+    agrees = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the two values match. False means one of the reductions is wrong, and the series breakdown shows where they parted. Null when the raw read was truncated, so the two are not comparable.",
+    )
+
+
+class _MetricExplainResponseSerializer(serializers.Serializer):
+    decomposition = _MetricBucketDecompositionSerializer(help_text="The bucket taken apart.")
+
+
 @extend_schema(tags=["metrics"])
 class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
@@ -573,6 +841,33 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
 
+    @extend_schema(responses={200: _MetricsOverviewResponseSerializer})
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def overview(self, request: Request, *args, **kwargs) -> Response:
+        """Ingestion rollup for the overview page: freshness of the newest
+        datapoint plus per-service metric/series counts over the last day."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        overview = get_metrics_overview(team=self.team)
+
+        report_user_action(
+            request.user,
+            "metrics overview viewed",
+            {
+                "service_count": len(overview.services),
+                "has_ingested": overview.last_seen is not None,
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(asdict(overview), status=status.HTTP_200_OK)
+
     @extend_schema(
         parameters=[_MetricValuesParamsSerializer],
         responses={200: _MetricNamesResponseSerializer},
@@ -592,7 +887,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             results = list_metric_names(
-                team=self.team, search=params.validated_data["value"], limit=params.validated_data["limit"]
+                team=self.team,
+                search=params.validated_data["value"],
+                limit=params.validated_data["limit"],
+                services=params.validated_data["service"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))
@@ -721,13 +1019,20 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         body.is_valid(raise_exception=True)
         query_data = body.validated_data["query"]
 
+        filters = tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in query_data.get("filters") or []
+        )
         try:
             samples = list_metric_event_samples(
                 team=self.team,
-                metric_name=query_data["metricName"],
+                metric_name=query_data.get("metricName") or None,
                 date_from=query_data["dateFrom"],
                 date_to=query_data.get("dateTo") or timezone.now(),
                 trace_id=query_data.get("traceId") or None,
+                span_id=query_data.get("spanId") or None,
+                filters=filters,
+                metric_type=MetricType(query_data["metricType"]) if query_data.get("metricType") else None,
                 limit=query_data.get("limit") or 100,
             )
         except ValueError as exc:
@@ -736,12 +1041,108 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         report_user_action(
             request.user,
             "metrics samples listed",
-            {"sample_count": len(samples), "has_trace_filter": bool(query_data.get("traceId"))},
+            {
+                "sample_count": len(samples),
+                "has_trace_filter": bool(query_data.get("traceId")),
+                "filter_count": len(filters),
+            },
             team=self.team,
             request=request,
         )
 
         return Response({"results": [asdict(s) for s in samples]}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricErrorSpikesParamsSerializer], responses={200: _MetricErrorSpikesResponseSerializer}
+    )
+    # Both scopes: the response is Error Tracking data, so a token scoped to metrics
+    # alone must not reach it (scopes gate the token; the access-control check below
+    # gates the user).
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read", "error_tracking:read"])
+    def error_spikes(self, request: Request, *args, **kwargs) -> Response:
+        """Error Tracking issue spikes detected in a time window — backs the
+        metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
+        to the metric's own service."""
+        # Layered on top of the viewset's `metrics` gate: the overlay is a PoC
+        # kept to staff only, so it needs its own flag even once metrics is on.
+        if not posthog_feature_flag_enabled(
+            METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("The metrics error-spike overlay is not enabled for this user.")
+
+        # This action serves Error Tracking data (issue ids and names), so the caller
+        # needs view access to that resource too — metrics access alone must not leak
+        # it. The frontend hides the overlay on the same condition.
+        if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking.")
+
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricErrorSpikesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        spikes = list_metric_error_spikes(
+            team=self.team,
+            date_from=params.validated_data["dateFrom"],
+            date_to=params.validated_data.get("dateTo") or timezone.now(),
+        )
+
+        return Response({"results": [asdict(s) for s in spikes]}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_MetricExplainRequestSerializer, responses={200: _MetricExplainResponseSerializer})
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def explain(self, request: Request, *args, **kwargs) -> Response:
+        """Take one chart point apart into the series and samples behind it,
+        and recompute it independently so the plotted number can be checked
+        rather than trusted."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        body = _MetricExplainRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        query_data = body.validated_data["query"]
+
+        filters = tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in query_data.get("filters") or []
+        )
+        try:
+            decomposition = explain_metric_bucket(
+                team=self.team,
+                metric_name=query_data["metricName"],
+                aggregation=query_data["aggregation"],
+                bucket_start=query_data["bucketStart"],
+                interval=query_data["interval"],
+                filters=filters,
+                metric_type=MetricType(query_data["metricType"]) if query_data.get("metricType") else None,
+                quantile=query_data.get("quantile"),
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        report_user_action(
+            request.user,
+            "metrics bucket explained",
+            {
+                "aggregation": decomposition.aggregation,
+                "metric_type": decomposition.metric_type,
+                "series_count": decomposition.series_count,
+                "agrees": decomposition.agrees,
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(
+            _MetricExplainResponseSerializer({"decomposition": decomposition}).data, status=status.HTTP_200_OK
+        )
 
     @extend_schema(request=_MetricAnomalyRequestSerializer, responses={200: _MetricAnomalyReportSerializer})
     @action(

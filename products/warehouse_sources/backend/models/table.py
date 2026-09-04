@@ -24,12 +24,17 @@ from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_clickhouse
+from posthog.hogql.escape_sql import (
+    backquote_clickhouse_identifier,
+    escape_clickhouse_identifier,
+    escape_param_clickhouse,
+)
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -55,6 +60,7 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping
@@ -111,6 +117,14 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
+# Characters that carry quoting meaning once a column name is written into SQL. The structure
+# builder escapes them already, so this is a second layer: it keeps such a name out of the other
+# sinks that read this column store, not all of which escape as thoroughly (for example
+# _quote_identifier in the ClickHouse source connector doubles backticks but not backslashes).
+# These names are addressable from HogQL, which escapes them correctly, so this rejects on the
+# storage risk rather than on usability.
+REJECTED_COLUMN_NAME_CHARACTERS: frozenset[str] = frozenset("`\\\r\n\0")
 
 # chdb has no query timeout, and a stalled S3 read can wedge a web worker indefinitely
 # (each request also pins ~300MB of RSS for the embedded ClickHouse). Running it in a
@@ -264,10 +278,14 @@ def hogql_fields_and_structure_for_columns(
             column_invalid = False
 
         if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            # ClickHouse re-parses this string with its column-declaration parser, so an unescaped
+            # backtick closes the identifier and the rest of the name is read as more declaration
+            # syntax, up to DEFAULT expressions that run server-side.
+            quoted_column = backquote_clickhouse_identifier(column)
             if is_nullable:
-                structure.append(f"`{column}` Nullable({clickhouse_type})")
+                structure.append(f"{quoted_column} Nullable({clickhouse_type})")
             else:
-                structure.append(f"`{column}` {clickhouse_type}")
+                structure.append(f"{quoted_column} {clickhouse_type}")
 
         fields[column] = get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
 
@@ -283,13 +301,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # Use if it's certain externaldataschemas aren't needed
     raw_objects = DataWarehouseTableQuerySet.as_manager()
 
-    class TableFormat(models.TextChoices):
-        CSV = "CSV", "CSV"
-        CSVWithNames = "CSVWithNames", "CSVWithNames"
-        Parquet = "Parquet", "Parquet"
-        JSON = "JSONEachRow", "JSON"
-        Delta = "Delta", "Delta"
-        DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    TableFormat = DataWarehouseTableFormat
+    CreatedVia = DataWarehouseTableCreatedVia
 
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
@@ -300,6 +314,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
+
+    # Where this table came from — the request surface for user-created tables, or the internal
+    # path that built it. Derived server-side (never taken from the request body) so a client can't
+    # self-label. NULL on rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,
@@ -462,8 +481,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except:
             return False
 
+    # chdb failures the ClickHouse fallback below handles on its own. Capturing them sends one
+    # exception per affected read to error tracking, where nothing is actionable, because the read
+    # still returns. The fallback keeps its own capture, so a genuine failure is still reported.
+    _SUPPRESSED_CHDB_ERROR_SUBSTRINGS = (
+        "unsupported deltalake type: timestamp_ntz",
+        # A source added a column mid-stream, so the parquet parts under one table disagree on
+        # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
+        "reading from files with different schema is not possible",
+    )
+
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
-        return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+        if not isinstance(err, RuntimeError):
+            return False
+        message = str(err).lower()
+        return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
     def set_columns(self, columns: dict[str, Any]) -> None:
         """Assign ``columns`` and record its order together.
@@ -559,7 +591,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         columns: DataWarehouseTableIntrospectedColumns = {}
         for item in result:
-            columns[str(item[0])] = DataWarehouseTableIntrospectedColumn(
+            column_name = str(item[0])
+            if REJECTED_COLUMN_NAME_CHARACTERS.intersection(column_name):
+                raise Exception(
+                    f"PostHog can't use the column name {column_name!r}. Column names can't contain "
+                    "backticks, backslashes, line breaks, or null bytes. Rename the column, then try again."
+                )
+            columns[column_name] = DataWarehouseTableIntrospectedColumn(
                 hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
                 clickhouse=item[1],
                 valid=True,
@@ -698,6 +736,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         | DirectRedshiftTable
         | DirectClickHouseTable
         | DirectMotherDuckTable
+        | DirectTrinoTable
     ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
@@ -719,6 +758,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_SNOWFLAKE_CATALOG_OPTION,
             DIRECT_SNOWFLAKE_SCHEMA_OPTION,
             DIRECT_SNOWFLAKE_TABLE_OPTION,
+            DIRECT_TRINO_CATALOG_OPTION,
+            DIRECT_TRINO_SCHEMA_OPTION,
+            DIRECT_TRINO_TABLE_OPTION,
         )
 
         columns = self.columns or {}
@@ -858,6 +900,38 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 motherduck_database=motherduck_database,
                 motherduck_schema=motherduck_schema,
                 motherduck_table_name=motherduck_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
+            )
+
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "trino"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            trino_catalog = (
+                self.options.get(DIRECT_TRINO_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_TRINO_CATALOG_OPTION), str)
+                else job_inputs.get("catalog", "")
+            )
+            trino_schema = (
+                self.options.get(DIRECT_TRINO_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_TRINO_SCHEMA_OPTION), str)
+                else job_inputs.get("schema", "")
+            )
+            trino_table_name = (
+                self.options.get(DIRECT_TRINO_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_TRINO_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectTrinoTable(
+                name=self.name,
+                fields=fields,
+                trino_catalog=trino_catalog,
+                trino_schema=trino_schema,
+                trino_table_name=trino_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
@@ -1063,9 +1137,13 @@ def get_table_by_schema_id(schema_id: str, team_id: int):
     return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id).table
 
 
-@database_sync_to_async
-def acreate_datawarehousetable(**kwargs):
+def create_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
     return DataWarehouseTable.objects.create(**kwargs)
+
+
+@database_sync_to_async
+def acreate_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
+    return create_datawarehousetable(**kwargs)
 
 
 @database_sync_to_async

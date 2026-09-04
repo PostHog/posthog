@@ -4,13 +4,18 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
-import type {
-  AgentContent,
-  AgentConversationEvent,
-  AgentToolCallContent,
-  AgentToolCallStatus,
+import {
+  type AgentContent,
+  type AgentConversationEvent,
+  type AgentToolCallContent,
+  type AgentToolCallStatus,
+  createPiToolCallRecord,
+  isPiToolName,
+  mcpToolKey,
+  type PiToolName,
+  posthogToolMeta,
 } from "@posthog/shared";
-import { type PiToolName, TOOL_KIND_BY_NAME } from "./toolKind";
+import { z } from "zod";
 import { bashTranslator } from "./tools/bashTranslator";
 import { editTranslator } from "./tools/editTranslator";
 import { findTranslator } from "./tools/findTranslator";
@@ -40,9 +45,11 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-function isPiToolName(name: string): name is PiToolName {
-  return name in TOOL_KIND_BY_NAME;
-}
+const mcpToolDetailsSchema = z.object({
+  posthog: z.object({
+    mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
+  }),
+});
 
 function toGenericToolContent(
   resultContent: ToolResultMessage["content"],
@@ -184,20 +191,17 @@ export function createPiMessageTranslator(): PiMessageTranslator {
           arguments: block.arguments,
         });
 
-        const kind = isPiToolName(block.name)
-          ? TOOL_KIND_BY_NAME[block.name]
-          : null;
-
         events.push({
           type: "tool_call_started",
           timestamp: message.timestamp,
-          toolCall: {
-            id: block.id,
-            title: block.name,
-            kind,
-            status: "pending",
-            rawInput: block.arguments,
-          },
+          toolCall: createPiToolCallRecord(
+            {
+              id: block.id,
+              name: block.name,
+              arguments: block.arguments,
+            },
+            "pending",
+          ),
         });
       }
     }
@@ -225,11 +229,21 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     const toolCall: Extract<
       AgentConversationEvent,
       { type: "tool_call_updated" }
-    >["toolCall"] = {
+    >["toolCall"] & { _meta?: ReturnType<typeof posthogToolMeta> } = {
       id: toolCallId,
       status,
       rawOutput: result.content,
     };
+
+    if (result.details !== undefined) {
+      toolCall.details = result.details;
+    }
+
+    const mcpDetails = mcpToolDetailsSchema.safeParse(result.details);
+    if (mcpDetails.success) {
+      const mcp = mcpDetails.data.posthog.mcp;
+      toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
+    }
 
     const translator = isPiToolName(toolName)
       ? TRANSLATOR_BY_NAME[toolName]

@@ -6,6 +6,7 @@ import {
     waitUntilTableExists,
 } from '@aws-sdk/client-dynamodb'
 
+import { UrlCrawlHistoryItem } from './crawl-history'
 import { DynamoDBCrawlHistory } from './dynamodb-crawl-history'
 
 const DYNAMODB_ENDPOINT = 'http://127.0.0.1:18010'
@@ -44,15 +45,22 @@ describe('DynamoDBCrawlHistory integration', () => {
         const crawlHistory = new DynamoDBCrawlHistory(client, TABLE_NAME, 5_000, 30_000)
 
         await crawlHistory.validateAccess(NOW_MS)
-        const writeResult = await crawlHistory.record(KEYS, NOW_MS, TTL_SECONDS)
-        const readResult = await crawlHistory.read([...KEYS, 'missing'], NOW_MS)
+        const storageExpiresAtMs = NOW_MS + TTL_SECONDS * 1000
+        const items: UrlCrawlHistoryItem[] = KEYS.map((key) => ({
+            kind: 'url',
+            key,
+            nextFetchAtMs: storageExpiresAtMs,
+            storageExpiresAtMs,
+            outcome: 'ok',
+        }))
+        await crawlHistory.write(items)
+        const readResult = await crawlHistory.read([...KEYS, 'missing'])
         const storedItem = await client.send(
             new GetItemCommand({ TableName: TABLE_NAME, Key: { key: { S: KEYS[0] } }, ConsistentRead: true })
         )
 
-        expect(writeResult.failed).toEqual(new Set())
-        expect(readResult.failed).toEqual(new Set())
-        expect(readResult.known).toEqual(new Set(KEYS.map((_key, index) => index)))
+        expect(readResult.size).toBe(KEYS.length)
+        expect([...readResult.keys()].sort()).toEqual([...KEYS].sort())
         expect(storedItem.Item?.expires_at?.N).toBe(String(NOW_SECONDS + TTL_SECONDS))
     })
 })

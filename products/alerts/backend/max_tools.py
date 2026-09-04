@@ -20,13 +20,13 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
@@ -492,19 +492,12 @@ class UpsertAlertTool(MaxTool):
 
         qs = Insight.objects.filter(team=self._team, deleted=False)
 
-        # 1. Try numeric DB ID
-        try:
-            return await sync_to_async(qs.get)(id=int(effective_id)), False
-        except (ValueError, Insight.DoesNotExist):
-            pass
+        # 1. Try numeric DB ID, then short_id (including legacy numeric-only short IDs).
+        insight = await sync_to_async(resolve_insight_by_id_or_short_id)(qs, effective_id)
+        if insight is not None:
+            return insight, False
 
-        # 2. Try short_id
-        try:
-            return await sync_to_async(qs.get)(short_id=effective_id), False
-        except Insight.DoesNotExist:
-            pass
-
-        # 3. Try conversation artifact — auto-save as a new insight
+        # 2. Try conversation artifact — auto-save as a new insight
         result = await self._context_manager.artifacts.aget_visualization(self._state.messages, effective_id)
         if result is None:
             raise Insight.DoesNotExist(f"Insight or visualization '{effective_id}' not found.")

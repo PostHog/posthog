@@ -5,7 +5,11 @@ from typing import Any, Optional
 from django.conf import settings
 
 from requests import Response
-from requests.exceptions import JSONDecodeError
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    JSONDecodeError,
+    Timeout as RequestsTimeout,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
@@ -92,15 +96,26 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, ca
     session = make_tracked_session(redact_values=(refresh_token,), capture=capture)
     attempt = 0
     while True:
-        res = session.post(
-            f"{instance_url}/services/oauth2/token",
-            data={
-                "grant_type": "refresh_token",
-                "client_id": settings.SALESFORCE_CONSUMER_KEY,
-                "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
-                "refresh_token": refresh_token,
-            },
-        )
+        try:
+            res = session.post(
+                f"{instance_url}/services/oauth2/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.SALESFORCE_CONSUMER_KEY,
+                    "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
+                    "refresh_token": refresh_token,
+                },
+            )
+        except (RequestsConnectionError, RequestsTimeout):
+            # A failed connection or timeout reaching the token endpoint — most often PostHog's
+            # egress proxy returning a transient 502 on CONNECT — never minted a token, so it's safe
+            # to reissue. Without this in-process retry a single proxy blip fails the whole import
+            # activity before it reads a row, and the sync restarts from scratch.
+            attempt += 1
+            if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS:
+                raise
+            time.sleep(min(0.5 * attempt, 5))
+            continue
 
         try:
             SalesforceAuthRequestError.raise_from_response(res)

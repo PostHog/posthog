@@ -247,6 +247,31 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 
 
 @pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_provision_enrolls_the_org_in_the_trino_cell(mock_request: MagicMock) -> None:
+    """Onboarding opts the org into Trino so the cell can serve its catalog.
+
+    The control plane treats a missing "trino" key as PG-only, so the enrollment is
+    invisible unless the key is actually sent — assert on the request body rather
+    than on the response, which looks identical either way.
+    """
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    mock_request.return_value = Response(
+        {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+        status=202,
+    )
+
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+
+    # provision() also completes the first team's row, so it issues more than one
+    # control-plane call — pick the provision one rather than the most recent.
+    provision_call = next(c for c in mock_request.call_args_list if c.args[2] == "/provision")
+    assert provision_call.kwargs["json_body"]["trino"] == {"enabled": True}
+
+
+@pytest.mark.django_db
 def test_provision_captures_generation_before_request_and_skips_local_writes_if_activation_loses(
     _onboarding_side_effects,
 ) -> None:
@@ -350,7 +375,6 @@ def test_provision_succeeds_even_when_the_team_row_completion_fails(mock_request
 
 
 @pytest.mark.django_db
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True)
 @patch("products.data_warehouse.backend.facade.api.schedule_managed_warehouse_direct_source_ensure")
 @patch("products.managed_warehouse.backend.presentation.views._request")
 def test_provision_schedules_generation_fenced_source_recovery_when_inline_ensure_fails(
@@ -749,7 +773,6 @@ def test_onboard_team_creates_duckgres_row_with_legacy_names(
 
 
 @pytest.mark.django_db
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True)
 @patch("products.data_warehouse.backend.facade.api.schedule_managed_warehouse_direct_source_ensure")
 @patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
 @patch("products.managed_warehouse.backend.presentation.views._request")

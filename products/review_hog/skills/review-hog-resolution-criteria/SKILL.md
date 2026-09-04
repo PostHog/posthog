@@ -1,7 +1,7 @@
 ---
 name: review-hog-resolution-criteria
 description: >
-  The resolution criteria for ReviewHog's resolution stage — the bar for deciding, per unresolved
+  The resolution criteria for PostHog Review's resolution stage: the bar for deciding, per unresolved
   review thread, whether the ask is worth implementing and safe to implement unattended. Implements
   contained, provable fixes; declines noise with a reason; escalates real-but-risky asks to a human.
 metadata:

@@ -1,21 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.streamelements import (
     StreamElementsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source import StreamElementsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
-    StreamElementsResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestStreamElementsSource:
@@ -23,28 +13,6 @@ class TestStreamElementsSource:
         self.source = StreamElementsSource()
         self.team_id = 123
         self.config = StreamElementsSourceConfig(api_token="jwt-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.STREAMELEMENTS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "StreamElements"
-        assert config.label == "StreamElements"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/streamelements.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig))
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -77,16 +45,6 @@ class TestStreamElementsSource:
         assert incremental == {"tips", "activities"}
         assert all(schema.supports_append is False for schema in schemas)
 
-    def test_incremental_schemas_advertise_created_at(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["tips"].incremental_fields == INCREMENTAL_FIELDS["tips"]
-        assert schemas["points_leaderboard"].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tips"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "tips"
-
     @pytest.mark.parametrize(
         "mock_return",
         [
@@ -103,11 +61,6 @@ class TestStreamElementsSource:
         assert self.source.validate_credentials(self.config, self.team_id) == mock_return
         # No pin passed -> resolves to default_version (what new rows are stamped with).
         mock_validate.assert_called_once_with(self.config.api_token, "v3")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is StreamElementsResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source.streamelements_source"

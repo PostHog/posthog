@@ -45,7 +45,7 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
     .describe('Payload for creating a new, empty canvas in a channel.')
 
 /**
- * Update canvas metadata (name, author context, pin, generation-task pointer).
+ * Update canvas metadata, including the space it belongs to.
  */
 export const canvasesPartialUpdateBodyNameMax = 400
 
@@ -57,6 +57,7 @@ export const CanvasesPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe('Updated canvas description (for components, the store-search text).'),
+        channel_id: zod.uuid().optional().describe('Id of the space the canvas belongs to.'),
         pinned: zod.boolean().optional().describe('Whether the canvas is pinned in its channel.'),
         generation_task_id: zod
             .uuid()

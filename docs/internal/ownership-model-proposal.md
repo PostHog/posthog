@@ -48,7 +48,7 @@ Two data sources, one shared matcher, four consumers — all hand-maintained.
 | `.github/scripts/assign-reviewers.js` (CI auto-assign)    | soft + product.yaml        | vendored matcher + own YAML mini-parser                                   |
 | `hogli product:lint:owners`                               | product.yaml               | own loader (`product_yaml.py`), validates slugs against live GitHub teams |
 | `.agents/skills/establishing-code-ownership/ownership.js` | hard + soft + product.yaml | vendored matcher + own YAML mini-parser                                   |
-| `tools/pr-approval-agent/gates.py`                        | soft only                  | fully independent reimplementation                                        |
+| `products/stamphog/packages/pr-approval-agent/gates.py`   | soft only                  | fully independent reimplementation                                        |
 
 The vendored matcher is `.github/scripts/codeowners.js` (a port of `hmarr/codeowners`, faithful to GitHub semantics).
 
@@ -136,7 +136,11 @@ An opt-in Slack-API check in `owners:lint`, mirroring the existing opt-in live G
 #### The `teams:` registry (repo-root only)
 
 The channel-to-team mapping is declared **once**, at the root, never per file — a team that owns paths across many directories should not restate its channel in each.
-The **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of team slug to a single `slack` value (a string starting with `#`, or `false` to mean "no channel, don't derive"):
+The **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of team slug to the channels that team declares.
+Every value is a string starting with `#`, or `false` to mean "no channel, don't derive":
+
+- `slack` — where the people are. This is the channel a human is pointed at.
+- `notifications` — where automation posts. It falls back to `slack`, so a team that never separates the two keeps one entry, and `notifications: false` keeps automation out without hiding the team's channel from people.
 
 ```yaml
 # owners.yaml (repo root only)
@@ -145,9 +149,16 @@ teams:
     slack: '#team-clickhouse'
   team-data-stack:
     slack: '#group-data-stack'
+    notifications: '#group-data-stack-bots'
+  quiet-team:
+    slack: '#team-quiet'
+    notifications: false
   some-retired-team:
     slack: false
 ```
+
+A team is registered only when it declares at least one channel, so a slug's presence in the registry means "this repo answered for that team" and nothing more.
+Consumers ask for the purpose they need, which is what keeps a bot's destination out of the channel a human is pointed at.
 
 `teams:` in any non-root `owners.yaml` is a schema error, and `product.yaml` aliases never carry it.
 There is no per-path or per-file Slack override — the registry (plus the derived default) is the only way a channel is set.

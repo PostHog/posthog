@@ -20,7 +20,7 @@ const SEARCH_DEBOUNCE_MS = 300
 // one read and group/search client-side. The endpoint exposes a `date_to` cursor for
 // walking past the cap; a team that routinely exceeds 1000 wants that wired into a "load
 // more" here, not a bigger single read.
-const SCRATCHPAD_FETCH_LIMIT = 1000
+export const SCRATCHPAD_FETCH_LIMIT = 1000
 // Bodies are an unbounded TextField clamped at 50k chars on write, so a full-fat window of
 // 1000 entries is a payload nobody needs: the card renders a 2-line clamp until you open it.
 // Pull previews for the list and fetch the one body you expand. Sized well past two lines so
@@ -79,6 +79,7 @@ export interface scratchpadLogicValues {
     loadFailed: boolean
     loadingContentKeys: string[]
     recentlyLearnedCount: number
+    recentlyLearnedCountCapped: boolean
     searchFailed: boolean
     searchResults: ScratchpadEntryApi[] | null
     searchResultsLoading: boolean
@@ -151,6 +152,7 @@ export interface scratchpadLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         totalCount: (entries: ScratchpadEntryApi[] | null) => number | null
         recentlyLearnedCount: (entries: ScratchpadEntryApi[] | null) => number
+        recentlyLearnedCountCapped: (entries: ScratchpadEntryApi[] | null, recentlyLearnedCount: number) => boolean
         lastUpdatedAt: (entries: ScratchpadEntryApi[] | null) => string | null
         visibleEntries: (
             entries: ScratchpadEntryApi[] | null,
@@ -314,6 +316,13 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 return entries.filter((entry) => entry.updated_at && dayjs(entry.updated_at).isAfter(windowStart))
                     .length
             },
+        ],
+        // Every fetched entry fell inside the window and the fetch hit its cap, so the real count is
+        // higher than the one shown.
+        recentlyLearnedCountCapped: [
+            (s) => [s.entries, s.recentlyLearnedCount],
+            (entries: ScratchpadEntryApi[] | null, recentlyLearnedCount: number): boolean =>
+                entries !== null && entries.length >= SCRATCHPAD_FETCH_LIMIT && recentlyLearnedCount === entries.length,
         ],
         // Entries are newest-first, so the head's timestamp drives the callout's "updated when" hint.
         lastUpdatedAt: [

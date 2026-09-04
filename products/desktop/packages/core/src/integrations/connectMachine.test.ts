@@ -25,6 +25,18 @@ describe("connectReducer", () => {
     ).toEqual({ state: "error", error });
   });
 
+  it("pending ends the flow without an error", () => {
+    expect(
+      connectReducer({ state: "connecting", error: null }, { type: "pending" }),
+    ).toEqual({ state: "pending", error: null });
+    expect(deriveConnectFlags("pending")).toEqual({
+      isConnecting: false,
+      isTimedOut: false,
+      hasError: false,
+      isPending: true,
+    });
+  });
+
   it("succeed and reset return to idle", () => {
     expect(
       connectReducer(CONNECT_INITIAL_STATUS, { type: "succeed" }).state,
@@ -52,6 +64,7 @@ describe("deriveConnectFlags", () => {
       isConnecting: true,
       isTimedOut: false,
       hasError: false,
+      isPending: false,
     });
     expect(deriveConnectFlags("error").hasError).toBe(true);
     expect(deriveConnectFlags("timed-out").isTimedOut).toBe(true);
@@ -85,10 +98,11 @@ describe("invalidation keys", () => {
     expect(githubInvalidationKeys(7)[0]).toEqual(["integrations", 7]);
   });
 
-  it("slack keys cover list and root", () => {
+  it("slack keys cover list, root, and the autonomy config", () => {
     expect(slackInvalidationKeys()).toEqual([
       ["integrations", "list"],
       ["integrations"],
+      ["signals", "user-autonomy-config"],
     ]);
   });
 });

@@ -242,7 +242,7 @@ def _verdict(adjusted_priority: IssuePriority | None = None) -> ValidationVerdic
 class TestPublishReviewGate:
     def _wire_report(self, mock_report_cls: MagicMock) -> None:
         mock_report = MagicMock()
-        mock_report.report_markdown = "# ReviewHog Report"
+        mock_report.report_markdown = "# PostHog Review"
         mock_report_cls.objects.for_team.return_value.get.return_value = mock_report
 
     @patch(_POST)

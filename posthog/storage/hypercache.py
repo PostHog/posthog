@@ -464,7 +464,8 @@ class HyperCache:
         Pass ``data`` to write an already-built value and skip ``load_fn``; when None the
         value is loaded via ``load_fn``.
         """
-        logger.info(f"Syncing {self.namespace} cache for team {key}")
+        team_id = getattr(key, "pk", key)
+        logger.info("Syncing cache for team", namespace=self.namespace, team_id=team_id)
 
         start_time = time.time()
         success = False
@@ -485,13 +486,16 @@ class HyperCache:
             # source of the failure already reported it, so don't report it again here.
             HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace=self.namespace, reason="dependency_unavailable").inc()
             logger.warning(
-                f"Skipping {self.namespace} cache sync for team {key}: dependency unavailable",
+                "Skipping cache sync for team: dependency unavailable",
                 namespace=self.namespace,
+                team_id=team_id,
             )
             return False
         except Exception as e:
             capture_exception(e)
-            logger.exception(f"Failed to sync {self.namespace} cache for team {key}", exception=str(e))
+            logger.exception(
+                "Failed to sync cache for team", namespace=self.namespace, team_id=team_id, exception=str(e)
+            )
             return False
         finally:
             duration = time.time() - start_time

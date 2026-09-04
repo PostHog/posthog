@@ -1,0 +1,6 @@
+{
+    "id": "VA18",
+    "real": false,
+    "source": "reused-LA6",
+    "reasoning": "Identical claim to prior LA6 (and KB4), verdict adopted: not real. Mechanics confirmed (tasks.py:1109 max_retries=3/delay=5; pre-row failures retry at 1148-1150, 1160-1165; post-commit start failure retries at 1234-1237). But 'no recoverable state' is false: the review_hog receiver re-fires on every TaskRun output save carrying the PR URL (docstring tasks.py:1124-1128; receivers.py:75-136), and the head-keyed dedupe restarts a stranded QUEUED run (comment at tasks.py:1232-1234, tested in test_tasks.py:992-1021). Later synchronize/reopen deliveries re-review via the webhook carve-out. The 3x5s window matches the pre-existing webhook task (tasks.py:809), and failures log via logger.exception. A reconciliation sweep is a hardening ask, not a reachable defect."
+}

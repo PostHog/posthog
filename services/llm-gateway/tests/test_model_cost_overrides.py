@@ -62,6 +62,7 @@ class TestApplyModelCostOverrides:
             "baseten/zai-org/glm-5.2",
             "baseten/deepseek-ai/deepseek-v4-flash-0731",
             "baseten/zai-org/glm-5.3",
+            "baseten/zai-org/glm-5.3-flash",
         }
 
     def test_returns_same_object_in_place(self) -> None:
@@ -101,8 +102,9 @@ class TestOverrideSurfacesThroughRefresh:
         ModelCostService.reset_instance()
         ModelRegistryService.reset_instance()
 
+    @pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_refresh_injects_fable_5_when_upstream_missing(self, mock_get_cost_map: MagicMock) -> None:
+    def test_refresh_injects_fable_when_upstream_missing(self, mock_get_cost_map: MagicMock, model: str) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
                 "litellm_provider": "anthropic",
@@ -114,10 +116,10 @@ class TestOverrideSurfacesThroughRefresh:
         service = ModelCostService.get_instance()
         service._refresh_cache()
 
-        costs = service.get_costs("claude-fable-5")
+        costs = service.get_costs(model)
         assert costs is not None
         assert costs["litellm_provider"] == "anthropic"
-        assert "claude-fable-5" in service.get_all_models()
+        assert model in service.get_all_models()
 
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
     def test_fable_5_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
@@ -147,3 +149,4 @@ class TestOverrideSurfacesThroughRefresh:
 
         assert "claude-opus-4-8" in model_ids
         assert "claude-fable-5" in model_ids
+        assert "claude-fable-5-1" in model_ids

@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import { IconCopy, IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -11,17 +9,19 @@ import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     type ClassifierScannerConfig,
     type ScorerScannerConfig,
+    SUCCEEDED_OUTPUT_LABEL,
     configFromSnapshot,
     failureKindDescription,
     ineligibleKindDescription,
     parseFailureReason,
     parseIneligibleReason,
-    scannerTypeLabel,
 } from '../replay_scanners/types'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { readReasoning } from '../utils/observation'
+import { readReasoning, scannerLabel } from '../utils/observation'
+import { LabeledRow } from './LabeledRow'
 import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
+import { ScannerTypeBadge } from './ScannerTypeBadge'
 
 export function ObservationStatusTag({
     status,
@@ -152,8 +152,13 @@ export function ObservationPrimaryOutput({
     const prompt = showPrompt ? promptText : null
     // Tooltip carries the prompt only when it isn't printed inline.
     const promptTooltip = prompt ? null : promptText
-    const summaryClass = expandSummary ? 'text-sm whitespace-pre-wrap' : compact ? 'text-sm truncate' : 'text-sm'
-    const bodyClass = compact ? 'text-sm truncate' : 'text-sm'
+    const textClass = 'text-sm'
+    const summaryClass = expandSummary
+        ? `${textClass} whitespace-pre-wrap`
+        : compact
+          ? `${textClass} truncate`
+          : textClass
+    const bodyClass = compact ? `${textClass} truncate` : textClass
     const promptClass = 'text-xs text-muted'
 
     if (scannerType === 'monitor') {
@@ -189,7 +194,7 @@ export function ObservationPrimaryOutput({
             <div className="flex flex-col gap-1">
                 {(title || showCopy) && (
                     <div className="flex items-start justify-between gap-2">
-                        {title && <span className="font-semibold text-sm">{title}</span>}
+                        {title && <span className={`font-semibold ${textClass}`}>{title}</span>}
                         {showCopy && (
                             <LemonButton
                                 size="xsmall"
@@ -250,7 +255,7 @@ export function ObservationPrimaryOutput({
                 <div className="flex flex-col gap-1">
                     <div className="flex flex-wrap gap-1">
                         {empty ? (
-                            <span className="text-muted text-sm">No categories</span>
+                            <span className={`text-muted ${textClass}`}>No categories</span>
                         ) : (
                             <>
                                 {fixedTags.map((tag, index) => (
@@ -269,7 +274,7 @@ export function ObservationPrimaryOutput({
         if (configuredTags.length === 0 && empty) {
             return (
                 <div className="flex flex-col gap-1">
-                    <span className="text-muted text-sm">No categories</span>
+                    <span className={`text-muted ${textClass}`}>No categories</span>
                     {prompt && <span className={promptClass}>{prompt}</span>}
                 </div>
             )
@@ -296,7 +301,7 @@ export function ObservationPrimaryOutput({
         return (
             <div className="flex flex-col gap-1">
                 <Tooltip title={promptTooltip}>
-                    <span className="text-sm self-start">
+                    <span className={`${textClass} self-start`}>
                         <span className="font-semibold text-base">{score ?? '—'}</span>
                         {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
                         {displayLabel && <span className="text-muted"> — {displayLabel}</span>}
@@ -340,7 +345,14 @@ export function ObservationPrimaryOutput({
     )
 }
 
-export function ObservationConfidence({ result }: { result: Record<string, unknown> }): JSX.Element | null {
+export function ObservationConfidence({
+    result,
+    standalone = false,
+}: {
+    result: Record<string, unknown>
+    /** For surfaces with no "Confidence" label of their own: the tag names the metric and the percentage is dropped. */
+    standalone?: boolean
+}): JSX.Element | null {
     if (typeof result.confidence !== 'number') {
         return null
     }
@@ -352,6 +364,13 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
             : value >= 0.5
               ? ({ type: 'warning', label: 'Medium' } as const)
               : ({ type: 'danger', label: 'Low' } as const)
+    if (standalone) {
+        return (
+            <Tooltip title={`Confidence: ${pct}%`}>
+                <LemonTag type={type}>{`${label} confidence`}</LemonTag>
+            </Tooltip>
+        )
+    }
     return (
         <div className="flex items-center gap-2">
             <LemonTag type={type}>{label}</LemonTag>
@@ -374,27 +393,36 @@ export function ObservationResultSummary({ observation }: { observation: ReplayO
 
 export function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
     const parsed = parseFailureReason(errorReason)
-    if (!parsed) {
-        return <div className="text-danger text-sm">{errorReason}</div>
-    }
     return (
-        <div className="space-y-1">
-            <div className="font-semibold text-danger text-sm">{parsed.label}</div>
-            <div className="text-muted text-xs">{failureKindDescription(parsed.kind)}</div>
-            {parsed.message && <div className="text-muted text-xs font-mono">{parsed.message}</div>}
+        <div className="flex flex-col gap-2">
+            <LabeledRow label="Reason">
+                <p className="text-sm text-default m-0 leading-snug">
+                    {parsed ? failureKindDescription(parsed.kind) : errorReason}
+                </p>
+            </LabeledRow>
+            {parsed?.message && (
+                <LabeledRow label="Details">
+                    <p className="text-sm text-default m-0 leading-snug font-mono">{parsed.message}</p>
+                </LabeledRow>
+            )}
         </div>
     )
 }
 
 export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element {
     const parsed = parseIneligibleReason(errorReason)
-    if (!parsed) {
-        return <div className="text-muted text-sm">{errorReason}</div>
-    }
     return (
-        <div className="space-y-1">
-            <div className="font-semibold text-sm">{parsed.label}</div>
-            {parsed.message && <div className="text-muted text-xs">{parsed.message}</div>}
+        <div className="flex flex-col gap-2">
+            <LabeledRow label="Reason">
+                <p className="text-sm text-default m-0 leading-snug">
+                    {parsed ? ineligibleKindDescription(parsed.kind) : errorReason}
+                </p>
+            </LabeledRow>
+            {parsed?.message && (
+                <LabeledRow label="Details">
+                    <p className="text-sm text-default m-0 leading-snug">{parsed.message}</p>
+                </LabeledRow>
+            )}
         </div>
     )
 }
@@ -413,7 +441,6 @@ export function ObservationDockCard({
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
-    const [reasoningExpanded, setReasoningExpanded] = useState(false)
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
         observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
@@ -422,12 +449,20 @@ export function ObservationDockCard({
         <div className="border rounded p-3 bg-surface-primary space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                    <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
-                    <span className="font-semibold text-sm truncate">{snapshot?.name || 'Scanner'}</span>
-                    {scannerType && <span className="text-muted text-xs">{scannerTypeLabel(scannerType)}</span>}
+                    {observation.status !== 'succeeded' && (
+                        <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
+                    )}
+                    <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
+                    {scannerType && (
+                        <span className="shrink-0">
+                            <ScannerTypeBadge scannerType={scannerType} size="small" />
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
+                    {observation.status === 'succeeded' && result && (
+                        <ObservationConfidence result={result} standalone />
+                    )}
                     <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
                         View details
                     </Link>
@@ -466,27 +501,22 @@ export function ObservationDockCard({
 
             {observation.status === 'succeeded' && snapshot && result && (
                 <>
-                    <ObservationPrimaryOutput
-                        observation={observation}
-                        compact
-                        onSeek={onSeek}
-                        expandSummary
-                        copyable
-                    />
+                    <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : 'Result'}>
+                        <ObservationPrimaryOutput
+                            observation={observation}
+                            compact
+                            showPrompt={false}
+                            onSeek={onSeek}
+                            expandSummary
+                            copyable
+                        />
+                    </LabeledRow>
                     {reasoning && (
-                        <div className="flex flex-col gap-1.5 items-start">
-                            <p className={`text-sm whitespace-pre-wrap m-0 ${reasoningExpanded ? '' : 'line-clamp-2'}`}>
+                        <LabeledRow label="Model reasoning">
+                            <p className="text-sm text-default whitespace-pre-wrap m-0 leading-snug">
                                 <CitedText text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
                             </p>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={() => setReasoningExpanded(!reasoningExpanded)}
-                                data-attr="vision-observation-reasoning-toggle"
-                            >
-                                {reasoningExpanded ? 'Show less' : 'Show more'}
-                            </LemonButton>
-                        </div>
+                        </LabeledRow>
                     )}
                 </>
             )}

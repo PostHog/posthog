@@ -1,14 +1,12 @@
-import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
-import { REPORT_CANVAS_INBOX_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
-  navigateToChannelDashboard,
+  navigateToChannelReportDetail,
   navigateToInboxDismissedDetail,
   navigateToInboxPullRequestDetail,
   navigateToInboxReportDetail,
@@ -21,7 +19,7 @@ const log = logger.scope("open-inbox-report");
 
 /**
  * Returns a callback that opens an inbox report by id: fetch it directly
- * (bypassing the paginated list), seed the detail cache, reset inbox-local
+ * (bypassing the paginated list), reset inbox-local
  * filters so it isn't hidden, then navigate to the right tab – Archive when
  * it's suppressed, Pulls when it has an implementation PR, otherwise Reports.
  *
@@ -34,11 +32,9 @@ export function useOpenInboxReport() {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
   const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
-  const reportCanvasesEnabled = useFeatureFlag(
-    REPORT_CANVAS_INBOX_FLAG,
-    import.meta.env.DEV,
-  );
-  const { reportSpaceId } = useReportSpace(reportCanvasesEnabled);
+  const channelReportsEnabled = useChannelReportsEnabled();
+  const { generalChannel } = useTaskChannels();
+  const generalChannelId = generalChannel?.id;
 
   return useCallback(
     async (reportId: string) => {
@@ -62,21 +58,17 @@ export function useOpenInboxReport() {
           return;
         }
 
-        if (
-          reportCanvasesEnabled &&
-          reportSpaceId &&
-          report.canvas_session?.generation_status === "ready"
-        ) {
-          navigateToChannelDashboard(
-            reportSpaceId,
-            report.canvas_session.canvas_id,
-          );
-          return;
-        }
-
         resetFilters();
-        seedInboxReportDetailCache(queryClient, report);
-        if (report.status === "suppressed") {
+        // With channel reports on, detail lives in the report's owning space
+        // (general when unassigned) so the space sidebar keeps its context. The
+        // inbox routes stay the fallback while the general space isn't
+        // provisioned yet.
+        const targetChannelId = channelReportsEnabled
+          ? (report.channel_id ?? generalChannelId)
+          : undefined;
+        if (targetChannelId) {
+          navigateToChannelReportDetail(targetChannelId, report.id);
+        } else if (report.status === "suppressed") {
           navigateToInboxDismissedDetail(report.id);
         } else if (report.implementation_pr_url) {
           navigateToInboxPullRequestDetail(report.id);
@@ -89,6 +81,12 @@ export function useOpenInboxReport() {
         toast.error("Failed to open report");
       }
     },
-    [client, queryClient, reportCanvasesEnabled, reportSpaceId, resetFilters],
+    [
+      client,
+      queryClient,
+      resetFilters,
+      channelReportsEnabled,
+      generalChannelId,
+    ],
   );
 }

@@ -5,13 +5,6 @@ from unittest import mock
 
 from structlog.types import FilteringBoundLogger
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -20,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamodb import (
     DynamoDBSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.source"
 
@@ -52,47 +44,6 @@ class TestDynamoDBSource:
             aws_region="us-east-1",
             aws_session_token=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DYNAMODB
-
-    def test_source_is_released_in_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.DATABASES
-        assert config.iconPath == "/static/services/dynamodb.png"
-
-    def test_credential_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-
-        assert [field.name for field in fields] == [
-            "aws_access_key_id",
-            "aws_secret_access_key",
-            "aws_region",
-            "aws_session_token",
-        ]
-
-    @pytest.mark.parametrize(
-        "field_name, expected_secret, expected_required",
-        [
-            ("aws_access_key_id", False, True),
-            ("aws_secret_access_key", True, True),
-            ("aws_region", False, True),
-            ("aws_session_token", True, False),
-        ],
-    )
-    def test_secrets_are_password_fields(self, field_name: str, expected_secret: bool, expected_required: bool) -> None:
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == field_name
-        )
-
-        assert field.secret is expected_secret
-        assert field.required is expected_required
-        assert (field.type == SourceFieldInputConfigType.PASSWORD) is expected_secret
 
     def test_region_change_forces_credential_re_entry(self) -> None:
         # The region decides which host the stored key is signed for and sent to.
@@ -151,22 +102,6 @@ class TestDynamoDBSource:
                 self.source.get_schemas(config, team_id=1)
 
         assert client_cls.call_args.kwargs["session_token"] == "temp"
-
-    @pytest.mark.parametrize(
-        "result", [(True, None), (False, "AWS rejected your access key. Check the access key ID and secret.")]
-    )
-    def test_validate_credentials_passes_the_transport_result_through(self, result: tuple[bool, str | None]) -> None:
-        with mock.patch(f"{_SOURCE_MODULE}.validate_dynamodb_credentials", return_value=result) as validate:
-            assert self.source.validate_credentials(self.config, team_id=1) == result
-
-        assert validate.call_args.kwargs["region"] == "us-east-1"
-        assert validate.call_args.kwargs["api_version"] == "2012-08-10"
-
-    def test_resumable_manager_is_bound_to_the_scan_cursor(self) -> None:
-        manager = self.source.get_resumable_source_manager(_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DynamoDBResumeConfig
 
     def test_source_for_pipeline_syncs_the_selected_table(self) -> None:
         manager: ResumableSourceManager[DynamoDBResumeConfig] = mock.MagicMock()

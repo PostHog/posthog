@@ -10,6 +10,7 @@ export interface FeedbackDisplayProps {
     conversationId: string
 }
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/components/FeedbackPromptRating.tsx; this copy is deleted with the LangGraph runtime.
 export function FeedbackDisplay({ conversationId }: FeedbackDisplayProps): JSX.Element | null {
     const { isPromptVisible } = useValues(feedbackPromptLogic({ conversationId }))
     const { submitRating } = useActions(feedbackPromptLogic({ conversationId }))

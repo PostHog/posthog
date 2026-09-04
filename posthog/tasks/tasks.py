@@ -53,16 +53,6 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
 )
 
 
-COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
-    "posthog_cohort_deletion_mark_failure_total",
-    "Times cohort deletion mark failed",
-)
-
-COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
-    "posthog_cohort_deletion_run_failure_total",
-    "Times cohort deletion run failed",
-)
-
 STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
     "posthog_task_run_stale_queued_swept_total",
     "TaskRuns marked FAILED by the stale-queued cleanup sweep",
@@ -203,7 +193,7 @@ def kill_stale_queued_task_runs() -> None:
     status=QUEUED handles the race where a worker picks up the run between selection
     and update.
 
-    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_resume`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
     `created_at`; using `created_at` would cause the cleanup to kill freshly
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
@@ -760,21 +750,9 @@ def clickhouse_mutation_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
-    from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+    from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 
-    cohort_runner = AsyncCohortDeletion()
-
-    try:
-        cohort_runner.mark_deletions_done()
-    except Exception as e:
-        logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
-        COHORT_DELETION_MARK_FAILURE_COUNTER.inc()
-
-    try:
-        cohort_runner.run()
-    except Exception as e:
-        logger.error("Failed to run cohort deletions", error=e, exc_info=True)
-        COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
+    sweep_cohort_deletions()
 
 
 @shared_task(ignore_result=True)

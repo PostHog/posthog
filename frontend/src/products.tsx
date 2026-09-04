@@ -39,9 +39,11 @@ import type {
     SchemaSceneTab,
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
+import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -102,8 +104,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/my-tickets': ['MyTickets', 'myTickets'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
-    '/customer_analytics/accounts/:accountId': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
-    '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+    '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
+    '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
     '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
     '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
@@ -122,6 +124,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
+    '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
     '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
@@ -144,6 +147,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
     '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/health': ['EngineeringAnalytics', 'engineeringAnalyticsHealth'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
@@ -164,6 +168,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
+    '/experiments': ['Experiments', 'experiments'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
@@ -191,6 +196,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+    '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
     '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
@@ -203,11 +209,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
-    '/replay-vision/actions/:actionId/edit': ['ReplayVisionActionEditor', 'replayVisionActionEdit'],
-    '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
-    '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
@@ -219,6 +222,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
     '/inbox/scouts/findings': ['Inbox', 'inbox'],
+    '/inbox/scouts/runs': ['Inbox', 'inbox'],
+    '/inbox/reports/triage': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
     '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
@@ -250,6 +255,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
     '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+    '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
     '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
@@ -394,19 +400,24 @@ export const productRedirects: Record<
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
     '/data-warehouse': () => urls.sources(),
+    '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
-    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
-        const { tab, ...restSearchParams } = searchParams
-        return combineUrl(
-            '/error_tracking',
-            { ...restSearchParams, activeTab: 'configuration' },
-            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
-        ).url
-    },
+    '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/settings': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+    '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -452,6 +463,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         description: 'Analyze and understand your AI usage and performance.',
         iconType: 'llm_analytics',
+        docsHref: 'https://posthog.com/docs/ai-observability',
     },
     AIObservabilityTrace: { projectBased: true, name: 'AI observability trace', layout: 'app-container' },
     AIObservabilitySession: { projectBased: true, name: 'AI observability session', layout: 'app-container' },
@@ -462,6 +474,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Test and experiment with LLM prompts in a sandbox environment.',
         layout: 'app-full-scene-height',
         iconType: 'llm_playground',
+        docsHref: 'https://posthog.com/docs/ai-observability/playground',
     },
     AIObservabilityDatasets: {
         projectBased: true,
@@ -469,6 +482,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         iconType: 'llm_datasets',
+        docsHref: 'https://posthog.com/docs/ai-evals/datasets',
     },
     AIObservabilityDataset: { projectBased: true, name: 'Dataset', layout: 'app-container', iconType: 'llm_datasets' },
     AIObservabilityEvaluations: {
@@ -478,6 +492,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'AIObservability',
         layout: 'app-container',
         iconType: 'llm_evaluations',
+        docsHref: 'https://posthog.com/docs/ai-evals',
     },
     AIObservabilityEvaluation: {
         projectBased: true,
@@ -500,6 +515,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'AIObservability',
         layout: 'app-container',
         iconType: 'llm_tags',
+        docsHref: 'https://posthog.com/docs/ai-evals/taggers',
     },
     AIObservabilityTag: {
         projectBased: true,
@@ -514,6 +530,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         iconType: 'llm_prompts',
+        docsHref: 'https://posthog.com/docs/prompt-management',
     },
     AIObservabilityPrompt: { projectBased: true, name: 'Prompt', layout: 'app-container', iconType: 'llm_prompts' },
     AIObservabilityClusters: {
@@ -522,6 +539,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Discover patterns and clusters in your AI usage.',
         layout: 'app-container',
         iconType: 'llm_clusters',
+        docsHref: 'https://posthog.com/docs/ai-observability/clusters',
     },
     AIObservabilityCluster: {
         projectBased: true,
@@ -564,6 +582,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'conversations',
         projectBased: true,
         layout: 'app-container',
+        docsHref: 'https://posthog.com/docs/support',
     },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
@@ -573,7 +592,9 @@ export const productConfiguration: Record<string, any> = {
         name: 'Customer analytics',
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
+        docsHref: 'https://posthog.com/docs/customer-analytics',
     },
+    CustomerAnalyticsAccount: { projectBased: true, name: 'Account details', iconType: 'cohort' },
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
@@ -589,6 +610,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'data_warehouse',
         description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+        docsHref: 'https://posthog.com/docs/semantic-layer',
     },
     DataCatalogMetric: { projectBased: true, name: 'Metric' },
     DataOps: {
@@ -597,6 +619,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'DataWarehouse',
         description: "Manage your organization's shared data warehouse.",
         iconType: 'data_warehouse',
+        docsHref: 'https://posthog.com/docs/data-warehouse',
     },
     Models: {
         name: 'Models',
@@ -611,6 +634,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
         description: 'Write and execute SQL queries against your data warehouse',
+        docsHref: 'https://posthog.com/docs/sql',
     },
     Sources: {
         projectBased: true,
@@ -629,6 +653,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Allow your users to individually enable or disable features that are in public beta.',
         iconType: 'early_access_feature',
+        docsHref: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
     },
     EarlyAccessFeature: { name: 'Early access feature', projectBased: true },
     EndpointsScene: {
@@ -638,6 +663,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'endpoints',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
+        docsHref: 'https://posthog.com/docs/endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
     EngineeringAnalytics: {
@@ -687,10 +713,20 @@ export const productConfiguration: Record<string, any> = {
         name: 'Error tracking',
         iconType: 'error_tracking',
         description: 'Track and analyze your error tracking data to understand and fix issues.',
+        docsHref: 'https://posthog.com/docs/error-tracking',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
+    Experiments: {
+        projectBased: true,
+        name: 'Experiments',
+        activityScope: ActivityScope.EXPERIMENT,
+        description:
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
+        iconType: 'experiment',
+        docsHref: 'https://posthog.com/docs/experiments',
+    },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -719,7 +755,11 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'link',
     },
     Link: { name: 'Link', projectBased: true, activityScope: 'Link' },
-    LiveDebugger: { name: 'Live Debugger', projectBased: true },
+    LiveDebugger: {
+        name: 'Live debugger',
+        projectBased: true,
+        description: 'Set breakpoints in your running code and inspect the state captured when they hit.',
+    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -727,6 +767,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
+        docsHref: 'https://posthog.com/docs/logs',
     },
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     LogsAlertNotificationDetail: {
@@ -771,6 +812,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
         iconType: 'mcp_analytics',
+        docsHref: 'https://posthog.com/docs/mcp-analytics',
     },
     MCPAnalyticsToolDetail: {
         projectBased: true,
@@ -785,6 +827,7 @@ export const productConfiguration: Record<string, any> = {
             'Route every MCP server your team uses through one gateway: shared credentials, per-tool policies, agent identities, and an audit log.',
         layout: 'app-container',
         iconType: 'tools',
+        docsHref: 'https://posthog.com/docs/model-context-protocol',
     },
     McpGatewayServer: { projectBased: true, name: 'MCP server' },
     McpGatewayAgent: { projectBased: true, name: 'MCP agent' },
@@ -796,6 +839,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Metrics',
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
+        docsHref: 'https://posthog.com/docs/metrics',
     },
     TaskTracker: {
         name: 'Tasks',
@@ -804,6 +848,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
         layout: 'app-full-scene-height',
+        docsHref: 'https://posthog.com/docs/posthog-desktop/tasks',
     },
     Pulse: {
         name: 'Pulse',
@@ -819,6 +864,7 @@ export const productConfiguration: Record<string, any> = {
             'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
         layout: 'app-container',
+        docsHref: 'https://posthog.com/docs/replay-vision',
     },
     ReplayVisionScanner: {
         name: 'Replay vision scanner',
@@ -838,34 +884,18 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
-    ReplayVisionAction: {
-        name: 'Replay vision action',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
-    ReplayVisionActionEditor: {
-        name: 'Replay vision action editor',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
-    ReplayVisionActionRun: {
-        name: 'Replay vision action run',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
     CodeReview: {
         name: 'Code review',
         projectBased: true,
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
+        docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
     Inbox: {
-        name: 'Inbox',
+        name: 'Self-driving inbox',
         projectBased: true,
         description: 'Actionable reports automatically generated from user session analysis and other signals.',
+        docsHref: 'https://posthog.com/docs/self-driving/inbox',
     },
     Skills: {
         projectBased: true,
@@ -873,6 +903,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
         layout: 'app-container',
         iconType: 'llm_prompts',
+        docsHref: 'https://posthog.com/docs/skills',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     CommunitySkills: {
@@ -882,10 +913,14 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
-    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
-    StreamlitApps: { name: 'Streamlit apps', projectBased: true },
+    StreamlitApps: {
+        name: 'Streamlit apps',
+        description: 'Build and share custom Python apps that run on your PostHog data.',
+        projectBased: true,
+    },
     StreamlitApp: { name: 'Streamlit app', projectBased: true },
     StreamlitAppEdit: { name: 'Edit Streamlit app', projectBased: true },
     Subscriptions: {
@@ -906,6 +941,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'PostHog toolbar launches PostHog right in your app or website.',
         iconType: 'toolbar',
+        docsHref: 'https://posthog.com/docs/toolbar',
     },
     Tracing: {
         name: 'Tracing',
@@ -914,6 +950,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Tracing',
         description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
         iconType: 'tracing',
+        docsHref: 'https://posthog.com/docs/distributed-tracing',
     },
     TracingOperation: {
         name: 'Operation',
@@ -932,7 +969,13 @@ export const productConfiguration: Record<string, any> = {
     },
     UserInterview: { name: 'Interview topic', projectBased: true, activityScope: 'UserInterview' },
     UserInterviewResponse: { name: 'Interview response', projectBased: true, activityScope: 'UserInterview' },
-    VisualReviewIndex: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
+    VisualReviewIndex: {
+        name: 'Visual review',
+        description:
+            'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
+        projectBased: true,
+        iconType: 'visual_review',
+    },
     VisualReviewRuns: { name: 'Runs', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
     VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
@@ -942,11 +985,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'visual_review',
     },
     VisualReviewSnapshotOverview: { name: 'Snapshots', projectBased: true, iconType: 'visual_review' },
+    VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
     Heatmaps: {
         name: 'Heatmaps',
         projectBased: true,
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
+        docsHref: 'https://posthog.com/docs/toolbar/heatmaps',
     },
     Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
@@ -956,6 +1001,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'workflows',
         projectBased: true,
         description: 'Automate user communication and internal processes',
+        docsHref: 'https://posthog.com/docs/workflows',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
@@ -985,6 +1031,7 @@ export const productUrls = {
             search?: string
             tab?: string
             msg?: string
+            [key: string]: string | undefined
         }
     ): string => {
         const encodePathSegment = (value: string): string => {
@@ -997,7 +1044,13 @@ export const productUrls = {
                 (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
             )
         }
-        const queryParams = new URLSearchParams(params)
+        const definedParams: Record<string, string> = {}
+        for (const [key, value] of Object.entries(params ?? {})) {
+            if (value !== undefined) {
+                definedParams[key] = value
+            }
+        }
+        const queryParams = new URLSearchParams(definedParams)
         const stringifiedParams = queryParams.toString()
         return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
@@ -1075,10 +1128,7 @@ export const productUrls = {
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-    dashboardTextTile: (id: string | number, textTileId: string | number): string =>
-        `${urls.dashboard(id)}/text-tiles/${textTileId}`,
-    dashboardButtonTile: (id: string | number, buttonTileId: string | number): string =>
-        `${urls.dashboard(id)}/button-tiles/${buttonTileId}`,
+    dashboardTile: (id: string | number, tileId: string | number): string => `${urls.dashboard(id)}/tiles/${tileId}`,
     dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
@@ -1098,7 +1148,7 @@ export const productUrls = {
         return query ? `/data-ops?${query}` : '/data-ops'
     },
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
-    nodeDetail: (id: string): string => `/models/${id}`,
+    nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
@@ -1185,6 +1235,7 @@ export const productUrls = {
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+    engineeringAnalyticsHealth: (): string => '/engineering-analytics/health',
     engineeringAnalyticsTeam: (ownerTeam: string): string =>
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1292,12 +1343,14 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalytics: (): string => '/mcp-analytics',
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+    mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     mcpGateway: (): string => '/mcp-servers',
     mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
@@ -1410,27 +1463,24 @@ export const productUrls = {
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTemplates: (): string => '/replay-vision/new/template',
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
-    replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
-    replayVisionActionRun: (actionId: string, runId: string): string =>
-        `/replay-vision/actions/${actionId}/runs/${runId}`,
-    replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
-        `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
-    replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    inboxTriage: (): string => '/inbox/reports/triage',
     inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
         const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
         return `/inbox/scouts/${skillName}${segment}`
     },
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     inboxFindings: (): string => '/inbox/scouts/findings',
+    inboxRuns: (): string => '/inbox/scouts/runs',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -1483,6 +1533,7 @@ export const productUrls = {
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
     visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
+    visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
     visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
         `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     webAnalytics: (): string => `/web`,
@@ -1640,11 +1691,18 @@ export const fileSystemTypes = {
 /** This const is auto-generated, as is the whole file */
 export const productSetupProbes: ProductSetupProbe[] = [
     {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
+        staleAfterDays: 90,
+    },
+    { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
+    {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
         featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -1810,6 +1868,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
             'var(--color-product-product-tours-light)',
             'var(--color-product-product-tours-dark)',
         ] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: `Survey`,
@@ -1958,11 +2017,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
         iconType: 'cohort',
+        iconColor: [
+            'var(--color-product-customer-analytics-light)',
+            'var(--color-product-customer-analytics-dark)',
+        ] as FileSystemIconColor,
         href: urls.customerAnalytics(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
+        sceneKeys: [
+            'CustomerAnalytics',
+            'CustomerAnalyticsAccount',
+            'CustomerJourneyTemplates',
+            'CustomerJourneyBuilder',
+        ],
     },
     {
         path: 'Dashboards',
@@ -1981,7 +2049,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
-        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
         tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
@@ -2177,6 +2244,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Inbox',
+        displayLabel: 'Self-driving inbox',
         intents: [],
         category: ProductItemCategory.TOOLS,
         iconType: 'inbox' as FileSystemIconType,
@@ -2234,7 +2302,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Live Debugger',
+        displayLabel: 'Live debugger',
         intents: [ProductKey.LIVE_DEBUGGER],
+        sceneKey: 'LiveDebugger',
         category: ProductItemCategory.UNRELEASED,
         type: 'live_debugger',
         href: urls.liveDebugger(),
@@ -2249,7 +2319,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.LOGS],
         category: ProductItemCategory.APP_MONITORING,
         iconType: 'logs' as FileSystemIconType,
-        iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
         sceneKeys: [
@@ -2273,7 +2343,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-light)',
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
-        href: urls.mcpAnalyticsDashboard(),
+        href: urls.mcpAnalytics(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
@@ -2587,6 +2657,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'VisualReviewSettings',
             'VisualReviewSnapshotHistory',
             'VisualReviewSnapshotOverview',
+            'VisualReviewFlakiness',
         ],
     },
     {

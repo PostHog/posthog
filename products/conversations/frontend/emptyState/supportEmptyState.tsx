@@ -31,9 +31,7 @@ export const supportEmptyState: SceneProductEmptyState = {
                 lead: 'Tickets from your chat widget, email, and any other connected channels will show up here as they arrive. Send a test message through the widget to see one land, or finish connecting a channel in settings.',
             },
         },
-        // `primaryAction` isn't keyed by mode the way `text` is, and support is the only
-        // adopter with a middle state, so this copy has to read correctly both before
-        // support is switched on and while it waits for a first ticket.
+        // Settings are the next step in both modes: switching support on, then finishing a channel.
         primaryAction: { label: 'Open support settings', to: urls.supportSettings() },
         docsUrl: 'https://posthog.com/docs/support',
         previewLabel: 'Your inbox, once tickets arrive',

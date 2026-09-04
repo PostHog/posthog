@@ -5,8 +5,6 @@ on:
     # desktop suite; merge_group gating and PR concurrency live there.
     workflow_call:
         secrets:
-            GH_APP_POSTHOG_PATHS_FILTER_APP_ID:
-                required: false
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
     push:
@@ -21,7 +19,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: github.event_name != 'merge_group'
         permissions:
@@ -37,7 +35,7 @@ jobs:
               # forks can't read org secrets, so fall back to github.token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
             - name: Detect relevant changes
@@ -65,7 +63,7 @@ jobs:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
         if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 15
         permissions:
             contents: read
@@ -103,7 +101,7 @@ jobs:
     desktop-quality-pass:
         needs: [changes, quality]
         name: Desktop Quality Pass
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: always()
         steps:

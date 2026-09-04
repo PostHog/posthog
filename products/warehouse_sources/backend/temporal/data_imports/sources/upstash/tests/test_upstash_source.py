@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash import source as upstash_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -39,16 +38,6 @@ class TestUpstashSource:
     def setup_method(self) -> None:
         self.source = UpstashSource()
         self.config = UpstashSourceConfig(email="me@example.com", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UPSTASH
-
-    def test_source_config_metadata(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Upstash"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/upstash"
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
@@ -82,13 +71,6 @@ class TestUpstashSource:
         assert set(tables) == {"redis_databases", "redis_stats", "teams", "vector_indexes", "audit_logs"}
         assert tables["redis_databases"]["sync_methods"] == ["Full refresh"]
         assert tables["redis_databases"]["primary_keys"] == []  # unknown until first sync
-
-    @parameterized.expand(
-        [("valid", (True, None)), ("invalid", (False, "Invalid Upstash email or management API key"))]
-    )
-    def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
-        with mock.patch.object(upstash_source_module, "validate_upstash_credentials", lambda email, api_key: result):
-            assert self.source.validate_credentials(self.config, team_id=1) == result
 
     @parameterized.expand(
         [

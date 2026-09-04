@@ -35,11 +35,12 @@ export function copyPublicFolder(srcDir, destDir) {
     })
 }
 
-export function copySnappyWASMFile(absWorkingDir) {
+export function copySnappyWASMFile(absWorkingDir, destDir = path.resolve(absWorkingDir, 'dist')) {
     try {
+        fse.ensureDirSync(destDir)
         fse.copyFileSync(
             path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'),
-            path.resolve(absWorkingDir, 'dist/snappy_bg.wasm')
+            path.resolve(destDir, 'snappy_bg.wasm')
         )
     } catch (error) {
         console.warn('Could not copy snappy wasm file:', error.message)
@@ -296,6 +297,7 @@ export const commonConfig = {
         '.mp3': 'file',
         '.sql': 'text',
         '.yaml': 'text',
+        '.md': 'text',
     },
     metafile: true,
 }
@@ -616,8 +618,9 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
                 ],
                 {
-                    ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
+                    ignored: [/.*(Type|\.test\.stories)\.[tj]sx?$/, /(^|[/\\])node_modules([/\\]|$)/],
                     ignoreInitial: true,
+                    followSymlinks: false,
                 }
             )
             .on('all', async (event, filePath) => {

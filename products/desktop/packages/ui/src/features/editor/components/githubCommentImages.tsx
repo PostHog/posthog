@@ -1,3 +1,5 @@
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
+import { useState } from "react";
 import type { Components } from "react-markdown";
 
 const GITHUB_IMAGE_HOSTS = new Set([
@@ -9,7 +11,9 @@ const GITHUB_IMAGE_HOSTS = new Set([
   "user-images.githubusercontent.com",
 ]);
 
-export function isGitHubHostedImage(source: string | undefined): boolean {
+export function isGitHubHostedImage(
+  source: string | undefined,
+): source is string {
   if (!source) return false;
 
   try {
@@ -25,7 +29,28 @@ export function isGitHubHostedImage(source: string | undefined): boolean {
   }
 }
 
+/**
+ * A comment image, read from the disk cache with the origin as a fallback.
+ *
+ * The cache answers 404 for anything it declines to hold, and a screenshot or
+ * a screen-recording GIF often passes its size limit. GitHub serves those
+ * fine, so a decline must not leave the reader with a broken image.
+ */
+function CommentImage({ src, alt }: { src: string; alt: string }) {
+  const [declinedSrc, setDeclinedSrc] = useState<string | null>(null);
+
+  return (
+    <img
+      src={declinedSrc === src ? src : cachedImageUrl(src)}
+      alt={alt}
+      onError={() => setDeclinedSrc(src)}
+    />
+  );
+}
+
 export const githubCommentComponents: Partial<Components> = {
   img: ({ src, alt }) =>
-    isGitHubHostedImage(src) ? <img src={src} alt={alt ?? ""} /> : null,
+    isGitHubHostedImage(src) ? (
+      <CommentImage src={src} alt={alt ?? ""} />
+    ) : null,
 };

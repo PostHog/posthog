@@ -13,6 +13,10 @@ pub const SYMBOL_SET_DB_FETCHES: &str = "cymbal_symbol_set_db_fetches";
 pub const SYMBOL_SET_DB_HITS: &str = "cymbal_symbol_set_db_hits";
 pub const SYMBOL_SET_DB_MISSES: &str = "cymbal_symbol_set_db_misses";
 pub const SYMBOL_SET_SAVED: &str = "cymbal_symbol_set_saved";
+// Purpose and outcome labels are fixed enums in `write_attribution` so these
+// counters can be safely grouped in Grafana and reconciled with Postgres table stats.
+pub const POSTGRES_WRITE_ATTEMPTS: &str = "cymbal_postgres_write_attempts";
+pub const POSTGRES_ROWS_AFFECTED: &str = "cymbal_postgres_rows_affected";
 pub const SAVED_SYMBOL_SET_LOADED: &str = "cymbal_saved_symbol_set_loaded";
 pub const SAVED_SYMBOL_SET_ERROR_RETURNED: &str = "cymbal_saved_symbol_set_error_returned";
 pub const SYMBOL_SET_NEGATIVE_CACHE_HIT: &str = "cymbal_symbol_set_negative_cache_hit";
@@ -90,6 +94,11 @@ pub const ASSIGNMENT_RULES_FOUND: &str = "cymbal_assignment_rules_found";
 pub const ASSIGNMENT_RULES_TRIED: &str = "cymbal_assignment_rules_tried";
 pub const AUTO_ASSIGNMENTS: &str = "cymbal_auto_assignments";
 pub const ASSIGNMENT_RULES_DISABLED: &str = "cymbal_assignment_rules_disabled";
+pub const SEVERITY_RULES_PROCESSING_TIME: &str = "cymbal_severity_rules_processing_time";
+pub const SEVERITY_RULES_FOUND: &str = "cymbal_severity_rules_found";
+pub const SEVERITY_RULES_TRIED: &str = "cymbal_severity_rules_tried";
+pub const SEVERITY_RULES_MATCHED: &str = "cymbal_severity_rules_matched";
+pub const SEVERITY_RULES_DISABLED: &str = "cymbal_severity_rules_disabled";
 pub const GROUPING_RULES_DISABLED: &str = "cymbal_grouping_rules_disabled";
 pub const GROUPING_RULES_PROCESSING_TIME: &str = "cymbal_grouping_rules_processing_time";
 pub const GROUPING_RULES_FOUND: &str = "cymbal_grouping_rules_found";
@@ -167,3 +176,12 @@ pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
 pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
+
+// `outcome` is either `admitted` or `limited` and never both, so the two series
+// sum to the notifications the limiter judged.
+pub const ISSUE_CREATED_RATE_LIMIT_OUTCOMES: &str = "cymbal_issue_created_rate_limit_outcomes";
+pub const ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_issue_created_rate_limit_fail_open";
+// Tokens handed back after a charge that started no workflow, labeled `refunded`
+// or `error`. Kept off the `outcomes` counter, because a refund is not a
+// judgment on a notification and would break that counter's two-series sum.
+pub const ISSUE_CREATED_RATE_LIMIT_REFUNDS: &str = "cymbal_issue_created_rate_limit_refunds";

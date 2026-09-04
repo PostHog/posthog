@@ -11,6 +11,7 @@ import { useCallback } from 'react'
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -21,8 +22,10 @@ import {
     quickFilterToPropertyFilters,
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -74,6 +77,13 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
 // so numeric-only pickers must not be fed non-numeric columns in the first place.
 const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'float', 'decimal']
 
+// Which warehouse tables a row's picker may offer, by the caller's typeKey. Anything not listed
+// gets the unrestricted data warehouse group.
+const DATA_WAREHOUSE_GROUP_TYPE_BY_TYPE_KEY: Record<string, TaxonomicFilterGroupType> = {
+    'plugin-filters': TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    'plugin-filters-view': TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
+}
+
 export function ActionFilterRow({
     logic,
     filter,
@@ -87,6 +97,7 @@ export function ActionFilterRow({
     hideDeleteBtn = false,
     showCombine = false,
     insightType,
+    allowBehavioralPropertyFilter = false,
     propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
@@ -135,6 +146,7 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -348,11 +360,15 @@ export function ActionFilterRow({
         )
 
     const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
-    // CDP destination/workflow filters (plugin-filters) restrict the picker to external-source tables.
+    // A behavioral filter compiles to a person_id subquery over the events table, which a warehouse series has no key for
+    const behavioralFiltersEnabled =
+        allowBehavioralPropertyFilter &&
+        !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] &&
+        !isDataWarehouseFilter
+    // CDP destination/workflow filters restrict the picker to the one warehouse table family their
+    // trigger fires on, so each family gets its own typeKey.
     const dataWarehouseGroupType =
-        typeKey === 'plugin-filters'
-            ? TaxonomicFilterGroupType.DataWarehouseSourceTables
-            : TaxonomicFilterGroupType.DataWarehouse
+        DATA_WAREHOUSE_GROUP_TYPE_BY_TYPE_KEY[typeKey] ?? TaxonomicFilterGroupType.DataWarehouse
     // The committed value's real group — it drives the picker's committed-selection
     // affordance (selected row floats to the top, with the series' rename applied).
     // The picker still opens on the suggested-filters surface either way. All-events
@@ -728,6 +744,18 @@ export function ActionFilterRow({
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
                         triggerVariant="input"
+                        framedRows={behavioralFiltersEnabled}
+                        addText={behavioralFiltersEnabled ? 'Filter' : undefined}
+                        addFilterSuffix={
+                            behavioralFiltersEnabled
+                                ? (addFilter) => (
+                                      <AddBehavioralFilterButton
+                                          data-attr={`${index}-${value}-${typeKey}-add-behavioral-filter`}
+                                          onAdd={addFilter}
+                                      />
+                                  )
+                                : null
+                        }
                     />
                     <SaveAsActionBanner filter={filter} />
                 </div>

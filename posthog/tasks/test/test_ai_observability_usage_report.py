@@ -25,6 +25,7 @@ from posthog.tasks.ai_observability_usage_report import (
     AI_OBSERVABILITY_USAGE_EVENT,
     _get_all_ai_observability_reports,
     capture_ai_observability_report,
+    get_ai_trace_counts,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
     get_llm_feedback_survey_metrics,
@@ -142,7 +143,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_generation_count == 8  # 5 + 3
         assert metrics.ai_embedding_count == 3
         assert metrics.ai_span_count == 10
-        assert metrics.ai_trace_count == 2
+        assert metrics.ai_trace_event_count == 2
         assert metrics.ai_metric_count == 1
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
@@ -168,6 +169,30 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.reasoning_tokens == 75  # 3 * 25
         assert metrics.cache_read_tokens == 1500  # 3 * 500
         assert metrics.cache_creation_tokens == 600  # 3 * 200
+
+    def test_get_ai_trace_counts_counts_distinct_trace_ids(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period = get_previous_day()
+
+        traced_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 3, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_span", 2, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_trace", 1, properties={"$ai_trace_id": traced_id})
+
+        # A trace whose SDK integration never emits the root $ai_trace event still counts.
+        rootless_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 2, properties={"$ai_trace_id": rootless_id})
+
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
+
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+
+        assert get_ai_trace_counts(period.start, period.end, team_ids)[self.team.id] == 2
+
+        # The root-event count stays available as its own signal, so the two can be compared.
+        assert get_all_ai_metrics(period.start, period.end, team_ids)[self.team.id].ai_trace_event_count == 1
 
     def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
         """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""

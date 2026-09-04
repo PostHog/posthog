@@ -27,6 +27,7 @@ import type {
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
+import { CustomPropertySyncRuns } from './CustomPropertySyncRuns'
 import { labelForDisplayType, type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
 
 const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
@@ -37,19 +38,40 @@ const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
 }
 
 export function CustomPropertiesConfig(): JSX.Element {
-    const { filteredDefinitions, definitionsLoading, searchTerm, targetTypeFilter } =
-        useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition, setSearchTerm, setTargetTypeFilter } =
-        useActions(customPropertyDefinitionsLogic)
+    const {
+        filteredDefinitions,
+        definitionsLoading,
+        searchTerm,
+        targetTypeFilter,
+        runsBySourceId,
+        runsCountBySourceId,
+        runsOffsetBySourceId,
+        runsSearchBySourceId,
+        runsLoadingBySourceId,
+        runsLoadFailedBySourceId,
+    } = useValues(customPropertyDefinitionsLogic)
+    const {
+        openCreateModal,
+        openEditModal,
+        deleteDefinition,
+        setSearchTerm,
+        setTargetTypeFilter,
+        setRunsSearch,
+        loadRuns,
+    } = useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
         LemonDialog.open({
             title: `Delete ${definition.name}?`,
-            description: `Deleting ${definition.name} removes this custom property. This can't be undone.`,
+            description: (
+                <>
+                    <p>This action is irreversible.</p>
+                    <p>All stored values for this custom property will be permanently deleted.</p>
+                </>
+            ),
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
@@ -111,7 +133,12 @@ export function CustomPropertiesConfig(): JSX.Element {
                     </Tooltip>
                 </span>
             ),
-            render: (_, definition) => <ReferencesCell references={definition.references} />,
+            render: (_, definition) => (
+                <ReferencesCell
+                    hasWorkflowReference={definition.has_workflow_reference}
+                    references={definition.references}
+                />
+            ),
         },
         {
             title: 'Last updated',
@@ -123,13 +150,26 @@ export function CustomPropertiesConfig(): JSX.Element {
                 ),
         },
         {
-            title: 'Sync',
+            title: (
+                <span className="flex items-center gap-1">
+                    Sync
+                    <Tooltip title="Expand a warehouse-backed account property to see staging, retries, and account updates.">
+                        <IconInfo className="text-secondary" />
+                    </Tooltip>
+                </span>
+            ),
             render: (_, definition) => {
                 if (definition.is_canonical) {
                     return <span className="text-secondary">Auto</span>
                 }
                 if (!definition.source) {
-                    return <span className="text-secondary">Manual</span>
+                    return definition.has_workflow_reference ? (
+                        <Tooltip title="This property is updated by a workflow.">
+                            <span className="text-secondary">Workflow</span>
+                        </Tooltip>
+                    ) : (
+                        <span className="text-secondary">Manual</span>
+                    )
                 }
                 const status = sourceSyncStatus(definition.source)
                 return (
@@ -167,6 +207,7 @@ export function CustomPropertiesConfig(): JSX.Element {
                             tooltip="Delete"
                             onClick={() => confirmDelete(definition)}
                             disabledReason={canonicalReason ?? restrictionReason}
+                            data-attr="delete-custom-property"
                         />
                     </div>
                 )
@@ -212,6 +253,57 @@ export function CustomPropertiesConfig(): JSX.Element {
                 loading={definitionsLoading}
                 rowKey="id"
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                expandable={{
+                    rowExpandable: (definition) =>
+                        definition.target_type === 'account' && !!definition.source?.saved_query,
+                    onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
+                    noIndent: true,
+                    expandedRowRender: (definition) =>
+                        definition.source ? (
+                            <CustomPropertySyncRuns
+                                runs={runsBySourceId[definition.source.id] ?? []}
+                                loading={runsLoadingBySourceId[definition.source.id] ?? false}
+                                loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
+                                targetType="account"
+                                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
+                                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
+                                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
+                                onSearch={(searchTerm) => {
+                                    if (definition.source) {
+                                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
+                                    }
+                                }}
+                                onForward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
+                                        })
+                                    }
+                                }}
+                                onBackward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
+                                        })
+                                    }
+                                }}
+                                syncsUrl={
+                                    definition.source.saved_query
+                                        ? urls.sqlEditor({ view_id: definition.source.saved_query })
+                                        : null
+                                }
+                                onReload={() =>
+                                    definition.source &&
+                                    loadRuns({
+                                        sourceId: definition.source.id,
+                                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
+                                    })
+                                }
+                            />
+                        ) : null,
+                }}
                 emptyState={
                     searchTerm || targetTypeFilter !== 'all'
                         ? 'No custom properties match your filters.'
@@ -223,11 +315,25 @@ export function CustomPropertiesConfig(): JSX.Element {
     )
 }
 
-function ReferencesCell({ references }: { references: readonly CustomPropertyReferenceApi[] }): JSX.Element {
+function ReferencesCell({
+    hasWorkflowReference,
+    references,
+}: {
+    hasWorkflowReference: boolean
+    references: readonly CustomPropertyReferenceApi[]
+}): JSX.Element {
     const [open, setOpen] = useState(false)
 
-    if (!references.length) {
+    if (!hasWorkflowReference) {
         return <span className="text-secondary">0</span>
+    }
+
+    if (!references.length) {
+        return (
+            <Tooltip title="You don't have access to view the workflow.">
+                <span className="text-secondary">Workflow</span>
+            </Tooltip>
+        )
     }
 
     return (

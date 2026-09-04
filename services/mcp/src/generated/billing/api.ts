@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Endpoint to fetch spend data (proxy to billing service).
  */
-export const BillingSpendRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const BillingSpendRetrieveQueryParams = () => zod.object({
     breakdowns: zod
         .string()
         .nullish()
@@ -25,7 +25,7 @@ export const BillingSpendRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .nullish()
         .describe(
-            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.'
+            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
         ),
     usage_types: zod
         .string()
@@ -35,7 +35,7 @@ export const BillingSpendRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const BillingUsageRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const BillingUsageRetrieveQueryParams = () => zod.object({
     breakdowns: zod
         .string()
         .nullish()
@@ -49,7 +49,7 @@ export const BillingUsageRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .nullish()
         .describe(
-            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.'
+            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
         ),
     usage_types: zod
         .string()

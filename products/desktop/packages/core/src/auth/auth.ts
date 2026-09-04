@@ -1,3 +1,4 @@
+import { isAuthFailureResponse } from "@posthog/api-client/fetcher";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type IPowerManager,
@@ -32,6 +33,8 @@ import {
   type AuthServiceEvents,
   type AuthState,
   type AuthTokenResponse,
+  type DesktopAccess,
+  desktopAccessResponseSchema,
   findOrgForProject,
   flattenProjectIds,
   type OrgProjects,
@@ -40,6 +43,11 @@ import {
   type ValidAccessTokenOutput,
 } from "./schemas";
 
+// A refresh failure that is not a rejection is no evidence the token is dead, so
+// pause rather than retire. Sized inside TOKEN_EXPIRY_SKEW_MS so a fast failure
+// still retries on a live token. Retry exhaustion can already outrun the skew on
+// its own, so the sizing buys nothing there.
+const FAILED_REFRESH_COOLDOWN_MS = 15_000;
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const AUTH_FETCH_TIMEOUT_MS = 30_000;
 const AUTH_BOOTSTRAP_DEADLINE_MS = 20_000;
@@ -83,7 +91,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     orgProjectsMap: {},
     currentOrgId: null,
     currentProjectId: null,
-    hasCodeAccess: null,
+    desktopAccess: { projectId: null, status: "unchecked", reason: null },
     needsScopeReauth: false,
     sessionType: null,
     sessionExpiresAt: null,
@@ -93,6 +101,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private initializePromise: Promise<void> | null = null;
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionGeneration = 0;
+  // A refresh already refused, keyed to the session generation so every teardown
+  // invalidates it. `until: null` is a proven-dead token, a timestamp is a pause.
+  private refusedRefresh: {
+    token: string;
+    generation: number;
+    until: number | null;
+  } | null = null;
   // Serializes session-state commits so overlapping selections can't
   // interleave across async encryption (see commitSessionState).
   private commitChain: Promise<void> = Promise.resolve();
@@ -128,18 +144,24 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     return { ...this.state };
   }
   async login(region: CloudRegion): Promise<AuthState> {
+    this.sessionGeneration += 1;
+    const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
       () => this.oauthFlow.startFlow(region),
       region,
       "OAuth flow failed",
+      sessionGeneration,
     );
     return this.getState();
   }
   async signup(region: CloudRegion): Promise<AuthState> {
+    this.sessionGeneration += 1;
+    const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
       () => this.oauthFlow.startSignupFlow(region),
       region,
       "Signup failed",
+      sessionGeneration,
     );
     return this.getState();
   }
@@ -230,7 +252,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return response;
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (await isAuthFailureResponse(response)) {
       const refreshedAuth = await this.refreshAccessToken();
       response = await this.executeAuthenticatedFetch(
         fetchImpl,
@@ -242,34 +264,23 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
     return response;
   }
-  async redeemInviteCode(code: string): Promise<AuthState> {
-    const { apiHost } = await this.getValidAccessToken();
-    const response = await this.authenticatedFetch(
-      fetch,
-      `${apiHost}/api/code/invites/redeem/`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+  async retryDesktopAccess(): Promise<AuthState> {
+    await this.initialize();
+    const session = await this.ensureValidSession();
+    this.updateState({
+      desktopAccess: {
+        projectId: session.currentProjectId,
+        status: "checking",
+        reason: null,
       },
-    );
-
-    const data = (await response.json().catch(() => ({}))) as {
-      success?: boolean;
-      error?: string;
-    };
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Failed to redeem invite code");
-    }
-
-    this.updateState({ hasCodeAccess: true });
+    });
+    await this.updateDesktopAccessFromSession(session);
     return this.getState();
   }
   async selectProject(projectId: number): Promise<AuthState> {
     await this.initialize();
 
-    const session = this.requireSession();
+    const session = await this.ensureValidSession();
 
     if (!flattenProjectIds(session.orgProjectsMap).includes(projectId)) {
       throw new Error("Invalid project selection");
@@ -297,7 +308,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   async switchOrg(orgId: string): Promise<AuthState> {
     await this.initialize();
 
-    const session = this.requireSession();
+    const session = await this.ensureValidSession();
 
     if (!session.orgProjectsMap[orgId]) {
       throw new Error("Invalid organization");
@@ -371,8 +382,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     // interleave across async encryption and clobber a newer one. The chain
     // swallows rejections so one failure doesn't wedge later commits; the
     // returned promise still rejects for the caller.
+    const sessionGeneration = this.sessionGeneration;
     const run = this.commitChain.then(() =>
-      this.applyCommittedSession(prevSession, next),
+      this.applyCommittedSession(prevSession, next, sessionGeneration),
     );
     this.commitChain = run.catch(() => {});
     return run;
@@ -384,7 +396,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       currentOrgId: string | null;
       currentProjectId: number | null;
     },
+    sessionGeneration: number,
   ): Promise<void> {
+    if (this.sessionGeneration !== sessionGeneration) {
+      return;
+    }
+
     const nextSession: InMemorySession = {
       ...prevSession,
       orgProjectsMap: next.orgProjectsMap,
@@ -398,20 +415,32 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     // published state only after it resolves, so a rejection leaves every
     // layer on the prior session.
     if (nextSession.refreshToken) {
-      await this.persistSession({
-        refreshToken: nextSession.refreshToken,
-        cloudRegion: nextSession.cloudRegion,
-        selectedProjectId: next.currentProjectId,
-      });
+      const persisted = await this.persistSession(
+        {
+          refreshToken: nextSession.refreshToken,
+          cloudRegion: nextSession.cloudRegion,
+          selectedProjectId: next.currentProjectId,
+        },
+        () => this.sessionGeneration === sessionGeneration,
+      );
+      if (!persisted) {
+        return;
+      }
     }
 
+    if (this.sessionGeneration !== sessionGeneration) {
+      return;
+    }
+    const desktopAccess = this.carryDesktopAccessInto(nextSession);
     this.session = nextSession;
     this.persistProjectPreference(nextSession);
     this.updateState({
       orgProjectsMap: next.orgProjectsMap,
       currentOrgId: next.currentOrgId,
       currentProjectId: next.currentProjectId,
+      desktopAccess,
     });
+    await this.updateDesktopAccessFromSession(nextSession);
   }
   private async patchCurrentOrganization(orgId: string): Promise<void> {
     const { apiHost } = await this.getValidAccessToken();
@@ -453,9 +482,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   async logout(): Promise<AuthState> {
     const { cloudRegion, currentProjectId } = this.state;
 
+    this.sessionGeneration += 1;
     this.authSession.clearCurrent();
     this.clearImpersonationExpiryTimer();
     this.session = null;
+    this.refusedRefresh = null;
     this.setAnonymousState({ cloudRegion, currentProjectId });
     return this.getState();
   }
@@ -540,7 +571,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: storedSession.selectedProjectId,
-      hasCodeAccess: null,
+      desktopAccess: {
+        projectId: storedSession.selectedProjectId,
+        status: "unchecked",
+        reason: null,
+      },
       needsScopeReauth: false,
     });
   }
@@ -594,6 +629,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     // concurrent callers dedupe onto one refresh. Resolving the stored session
     // (now async) must happen INSIDE refreshAndSync, else two callers both
     // refresh and burn the rotating token twice.
+    const sessionGeneration = this.sessionGeneration;
     const refreshAndSync = async (): Promise<InMemorySession> => {
       const sessionInput = await this.getSessionInputForRefresh();
       let session: InMemorySession;
@@ -614,7 +650,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         }
         throw error;
       }
-      await this.syncAuthenticatedSession(session);
+      const synchronized = await this.syncAuthenticatedSession(
+        session,
+        sessionGeneration,
+      );
+      if (!synchronized) {
+        throw new NotAuthenticatedError();
+      }
       return session;
     };
 
@@ -646,11 +688,36 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
     return storedSession;
   }
+  private pauseRefresh(token: string, errorCode: string | undefined): void {
+    this.refusedRefresh = {
+      token,
+      generation: this.sessionGeneration,
+      until: Date.now() + FAILED_REFRESH_COOLDOWN_MS,
+    };
+    this.logger.warn("Refresh failed, pausing this token", { errorCode });
+  }
+
   private async refreshSession(
     input: StoredSessionInput,
   ): Promise<InMemorySession> {
     if (!this.connectivity.getStatus().isOnline) {
       throw new Error("Offline");
+    }
+
+    const refused = this.refusedRefresh;
+    if (
+      refused &&
+      refused.token === input.refreshToken &&
+      refused.generation === this.sessionGeneration
+    ) {
+      if (refused.until === null) {
+        throw new NotAuthenticatedError(
+          "Your session has expired. Sign in again to continue.",
+        );
+      }
+      if (Date.now() < refused.until) {
+        throw new Error("Token refresh paused after an unclassified failure");
+      }
     }
 
     let lastError = "Token refresh failed";
@@ -676,13 +743,22 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
       if (result.errorCode === "auth_error") {
         this.logger.warn("Refresh token rejected by server, forcing logout");
+        this.sessionGeneration += 1;
         this.authSession.clearCurrent();
         this.session = null;
         this.setAnonymousState({
           cloudRegion: input.cloudRegion,
           currentProjectId: input.selectedProjectId,
         });
-        throw new Error(lastError);
+        // Last, so a throwing teardown leaves no refusal over a live-looking session.
+        this.refusedRefresh = {
+          token: input.refreshToken,
+          generation: this.sessionGeneration,
+          until: null,
+        };
+        // The session is already anonymous, so callers that stop on a dead
+        // session must see that class here rather than a trigger later.
+        throw new NotAuthenticatedError(lastError);
       }
 
       const isRetryable =
@@ -690,6 +766,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         result.errorCode === "server_error";
 
       if (!isRetryable) {
+        // This arm keeps the session and the stored token, so only the pause
+        // stops the caller re-presenting it on the next trigger.
+        this.pauseRefresh(input.refreshToken, result.errorCode);
         throw new Error(lastError);
       }
 
@@ -702,6 +781,10 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       });
       await sleepWithBackoff(attempt, AuthService.REFRESH_BACKOFF);
     }
+
+    // A 5xx endpoint or a captive portal exhausts the budget here, not in the arm
+    // above; unpaused, each later trigger spends the whole budget again.
+    this.pauseRefresh(input.refreshToken, "retries_exhausted");
 
     throw new Error(lastError);
   }
@@ -760,13 +843,22 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
-    const selection = this.reconcileInitialSelection({
+    const preferredProjectId =
+      options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null;
+    let selection = this.reconcileInitialSelection({
       orgProjectsMap,
       currentOrgId,
-      preferredProjectId:
-        options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null,
+      preferredProjectId,
       lastSelectedOrgId: lastPrefs?.lastSelectedOrgId ?? null,
     });
+    if (
+      orgProjectsIncomplete &&
+      preferredProjectId !== null &&
+      !flattenProjectIds(orgProjectsMap).includes(preferredProjectId)
+    ) {
+      selection.currentProjectId = null;
+    }
+    selection = this.retainLiveProjectSelection(selection, preferredProjectId);
 
     const refreshToken =
       tokenResponse.refresh_token ?? options.fallbackRefreshToken ?? null;
@@ -785,6 +877,30 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     };
 
     return session;
+  }
+  // A background rebuild must not move the app off its live project. Partial
+  // map rebuilds omit projects (one per-team or per-org fetch can 4xx or time
+  // out), and adopting the fallback selection here replaces or nulls the
+  // project, which unmounts the whole app and strands the user elsewhere. The
+  // map is picker data; the desktop access check enforces access to the kept
+  // project.
+  private retainLiveProjectSelection(
+    selection: { currentOrgId: string | null; currentProjectId: number | null },
+    preferredProjectId: number | null,
+  ): { currentOrgId: string | null; currentProjectId: number | null } {
+    const liveSession = this.session;
+    if (
+      !liveSession ||
+      liveSession.currentProjectId === null ||
+      preferredProjectId !== liveSession.currentProjectId ||
+      selection.currentProjectId === liveSession.currentProjectId
+    ) {
+      return selection;
+    }
+    return {
+      currentProjectId: liveSession.currentProjectId,
+      currentOrgId: liveSession.currentOrgId ?? selection.currentOrgId,
+    };
   }
   private async buildOrgProjectsMap(
     accessToken: string,
@@ -971,6 +1087,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     }>,
     region: CloudRegion,
     fallbackError: string,
+    sessionGeneration: number,
   ): Promise<void> {
     const result = await runFlow();
     if (!result.success || !result.data) {
@@ -981,22 +1098,36 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       cloudRegion: region,
       selectedProjectId: this.state.currentProjectId,
     });
-    await this.syncAuthenticatedSession(session);
+    await this.syncAuthenticatedSession(session, sessionGeneration);
   }
   private async syncAuthenticatedSession(
     session: InMemorySession,
-  ): Promise<void> {
-    this.persistProjectPreference(session);
+    sessionGeneration: number,
+  ): Promise<boolean> {
+    if (this.sessionGeneration !== sessionGeneration) {
+      return false;
+    }
     if (session.refreshToken) {
-      await this.persistSession({
-        refreshToken: session.refreshToken,
-        cloudRegion: session.cloudRegion,
-        selectedProjectId: session.currentProjectId,
-      });
+      const persisted = await this.persistSession(
+        {
+          refreshToken: session.refreshToken,
+          cloudRegion: session.cloudRegion,
+          selectedProjectId: session.currentProjectId,
+        },
+        () => this.sessionGeneration === sessionGeneration,
+      );
+      if (!persisted) {
+        return false;
+      }
     } else {
       this.authSession.clearCurrent();
     }
 
+    if (this.sessionGeneration !== sessionGeneration) {
+      return false;
+    }
+    this.persistProjectPreference(session);
+    const desktopAccess = this.carryDesktopAccessInto(session);
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1006,30 +1137,46 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
+      desktopAccess,
       needsScopeReauth: false,
       sessionType: session.sessionType,
       sessionExpiresAt: session.accessTokenExpiresAt,
       sessionEndReason: null,
     });
-    await this.updateCodeAccessFromSession();
+    await this.updateDesktopAccessFromSession(session);
 
+    if (
+      this.sessionGeneration !== sessionGeneration ||
+      this.session !== session
+    ) {
+      return false;
+    }
     if (session.orgProjectsIncomplete) {
       void this.refreshOrgProjects();
     }
+    return true;
   }
-  private async persistSession(input: {
-    refreshToken: string;
-    cloudRegion: CloudRegion;
-    selectedProjectId: number | null;
-  }): Promise<void> {
+  private async persistSession(
+    input: {
+      refreshToken: string;
+      cloudRegion: CloudRegion;
+      selectedProjectId: number | null;
+    },
+    shouldSave: () => boolean = () => true,
+  ): Promise<boolean> {
     const priorSelected =
       this.authSession.getCurrent()?.selectedProjectId ?? null;
+    const refreshTokenEncrypted = await this.cipher.encrypt(input.refreshToken);
+    if (!shouldSave()) {
+      return false;
+    }
     this.authSession.saveCurrent({
-      refreshTokenEncrypted: await this.cipher.encrypt(input.refreshToken),
+      refreshTokenEncrypted,
       cloudRegion: input.cloudRegion,
       selectedProjectId: input.selectedProjectId ?? priorSelected,
       scopeVersion: OAUTH_SCOPE_VERSION,
     });
+    return true;
   }
   private persistProjectPreference(session: InMemorySession): void {
     if (!session.accountKey || session.currentProjectId === null) {
@@ -1128,12 +1275,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return { accountKey: null, currentOrgId: null, orgNames: {} };
     }
   }
-  private requireSession(): InMemorySession {
-    if (!this.session) {
-      throw new NotAuthenticatedError();
-    }
-    return this.session;
-  }
   private setAnonymousState(
     partial: Pick<
       Partial<AuthState>,
@@ -1151,97 +1292,129 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: partial.currentProjectId ?? null,
-      hasCodeAccess: null,
+      desktopAccess: {
+        projectId: partial.currentProjectId ?? null,
+        status: "unchecked",
+        reason: null,
+      },
       needsScopeReauth: partial.needsScopeReauth ?? false,
       sessionType: null,
       sessionExpiresAt: null,
       sessionEndReason: partial.sessionEndReason ?? null,
     });
   }
-  private async updateCodeAccessFromSession(): Promise<void> {
-    if (!this.session) {
-      this.updateState({ hasCodeAccess: null });
-      return;
+
+  // Resetting to "checking" on every refresh would unmount the whole app.
+  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+    const previous = this.state.desktopAccess;
+    const previousAccountKey = this.session?.accountKey ?? null;
+    // A failed `/api/users/@me/` lookup leaves accountKey null on either
+    // side. That is an unknown account, not a different one, so it must not
+    // flash the loading screen. Only two resolved keys that differ prove the
+    // refresh landed on another account.
+    const accountChanged =
+      previousAccountKey !== null &&
+      session.accountKey !== null &&
+      session.accountKey !== previousAccountKey;
+    const sameIdentity =
+      !accountChanged && previous.projectId === session.currentProjectId;
+    if (
+      sameIdentity &&
+      (previous.status === "allowed" || previous.status === "blocked")
+    ) {
+      return previous;
     }
-
-    const hasAccess = await this.checkCodeAccess(this.session);
-
-    if (hasAccess !== null) {
-      this.updateState({ hasCodeAccess: hasAccess });
-      return;
-    }
-
-    // Indeterminate: a transient/unauthorized failure isn't proof the invite
-    // was revoked, so keep the prior value and let the next sync re-check.
-    this.logger.warn(
-      "Code access check was inconclusive; keeping previous value",
-      { hasCodeAccess: this.state.hasCodeAccess },
-    );
+    return {
+      projectId: session.currentProjectId,
+      status: "checking",
+      reason: null,
+    };
   }
 
-  /**
-   * Resolves Code invite access. Only a 2xx response with an explicit boolean
-   * `has_access` is authoritative; everything else (offline, network error,
-   * non-2xx, malformed body) is indeterminate, retried with backoff, then
-   * returned as `null` so the caller keeps the prior value. Uses the synced
-   * token directly rather than `authenticatedFetch`, which would re-enter the
-   * refresh flow this runs inside and deadlock.
-   */
-  private async checkCodeAccess(
+  private async updateDesktopAccessFromSession(
     session: InMemorySession,
-  ): Promise<boolean | null> {
-    const url = `${getCloudUrlFromRegion(session.cloudRegion)}/api/code/invites/check-access/`;
+  ): Promise<void> {
+    const desktopAccess = await this.checkDesktopAccess(session);
+    if (this.session !== session) {
+      // The session rotated while the check was in flight. The result is
+      // scoped to (account, project): when the rotation kept both and nothing
+      // newer has answered, an "allowed" result still applies, and dropping
+      // it would leave the published state on "checking" until the rotation's
+      // own check answers. Only "allowed" may apply from a stale check: every
+      // rotation runs its own check, so a stale failure or denial (a timeout
+      // on the old request, a rejected old token) must wait for that newer
+      // check instead of unmounting the app with a result the newer check
+      // will overturn.
+      const current = this.session;
+      const accountChanged =
+        current !== null &&
+        current.accountKey !== null &&
+        session.accountKey !== null &&
+        current.accountKey !== session.accountKey;
+      const stillAnswers =
+        current !== null &&
+        !accountChanged &&
+        current.currentProjectId === session.currentProjectId &&
+        desktopAccess.status === "allowed" &&
+        this.state.desktopAccess.status === "checking" &&
+        this.state.desktopAccess.projectId === session.currentProjectId;
+      if (!stillAnswers) return;
+    }
+    this.updateState({ desktopAccess });
+  }
 
-    for (
-      let attempt = 0;
-      attempt < AuthService.CODE_ACCESS_MAX_ATTEMPTS;
-      attempt++
-    ) {
-      if (!this.connectivity.getStatus().isOnline) {
-        return null;
-      }
-
-      try {
-        const response = await this.executeAuthenticatedFetch(
-          fetch,
-          url,
-          {},
-          session.accessToken,
-        );
-
-        if (response.ok) {
-          const data = (await response.json().catch(() => null)) as {
-            has_access?: unknown;
-          } | null;
-          if (data && typeof data.has_access === "boolean") {
-            return data.has_access;
-          }
-          this.logger.warn("Code access response missing has_access flag", {
-            status: response.status,
-          });
-        } else {
-          this.logger.warn("Code access check returned non-OK status", {
-            status: response.status,
-          });
-        }
-      } catch (error) {
-        this.logger.warn("Code access check request failed", {
-          error,
-          attempt,
-        });
-      }
-
-      const isLastAttempt =
-        attempt === AuthService.CODE_ACCESS_MAX_ATTEMPTS - 1;
-      if (isLastAttempt) break;
-      await sleepWithBackoff(attempt, AuthService.REFRESH_BACKOFF);
+  private async checkDesktopAccess(
+    session: InMemorySession,
+  ): Promise<DesktopAccess> {
+    const projectId = session.currentProjectId;
+    if (projectId === null) {
+      return { projectId, status: "error", reason: null };
     }
 
-    return null;
+    if (!this.connectivity.getStatus().isOnline) {
+      return { projectId, status: "error", reason: null };
+    }
+
+    const url = `${getCloudUrlFromRegion(session.cloudRegion)}/api/projects/${projectId}/desktop/access/`;
+
+    try {
+      const response = await this.executeAuthenticatedFetch(
+        fetch,
+        url,
+        {},
+        session.accessToken,
+      );
+
+      if (response.ok) {
+        const result = desktopAccessResponseSchema.safeParse(
+          await response.json().catch(() => null),
+        );
+        if (result.success) {
+          if (result.data.allowed) {
+            return { projectId, status: "allowed", reason: null };
+          }
+          return {
+            projectId,
+            status: "blocked",
+            reason: result.data.reason,
+          };
+        }
+        this.logger.warn("Desktop access response was invalid", {
+          status: response.status,
+        });
+      } else {
+        this.logger.warn("Desktop access check returned non-OK status", {
+          status: response.status,
+        });
+      }
+    } catch (error) {
+      this.logger.warn("Desktop access check request failed", { error });
+    }
+
+    return { projectId, status: "error", reason: null };
   }
   private static readonly REFRESH_MAX_ATTEMPTS = 3;
   private static readonly ORG_FETCH_MAX_ATTEMPTS = 3;
-  private static readonly CODE_ACCESS_MAX_ATTEMPTS = 3;
   private static readonly ORG_RECOVERY_MAX_ATTEMPTS = 5;
   private static readonly REFRESH_BACKOFF: BackoffOptions = {
     initialDelayMs: 1_000,
@@ -1298,8 +1471,10 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
 
   private endImpersonatedSession(session: InMemorySession): void {
+    this.sessionGeneration += 1;
     this.clearImpersonationExpiryTimer();
     this.session = null;
+    this.refusedRefresh = null;
     this.setAnonymousState({
       cloudRegion: session.cloudRegion,
       currentProjectId: session.currentProjectId,
@@ -1429,16 +1604,20 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           : null;
         const storedSelected =
           this.authSession.getCurrent()?.selectedProjectId ?? null;
-        const selection = this.reconcileInitialSelection({
-          orgProjectsMap: map,
-          currentOrgId: session.currentOrgId,
-          preferredProjectId:
-            session.currentProjectId ??
-            storedSelected ??
-            lastPrefs?.lastSelectedProjectId ??
-            null,
-          lastSelectedOrgId: lastPrefs?.lastSelectedOrgId ?? null,
-        });
+        const preferredProjectId =
+          session.currentProjectId ??
+          storedSelected ??
+          lastPrefs?.lastSelectedProjectId ??
+          null;
+        const selection = this.retainLiveProjectSelection(
+          this.reconcileInitialSelection({
+            orgProjectsMap: map,
+            currentOrgId: session.currentOrgId,
+            preferredProjectId,
+            lastSelectedOrgId: lastPrefs?.lastSelectedOrgId ?? null,
+          }),
+          preferredProjectId,
+        );
         await this.commitSessionState(session, {
           orgProjectsMap: map,
           currentOrgId: selection.currentOrgId,

@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Optional
@@ -23,25 +24,31 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     Subscription,
     SubscriptionDelivery,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+
+VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -140,6 +147,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "next_delivery_date": data["next_delivery_date"],
             "integration_id": None,
             "invite_message": None,
+            "delivery_config": {"post_all_insights_in_main_message": False},
             "summary": "sent every week",
             "summary_enabled": False,
             "summary_prompt_guide": "",
@@ -662,7 +670,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
-        assert "do not belong to your team" in response.json()["detail"]
+        assert "not in your team" in response.json()["detail"]
 
     def test_can_create_slack_subscription_with_valid_integration(self):
         integration = Integration.objects.create(team=self.team, kind="slack", config={})
@@ -694,6 +702,138 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not belong to your team" in response.json()["detail"]
 
+    def test_can_create_slack_subscription_with_delivery_config(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
+        subscription = Subscription.objects.get(id=response.json()["id"])
+        assert subscription.delivery_config == {"post_all_insights_in_main_message": True}
+
+    def test_cannot_set_post_all_insights_in_main_message_on_email_subscription(self):
+        response = self._create_subscription(delivery_config={"post_all_insights_in_main_message": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only supported for Slack subscriptions" in response.json()["detail"]
+
+    def test_can_patch_delivery_config_on_slack_subscription(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        ).json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
+
+    def test_post_all_in_main_requires_files_write_scope(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {
+                "target_type": "slack",
+                "target_value": "C1|#x",
+                "integration_id": integration.id,
+                "frequency": "weekly",
+                "interval": 1,
+                "insight": self.insight.id,
+                "start_date": "2026-01-01T00:00:00Z",
+                "delivery_config": {"post_all_insights_in_main_message": True},
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
+    def test_patch_post_all_in_main_requires_files_write_scope(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
+    def test_patch_to_integration_without_files_write_rejects_persisted_gallery_flag(self):
+        # Effective-config validation: moving an existing post_all_insights_in_main_message sub to an
+        # integration lacking files:write must be rejected even when the PATCH omits delivery_config.
+        with_scope = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        without_scope = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=with_scope.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"integration_id": without_scope.id},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
+    def test_patch_slack_to_email_rejects_persisted_gallery_flag(self):
+        # Effective-config validation across target_type: a Slack sub with the gallery flag PATCHed to
+        # email without resubmitting delivery_config must be rejected, not silently saved as email+flag.
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"target_type": "email", "target_value": "a@b.com"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only supported for Slack" in str(res.json())
+
+    def test_post_all_in_main_allowed_with_files_write(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {
+                "target_type": "slack",
+                "target_value": "C1|#x",
+                "integration_id": integration.id,
+                "frequency": "weekly",
+                "interval": 1,
+                "insight": self.insight.id,
+                "start_date": "2026-01-01T00:00:00Z",
+                "delivery_config": {"post_all_insights_in_main_message": True},
+            },
+        )
+        assert res.status_code == status.HTTP_201_CREATED
+
     def test_cannot_create_slack_subscription_with_non_slack_integration(self):
         integration = Integration.objects.create(team=self.team, kind="hubspot", config={})
 
@@ -704,6 +844,77 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
+
+    def test_can_create_teams_subscription_with_a_webhook_url(self):
+        response = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["target_type"] == "teams"
+
+    def test_reading_a_teams_subscription_never_returns_the_webhook_url(self):
+        # The URL authorizes a post to the channel on its own, so subscription read access must not
+        # be enough to obtain it.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions").json()["results"]
+
+        assert response.json()["target_value"] == "prod-25.westeurope.logic.azure.com"
+        assert [s["target_value"] for s in listed if s["id"] == sub_id] == ["prod-25.westeurope.logic.azure.com"]
+        assert "/workflows/" not in json.dumps(response.json())
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    @parameterized.expand([("email", "ben@posthog.com"), ("slack", "C1234|#general")])
+    def test_reading_a_non_teams_subscription_returns_its_target_value(self, target_type, target_value):
+        extra = {}
+        if target_type == "slack":
+            extra["integration_id"] = Integration.objects.create(team=self.team, kind="slack", config={}).id
+        sub_id = self._create_subscription(target_type=target_type, target_value=target_value, **extra).json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+
+        assert response.json()["target_value"] == target_value
+
+    def test_patching_an_unrelated_field_keeps_a_teams_subscription_saveable(self):
+        # target_value is absent from the PATCH body, so the webhook check falls back to the stored
+        # URL. Validating an empty string instead would make every edit of a Teams subscription 400.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Renamed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["title"] == "Renamed"
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_patching_a_teams_subscription_with_the_masked_host_is_rejected(self):
+        # A client that echoes what it read would otherwise overwrite the stored URL with a value
+        # nothing could deliver to.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"target_value": "prod-25.westeurope.logic.azure.com"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "target_value"
+        assert response.json()["detail"] == TEAMS_WEBHOOK_URL_MASKED_ERROR
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_cannot_change_a_teams_subscription_to_another_target_without_replacing_its_webhook_url(self):
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"target_type": "email"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Subscription.objects.get(id=sub_id).target_type == Subscription.SubscriptionTarget.TEAMS
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_cannot_create_teams_subscription_with_a_lookalike_url(self):
+        response = self._create_subscription(target_type="teams", target_value="https://evilpowerautomate.com/x")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "target_value"
+        assert response.json()["detail"] == TEAMS_WEBHOOK_URL_ERROR
 
     def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
         """Re-enabling a disabled Slack subscription whose integration is gone must be
@@ -1619,7 +1830,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         # subscriptions. Denying object access must 403, not leak the tile set.
         self._create_subscription(title="On tile", insight=self._insight().id)
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object", return_value=False
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
+            return_value=False,
         ):
             res = self.client.get(
                 f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id}
@@ -2186,6 +2398,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 },
             ]
             content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
+            content_snapshot[AI_REPORT_CHARTS_KEY] = [
+                {"export_asset_id": 4321, "title": "weekly signups", "step_index": 0}
+            ]
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -2214,6 +2429,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             # must not appear at all (defence-in-depth across content_snapshot and the typed fields).
             assert data[AI_REPORT_SNAPSHOT_KEY] is None
             assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert data[AI_REPORT_CHARTS_KEY] is None
             assert generated_hogql not in str(data)
             assert scrubbed_error_message not in str(data)
             # The prompt is user-authored (not query-derived) and already readable on the parent
@@ -2229,6 +2445,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row["change_summary"] is None
             assert row[AI_REPORT_SNAPSHOT_KEY] is None
             assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert row[AI_REPORT_CHARTS_KEY] is None
             assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
             assert scrubbed_error_message not in str(row)
@@ -2245,9 +2462,13 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
+                assert data[AI_REPORT_CHARTS_KEY] == [
+                    {"export_asset_id": 4321, "title": "weekly signups", "step_index": 0}
+                ]
                 assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]
                 assert AI_REPORT_DIAGNOSTICS_KEY not in data["content_snapshot"]
                 assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in data["content_snapshot"]
+                assert AI_REPORT_CHARTS_KEY not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
@@ -3104,3 +3325,354 @@ class TestAISubscriptionAPI(APILicensedTest):
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "ai_prompt_config" in str(response.json()), response.json()
+
+
+class TestSubscriptionObjectAccessControl(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self.mock_temporal_client = MagicMock(start_workflow=AsyncMock())
+        self._sync_connect_patcher.start().return_value = self.mock_temporal_client
+        self.addCleanup(self._sync_connect_patcher.stop)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+
+        self.open_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self.restricted_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self.restricted_dashboard = Dashboard.objects.create(team=self.team, name="Private numbers")
+        DashboardTile.objects.create(dashboard=self.restricted_dashboard, insight=self.open_insight)
+        self._rule("insight", obj=self.restricted_insight)
+        self._rule("dashboard", obj=self.restricted_dashboard)
+
+    def _payload(self, **overrides):
+        payload = {
+            "target_type": "email",
+            "target_value": "attacker@example.com",
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00Z",
+            "title": "Exfil",
+        }
+        payload.update(overrides)
+        return payload
+
+    def _subscription_for(self, **kwargs) -> Subscription:
+        return create_subscription(team=self.team, created_by=self.user, **kwargs)
+
+    def _delivery_for(self, subscription: Subscription, **overrides) -> SubscriptionDelivery:
+        return SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id=f"wf-{subscription.id}",
+            idempotency_key=f"key-{subscription.id}",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot={"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+            **overrides,
+        )
+
+    def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True, team=None) -> None:
+        AccessControl.objects.create(
+            team=team or self.team,
+            resource=resource,
+            resource_id=str(obj.id) if obj is not None else None,
+            organization_member=self.organization_membership if for_member else None,
+            access_level=level,
+        )
+        cache.clear()
+
+    def _dashboard_with_tiles(self, *insights: Insight) -> Dashboard:
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        for insight in insights:
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        return dashboard
+
+    def _sub_on_an_open_insight(self) -> Subscription:
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_on_a_restricted_insight(self) -> Subscription:
+        return self._subscription_for(insight=self.restricted_insight)
+
+    def _sub_on_a_restricted_dashboard(self) -> Subscription:
+        return self._subscription_for(dashboard=self.restricted_dashboard)
+
+    def _sub_on_an_ai_prompt(self) -> Subscription:
+        return self._subscription_for(prompt="How did signups do last week?")
+
+    def _sub_exporting_an_insight_restricted_afterwards(self) -> Subscription:
+        exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(exported))
+        subscription.dashboard_export_insights.set([exported])
+        self._rule("insight", obj=exported)
+        return subscription
+
+    def _sub_rendering_every_tile(self) -> Subscription:
+        return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight))
+
+    def _sub_selecting_only_the_open_tile(self) -> Subscription:
+        subscription = self._subscription_for(
+            dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        )
+        subscription.dashboard_export_insights.set([self.open_insight])
+        return subscription
+
+    def _sub_whose_restricted_tile_was_removed(self) -> Subscription:
+        dashboard = self._dashboard_with_tiles(self.open_insight)
+        restricted_tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        restricted_tile.deleted = True
+        restricted_tile.save(update_fields=["deleted"])
+        return subscription
+
+    def _sub_under_a_resource_wide_deny(self) -> Subscription:
+        self._rule("insight")
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_under_a_lone_resource_wide_deny(self) -> Subscription:
+        AccessControl.objects.filter(team=self.team).delete()
+        return self._sub_under_a_resource_wide_deny()
+
+    def _sub_under_a_resource_wide_deny_with_a_grant(self) -> Subscription:
+        self._rule("insight")
+        self._rule("insight", obj=self.open_insight, level="viewer")
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_read_by_an_org_admin(self) -> Subscription:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        private_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self._rule("insight", obj=private_insight, for_member=False)
+        return self._subscription_for(insight=private_insight)
+
+    def _sub_in_a_team_without_rules(self) -> Subscription:
+        AccessControl.objects.filter(team=self.team).delete()
+        cache.clear()
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_on_a_soft_deleted_restricted_insight(self) -> Subscription:
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        self.restricted_insight.deleted = True
+        self.restricted_insight.save(update_fields=["deleted"])
+        return subscription
+
+    def _assert_visibility(self, subscription: Subscription, *, sees_subscription: bool, sees_deliveries: bool) -> None:
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert listed.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in listed.json()["results"]] == ([subscription.id] if sees_subscription else [])
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        expected = status.HTTP_200_OK if sees_subscription else status.HTTP_403_FORBIDDEN
+        assert retrieved.status_code == expected, retrieved.json()
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert len(deliveries.json()["results"]) == (1 if sees_deliveries else 0)
+
+    @parameterized.expand(
+        [
+            ("an open insight", "_sub_on_an_open_insight", True, True),
+            ("an AI prompt, so no target at all", "_sub_on_an_ai_prompt", True, True),
+            ("a restricted insight", "_sub_on_a_restricted_insight", False, False),
+            ("a restricted dashboard", "_sub_on_a_restricted_dashboard", False, False),
+            (
+                "an exported insight restricted after saving",
+                "_sub_exporting_an_insight_restricted_afterwards",
+                False,
+                False,
+            ),
+            ("no selection and a restricted tile", "_sub_rendering_every_tile", False, False),
+            ("a selection that leaves the restricted tile out", "_sub_selecting_only_the_open_tile", True, True),
+            ("a restricted tile that was removed", "_sub_whose_restricted_tile_was_removed", True, False),
+            ("a deny on the whole insight resource", "_sub_under_a_resource_wide_deny", False, False),
+            ("that deny as the only rule in the team", "_sub_under_a_lone_resource_wide_deny", False, False),
+            ("that deny with the insight granted back", "_sub_under_a_resource_wide_deny_with_a_grant", True, True),
+            ("an org admin reading a private insight", "_sub_read_by_an_org_admin", True, True),
+            ("a team with no access rules", "_sub_in_a_team_without_rules", True, True),
+            ("a restricted insight that was soft-deleted", "_sub_on_a_soft_deleted_restricted_insight", True, False),
+        ]
+    )
+    def test_target_access_decides_what_the_caller_sees(self, _name, builder, sees_subscription, sees_deliveries):
+        subscription = getattr(self, builder)()
+        self._delivery_for(subscription)
+
+        self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
+
+    def _create_on_a_restricted_insight(self):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.restricted_insight.id)
+        )
+
+    def _create_on_a_restricted_dashboard(self):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(dashboard=self.restricted_dashboard.id, dashboard_export_insights=[self.open_insight.id]),
+        )
+
+    def _create_selecting_a_restricted_insight(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(
+                dashboard=dashboard.id,
+                dashboard_export_insights=[self.open_insight.id, self.restricted_insight.id],
+            ),
+        )
+
+    def _patch_adding_a_restricted_insight(self):
+        subscription = self._sub_selecting_only_the_open_tile()
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"dashboard_export_insights": [self.open_insight.id, self.restricted_insight.id]},
+        )
+
+    def _create_selecting_an_insight_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_insight = Insight.objects.create(team=other_team, filters={"events": [{"id": "$pageview"}]})
+        dashboard = self._dashboard_with_tiles(self.restricted_insight)
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(
+                dashboard=dashboard.id,
+                dashboard_export_insights=[foreign_insight.id, self.restricted_insight.id],
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("the insight target", "_create_on_a_restricted_insight", "insight", "Viewer access"),
+            ("the dashboard target", "_create_on_a_restricted_dashboard", "dashboard", "Viewer access"),
+            (
+                "an insight in the export selection",
+                "_create_selecting_a_restricted_insight",
+                "dashboard_export_insights",
+                "Viewer access",
+            ),
+            (
+                "an insight a PATCH adds to the selection",
+                "_patch_adding_a_restricted_insight",
+                "dashboard_export_insights",
+                "Viewer access",
+            ),
+            (
+                "an insight from another team, which outranks the access error",
+                "_create_selecting_an_insight_from_another_team",
+                "dashboard_export_insights",
+                "not in your team",
+            ),
+        ]
+    )
+    def test_write_is_rejected_when_the_caller_cannot_view_a_target(self, _name, request_builder, attr, message):
+        response = getattr(self, request_builder)()
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == attr, body
+        assert message in body["detail"], body
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_create_allows_an_open_insight(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.open_insight.id)
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("patch", "patch", "", {"target_value": "attacker@example.com"}),
+            ("test_delivery", "post", "/test-delivery", None),
+        ]
+    )
+    def test_restricted_subscription_cannot_be_written_by_id(self, _name, method, url_suffix, body):
+        subscription = self._sub_on_a_restricted_insight()
+
+        url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{url_suffix}"
+        response = getattr(self.client, method)(url, body)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_insight_filter_does_not_confirm_a_restricted_subscription(self):
+        hidden = self._sub_on_a_restricted_insight()
+
+        filtered = self.client.get(f"/api/projects/{self.team.id}/subscriptions?insight={self.restricted_insight.id}")
+
+        assert filtered.status_code == status.HTTP_200_OK
+        assert filtered.json()["results"] == []
+        assert Subscription.objects.filter(pk=hidden.pk).exists()
+
+    def test_tile_rule_holds_for_a_dashboard_read_through_an_environment(self):
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        self._rule("insight", obj=self.restricted_insight, team=environment)
+        dashboard = Dashboard.objects.create(team=environment, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = create_subscription(team=environment, created_by=self.user, dashboard=dashboard)
+
+        listed = self.client.get(f"/api/environments/{environment.id}/subscriptions")
+
+        assert listed.status_code == status.HTTP_200_OK
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
+
+    def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self):
+        second_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, second_insight))
+        subscription.dashboard_export_insights.set([self.open_insight, second_insight])
+        self._delivery_for(subscription)
+
+        self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=True)
+
+    @parameterized.expand(
+        [
+            ("a rename", {"title": "Renamed"}, status.HTTP_400_BAD_REQUEST),
+            ("a new recipient", {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),
+            ("turning it off", {"deleted": True}, status.HTTP_200_OK),
+        ]
+    )
+    def test_write_to_a_soft_deleted_restricted_target_may_only_turn_it_off(self, _name, body, expected):
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        self.restricted_insight.deleted = True
+        self.restricted_insight.save(update_fields=["deleted"])
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("an open insight", False), ("a restricted insight", True)])
+    def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, _name, restricted):
+        target = self.restricted_insight if restricted else self.open_insight
+        subscription = self._subscription_for(insight=target)
+        target.deleted = True
+        target.save(update_fields=["deleted"])
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand([("a rename", {"title": "Renamed"}), ("turning it off", {"deleted": True})])
+    def test_patch_that_omits_the_selection_is_accepted(self, _name, body):
+        subscription = self._sub_selecting_only_the_open_tile()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_repointing_an_empty_selection_at_a_restricted_tile_is_rejected(self):
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight))
+        target_dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"dashboard": target_dashboard.id, "target_value": "attacker@example.com"},
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "dashboard", body
+        assert "Viewer access to every insight on this dashboard" in body["detail"], body
+        self.mock_temporal_client.start_workflow.assert_not_called()

@@ -7,7 +7,7 @@ test.describe("Visual Stability", () => {
   }) => {
     await window.waitForSelector("#root > *", { timeout: 30000 });
     await window
-      .locator('[data-testid="app-loading-logo"]')
+      .locator('[data-testid="app-loading-shell"]')
       .waitFor({ state: "hidden", timeout: 30000 })
       .catch(() => {});
 

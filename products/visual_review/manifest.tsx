@@ -18,6 +18,8 @@ export const manifest: ProductManifest = {
             // /visual_review entry point — picks a repo and forwards into its
             // workspace. Empty / multi-repo cases handled inside the scene.
             name: 'Visual review',
+            description:
+                'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
             projectBased: true,
             import: () => import('./frontend/scenes/VisualReviewIndexScene'),
             iconType: 'visual_review',
@@ -52,6 +54,12 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/VisualReviewSnapshotOverviewScene'),
             iconType: 'visual_review',
         },
+        VisualReviewFlakiness: {
+            name: 'Flakiness',
+            projectBased: true,
+            import: () => import('./frontend/scenes/VisualReviewFlakinessScene'),
+            iconType: 'visual_review',
+        },
     },
     routes: {
         '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
@@ -59,6 +67,7 @@ export const manifest: ProductManifest = {
         '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
         '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
         '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+        '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
         '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
             'VisualReviewSnapshotHistory',
             'visualReviewSnapshotHistory',
@@ -73,6 +82,7 @@ export const manifest: ProductManifest = {
         visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
         visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
         visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
+        visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
         visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
             `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },

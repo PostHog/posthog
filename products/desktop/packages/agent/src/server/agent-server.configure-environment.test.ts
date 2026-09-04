@@ -13,6 +13,13 @@ interface TestableServer {
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    taskOriginKey?: string | null;
+    repositories?: string[];
+    runtimeAdapter?: string | null;
+    sandboxEnvironmentId?: string | null;
+    snapshotKind?: string | null;
+    prewarmed?: boolean | null;
+    executionEnvironment?: "local" | "cloud";
   }): GatewayEnv;
 }
 
@@ -209,6 +216,12 @@ describe("AgentServer.configureEnvironment", () => {
       taskRunId: "run-xyz",
       taskUserId: 42,
       taskTitle: "Fix the bug",
+      taskOriginKey: "desktop_onboarding_session:42",
+      repositories: ["posthog/posthog", "posthog/posthog-js"],
+      runtimeAdapter: "claude",
+      sandboxEnvironmentId: "environment-123",
+      snapshotKind: "filesystem",
+      prewarmed: false,
     });
 
     expect(env.openaiCustomHeaders).toEqual({
@@ -220,6 +233,14 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_run_id": "run-xyz",
       "x-posthog-property-task_user_id": "42",
       "x-posthog-property-task_title": "Fix the bug",
+      "x-posthog-property-task_origin_key": "desktop_onboarding_session:42",
+      "x-posthog-property-task_repositories":
+        '["posthog/posthog","posthog/posthog-js"]',
+      "x-posthog-property-task_runtime_adapter": "claude",
+      "x-posthog-property-task_sandbox_environment_id": "environment-123",
+      "x-posthog-property-task_snapshot_kind": "filesystem",
+      "x-posthog-property-task_prewarmed": "false",
+      "x-posthog-property-task_execution_environment": "cloud",
       "x-posthog-property-team_id": "1",
       "x-posthog-property-$ai_session_id": "task-abc",
       "X-PostHog-Project-Id": "1",
@@ -236,6 +257,12 @@ describe("AgentServer.configureEnvironment", () => {
       taskRunId: "run-xyz",
       taskUserId: 42,
       taskTitle: "Fix the bug",
+      taskOriginKey: "desktop_onboarding_session:42",
+      repositories: ["posthog/posthog", "posthog/posthog-js"],
+      runtimeAdapter: "claude",
+      sandboxEnvironmentId: "environment-123",
+      snapshotKind: "filesystem",
+      prewarmed: false,
     });
 
     expect(env.anthropicCustomHeaders).toBe(
@@ -248,6 +275,13 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_run_id: run-xyz",
         "x-posthog-property-task_user_id: 42",
         "x-posthog-property-task_title: Fix the bug",
+        "x-posthog-property-task_origin_key: desktop_onboarding_session:42",
+        'x-posthog-property-task_repositories: ["posthog/posthog","posthog/posthog-js"]',
+        "x-posthog-property-task_runtime_adapter: claude",
+        "x-posthog-property-task_sandbox_environment_id: environment-123",
+        "x-posthog-property-task_snapshot_kind: filesystem",
+        "x-posthog-property-task_prewarmed: false",
+        "x-posthog-property-task_execution_environment: cloud",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),
     );
@@ -290,7 +324,9 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicCustomHeaders).toBe(
-      "x-posthog-property-task_internal: false\nX-PostHog-Project-Id: 1",
+      "x-posthog-property-task_internal: false\n" +
+        "x-posthog-property-task_execution_environment: cloud\n" +
+        "X-PostHog-Project-Id: 1",
     );
   });
 
@@ -388,6 +424,8 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     "AI_GATEWAY_URL",
     "AI_GATEWAY_PRODUCTS",
     "AI_GATEWAY_TOKEN",
+    "AI_GATEWAY_PRODUCT",
+    "AI_GATEWAY_AI_STAGE",
   ];
   const GO_GATEWAY = "https://ai-gateway.us.posthog.com";
   const SCOPED_TOKEN = "phe_test_scoped_token";
@@ -533,6 +571,36 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(parseBlob(env.anthropicCustomHeaders ?? "").ai_product).toBe(
       "background_agents",
     );
+  });
+
+  // A failed boot fetch leaves aiStage null; without the env values the minted token goes unused.
+  it("routes on the worker's product and stage when the run fetch yielded no stage", () => {
+    process.env.AI_GATEWAY_PRODUCT = "signals_scout";
+    process.env.AI_GATEWAY_AI_STAGE = "scout:web-analytics";
+    const env = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: null,
+      taskId: "task-1",
+      taskRunId: "run-1",
+    });
+
+    expect(env.anthropicBaseUrl).toBe(GO_GATEWAY);
+    expect(env.anthropicAuthToken).toBe(SCOPED_TOKEN);
+    expect(parseBlob(env.anthropicCustomHeaders ?? "")).toMatchObject({
+      ai_product: "signals_scout",
+      ai_stage: "scout:web-analytics",
+      task_run_id: "run-1",
+    });
+  });
+
+  it("derives product and stage itself when the worker passes none", () => {
+    const env = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: null,
+    });
+
+    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.anthropicAuthToken).toBe("test-api-key");
   });
 
   it("authenticates with the scoped token on the Go path", () => {

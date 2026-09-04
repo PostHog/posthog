@@ -6,7 +6,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError

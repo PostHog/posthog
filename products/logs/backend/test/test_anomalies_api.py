@@ -11,6 +11,7 @@ from rest_framework import status
 from products.apm.backend.facade.api import BaselineStage, Direction, IssueState, TrafficTier, VerdictType
 from products.logs.backend.anomaly_scan import ScanBucket, ScanBudgetExceeded, ScanIssue, ScanResult, ScanSeries
 from products.logs.backend.presentation.views.anomalies_api import LogsAnomalyScanRequestSerializer
+from products.logs.backend.series_bands import BandBucket, BandSeries, SeriesBandsFetchTruncated, SeriesBandsResult
 
 UTC = dt.UTC
 T0 = dt.datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
@@ -166,4 +167,86 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
             side_effect=ScanBudgetExceeded("over budget"),
         ):
             response = self.client.post(self.url, self._payload(), format="json")
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class TestLogsSeriesBandsAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.url = f"/api/projects/{self.team.pk}/logs/anomalies/series_bands/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
+    def test_invalid_body_is_rejected_before_querying(self):
+        with patch("products.logs.backend.presentation.views.anomalies_api.run_series_bands") as run:
+            response = self.client.post(self.url, {}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.assert_not_called()
+
+    def test_response_shape(self):
+        result = SeriesBandsResult(
+            service_name="svc",
+            window_start=T0 - dt.timedelta(days=7),
+            window_end=T0,
+            interval_minutes=60,
+            series_truncated=False,
+            series=[
+                BandSeries(
+                    namespace="ns",
+                    environment="prod",
+                    severity="error",
+                    total_count=25,
+                    baseline_weeks=5,
+                    history_start=T0 - dt.timedelta(weeks=5),
+                    band_ready_at=None,
+                    buckets=[BandBucket(time=T0 - dt.timedelta(hours=1), observed=25, lower=9.0, upper=57.0)],
+                )
+            ],
+        )
+        with patch(
+            "products.logs.backend.presentation.views.anomalies_api.run_series_bands", return_value=result
+        ) as run:
+            response = self.client.post(self.url, {"serviceName": "svc"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        kwargs = run.call_args.kwargs
+        assert run.call_args.args == (self.team, "svc")
+        assert kwargs["interval_minutes"] == 60
+        assert kwargs["window_end"] - kwargs["window_start"] == dt.timedelta(days=7)
+        data = response.json()
+        assert data["service_name"] == "svc"
+        assert data["interval_minutes"] == 60
+        assert data["series_truncated"] is False
+        series = data["series"][0]
+        assert (series["namespace"], series["environment"], series["severity"]) == ("ns", "prod", "error")
+        assert series["baseline_weeks"] == 5
+        assert series["history_start"] == (T0 - dt.timedelta(weeks=5)).isoformat().replace("+00:00", "Z")
+        assert series["band_ready_at"] is None
+        assert series["buckets"][0] == {
+            "time": (T0 - dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+            "observed": 25,
+            "lower": 9.0,
+            "upper": 57.0,
+        }
+
+    @parameterized.expand(
+        [
+            ("span_over_seven_days", {"date_from": "-14d"}, "at most 7 days"),
+            ("start_beyond_retention", {"date_from": "-40d", "date_to": "-34d"}, "at most 35 days ago"),
+        ]
+    )
+    def test_unusable_window_is_rejected_before_querying(self, _name: str, date_range: dict, expected: str):
+        with patch("products.logs.backend.presentation.views.anomalies_api.run_series_bands") as run:
+            response = self.client.post(self.url, {"serviceName": "svc", "dateRange": date_range}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected in response.json()["error"]
+        run.assert_not_called()
+
+    def test_truncated_fetch_returns_422(self):
+        with patch(
+            "products.logs.backend.presentation.views.anomalies_api.run_series_bands",
+            side_effect=SeriesBandsFetchTruncated("too many rows"),
+        ):
+            response = self.client.post(self.url, {"serviceName": "svc"}, format="json")
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

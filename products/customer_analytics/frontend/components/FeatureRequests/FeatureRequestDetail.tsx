@@ -1,31 +1,62 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
-import { IconArchive, IconArrowLeft, IconBuilding, IconDocument, IconFolder, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    IconArchive,
+    IconArrowLeft,
+    IconBuilding,
+    IconDocument,
+    IconFolder,
+    IconPencil,
+    IconPlus,
+} from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { FeatureRequestApi } from '../../generated/api.schemas'
+import { FeatureRequestAccountEvidenceModal } from './FeatureRequestAccountEvidenceModal'
+import { FeatureRequestAccountItem } from './FeatureRequestAccountItem'
 import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
 import { FeatureRequestHistorySection } from './FeatureRequestHistorySection'
+import { FeatureRequestImages } from './FeatureRequestImages'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
-import { featureRequestsLogic } from './featureRequestsLogic'
+import { FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE, featureRequestsLogic } from './featureRequestsLogic'
 import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
 
 export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
-    const { mutatingArchive, listSearchParams } = useValues(featureRequestsLogic)
-    const { openEditRequest, archiveActiveRequest, restoreActiveRequest } = useActions(featureRequestsLogic)
+    const {
+        mutatingArchive,
+        featureRequestBackLabel,
+        featureRequestBackUrl,
+        activeRequestAccountLinks,
+        activeRequestEvidenceCount,
+        activeRequestImages,
+        visibleActiveRequestAccountLinks,
+        requestAccountsShowingAll,
+        accountsEvidenceCollapsed,
+    } = useValues(featureRequestsLogic)
+    const {
+        openEditRequest,
+        openAddAccount,
+        archiveActiveRequest,
+        restoreActiveRequest,
+        setRequestAccountsShowingAll,
+        setAccountsEvidenceCollapsed,
+        showHistoryTarget,
+    } = useActions(featureRequestsLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
         AccessControlLevel.Editor
     )
+    const canEdit = !request.is_archived && !editorDisabledReason
+    const addAccountDisabledReason = request.is_archived
+        ? 'Restore this request before adding an account'
+        : editorDisabledReason
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
@@ -35,10 +66,12 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         type="tertiary"
                         size="small"
                         icon={<IconArrowLeft />}
-                        to={combineUrl(urls.customerAnalyticsFeatureRequests(), listSearchParams).url}
+                        to={featureRequestBackUrl}
                         className="-ml-2"
+                        aria-label={featureRequestBackLabel ?? 'Back'}
+                        tooltip={featureRequestBackLabel ? undefined : 'Back'}
                     >
-                        Feature requests
+                        {featureRequestBackLabel}
                     </LemonButton>
                     <div className="flex items-center gap-2">
                         {!request.is_archived && (
@@ -92,7 +125,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
             )}
 
             <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-                <div className="min-w-0">
+                <div className="flex min-w-0 flex-col gap-5">
                     <FeatureRequestDetailSection icon={<IconDocument />} title="Description">
                         {request.description ? (
                             <LemonMarkdown
@@ -105,21 +138,10 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                             <span className="text-secondary">No description provided.</span>
                         )}
                     </FeatureRequestDetailSection>
+                    <FeatureRequestImages images={activeRequestImages} onShowEvidence={showHistoryTarget} />
                 </div>
 
                 <aside className="flex flex-col min-w-0 gap-5">
-                    <FeatureRequestDetailSection icon={<IconBuilding />} title="Account">
-                        <Link
-                            to={urls.customerAnalyticsAccount(request.account.id)}
-                            className="flex items-center gap-3 rounded border border-primary bg-surface-primary px-3 py-2.5 text-default hover:text-primary"
-                        >
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded bg-fill-highlight-50 text-secondary">
-                                <IconBuilding className="size-4" />
-                            </span>
-                            <span className="truncate font-medium">{request.account.name}</span>
-                        </Link>
-                    </FeatureRequestDetailSection>
-
                     <FeatureRequestDetailSection icon={<IconFolder />} title="Product areas">
                         <div className="flex flex-wrap gap-1.5">
                             {request.product_areas.map((area) => (
@@ -128,10 +150,63 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         </div>
                     </FeatureRequestDetailSection>
 
+                    <FeatureRequestDetailSection
+                        icon={<IconBuilding />}
+                        title="Accounts and evidence"
+                        collapsible
+                        collapsed={accountsEvidenceCollapsed}
+                        onCollapsedChange={setAccountsEvidenceCollapsed}
+                        dataAttr="feature-request-accounts-evidence-collapse"
+                        meta={
+                            <span className="text-xs text-tertiary tabular-nums">
+                                {activeRequestAccountLinks.length}{' '}
+                                {activeRequestAccountLinks.length === 1 ? 'account' : 'accounts'} ·{' '}
+                                {activeRequestEvidenceCount}{' '}
+                                {activeRequestEvidenceCount === 1 ? 'evidence item' : 'evidence items'}
+                            </span>
+                        }
+                        action={
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconPlus />}
+                                onClick={openAddAccount}
+                                disabledReason={addAccountDisabledReason}
+                                data-attr="add-feature-request-account"
+                            >
+                                Add account
+                            </LemonButton>
+                        }
+                    >
+                        <div className="flex flex-col gap-2">
+                            {visibleActiveRequestAccountLinks.map((accountLink) => (
+                                <FeatureRequestAccountItem
+                                    key={accountLink.id}
+                                    accountLink={accountLink}
+                                    canEdit={canEdit}
+                                />
+                            ))}
+                            {activeRequestAccountLinks.length > FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE && (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={() => setRequestAccountsShowingAll(!requestAccountsShowingAll)}
+                                    data-attr="feature-request-accounts-show-all"
+                                    className="self-start"
+                                >
+                                    {requestAccountsShowingAll
+                                        ? `Show first ${FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE} accounts`
+                                        : `Show all ${activeRequestAccountLinks.length} accounts`}
+                                </LemonButton>
+                            )}
+                        </div>
+                    </FeatureRequestDetailSection>
+
                     <FeatureRequestHistorySection requestId={request.id} />
                 </aside>
             </div>
             <FeatureRequestEditModal />
+            <FeatureRequestAccountEvidenceModal />
         </div>
     )
 }

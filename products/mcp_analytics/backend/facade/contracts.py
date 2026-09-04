@@ -4,6 +4,8 @@ from uuid import UUID
 
 from .enums import SubmissionKind
 
+MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG = "mcp-analytics-intent-routing"
+
 
 class IntentGenerationUnavailable(RuntimeError):
     """Raised when session-intent generation can't complete (LLM unconfigured or request failed).
@@ -278,6 +280,29 @@ class ActivityToolRow:
 class ActivityClientRow:
     client: str
     calls: int
+
+
+@dataclass(frozen=True)
+class MeasuredServerStatsRow:
+    """One server's aggregate over a window of new-SDK $mcp_tool_call events."""
+
+    server_name: str
+    calls: int
+    sessions: int
+    errors: int
+    calls_with_intent: int
+    distinct_tools: int
+    client_names: int
+
+
+@dataclass(frozen=True)
+class MeasuredToolStatsRow:
+    """One tool's aggregate for a server over the same window."""
+
+    tool_name: str
+    description: str
+    calls: int
+    errors: int
 
 
 @dataclass(frozen=True)

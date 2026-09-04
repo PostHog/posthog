@@ -4,7 +4,10 @@ on:
         # PRs outside the merge queue run a narrowed visual-regression matrix when the
         # Storybook module graph can safely identify affected stories. Merge-queue runs
         # use the full matrix. To force the full matrix earlier, add the `run-ci-frontend`
-        # label. The `no-ci` label does the opposite: it silences
+        # label. Force it also to give a story back a baseline entry it lost: the narrowed
+        # matrix renders only the stories the diff affects, so a story the diff does not
+        # touch is never captured, and a reviewer has nothing to approve into
+        # `frontend/snapshots.yml`. The `no-ci` label does the opposite: it silences
         # this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
@@ -21,6 +24,9 @@ concurrency:
 
 permissions:
     contents: read
+
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
     # Job to decide if we should run storybook ci
@@ -75,12 +81,18 @@ jobs:
             # ./.github/actions/paths-filter steps, which must exist on disk (on
             # pull_request events they still diff via the API, not the checkout).
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      bin/frontend-exclude-filter
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -213,7 +225,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -343,7 +355,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -434,7 +446,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -527,6 +539,9 @@ jobs:
             # Capture-only: VR is the gate for visual changes, jest just captures screenshots
             - name: Run @storybook/test-runner
               id: test-runner
+              # continue-on-error so the quarantine gate below is the verdict — it passes when
+              # every failure is an already-quarantined flake, fails otherwise.
+              continue-on-error: true
               shell: bash
               env:
                   HOME: /root
@@ -586,6 +601,34 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
+            # Best-effort Trunk upload (continue-on-error); the "Fail on test-runner failure" step
+            # below is the verdict, so a Trunk outage can't red a passing shard. Internal PRs only
+            # (needs the secret).
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # chromium and webkit run the same stories, so each browser uploads under its own Trunk
+            # variant — one test id for both browsers would make a browser-specific failure look
+            # like a flake.
+            - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: ./.github/actions/trunk-quarantine-gate
+              with:
+                  junit-paths: common/storybook/junit.xml
+                  variant: ${{ matrix.browser }}
+                  previous-step-outcome: ${{ steps.test-runner.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot.
+            - name: Fail on test-runner failure
+              if: ${{ !cancelled() && steps.test-runner.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              shell: bash
+              run: exit 1
+
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
     flake-verification:
@@ -622,7 +665,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -775,7 +818,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -792,21 +835,26 @@ jobs:
               # Pass the same --purpose vr-setup created the run with. The backend reports zero
               # unresolved on an observe run however many snapshots drifted, so without the flag
               # the CLI cannot tell a clean tracking run from a drifting one and reports neither.
-              # With it, drift becomes a warning annotation naming the identifiers and the command
-              # still exits 0, so the run stays non-gating without the finding being dropped.
-              # That signal matters because an identifier drifting on master without being approved
-              # or quarantined reds the next PR that renders it.
               #
-              # No exit-code branching: an observe run cannot exit 1, so every non-zero exit here
-              # is a real failure (exit 1 unresolved on a review run, exit 2 CLI error) and reds CI.
+              # An observe run fails on drift. The merge-queue leg renders the merged tree that is
+              # about to land, and it is the only leg that renders every story, so drift there is
+              # the merge itself moving pictures that no reviewer approved. Quarantine an
+              # identifier that flips between runs; that excludes it from these counts.
+              #
+              # --tolerate-drift exempts master: no merge is left to stop there, and a red job
+              # would block the repair as well. Exit 2 is a CLI failure and reds CI everywhere.
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
                   VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
+                  VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
               run: |
                   args=(--run-id "$RUN_ID" --baseline frontend/snapshots.yml --token "$VR_TOKEN")
                   if [ "$VR_OBSERVE" = 'true' ]; then
                       args+=(--purpose observe)
+                  fi
+                  if [ "$VR_TOLERATE_DRIFT" = 'true' ]; then
+                      args+=(--tolerate-drift)
                   fi
                   node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete "${args[@]}"
 
@@ -938,7 +986,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -1099,47 +1147,3 @@ jobs:
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi
-
-    trunk-upload:
-        name: Upload test results to Trunk
-        # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
-        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
-        # only (master push), so the secret token never runs in a PR-controlled context; the
-        # uploader is a pinned external action, not a local one.
-        needs: [visual-regression]
-        runs-on: ubuntu-latest
-        continue-on-error: true
-        timeout-minutes: 10
-        # Avoid spinning a runner when visual-regression was skipped, while still
-        # uploading failed-test results (the flake signal Trunk needs) on master push.
-        # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-        # this job skips, so no results upload.
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped' && vars.TRUNK_UPLOAD_ENABLED == 'true'
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1
-                  persist-credentials: false
-            - name: Download JUnit artifacts
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
-              continue-on-error: true
-              with:
-                  path: ./junit-artifacts
-                  pattern: junit-results-storybook-*
-            # chromium and webkit run the same stories, so a single upload would give one test id
-            # both browsers' outcomes and a browser-specific failure would look like a flake.
-            # Upload each browser under its own Trunk variant to keep their histories distinct.
-            - name: Upload chromium results to Trunk
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
-                  org-slug: posthog-inc
-                  variant: chromium
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-            - name: Upload webkit results to Trunk
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-artifacts/junit-results-storybook-webkit-*/*.xml
-                  org-slug: posthog-inc
-                  variant: webkit
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
