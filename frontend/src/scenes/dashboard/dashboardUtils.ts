@@ -422,7 +422,7 @@ export const parseURLVariables = (searchParams: Record<string, any>): Record<str
     return variables
 }
 
-export const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+export const encodeURLVariables = (variables: Record<string, any>): Record<string, string> => {
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
@@ -458,6 +458,29 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     }
 
     return encodedFilters
+}
+
+/**
+ * An insight opened from a dashboard keys its variable overrides by variable id, while the dashboard URL keys them
+ * by code name. Convert them back so a link to the dashboard reopens it with the same filters and variable values.
+ */
+export const dashboardSearchParamsFromOverrides = (
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    filtersOverride: DashboardFilter | null | undefined
+): Record<string, string> => {
+    const urlVariables: Record<string, any> = {}
+
+    for (const variable of Object.values(variablesOverride ?? {})) {
+        if (!variable?.code_name) {
+            continue
+        }
+        const value = variable.isNull ? null : variable.value
+        if (value !== undefined) {
+            urlVariables[variable.code_name] = value
+        }
+    }
+
+    return { ...encodeURLVariables(urlVariables), ...encodeURLFilters(filtersOverride ?? {}) }
 }
 
 /**
