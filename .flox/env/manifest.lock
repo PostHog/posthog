@@ -165,7 +165,20 @@
       "uv": {
         "pkg-path": "uv",
         "pkg-group": "uv",
-        "version": "^0.11.14"
+        "version": "^0.12.5",
+        "systems": [
+          "aarch64-darwin",
+          "aarch64-linux",
+          "x86_64-linux"
+        ]
+      },
+      "uv-x86_64-darwin": {
+        "pkg-path": "uv",
+        "pkg-group": "uv-x86_64-darwin",
+        "version": "^0.11.25",
+        "systems": [
+          "x86_64-darwin"
+        ]
       },
       "watchman": {
         "pkg-path": "watchman"
@@ -4410,27 +4423,27 @@
     {
       "attr_path": "uv",
       "broken": false,
-      "derivation": "/nix/store/czrpfss0v86ch66vdk3j22qndchnzw9b-uv-0.11.25.drv",
+      "derivation": "/nix/store/7yf2a2h6f09345b48kmspdvbs41cgvp1-uv-0.12.5.drv",
       "description": "Extremely fast Python package installer and resolver, written in Rust",
       "install_id": "uv",
       "license": "[ Apache-2.0, MIT ]",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "uv-0.11.25",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=3ed67ec0a4d3c7ab4ae1f04f8ee8df07bfa506a2",
+      "name": "uv-0.12.5",
       "pname": "uv",
-      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-      "rev_count": 1027867,
-      "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T03:15:39.158658Z",
+      "rev": "3ed67ec0a4d3c7ab4ae1f04f8ee8df07bfa506a2",
+      "rev_count": 1066106,
+      "rev_date": "2026-09-02T02:38:36Z",
+      "scrape_date": "2026-09-04T05:00:15.895082Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "0.11.25",
+      "version": "0.12.5",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/f0kyi2i8xrfx7i405n5qy97kr0y5b2wv-uv-0.11.25"
+        "out": "/nix/store/71zq15rr7i4avy58y89hfgf2lhp3b7la-uv-0.12.5"
       },
       "system": "aarch64-darwin",
       "group": "uv",
@@ -4439,27 +4452,27 @@
     {
       "attr_path": "uv",
       "broken": false,
-      "derivation": "/nix/store/c4na34nqxj1n2ivgjiprkm9p1lrahfgy-uv-0.11.25.drv",
+      "derivation": "/nix/store/dwqwaznkh6q023xrwharzyq17lbcbfx0-uv-0.12.5.drv",
       "description": "Extremely fast Python package installer and resolver, written in Rust",
       "install_id": "uv",
       "license": "[ Apache-2.0, MIT ]",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "uv-0.11.25",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=3ed67ec0a4d3c7ab4ae1f04f8ee8df07bfa506a2",
+      "name": "uv-0.12.5",
       "pname": "uv",
-      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-      "rev_count": 1027867,
-      "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T03:44:48.957401Z",
+      "rev": "3ed67ec0a4d3c7ab4ae1f04f8ee8df07bfa506a2",
+      "rev_count": 1066106,
+      "rev_date": "2026-09-02T02:38:36Z",
+      "scrape_date": "2026-09-04T05:32:48.461556Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "0.11.25",
+      "version": "0.12.5",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/8qd81vygrwkvp8ndg3ihj9wq3pl97hfd-uv-0.11.25"
+        "out": "/nix/store/s2pqw31dkyrcym72fcdn0h9myl0yy9ix-uv-0.12.5"
       },
       "system": "aarch64-linux",
       "group": "uv",
@@ -4468,9 +4481,38 @@
     {
       "attr_path": "uv",
       "broken": false,
-      "derivation": "/nix/store/dlybxmsa3zfx8wbs9ccn0kafsq59qq6i-uv-0.11.25.drv",
+      "derivation": "/nix/store/mszx1f9yy1dxj4v1m2wincdj57is67c5-uv-0.12.5.drv",
       "description": "Extremely fast Python package installer and resolver, written in Rust",
       "install_id": "uv",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=3ed67ec0a4d3c7ab4ae1f04f8ee8df07bfa506a2",
+      "name": "uv-0.12.5",
+      "pname": "uv",
+      "rev": "3ed67ec0a4d3c7ab4ae1f04f8ee8df07bfa506a2",
+      "rev_count": 1066106,
+      "rev_date": "2026-09-02T02:38:36Z",
+      "scrape_date": "2026-09-04T06:09:24.537684Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.12.5",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/v6av5m4035ds4558ax9sh0ywwnkjnd7b-uv-0.12.5"
+      },
+      "system": "x86_64-linux",
+      "group": "uv",
+      "priority": 5
+    },
+    {
+      "attr_path": "uv",
+      "broken": false,
+      "derivation": "/nix/store/dlybxmsa3zfx8wbs9ccn0kafsq59qq6i-uv-0.11.25.drv",
+      "description": "Extremely fast Python package installer and resolver, written in Rust",
+      "install_id": "uv-x86_64-darwin",
       "license": "[ Apache-2.0, MIT ]",
       "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
       "name": "uv-0.11.25",
@@ -4480,6 +4522,7 @@
       "rev_date": "2026-07-05T04:06:12Z",
       "scrape_date": "2026-07-06T04:12:23.334560Z",
       "stabilities": [
+        "staging",
         "unstable"
       ],
       "unfree": false,
@@ -4491,36 +4534,7 @@
         "out": "/nix/store/z4dcs3l0khfc2hky62bhy6v45lmysdvz-uv-0.11.25"
       },
       "system": "x86_64-darwin",
-      "group": "uv",
-      "priority": 5
-    },
-    {
-      "attr_path": "uv",
-      "broken": false,
-      "derivation": "/nix/store/7qw31y4h8f29wc0f81jhm7wirnpdh8qf-uv-0.11.25.drv",
-      "description": "Extremely fast Python package installer and resolver, written in Rust",
-      "install_id": "uv",
-      "license": "[ Apache-2.0, MIT ]",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "uv-0.11.25",
-      "pname": "uv",
-      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-      "rev_count": 1027867,
-      "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T04:44:10.521793Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "0.11.25",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/cgvijxnmydknslkl368k4j4j43akvl8b-uv-0.11.25"
-      },
-      "system": "x86_64-linux",
-      "group": "uv",
+      "group": "uv-x86_64-darwin",
       "priority": 5
     }
   ]
