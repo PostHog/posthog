@@ -4594,6 +4594,51 @@ mod tests {
         assert_eq!(events[0].details, None);
     }
 
+    /// Pins the direction parameter itself, both ways. Production only calls
+    /// this with `serves_ai_lane = true` today, so without this an inverted or
+    /// widened predicate would go unnoticed until the analytics-side arm is
+    /// switched on.
+    #[rstest::rstest]
+    #[case::ai_lane_keeps_ai_events(true, "$ai_generation", EventResult::Ok, None)]
+    #[case::ai_lane_drops_analytics_events(
+        true,
+        "$pageview",
+        EventResult::Drop,
+        Some(DETAIL_MISROUTED_EVENT)
+    )]
+    #[case::analytics_lane_keeps_analytics_events(false, "$pageview", EventResult::Ok, None)]
+    #[case::analytics_lane_drops_ai_events(
+        false,
+        "$ai_generation",
+        EventResult::Drop,
+        Some(DETAIL_MISROUTED_EVENT)
+    )]
+    // Prefixed but off the allowlist: an ordinary analytics event on both
+    // lanes, so the AI lane refuses it and the analytics lane keeps it.
+    #[case::ai_lane_drops_prefixed_unlisted(
+        true,
+        "$ai_cache_usage",
+        EventResult::Drop,
+        Some(DETAIL_MISROUTED_EVENT)
+    )]
+    #[case::analytics_lane_keeps_prefixed_unlisted(false, "$ai_cache_usage", EventResult::Ok, None)]
+    #[tokio::test]
+    async fn the_gate_drops_only_the_other_lane_s_events(
+        #[case] serves_ai_lane: bool,
+        #[case] event_name: &str,
+        #[case] expected: EventResult,
+        #[case] expected_details: Option<&str>,
+    ) {
+        let ts = TestStateBuilder::new().build();
+        let ctx = test_utils::test_analytics_context();
+        let mut events = vec![test_utils::wrapped_event(event_name, "user-1")];
+
+        drop_misrouted_events(&ts.state, &ctx, &mut events, serves_ai_lane);
+
+        assert_eq!(events[0].result, expected);
+        assert_eq!(events[0].details, expected_details);
+    }
+
     /// The other direction: a destination of `AiEvents` does not put a non-AI
     /// event on the lane. Only the event name decides membership.
     #[tokio::test]
