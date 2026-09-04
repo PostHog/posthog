@@ -426,10 +426,16 @@ export function ActionFilterRow({
                 data-attr={`show-prop-filter-${index}`}
                 noPadding
                 active={propertyFiltersVisible}
-                onClick={() => {
-                    typeof filter.order === 'number'
-                        ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
-                        : undefined
+                onClick={(event) => {
+                    if (typeof filter.order !== 'number') {
+                        return
+                    }
+                    // A double click fires a second click carrying detail === 2. Ignore it so the
+                    // panel the first click opened stays open. Keyboard activation carries detail === 0.
+                    if (event.detail > 1) {
+                        return
+                    }
+                    setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
                 tooltip="Show filters"
@@ -550,7 +556,7 @@ export function ActionFilterRow({
                 transition,
             }}
         >
-            <div className="ActionFilterRow-content @max-[400px]/editor-panel:flex-wrap @max-[400px]/editor-panel:gap-2 @max-[400px]/editor-panel:w-full @max-[400px]/editor-panel:items-center @max-[400px]/editor-panel:justify-between @max-[400px]/editor-panel:[&>*+*]:ml-0">
+            <div className="ActionFilterRow-content @max-[400px]/editor-panel:flex-wrap @max-[400px]/editor-panel:gap-2 @max-[400px]/editor-panel:w-full @max-[400px]/editor-panel:items-center @max-[400px]/editor-panel:[&>*+*]:ml-0">
                 {renderRow ? (
                     renderRow({
                         seriesIndicator,
@@ -573,7 +579,7 @@ export function ActionFilterRow({
                             className={clsx(
                                 'ActionFilterRow__center',
                                 rowStartElements.length > 0 &&
-                                    '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
+                                    '@max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
                             )}
                         >
                             <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
@@ -659,7 +665,16 @@ export function ActionFilterRow({
                         </div>
                         {/* right section fixed */}
                         {(rowEndElements.length > 0 || showPopupMenu) && (
-                            <div className="ActionFilterRow__end @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]">
+                            <div
+                                className={clsx(
+                                    'ActionFilterRow__end @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]',
+                                    // Only drop the actions to their own row when the row has a start
+                                    // section. Start-less rows (retention, nested groups) keep the
+                                    // actions inline, so a lone button never floats on an empty line.
+                                    rowStartElements.length > 0 &&
+                                        '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1'
+                                )}
+                            >
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}

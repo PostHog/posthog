@@ -552,6 +552,19 @@ describe('ActionFilterRow', () => {
                 expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
             })
         })
+
+        it('keeps the panel open on a double click of the filter button', async () => {
+            const { logic } = setup()
+            renderRow(logic, { ...INLINE_CONTEXT, hideFilter: false })
+
+            // The second click of a double click carries detail === 2 and must be ignored, so the
+            // panel the first click opened is not flipped shut before the user sees it.
+            await userEvent.dblClick(screen.getByTitle('Show filters'))
+
+            await waitFor(() => {
+                expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
+            })
+        })
     })
 
     describe('math selection', () => {
