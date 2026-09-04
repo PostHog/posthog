@@ -282,6 +282,27 @@ class TestFunnelResultsFormatter(BaseTest):
             "so their values are incomplete. Timezone: UTC.",
         )
 
+    @parameterized.expand(
+        [
+            ("steps_shaped", [{"action_id": "$pageview", "name": "$pageview", "order": 0, "count": 5}]),
+            ("nested_steps_shaped", [[{"action_id": "$pageview", "name": "$pageview", "order": 0, "count": 5}]]),
+            ("empty_days", [{"count": 0, "data": [], "days": [], "labels": []}]),
+        ]
+    )
+    def test_funnel_trends_with_mismatched_results(self, _name: str, results: Any):
+        query = AssistantFunnelsQuery(
+            series=[
+                AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
+                AssistantFunnelsEventsNode(event="$ai_trace"),
+            ],
+            dateRange=AssistantDateRange(date_from="2025-01-08", date_to="2025-01-10"),
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
+        )
+        self.assertEqual(
+            FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
+            "No data recorded for this time period.",
+        )
+
     def test_funnel_trends_with_breakdown(self):
         results = [
             {
