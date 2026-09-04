@@ -26,7 +26,12 @@ from posthog.temporal.ai.slack_app.helpers import safe_react
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
-from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, parse_slack_file_refs
+from products.slack_app.backend.services.slack_messages import (
+    SlackFileRef,
+    SlackThreadMessage,
+    encode_slack_file_refs,
+    parse_slack_file_refs,
+)
 
 
 def _make_inputs(
@@ -341,7 +346,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 user="U_ALICE",
                 text="",
                 ts="1234.0000",
-                files=[_make_file_ref(name="costs.png", mimetype="image/png", filetype="png", size=9)],
+                files_json=encode_slack_file_refs(
+                    [_make_file_ref(name="costs.png", mimetype="image/png", filetype="png", size=9)]
+                ),
             ),
             SlackThreadMessage(user="U_ALICE", text="what is this telling us?", ts="1234.5678"),
         ]
@@ -1290,7 +1297,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
                 user_id="U_MIRA",
                 text="",
                 ts="1234.5678999",
-                files=[_make_file_ref(name="trace.png", mimetype="image/png", filetype="png", size=9)],
+                files_json=encode_slack_file_refs(
+                    [_make_file_ref(name="trace.png", mimetype="image/png", filetype="png", size=9)]
+                ),
             ),
         ]
 

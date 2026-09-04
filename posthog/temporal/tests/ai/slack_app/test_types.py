@@ -1,10 +1,12 @@
+from typing import Any
+
 import pytest
 
 from temporalio.converter import DataConverter
 
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, coerce_mention_workflow_inputs
 
-from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage
+from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, encode_slack_file_refs
 
 
 def test_coerce_returns_dataclass_unchanged():
@@ -51,17 +53,56 @@ def test_coerce_raises_on_unexpected_type():
         coerce_mention_workflow_inputs("not-a-dict")
 
 
-def _round_trip(value: object, hint: type) -> object:
+def _round_trip(value: object, hint: type) -> Any:
     converter = DataConverter.default.payload_converter
     return converter.from_payloads(converter.to_payloads([value]), [hint])[0]
 
 
 def test_thread_snapshot_survives_the_temporal_payload_boundary():
     messages = [
-        SlackThreadMessage(user="mira", user_id="U_MIRA", text="", ts="1.0", files=[SlackFileRef(id="F1", size=9)]),
+        SlackThreadMessage(
+            user="mira",
+            user_id="U_MIRA",
+            text="",
+            ts="1.0",
+            files_json=encode_slack_file_refs([SlackFileRef(id="F1", size=9)]),
+        ),
         SlackThreadMessage(user="mira", user_id="U_MIRA", text="what is this", ts="2.0"),
     ]
-    assert _round_trip(messages, list[SlackThreadMessage]) == messages
+    round_tripped = _round_trip(messages, list[SlackThreadMessage])
+    assert round_tripped == messages
+    assert round_tripped[0].files == [SlackFileRef(id="F1", size=9)]
+
+
+def test_thread_snapshot_with_attachments_decodes_under_the_previous_builds_type():
+    # A worker on the previous build reads this activity result and these activity
+    # arguments as ``list[dict[str, str]]``. Temporal rejects the whole message when any
+    # value is not a string, so attachments have to travel as a string. Carrying them as
+    # a list here would fail every in-flight mention for the length of a rolling deploy.
+    messages = [
+        SlackThreadMessage(
+            user="mira",
+            user_id="U_MIRA",
+            text="what is this",
+            ts="1.0",
+            files_json=encode_slack_file_refs([SlackFileRef(id="F1", name="trace.png", size=9)]),
+        )
+    ]
+    assert _round_trip(messages, list[dict[str, str]]) == [
+        {
+            "user": "mira",
+            "user_id": "U_MIRA",
+            "text": "what is this",
+            "ts": "1.0",
+            "files_json": encode_slack_file_refs([SlackFileRef(id="F1", name="trace.png", size=9)]),
+        }
+    ]
+
+
+def test_thread_message_reads_back_no_attachments_from_unusable_json():
+    # ``files_json`` crosses a version boundary, so a value the current build cannot parse
+    # is reachable. Reporting no attachments keeps the message and its text usable.
+    assert SlackThreadMessage(user="mira", files_json="not json").files == []
 
 
 def test_thread_snapshot_recorded_before_a_field_existed_still_decodes():
