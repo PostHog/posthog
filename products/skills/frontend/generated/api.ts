@@ -12,6 +12,8 @@ import type {
     CommunitySkillApi,
     CommunitySkillInstallApi,
     CommunitySkillPublishResultApi,
+    CommunitySkillRenderApi,
+    CommunitySkillRenderResponseApi,
     CommunitySkillVoteResponseApi,
     CommunitySkillsListParams,
     LLMSkillApi,
@@ -111,6 +113,30 @@ export const communitySkillsInstallCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(communitySkillInstallApi),
+    })
+}
+
+export const getCommunitySkillsRenderCreateUrl = (projectId: string, slug: string) => {
+    return `/api/projects/${projectId}/community_skills/${slug}/render/`
+}
+
+/**
+ * Bind a catalog entry's template variables and return the text a create form starts from.
+ *
+ * Persists nothing, so it needs no more access than reading the catalog already does — the
+ * result is prefill, and the caller creates the skill or scout through its own product's path.
+ */
+export const communitySkillsRenderCreate = async (
+    projectId: string,
+    slug: string,
+    communitySkillRenderApi?: CommunitySkillRenderApi,
+    options?: RequestInit
+): Promise<CommunitySkillRenderResponseApi> => {
+    return apiMutator<CommunitySkillRenderResponseApi>(getCommunitySkillsRenderCreateUrl(projectId, slug), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(communitySkillRenderApi),
     })
 }
 

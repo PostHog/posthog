@@ -25,6 +25,21 @@ export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Bind a catalog entry's template variables and return the text a create form starts from.
+ *
+ * Persists nothing, so it needs no more access than reading the catalog already does — the
+ * result is prefill, and the caller creates the skill or scout through its own product's path.
+ */
+export const CommunitySkillsRenderCreateBody = /* @__PURE__ */ zod.object({
+    variables: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills."
+        ),
+})
+
 export const llmSkillsCreateBodyNameMax = 64
 
 export const llmSkillsCreateBodyDescriptionMax = 1024
@@ -290,6 +305,13 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMin = 30
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMax = 43200
+
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunCronScheduleMax = 100
+
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsItemMax = 50
+
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneMax = 64
 
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
@@ -305,6 +327,37 @@ export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneRegExp = new 
 export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleTwoMax = 0
 
 export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
+    scout_config: zod
+        .object({
+            run_interval_minutes: zod
+                .number()
+                .min(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMin)
+                .max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMax)
+                .optional()
+                .describe('How often the scout runs, in minutes. Ignored when run_cron_schedule is set.'),
+            run_cron_schedule: zod
+                .string()
+                .max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunCronScheduleMax)
+                .optional()
+                .describe(
+                    "Five-field cron expression for the scout's schedule, which takes precedence over the interval."
+                ),
+            emit: zod
+                .boolean()
+                .optional()
+                .describe('Whether the scout writes its reports to the inbox. False means it runs as a dry run.'),
+            tags: zod
+                .array(zod.string().max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsItemMax))
+                .optional()
+                .describe('Tags used to group the scout in the fleet.'),
+        })
+        .describe(
+            "The scout settings a published scout travels with. Every field is optional. An omitted field\nmeans the scout-create form's own default applies."
+        )
+        .optional()
+        .describe(
+            'Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout.'
+        ),
     display_name: zod
         .union([
             zod

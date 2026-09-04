@@ -5,10 +5,11 @@ from django.db.models import F
 
 from rest_framework.serializers import ValidationError as DRFValidationError
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
-from ..models.community_skills import CommunitySkill, CommunitySkillVote
+from ..models.community_skills import CommunitySkill, CommunitySkillKind, CommunitySkillVote
 from ..models.skills import LLMSkill
 from .skill_serializers import validate_allowed_tool, validate_skill_file_path, validate_skill_name_value
 from .skill_services import MAX_SKILL_FILE_BYTES, create_skill
@@ -36,6 +37,18 @@ _INTERNAL_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
 
 class CommunitySkillNotFoundError(Exception):
     pass
+
+
+class CommunitySkillNotInstallableError(Exception):
+    """The entry is not something the install path can copy into a team as a plain skill.
+
+    A scout is the only case today: it runs on a schedule under privileged scopes, so it goes to the
+    Signals scout-create form instead of becoming an inert LLMSkill under some unreserved name.
+    """
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
 
 
 class CommunitySkillInvalidPayloadError(Exception):
@@ -93,7 +106,8 @@ def install_community_skill(
     When the community skill is a template (its metadata declares `variables`), the user-supplied
     `variables` are bound into the body and bundled files before the LLMSkill is created.
 
-    Raises CommunitySkillNotFoundError if the slug is unknown, LLMSkillDuplicateNameConflictError
+    Raises CommunitySkillNotFoundError if the slug is unknown, CommunitySkillNotInstallableError if
+    the entry is a scout rather than a skill, LLMSkillDuplicateNameConflictError
     if the target name already exists in the team, CommunitySkillInvalidPayloadError if the catalog
     entry can't be safely installed, and MissingTemplateVariableError /
     UnknownTemplatePlaceholderError on template render failures.
@@ -101,6 +115,12 @@ def install_community_skill(
     community_skill = get_community_skill_by_slug(slug)
     if community_skill is None:
         raise CommunitySkillNotFoundError()
+
+    if community_skill.kind == CommunitySkillKind.SCOUT:
+        raise CommunitySkillNotInstallableError(
+            "This is a scout, so it isn't installed as a skill. Set it up from the store and it opens "
+            "the scout form with its instructions and schedule filled in."
+        )
 
     try:
         target_name = validate_skill_name_value(new_name or community_skill.slug)
@@ -181,6 +201,61 @@ def install_community_skill(
 
         CommunitySkill.objects.filter(pk=locked.pk).update(install_count=F("install_count") + 1)
     return installed
+
+
+@frozen
+class RenderedCommunitySkill:
+    """A catalog entry with its template variables bound, ready to prefill a create form."""
+
+    slug: str
+    kind: str
+    name: str
+    description: str
+    body: str
+    scout_config: dict[str, Any]
+    variable_bindings: dict[str, str]
+
+
+def render_community_skill(*, slug: str, variables: dict[str, str] | None = None) -> RenderedCommunitySkill:
+    """Bind a catalog entry's template variables and return the text a create form starts from.
+
+    Rendering server-side keeps the substitution rules in one place — a client that spliced values
+    into the body itself would drift from what install produces for the same template. This creates
+    nothing: the caller reviews the result and submits it through the product's own create path.
+
+    Raises CommunitySkillNotFoundError if the slug is unknown, CommunitySkillInvalidPayloadError if
+    the entry has no instructions, and the TemplateRenderError subclasses on render failures.
+    """
+    community_skill = get_community_skill_by_slug(slug)
+    if community_skill is None:
+        raise CommunitySkillNotFoundError()
+    if not (community_skill.body or "").strip():
+        raise CommunitySkillInvalidPayloadError("This community skill has no instructions.")
+
+    body = community_skill.body
+    bindings: dict[str, str] = {}
+    template_variables = parse_template_variables(community_skill.metadata)
+    if template_variables:
+        rendered = render_template_skill(
+            variables=template_variables,
+            body=body,
+            # A scout carries no bundled files (sync refuses them), and a skill's files are copied in
+            # by install rather than shown on a create form, so only the body is rendered here.
+            files=[],
+            supplied=variables,
+        )
+        body = rendered.body
+        bindings = rendered.bindings
+
+    return RenderedCommunitySkill(
+        slug=community_skill.slug,
+        kind=community_skill.kind,
+        name=community_skill.name,
+        description=community_skill.description,
+        body=body,
+        scout_config=community_skill.scout_config or {},
+        variable_bindings=bindings,
+    )
 
 
 def toggle_community_skill_vote(*, slug: str, user: User) -> tuple[int, bool]:

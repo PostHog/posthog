@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconExternal, IconRefresh } from '@posthog/icons'
+import { IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+import { openPublishToCommunityDialog } from 'products/skills/frontend/skillSceneComponents'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
@@ -86,11 +87,12 @@ export function ScoutDetailHeader({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { updatingScoutIds, manualRunScoutIds } = useValues(scoutFleetLogic)
-    const { updateScoutConfig, runScoutNow } = useActions(scoutFleetLogic)
+    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds } = useValues(scoutFleetLogic)
+    const { updateScoutConfig, runScoutNow, publishScoutToCommunity } = useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
+    const publishing = publishingScoutIds.includes(config.id)
     // Filed and edited stay separate — adding the weak-signal count on top produced a total of two
     // different things, which is exactly what made the old "filed" number unreadable. A report the
     // scout filed and later added to counts once, as filed.
@@ -121,6 +123,29 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
+                {config.scout_origin !== 'canonical' && (
+                    <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconUpload />}
+                            loading={publishing}
+                            disabledReason={publishing ? 'Opening a pull request' : undefined}
+                            onClick={() =>
+                                openPublishToCommunityDialog({
+                                    skillName: config.skill_name,
+                                    // The scout page doesn't load the skills logic that resolves a
+                                    // linked GitHub identity, so the handle field starts empty here.
+                                    githubLogin: null,
+                                    isScout: true,
+                                    onPublish: (_skillName, options) => publishScoutToCommunity(config.id, options),
+                                })
+                            }
+                        >
+                            Publish
+                        </LemonButton>
+                    </Tooltip>
+                )}
                 {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
                     those opens count too. */}
                 <span

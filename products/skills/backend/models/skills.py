@@ -11,8 +11,9 @@ from posthog.models.utils import UUIDModel
 # they'd never surface beside their canonical siblings. Values mirror SCOUT_SKILL_CATEGORY /
 # REVIEW_HOG_SKILL_CATEGORY (products can't import each other, so they're duplicated here exactly
 # like the frontend tab map duplicates them).
+SCOUT_SKILL_CATEGORY = "scout"
 CATEGORY_BY_NAME_PREFIX: tuple[tuple[str, str], ...] = (
-    ("signals-scout-", "scout"),
+    ("signals-scout-", SCOUT_SKILL_CATEGORY),
     ("review-hog-", "review_hog"),
 )
 

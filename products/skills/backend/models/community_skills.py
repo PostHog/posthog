@@ -4,6 +4,18 @@ from django.utils import timezone
 from posthog.models.utils import UUIDModel
 
 
+class CommunitySkillKind(models.TextChoices):
+    """What a catalog entry becomes in a team.
+
+    A `skill` is copied in as a plain LLMSkill by the install path. A `scout` runs on a schedule
+    under privileged scopes, so it can never arrive that way — the store hands it to the Signals
+    scout-create form instead, where a person reviews the cadence and submits it.
+    """
+
+    SKILL = "skill", "Skill"
+    SCOUT = "scout", "Scout"
+
+
 class CommunitySkillTrustTier(models.TextChoices):
     OFFICIAL = "official", "Official"
     VERIFIED = "verified", "Verified"
@@ -26,6 +38,9 @@ class CommunitySkill(UUIDModel):
     # The repo directory name — the stable, human-readable identifier used in URLs.
     slug = models.CharField(max_length=64, unique=True)
 
+    # What the entry becomes in a team. A scout takes a different route in (see CommunitySkillKind).
+    kind = models.CharField(max_length=20, choices=CommunitySkillKind.choices, default=CommunitySkillKind.SKILL)
+
     # Mirrors the Agent Skills spec fields carried by LLMSkill.
     name = models.CharField(max_length=64)
     description = models.CharField(max_length=4096)
@@ -34,6 +49,9 @@ class CommunitySkill(UUIDModel):
     compatibility = models.CharField(max_length=500, blank=True, default="")
     allowed_tools = models.JSONField(blank=True, default=list)
     metadata = models.JSONField(blank=True, default=dict)
+    # Cadence, emit posture and tags a published scout travels with, held to the shareable subset in
+    # `community_scout_config`. Empty for a `skill` entry, and for a scout that declared none.
+    scout_config = models.JSONField(blank=True, default=dict)
 
     # Marketplace fields.
     tags = models.JSONField(blank=True, default=list)

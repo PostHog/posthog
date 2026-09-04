@@ -26,6 +26,8 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
+from ..models.community_skills import CommunitySkillKind
+from .community_scout_config import validate_shareable_scout_config
 from .skill_services import (
     MAX_SKILL_BODY_BYTES,
     MAX_SKILL_FILE_BYTES,
@@ -168,6 +170,24 @@ def _validate_allowed_tool(tool: object) -> None:
         raise CommunitySkillPublishValidationError(f"'{tool}' can't be published as a tool name. {err}") from err
 
 
+def _publishable_scout_config(*, kind: str, scout_config: dict[str, Any] | None) -> dict[str, Any]:
+    """Hold a publish to the same kind/scout_config rules ingest applies to a registry entry.
+
+    Publishing something ingest then rejects is the worst outcome available here: the pull request
+    merges, and the skill silently never appears in the catalog.
+    """
+    if kind not in set(CommunitySkillKind.values):
+        raise CommunitySkillPublishValidationError(f"'{kind}' is not a publishable kind.")
+    if kind != CommunitySkillKind.SCOUT.value:
+        if scout_config:
+            raise CommunitySkillPublishValidationError("Only a scout can be published with scout settings.")
+        return {}
+    try:
+        return validate_shareable_scout_config(scout_config)
+    except ValueError as err:
+        raise CommunitySkillPublishValidationError(str(err)) from err
+
+
 def render_skill_md(
     *,
     name: str,
@@ -179,12 +199,17 @@ def render_skill_md(
     compatibility: str = "",
     author_handle: str = "",
     metadata: dict[str, Any] | None = None,
+    kind: str = CommunitySkillKind.SKILL.value,
+    scout_config: dict[str, Any] | None = None,
 ) -> str:
     """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
 
     Output parses cleanly under the repo's `build_registry.py` frontmatter regex and field rules:
     `name` and `description` are required; `trust_tier` defaults to `community` (maintainers set
     `official`/`verified` on review); optional fields are omitted when empty.
+
+    A scout carries `kind: scout` and the settings the store hands to the scout-create form. Without
+    the marker the catalog can't tell the two apart, and the scout lands as an inert skill.
     """
     if not name.strip():
         raise CommunitySkillPublishValidationError("Skill name is required to publish.")
@@ -213,12 +238,18 @@ def render_skill_md(
         raise CommunitySkillPublishValidationError(f"'{author_handle}' is not a valid GitHub username.")
     for tool in allowed_tools or []:
         _validate_allowed_tool(tool)
+    published_scout_config = _publishable_scout_config(kind=kind, scout_config=scout_config)
 
     frontmatter: dict[str, Any] = {
         "name": name.strip(),
         "description": description.strip(),
         "trust_tier": "community",
     }
+    # Omitted for a plain skill, so the frontmatter an ordinary publish writes is unchanged.
+    if kind != CommunitySkillKind.SKILL.value:
+        frontmatter["kind"] = kind
+    if published_scout_config:
+        frontmatter["scout_config"] = published_scout_config
     if tags:
         frontmatter["tags"] = list(tags)
     if author_handle.strip():
@@ -266,6 +297,8 @@ def render_community_skill_files(
     compatibility: str = "",
     author_handle: str = "",
     metadata: dict[str, Any] | None = None,
+    kind: str = CommunitySkillKind.SKILL.value,
+    scout_config: dict[str, Any] | None = None,
 ) -> list[RenderedFile]:
     """Render the full set of files to commit for a skill: SKILL.md plus any bundled files.
 
@@ -273,6 +306,13 @@ def render_community_skill_files(
     `references/playbook.md` becomes `skills/<slug>/references/playbook.md`).
     """
     _validate_slug(slug)
+    # The store hands a scout to the scout-create form, which takes instructions but no bundled
+    # files, so ingest refuses a scout that ships them. Say so before opening a pull request that
+    # would merge and then leave the scout missing from the catalog.
+    if kind == CommunitySkillKind.SCOUT.value and files:
+        raise CommunitySkillPublishValidationError(
+            "A scout can't be published with bundled files. Move what they hold into its instructions."
+        )
     _validate_entry_caps(body=body, files=files or [])
     # Only a template reads `{{ }}` as placeholders. A plain skill keeps that text verbatim, the way
     # install does, so a skill quoting GitHub Actions or Go template syntax still publishes.
@@ -297,6 +337,8 @@ def render_community_skill_files(
                 compatibility=compatibility,
                 author_handle=author_handle,
                 metadata=metadata,
+                kind=kind,
+                scout_config=scout_config,
             ),
         )
     ]
@@ -578,6 +620,8 @@ def publish_skill_to_community(
     compatibility: str = "",
     author_handle: str = "",
     metadata: dict[str, Any] | None = None,
+    kind: str = CommunitySkillKind.SKILL.value,
+    scout_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Open a PR in PostHog/community-skills adding (or updating) this skill. Returns the PR url/number.
 
@@ -610,6 +654,8 @@ def publish_skill_to_community(
         compatibility=compatibility,
         author_handle=author_handle,
         metadata=metadata,
+        kind=kind,
+        scout_config=scout_config,
     )
 
     publisher = get_community_skills_publisher()

@@ -17,8 +17,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { communitySkillsLogic } from './communitySkillsLogic'
-import { CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
-import type { CommunitySkillListApi, CommunitySkillTemplateVariableApi } from './generated/api.schemas'
+import { CommunitySkillKindEnumApi, CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
+import type {
+    CommunitySkillListApi,
+    CommunitySkillScoutConfigApi,
+    CommunitySkillTemplateVariableApi,
+} from './generated/api.schemas'
 import { COMMUNITY_SKILLS_TAB_DESCRIPTION, COMMUNITY_SKILLS_TAB_KEY, SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
@@ -66,16 +70,36 @@ function AuthorHandle({ handle }: { handle: string }): JSX.Element {
     )
 }
 
-// A template declares variables that must be bound before install. Collect a value per variable,
-// then install with them. Defaults prefill; required variables are guarded.
-function openTemplateInstallDialog(
+// What a scout's published settings mean for how often it will run, so the card says up front that
+// this is something that runs on a schedule rather than a skill an agent reaches for.
+function scoutCadenceLabel(config: CommunitySkillScoutConfigApi | undefined): string {
+    if (config?.run_cron_schedule) {
+        return 'Runs on a set schedule'
+    }
+    const minutes = config?.run_interval_minutes ?? 1440
+    if (minutes < 60) {
+        return `Runs every ${minutes} minutes`
+    }
+    if (minutes < 1440) {
+        return `Runs every ${Math.round(minutes / 60)} hours`
+    }
+    const days = Math.round(minutes / 1440)
+    return days === 1 ? 'Runs daily' : `Runs every ${days} days`
+}
+
+// A template declares variables that must be bound before it can be used. Collect a value per
+// variable, then hand them on. Defaults prefill; required variables are guarded.
+function openTemplateDialog(
     skill: CommunitySkillListApi,
     variables: readonly CommunitySkillTemplateVariableApi[],
-    install: (slug: string, newName?: string, values?: Record<string, string>) => void
+    submit: (slug: string, values: Record<string, string>) => void
 ): void {
+    const isScout = skill.kind === CommunitySkillKindEnumApi.Scout
     LemonDialog.openForm({
-        title: `Install "${skill.name}"`,
-        description: 'This is a template. Provide a value for each variable to customize the installed skill.',
+        title: isScout ? `Set up "${skill.name}"` : `Install "${skill.name}"`,
+        description: isScout
+            ? 'This is a template. Provide a value for each variable, then review the scout before you create it.'
+            : 'This is a template. Provide a value for each variable to customize the installed skill.',
         initialValues: Object.fromEntries(variables.map((v) => [v.name, v.default ?? ''])),
         content: (
             <div className="flex flex-col gap-2">
@@ -91,24 +115,30 @@ function openTemplateInstallDialog(
                 .filter((v) => v.is_required)
                 .map((v) => [v.name, (value: string) => (!value?.trim() ? 'This variable is required' : undefined)])
         ),
-        onSubmit: (values) => install(skill.slug, undefined, values as Record<string, string>),
+        onSubmit: (values) => submit(skill.slug, values as Record<string, string>),
     })
 }
 
 function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.Element {
-    const { installingSlugs, votingSlugs } = useValues(communitySkillsLogic)
-    const { installSkill, toggleVote } = useActions(communitySkillsLogic)
-    const installing = !!installingSlugs[skill.slug]
+    const { installingSlugs, settingUpSlugs, votingSlugs } = useValues(communitySkillsLogic)
+    const { installSkill, setUpScout, toggleVote } = useActions(communitySkillsLogic)
+    const isScout = skill.kind === CommunitySkillKindEnumApi.Scout
+    const busy = isScout ? !!settingUpSlugs[skill.slug] : !!installingSlugs[skill.slug]
     const voting = !!votingSlugs[skill.slug]
     const sourceUrl = skill.github_url ? githubSourceUrl(skill.github_url) : null
     const templateVariables = skill.template_variables ?? []
     const isTemplate = templateVariables.length > 0
+    // A scout goes to the scout form, where a person reviews its schedule and creates it. Only a
+    // skill is copied straight into the project.
+    const start = (slug: string, values?: Record<string, string>): void =>
+        isScout ? setUpScout(slug, values) : installSkill(slug, undefined, values)
 
     return (
         <div className="flex flex-col gap-2 border rounded p-4 bg-bg-light h-full">
             <div className="flex items-start justify-between gap-2">
                 <h3 className="font-semibold m-0">{skill.name}</h3>
                 <div className="flex items-center gap-1 shrink-0">
+                    {isScout ? <LemonTag type="completion">Scout</LemonTag> : null}
                     {isTemplate ? <LemonTag type="highlight">Template</LemonTag> : null}
                     <TrustTierBadge tier={skill.trust_tier} />
                 </div>
@@ -123,7 +153,7 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
             </div>
             <div className="flex items-center justify-between gap-2 pt-2 border-t">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted text-xs">
-                    <span>{skill.install_count} installs</span>
+                    <span>{isScout ? scoutCadenceLabel(skill.scout_config) : `${skill.install_count} installs`}</span>
                     {skill.author_handle ? <AuthorHandle handle={skill.author_handle} /> : null}
                     {sourceUrl ? (
                         <Link to={sourceUrl} target="_blank" className="flex items-center gap-1">
@@ -147,15 +177,13 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
                     <LemonButton
                         size="small"
                         type="primary"
-                        loading={installing}
-                        disabledReason={installing ? 'Installing…' : undefined}
+                        loading={busy}
+                        disabledReason={busy ? (isScout ? 'Opening the scout form…' : 'Installing…') : undefined}
                         onClick={() =>
-                            isTemplate
-                                ? openTemplateInstallDialog(skill, templateVariables, installSkill)
-                                : installSkill(skill.slug)
+                            isTemplate ? openTemplateDialog(skill, templateVariables, start) : start(skill.slug)
                         }
                     >
-                        {isTemplate ? 'Install…' : 'Install'}
+                        {`${isScout ? 'Set up scout' : 'Install'}${isTemplate ? '…' : ''}`}
                     </LemonButton>
                 </div>
             </div>
@@ -175,7 +203,7 @@ function CommunitySkillsGrid({ skills, loading }: { skills: CommunitySkillListAp
     }
 
     if (skills.length === 0) {
-        return <div className="text-muted text-center p-8">No community skills match your filters yet.</div>
+        return <div className="text-muted text-center p-8">Nothing in the store matches your filters yet.</div>
     }
 
     return (
@@ -212,6 +240,15 @@ function CommunitySkillsContent(): JSX.Element {
                     value={filters.search}
                     onChange={(search) => setFilters({ search })}
                     className="grow max-w-100"
+                />
+                <LemonSelect<CommunitySkillKindEnumApi | ''>
+                    value={filters.kind}
+                    onChange={(kind) => setFilters({ kind })}
+                    options={[
+                        { value: '', label: 'Skills and scouts' },
+                        { value: 'skill', label: 'Skills' },
+                        { value: 'scout', label: 'Scouts' },
+                    ]}
                 />
                 <LemonSelect<CommunitySkillTrustTierEnumApi | ''>
                     value={filters.trust_tier}
