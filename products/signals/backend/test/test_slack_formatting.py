@@ -5,10 +5,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.signals.backend.slack_formatting import (
-    SLACK_SECTION_TEXT_MAX_LEN,
-    chunk_slack_mrkdwn,
+    SLACK_MARKDOWN_TEXT_MAX_LEN,
+    chunk_slack_text,
+    defuse_slack_tokens,
+    escape_slack_mrkdwn,
     group_segments_to_limit,
-    markdown_to_slack_mrkdwn,
     split_markdown_by_headings,
     strip_chart_references,
 )
@@ -63,14 +64,13 @@ class TestStripChartReferences(SimpleTestCase):
     def test_reduces_chart_links_to_their_label(self, _name: str, summary: str, expected: str) -> None:
         assert strip_chart_references(summary) == expected
 
-    def test_stripped_summary_survives_slack_conversion_without_markup(self) -> None:
-        # Left in place, the converter emits `<chart:signups-drop|Daily signups>`, which the safety
-        # wrapper escapes because the destination is not http(s) — visible markup in every
-        # notification for a report carrying an inline chart.
-        rendered = markdown_to_slack_mrkdwn(strip_chart_references("[Daily signups](chart:signups-drop)"))
+    def test_stripped_summary_reaches_slack_without_markup(self) -> None:
+        # Left in place, the link reaches Slack pointing at `chart:signups-drop`, a scheme no reader
+        # can follow — a dead link in every notification for a report carrying an inline chart.
+        rendered = escape_slack_mrkdwn(strip_chart_references("[Daily signups](chart:signups-drop)"))
 
         assert "chart:" not in rendered
-        assert "&lt;" not in rendered
+        assert "[" not in rendered
         assert "Daily signups" in rendered
 
     @parameterized.expand(
@@ -92,6 +92,44 @@ class TestStripChartReferences(SimpleTestCase):
         strip_chart_references(summary)
 
         assert time.perf_counter() - started < 0.5
+
+
+class TestDefuseSlackTokens(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("user_mention", "ping <@U12345678> now"),
+            ("channel_link", "see <#C12345678> for more"),
+            ("broadcast", "heads up <!here> everyone"),
+            ("subteam", "ask <!subteam^S12345678> about it"),
+            ("labelled_link_hides_its_target", "click <https://evil.example.com|your bank> now"),
+            ("labelled_link_without_a_scheme", "click <evil.example.com|your bank> now"),
+        ]
+    )
+    def test_a_token_that_pings_or_misleads_is_defused(self, _name: str, text: str) -> None:
+        # Slack parses these inside a markdown block, so untrusted content reaches a reader as a
+        # live ping or as a label that hides where the link goes.
+        defused = defuse_slack_tokens(text)
+
+        assert "<" not in defused
+        assert ">" not in defused
+        assert "&lt;" in defused and "&gt;" in defused
+
+    @parameterized.expand(
+        [
+            ("code_span_generic", "the type is `Vec<T>` here"),
+            ("code_span_comparison", "the guard is `count < 5` here"),
+            ("autolink", "see <https://example.com/plain> for more"),
+            ("angle_bracket_link_destination", "see [the run](<https://example.com/p?q=1&x=2>)"),
+            ("bare_comparison", "fires when count < 5 and count > 1"),
+            ("ampersand_in_prose", "research & development"),
+            ("ampersand_in_a_link", "see [the run](https://example.com/i?a=1&b=2)"),
+        ]
+    )
+    def test_text_that_only_looks_like_a_token_is_left_alone(self, _name: str, text: str) -> None:
+        # Escaping every angle bracket instead corrupts all of these: Slack decodes the entity in
+        # prose but not inside a code span or a link destination, so the escape shows through as
+        # `&lt;` or breaks the link outright.
+        assert defuse_slack_tokens(text) == text
 
 
 class TestSplitMarkdownByHeadings(SimpleTestCase):
@@ -236,34 +274,35 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
         assert [segment[: len(start)] for segment, start in zip(segments[1:], expected_starts)] == expected_starts
 
 
-class TestChunkSlackMrkdwn(SimpleTestCase):
+class TestChunkSlackText(SimpleTestCase):
     def test_short_text_is_one_chunk(self) -> None:
-        assert chunk_slack_mrkdwn("short") == ["short"]
+        assert chunk_slack_text("short", SLACK_MARKDOWN_TEXT_MAX_LEN) == ["short"]
 
-    def test_long_text_splits_within_the_section_limit_without_losing_the_tail(self) -> None:
-        # The bug this guards: a summary past the section cap used to be truncated with an ellipsis,
-        # dropping everything after ~2,900 characters. Chunking must keep every line.
-        lines = [f"line {index}" for index in range(600)]
-        chunks = chunk_slack_mrkdwn("\n".join(lines))
+    def test_long_text_splits_within_the_limit_without_losing_the_tail(self) -> None:
+        # The bug this guards: a summary past the cap used to be truncated with an ellipsis,
+        # dropping everything after it. Chunking must keep every line. The line count comes off the
+        # limit so raising the cap cannot quietly leave this under it.
+        lines = [f"line {index}" for index in range(SLACK_MARKDOWN_TEXT_MAX_LEN // 5)]
+        chunks = chunk_slack_text("\n".join(lines), SLACK_MARKDOWN_TEXT_MAX_LEN)
 
         assert len(chunks) > 1
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         recovered = "\n".join(chunks)
         assert all(line in recovered for line in lines)
 
     @parameterized.expand(
         [
-            ("plain_run", "x" * (SLACK_SECTION_TEXT_MAX_LEN * 2 + 5)),
-            ("link_longer_than_a_section", "<https://example.com/" + "z" * (SLACK_SECTION_TEXT_MAX_LEN * 2) + "|l>"),
+            ("plain_run", "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN * 2 + 5)),
+            ("link_longer_than_a_chunk", "https://example.com/" + "z" * (SLACK_MARKDOWN_TEXT_MAX_LEN * 2)),
         ]
     )
     def test_unbreakable_run_is_hard_sliced(self, _name: str, line: str) -> None:
         # A run with no sentence, word, or token boundary has nowhere safe to break, so it is sliced
         # at the limit. Guards both halves of that fallback: it has to terminate, and it has to keep
         # every character rather than dropping the remainder.
-        chunks = chunk_slack_mrkdwn(line)
+        chunks = chunk_slack_text(line, SLACK_MARKDOWN_TEXT_MAX_LEN)
 
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         assert "".join(chunks) == line
 
     @parameterized.expand(
@@ -278,20 +317,27 @@ class TestChunkSlackMrkdwn(SimpleTestCase):
         # the retry..."). Comparing word sequences catches that, because a mid-word cut turns one
         # word into two and no longer round-trips.
         line = (sentence * 400).strip()
-        chunks = chunk_slack_mrkdwn(line)
+        chunks = chunk_slack_text(line, SLACK_MARKDOWN_TEXT_MAX_LEN)
 
         assert len(chunks) > 1
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         assert " ".join(chunks).split() == line.split()
 
-    def test_link_spanning_the_section_boundary_is_kept_whole(self) -> None:
-        # The bug this guards: a cut inside a converter-emitted `<url|label>` token leaves half a
-        # link in each message, and Slack renders both halves as visible junk.
-        link = "<https://example.com/a/very/long/path|the failing request>"
-        line = "x" * (SLACK_SECTION_TEXT_MAX_LEN - 20) + link + " and the prose that follows it."
-        chunks = chunk_slack_mrkdwn(line)
+    @parameterized.expand(
+        [
+            ("in_prose", "[the failing request](https://example.com/a/very/long/path?trace=1)", ""),
+            ("in_a_table_row", "[#93147 the failing request](https://example.com/pull/93147)", "| "),
+        ]
+    )
+    def test_markdown_link_spanning_the_limit_is_kept_whole(self, _name: str, link: str, prefix: str) -> None:
+        # A cut inside `[label](url)` leaves half the syntax in each message, and Slack renders both
+        # halves as visible junk instead of a link. A summary may run to 20,000 characters, so a link
+        # can sit across the chunk boundary. The row's own pipes are not held together: a table row
+        # that long has nowhere safe to break, and the link is what a reader loses.
+        line = "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN - 20) + prefix + link + " | ready | and more prose."
+        chunks = chunk_slack_text(line, SLACK_MARKDOWN_TEXT_MAX_LEN)
 
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         assert any(link in chunk for chunk in chunks)
 
 
