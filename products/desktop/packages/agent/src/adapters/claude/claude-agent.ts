@@ -149,6 +149,7 @@ import {
   toSdkEffort,
 } from "./session/options";
 import { SettingsManager } from "./session/settings";
+import { generateTraceparentHookNonce } from "./session/traceparent-hook";
 import {
   buildSideQuestionPrompt,
   collectSideQuestionAnswer,
@@ -969,7 +970,27 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.dispatchQueuedInput(session);
-      turn.resolve(result);
+      // Attach the turn's gateway trace id (from the traceparent hook) so the
+      // server can stamp it on `_posthog/turn_complete`. Cleared here so a
+      // turn whose hook never fired cannot inherit the previous turn's id.
+      const traceId = session.currentTurnTraceId;
+      session.currentTurnTraceId = undefined;
+      if (
+        !traceId &&
+        session.traceparentHookInstalled &&
+        !turn.isLocalOnlyCommand
+      ) {
+        // Loud on purpose: an SDK or CLI change that stops surfacing hook
+        // output would otherwise degrade feedback attribution silently.
+        this.logger.warn("Gateway turn settled without a trace id", {
+          sessionId: session.sdkSessionId,
+        });
+      }
+      turn.resolve(
+        traceId
+          ? { ...result, _meta: { ...(result._meta ?? {}), traceId } }
+          : result,
+      );
     };
 
     // Reject the active turn without tearing down the consumer.
@@ -986,6 +1007,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       this.dispatchQueuedInput(session);
       turn.reject(error);
@@ -1005,6 +1027,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         : [...session.turnQueue];
       session.activeTurn = null;
       session.turnQueue = [];
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       for (const turn of turns) {
         if (!turn.settled) {
@@ -2794,6 +2817,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
 
     const taskState: TaskState = new Map();
+    const traceparentHookNonce = generateTraceparentHookNonce();
     const options = buildSessionOptions({
       cwd,
       mcpServers,
@@ -2804,6 +2828,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       systemPrompt,
       userProvidedOptions: meta?.claudeCode?.options,
       sessionId,
+      taskId: resolveTaskId(meta),
       isResume,
       forkSession,
       additionalDirectories: [
@@ -2829,6 +2854,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      traceparentHookNonce,
       machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
@@ -2882,6 +2908,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         rules: estimateRulesTokens(readClaudeMdQuietly(cwd, this.logger)),
       },
       taskState,
+      traceparentHookNonce,
+      traceparentHookInstalled:
+        typeof options.extraArgs?.settings === "string" &&
+        options.extraArgs.settings.includes(traceparentHookNonce),
 
       // Custom properties
       cwd,
