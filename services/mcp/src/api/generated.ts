@@ -74832,6 +74832,33 @@ export namespace Schemas {
       scan?: ScanEvidence;
     }
 
+    export interface RescoreRequest {
+      /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
+      organization_id: string;
+    }
+
+    /**
+     * * `disabled` - disabled
+     * * `no_enrichment_record` - no_enrichment_record
+     */
+    export type RescoreResponseReasonEnum = typeof RescoreResponseReasonEnum[keyof typeof RescoreResponseReasonEnum];
+
+
+    export const RescoreResponseReasonEnum = {
+      Disabled: 'disabled',
+      NoEnrichmentRecord: 'no_enrichment_record',
+    } as const;
+
+    export interface RescoreResponse {
+      /** Whether the re-score workflow was dispatched. */
+      queued: boolean;
+      /** Why nothing was dispatched. Null when queued.
+       *
+       * * `disabled` - disabled
+       * * `no_enrichment_record` - no_enrichment_record */
+      reason: RescoreResponseReasonEnum | null;
+    }
+
     export interface ResetPasswordResponse {
       username: string;
       password: string;

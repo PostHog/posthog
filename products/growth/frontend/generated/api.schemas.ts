@@ -164,6 +164,33 @@ export interface SaveRequestApi {
     output_fields: OutputFieldApi[]
 }
 
+export interface RescoreRequestApi {
+    /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
+    organization_id: string
+}
+
+/**
+ * * `disabled` - disabled
+ * * `no_enrichment_record` - no_enrichment_record
+ */
+export type RescoreResponseReasonEnumApi =
+    (typeof RescoreResponseReasonEnumApi)[keyof typeof RescoreResponseReasonEnumApi]
+
+export const RescoreResponseReasonEnumApi = {
+    Disabled: 'disabled',
+    NoEnrichmentRecord: 'no_enrichment_record',
+} as const
+
+export interface RescoreResponseApi {
+    /** Whether the re-score workflow was dispatched. */
+    queued: boolean
+    /** Why nothing was dispatched. Null when queued.
+     *
+     * * `disabled` - disabled
+     * * `no_enrichment_record` - no_enrichment_record */
+    reason: RescoreResponseReasonEnumApi | null
+}
+
 export interface ProductPushCampaignApi {
     /** Campaign id. Stable for the campaign's lifetime — key per-user dismissal state on it. */
     readonly id: string
