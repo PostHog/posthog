@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { NotebookNodeType } from '../types'
 import { isSessionSummaryTitle, stripSessionSummaryPrefix } from './NotebookSelectButton'
 import { notebookSelectButtonLogic } from './notebookSelectButtonLogic'
 
@@ -34,7 +35,9 @@ describe('NotebookSelectButton helpers', () => {
 
 describe('notebookSelectButtonLogic filters', () => {
     const emptyResponse = { results: [], count: 0 } as any
+    const resource = { type: NotebookNodeType.Recording, attrs: { id: 'session-id' } }
     let logic: ReturnType<typeof notebookSelectButtonLogic.build>
+    let logicWithResource: ReturnType<typeof notebookSelectButtonLogic.build>
     let listMock: jest.SpiedFunction<typeof api.notebooks.list>
 
     beforeEach(() => {
@@ -42,28 +45,34 @@ describe('notebookSelectButtonLogic filters', () => {
         listMock = jest.spyOn(api.notebooks, 'list').mockResolvedValue(emptyResponse)
         logic = notebookSelectButtonLogic({})
         logic.mount()
+        logicWithResource = notebookSelectButtonLogic({ resource })
+        logicWithResource.mount()
     })
 
     afterEach(() => {
         jest.restoreAllMocks()
         logic.unmount()
+        logicWithResource.unmount()
         delete (window.POSTHOG_APP_CONTEXT as any)?.effective_resource_access_control
     })
 
     test.each([
-        [AccessControlLevel.None, false],
-        [AccessControlLevel.Viewer, true],
-    ])('with %s notebook access, requests the list: %s', async (level, expectedToRequest) => {
+        [AccessControlLevel.None, 0],
+        [AccessControlLevel.Viewer, 2],
+    ])('with %s notebook access, sends %s list requests', async (level, expectedRequests) => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
             effective_resource_access_control: { [AccessControlResourceType.Notebook]: level },
         } as any
 
-        logic.actions.loadAllNotebooks()
+        // The scene menus dispatch both loaders. The notebooksContainingResource guard needs a
+        // resource prop to be reachable, because the `!props.resource` check returns first.
+        logicWithResource.actions.loadAllNotebooks()
+        logicWithResource.actions.loadNotebooksContainingResource()
 
-        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logicWithResource).toFinishAllListeners()
 
-        expect(listMock).toHaveBeenCalledTimes(expectedToRequest ? 1 : 0)
+        expect(listMock).toHaveBeenCalledTimes(expectedRequests)
     })
 
     test('passes search and created_by to api', async () => {
