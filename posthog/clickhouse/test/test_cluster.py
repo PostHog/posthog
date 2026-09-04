@@ -768,6 +768,25 @@ def test_map_one_host_per_shard_rejects_roles_owning_no_shard(_name: str, requir
         cluster.map_one_host_per_shard(lambda _: (), node_roles=[NodeRole.LOGS], require_hosts=require_hosts)
 
 
+def _shardless_cluster() -> ClickhouseCluster:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("logs-host-1", "9000", "1", "1", "online", "logs"),
+        ]
+    )
+    return ClickhouseCluster(bootstrap_client_mock)
+
+
+def test_map_one_host_per_shard_on_shardless_topology_defaults_to_noop() -> None:
+    assert _shardless_cluster().map_one_host_per_shard(lambda _: ()).result() == {}
+
+
+def test_map_one_host_per_shard_with_required_hosts_rejects_shardless_topology() -> None:
+    with pytest.raises(ValueError, match="No shard-bearing hosts found"):
+        _shardless_cluster().map_one_host_per_shard(lambda _: (), require_hosts=True)
+
+
 def test_satellite_dedup_same_physical_host() -> None:
     """In local dev, satellite clusters point to the same ClickHouse node as the main cluster.
     NodeRole.ALL should not execute on the same physical host twice."""

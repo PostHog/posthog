@@ -601,7 +601,8 @@ class ClickhouseCluster:
         ``node_roles`` narrows the candidate hosts inside each shard the same way
         `map_hosts_by_roles` narrows the whole cluster, so a caller reaches only the hosts it
         addressed before. A shard with no matching host is skipped, unless ``require_hosts`` asks
-        for a host in every shard. Give no roles to keep any host per shard.
+        for a host in every shard, which also rejects a handle that discovered no shard at all.
+        Give no roles to keep any host per shard.
 
         Roles that own no shard here raise, because every shard would drop out and the caller would
         get an empty map that looks like a completed dispatch.
@@ -623,6 +624,9 @@ class ClickhouseCluster:
                     raise ValueError(f"No hosts found with roles {node_roles} in shard {shard_num}")
                 continue
             hosts.add(next(iter(candidates)))
+
+        if require_hosts and not hosts:
+            raise ValueError(f"No shard-bearing hosts found in cluster {self.__data_cluster_name!r}")
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
