@@ -172,8 +172,6 @@ export enum ExperimentReplayListEmptyReason {
     EndedPastRetention = 'ended_past_retention',
     /** Launched within the last few days, so recordings may not have been captured yet. */
     TooEarly = 'too_early',
-    /** Still running, but the early part of its window has expired out of retention. */
-    RunningLongerThanRetention = 'running_longer_than_retention',
     UnknownInWindow = 'unknown_in_window',
 }
 
@@ -1036,9 +1034,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (daysSinceStart < TOO_EARLY_DAYS) {
                     return ExperimentReplayListEmptyReason.TooEarly
                 }
-                if (daysSinceEnd === null && daysSinceStart > retention) {
-                    return ExperimentReplayListEmptyReason.RunningLongerThanRetention
-                }
+                // A window that expired only in part gets no reason of its own, whether the
+                // experiment ended or still runs: its retained days are inside retention, so an
+                // empty list there is unexplained. `days_since_start` and `retention_period` ride
+                // along on the report, so that slice stays one filter away.
                 return ExperimentReplayListEmptyReason.UnknownInWindow
             },
         ],

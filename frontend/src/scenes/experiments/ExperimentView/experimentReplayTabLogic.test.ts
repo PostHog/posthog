@@ -160,7 +160,10 @@ const EMPTY_FILTER_GROUP = {
 // Run windows are relative: the reasons are read against the retention period and against today,
 // so a fixed date would start naming a different reason as it aged. Counted in hours, so a run in
 // a zone with daylight saving still lands a whole number of days back.
-const daysAgo = (days: number): string => dayjs().subtract(days * 24, 'hour').toISOString()
+const daysAgo = (days: number): string =>
+    dayjs()
+        .subtract(days * 24, 'hour')
+        .toISOString()
 
 const listsRendered = (captureSpy: jest.SpyInstance, experimentId: number): any[] =>
     captureSpy.mock.calls.filter(
@@ -210,14 +213,16 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experiment: { start_date: daysAgo(1), end_date: null },
     },
     {
-        reason: ExperimentReplayListEmptyReason.RunningLongerThanRetention,
-        experimentId: 126,
-        experiment: { start_date: daysAgo(60), end_date: null },
-    },
-    {
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 127,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+    },
+    {
+        // Still running past the retention period: its retained days are inside retention, so this
+        // is unexplained rather than a retention loss.
+        reason: ExperimentReplayListEmptyReason.UnknownInWindow,
+        experimentId: 128,
+        experiment: { start_date: daysAgo(60), end_date: null },
     },
 ]
 
