@@ -18,7 +18,6 @@ can't make every interaction wait the full timeout.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -28,6 +27,7 @@ from django.core.cache import cache
 import structlog
 
 from products.tasks.backend import model_catalog
+from products.tasks.backend.model_catalog import display_name_for_model
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
@@ -44,8 +44,8 @@ _NEGATIVE_CACHE_TTL_SECONDS = 30
 _FETCH_TIMEOUT_SECONDS = 3.0
 
 # Runtime + effort labels are UI strings with no run-config equivalent. A model's display
-# label is computed from its id by `format_model_id`, so a new model names itself; the
-# catalog overrides that only for the ids the derivation gets wrong.
+# name is resolved by `display_name_for_model`, so a new model names itself and the catalog
+# overrides that only for the ids the derivation gets wrong.
 RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude (Anthropic)",
     "codex": "Codex (OpenAI)",
@@ -59,9 +59,6 @@ REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = {
     "max": "Max",
     "ultracode": "Ultracode",
 }
-
-# Vendor initialisms that must not be title-cased into "Gpt".
-_MODEL_ACRONYMS: dict[str, str] = {"gpt": "GPT", "glm": "GLM"}
 
 
 @dataclass(frozen=True)
@@ -192,7 +189,7 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
             ModelChoice(
                 runtime_adapter=runtime_adapter,
                 model=model.id,
-                label=model_catalog.label_for_model(model.id) or format_model_id(model.id),
+                label=model_catalog.display_name_for_model(model.id),
                 supported_efforts=tuple(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model.id)),
             )
         )
@@ -211,7 +208,7 @@ def catalog_model_choices() -> tuple[ModelChoice, ...]:
         ModelChoice(
             runtime_adapter=entry.runtime_adapter,
             model=entry.id,
-            label=model_catalog.label_for_model(entry.id) or format_model_id(entry.id),
+            label=model_catalog.display_name_for_model(entry.id),
             supported_efforts=entry.reasoning_efforts,
         )
         for entry in model_catalog.MODELS
@@ -271,37 +268,6 @@ def _runtime_adapter_by_provider() -> dict[str, str]:
     return by_provider
 
 
-def format_model_id(model_id: str) -> str:
-    """Turn a gateway model id into a display name: `Claude Opus 4.8`, `GPT-5.6 Sol`.
-
-    Every family goes through the same rules — strip the provider prefix, glue a version
-    onto a leading acronym, title-case the rest — so a new model is named without anyone
-    touching a lookup table.
-    """
-    clean = model_id
-    for provider in _runtime_adapter_by_provider():
-        if clean.startswith(f"{provider}/"):
-            clean = clean[len(provider) + 1 :]
-            break
-
-    # Collapse `4-8` into `4.8` so version components survive the dash split.
-    words = re.split(r"[-_]", re.sub(r"(\d)-(\d)", r"\1.\2", clean))
-    acronym = _MODEL_ACRONYMS.get(words[0].lower())
-    if acronym is None:
-        return " ".join(_titled(word) for word in words)
-    # `gpt` + `5.6` reads as `GPT-5.6`, the way the vendor writes it, with any remaining
-    # qualifier ("sol", "codex", "mini") as its own word.
-    head = f"{acronym}-{words[1]}" if len(words) > 1 else acronym
-    return " ".join([head, *(_titled(word) for word in words[2:])])
-
-
-def _titled(word: str) -> str:
-    """Capitalise a name part, leaving bare version numbers alone."""
-    if re.fullmatch(r"[0-9.]+", word):
-        return word
-    return word[:1].upper() + word[1:].lower()
-
-
 def label_for(value: str | None, mapping: dict[str, str]) -> str:
     """Display name for a stored value, falling back to the value itself."""
     if not value:
@@ -317,8 +283,9 @@ __all__ = [
     "ModelChoice",
     "RuntimeGroup",
     "available_model_choices",
+    "catalog_model_choices",
+    "display_name_for_model",
     "filter_unsupported_effort",
-    "format_model_id",
     "group_by_runtime",
     "label_for",
     "list_gateway_models",

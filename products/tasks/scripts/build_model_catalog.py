@@ -102,20 +102,19 @@ def render(catalog: dict[str, Any], style: Style) -> str:
     families: tuple[tuple[str, str, tuple[str, ...]], ...] = catalog["FAMILY_REASONING_EFFORTS"]
     models: tuple[Any, ...] = catalog["MODELS"]
     efforts: tuple[str, ...] = catalog["REASONING_EFFORTS"]
+    display_name = catalog["display_name_for_model"]
 
     def model_entry(model: Any) -> str:
-        lines = [
-            f"{i}{{",
-            f"{i}{i}id: {style.s(model.id)},",
-            f"{i}{i}runtimeAdapter: {style.s(model.runtime_adapter)},",
-            style.array(model.reasoning_efforts, prefix="reasoningEfforts: ", suffix=",", depth=2),
-        ]
-        # Omitted rather than emitted as null, so a consumer's `??` falls through to its
-        # own formatter for every model the catalog does not name.
-        if model.label:
-            lines.append(f"{i}{i}label: {style.s(model.label)},")
-        lines.append(f"{i}}},")
-        return "\n".join(lines)
+        return "\n".join(
+            [
+                f"{i}{{",
+                f"{i}{i}id: {style.s(model.id)},",
+                f"{i}{i}runtimeAdapter: {style.s(model.runtime_adapter)},",
+                style.array(model.reasoning_efforts, prefix="reasoningEfforts: ", suffix=",", depth=2),
+                f"{i}{i}label: {style.s(display_name(model.id))},",
+                f"{i}}},",
+            ]
+        )
 
     model_entries = "\n".join(model_entry(model) for model in models)
     provider_entries = "\n".join(f"{i}{adapter}: {style.s(providers[adapter])}," for adapter in adapters)
@@ -154,8 +153,9 @@ export interface CatalogModel {{
 {i}runtimeAdapter: RuntimeAdapter{semi}
 {i}/** Empty for a model with no effort control: render no dropdown. */
 {i}reasoningEfforts: readonly ReasoningEffort[]{semi}
-{i}/** Display name, set only where formatting the id gets it wrong. */
-{i}label?: string{semi}
+{i}/** What a picker shows. Resolved when this file is generated, so every
+{i}    surface names a model the same way without carrying a formatter. */
+{i}label: string{semi}
 }}
 
 /** Which vendor API each runtime adapter speaks. */
