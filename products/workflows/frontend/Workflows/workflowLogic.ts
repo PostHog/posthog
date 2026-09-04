@@ -3969,7 +3969,7 @@ export const workflowLogic = kea<workflowLogicType>([
             LemonDialog.open({
                 title: 'Resume email sending?',
                 description:
-                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a few minutes.',
+                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a couple of hours.',
                 primaryButton: {
                     children: 'Resume sending',
                     onClick: () => actions.confirmResumeEmailSending(),
