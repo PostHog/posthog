@@ -7,8 +7,9 @@ name filter scans its whole date range, and one with no timestamp bound scans th
 """
 
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from enum import StrEnum
+from hashlib import sha1
 from logging import getLogger
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,7 @@ from posthog.schema import EventsScanWarning
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.property import has_aggregation, has_window_function
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -48,21 +50,27 @@ _LOWER_BOUND_OPS_TIMESTAMP_RIGHT = frozenset(
 _LOWER_BOUND_FUNCTIONS_TIMESTAMP_FIRST = frozenset({"greater", "greaterOrEquals", "equals"})
 _LOWER_BOUND_FUNCTIONS_TIMESTAMP_SECOND = frozenset({"less", "lessOrEquals", "equals"})
 # Wrappers ClickHouse treats as monotonic, so a bound on them still prunes by the sort key.
+# Lowercase because ClickHouse resolves function names case-insensitively.
 _MONOTONIC_TIMESTAMP_FUNCTIONS = frozenset(
     {
-        "toDate",
-        "toDateTime",
-        "toDateTime64",
-        "toMonday",
-        "toTimeZone",
-        "toUnixTimestamp",
-        "toYear",
-        "toYYYYMM",
-        "toYYYYMMDD",
+        "todate",
+        "todatetime",
+        "todatetime64",
+        "tomonday",
+        "totimezone",
+        "tounixtimestamp",
+        "toyear",
+        "toyyyymm",
+        "toyyyymmdd",
     }
 )
-_MONOTONIC_TIMESTAMP_PREFIX = "toStartOf"
+_MONOTONIC_TIMESTAMP_PREFIX = "tostartof"
 _FILTERS_PLACEHOLDER = "filters"
+# A `LIMIT n` peek stops early, so it is not a scan. Above this the read is large enough to warn about.
+_PEEK_LIMIT = 10_000
+# Caps on the "events seen with" hint: enough to point somewhere, small enough to bound the message
+_MAX_HINT_PROPERTIES = 5
+_MAX_HINT_EVENTS = 20
 # Comparisons an `event IN (...)` list could stand in for. Exclusions like NOT IN or != cannot.
 _POSITIVE_COMPARE_OPS = frozenset(
     {
@@ -74,6 +82,7 @@ _POSITIVE_COMPARE_OPS = frozenset(
     }
 )
 _POSITIVE_COMPARE_FUNCTIONS = frozenset({"equals", "in", "globalIn", "like", "ilike"})
+_NEGATION_FUNCTION = "not"
 
 
 class EventsScanSource(StrEnum):
@@ -109,27 +118,43 @@ def find_events_scans(query: ast.SelectQuery | ast.SelectSetQuery, database: "Da
     return visitor.findings
 
 
+def attributed_events_scans(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    database: "Database",
+    as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: "Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None" = None,
+) -> list[EventsScanFinding]:
+    """The findings on `query`, each tagged with what put it there.
+
+    `query` is what runs. When `as_written` is given, findings it does not share are attributed to the
+    filters the UI expanded into the query; `without_test_accounts` re-expands with the test-account
+    filters off, which tells that source apart from the insight or dashboard filters. It is a callable
+    because re-expanding costs a filter rebuild, and a clean query needs no attribution at all.
+    """
+    findings = find_events_scans(query, database)
+    if not findings or as_written is None:
+        return findings
+    written = find_events_scans(as_written, database)
+    alternative = without_test_accounts() if without_test_accounts is not None else None
+    return attribute_findings(
+        findings,
+        written,
+        find_events_scans(alternative, database) if alternative is not None else None,
+    )
+
+
 def events_scan_warnings(
     query: ast.SelectQuery | ast.SelectSetQuery,
     database: "Database",
     as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
-    without_test_accounts: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: "Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None" = None,
 ) -> list[EventsScanWarning]:
     """The findings that mean real work is being wasted, shaped for a query response's `warnings`.
 
-    `query` is what runs. When `as_written` is given, findings it does not share are attributed to the
-    filters the UI expanded into the query; `without_test_accounts` is the same expansion with the
-    test-account filters off, which tells that source apart from the insight or dashboard filters.
     Reading every event with no filter at all is often the point of the query, so that finding only
     surfaces as an editor notice, not as a response warning.
     """
-    findings = find_events_scans(query, database)
-    if as_written is not None:
-        findings = attribute_findings(
-            findings,
-            find_events_scans(as_written, database),
-            find_events_scans(without_test_accounts, database) if without_test_accounts is not None else None,
-        )
+    findings = attributed_events_scans(query, database, as_written, without_test_accounts)
     return [
         EventsScanWarning(
             type="events_scan",
@@ -257,32 +282,42 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
 
     Those associations are incomplete (no backfill, capped per event), so the result is a hint for
     the message, never something to rewrite a query with.
+
+    This runs on the editor's metadata path, once per keystroke, and no index covers a lookup by
+    property alone. So it asks for every name at once, caps what it reads, and caches the answer
+    for the whole set of names.
     """
     from posthog.models import EventProperty  # noqa: PLC0415 - keeps the ORM off the pure AST path
 
     from products.event_definitions.backend.models.property_definition import effective_project_id_expr  # noqa: PLC0415
 
-    events_by_property: dict[str, list[str]] = {}
+    names = list(dict.fromkeys(property_names))[:_MAX_HINT_PROPERTIES]
+    if not names:
+        return {}
+
+    digest = sha1("\0".join(sorted(names)).encode()).hexdigest()
+    cache_key = f"events_scan:events_with_properties:{team.project_id}:{digest}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
-        for property_name in dict.fromkeys(property_names):
-            cache_key = f"events_scan:events_with_property:{team.project_id}:{property_name}"
-            cached = cache.get(cache_key)
-            if cached is not None:
-                if cached:
-                    events_by_property[property_name] = cached
-                continue
-            events = list(
-                EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
-                .filter(effective_project_id=team.project_id, property=property_name)
-                .order_by("event")
-                .values_list("event", flat=True)
-            )
-            cache.set(cache_key, events, timeout=300)
-            if events:
-                events_by_property[property_name] = events
+        rows = list(
+            EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=team.project_id, property__in=names)
+            .order_by("property", "event")
+            .values_list("property", "event")[: _MAX_HINT_PROPERTIES * _MAX_HINT_EVENTS]
+        )
     except DatabaseError:
         logger.warning("Events scan hint skipped due to a database error", exc_info=True)
         return {}
+
+    events_by_property: dict[str, list[str]] = {}
+    for property_name, event in rows:
+        events = events_by_property.setdefault(property_name, [])
+        if len(events) < _MAX_HINT_EVENTS:
+            events.append(event)
+    cache.set(cache_key, events_by_property, timeout=300)
     return events_by_property
 
 
@@ -324,7 +359,7 @@ class _EventsScanVisitor(TraversingVisitor):
 
     def _check(self, node: ast.SelectQuery) -> None:
         references = _events_references(node.select_from, self.database, self._cte_scopes)
-        if not references:
+        if not references or _is_bounded_peek(node):
             return
         aliases = {alias for alias, _ in references}
         first_reference = references[0][1]
@@ -354,6 +389,31 @@ class _EventsScanVisitor(TraversingVisitor):
                     reason=EventsScanReason.NO_TIME_BOUND, start=first_reference.start, end=first_reference.end
                 )
             )
+
+
+def _is_bounded_peek(node: ast.SelectQuery) -> bool:
+    """Whether the SELECT stops after its first rows, the way the editor's table preview does.
+
+    With nothing to filter, sort, group, or aggregate, `LIMIT n` reads n rows and stops, so no
+    amount of history is scanned. Anything that must see every row first breaks that.
+    """
+    limit = node.limit
+    if not isinstance(limit, ast.Constant) or not isinstance(limit.value, int) or limit.value > _PEEK_LIMIT:
+        return False
+    return not (
+        node.where
+        or node.prewhere
+        or node.having
+        or node.qualify
+        or node.group_by
+        or node.order_by
+        or node.distinct
+        or node.array_join_op
+        or node.limit_by
+        or node.window_exprs
+        or (node.select_from and node.select_from.next_join)
+        or any(has_aggregation(expr) or has_window_function(expr) for expr in node.select)
+    )
 
 
 def _events_references(
@@ -403,9 +463,10 @@ def _is_timestamp_expr(node: ast.Expr, aliases: set[str]) -> bool:
         chain = node.chain
         return chain == [_TIMESTAMP] or (len(chain) == 2 and chain[0] in aliases and chain[1] == _TIMESTAMP)
     if isinstance(node, ast.Call) and node.args:
-        if node.name == "dateTrunc" and len(node.args) >= 2:
+        name = node.name.lower()
+        if name == "datetrunc" and len(node.args) >= 2:
             return _is_timestamp_expr(node.args[1], aliases)
-        if node.name in _MONOTONIC_TIMESTAMP_FUNCTIONS or node.name.startswith(_MONOTONIC_TIMESTAMP_PREFIX):
+        if name in _MONOTONIC_TIMESTAMP_FUNCTIONS or name.startswith(_MONOTONIC_TIMESTAMP_PREFIX):
             return _is_timestamp_expr(node.args[0], aliases)
     return False
 
@@ -485,6 +546,7 @@ class _PredicateFields(TraversingVisitor):
         self.positive_fields: list[ast.Field] = []
         self.positive_array_accesses: list[ast.ArrayAccess] = []
         self._positive_depth = 0
+        self._negated_depth = 0
 
     @classmethod
     def collect(cls, predicate: ast.Expr) -> "_PredicateFields":
@@ -504,10 +566,25 @@ class _PredicateFields(TraversingVisitor):
         )
 
     def visit_call(self, node: ast.Call) -> None:
+        # The parser gives `NOT x` as a call, not an ast.Not
+        if node.name.lower() == _NEGATION_FUNCTION:
+            self._visit_negation(lambda: super(_PredicateFields, self).visit_call(node))
+            return
         positive = node.name in _POSITIVE_COMPARE_FUNCTIONS and len(node.args) == 2
         self._visit_comparison(positive, lambda: super(_PredicateFields, self).visit_call(node))
 
-    def _visit_comparison(self, positive: bool, visit_children) -> None:
+    def visit_not(self, node: ast.Not) -> None:
+        self._visit_negation(lambda: super(_PredicateFields, self).visit_not(node))
+
+    def _visit_negation(self, visit_children: Callable[[], None]) -> None:
+        # Everything under a negation is an exclusion, whatever the comparisons inside it say
+        self._negated_depth += 1
+        try:
+            visit_children()
+        finally:
+            self._negated_depth -= 1
+
+    def _visit_comparison(self, positive: bool, visit_children: Callable[[], None]) -> None:
         if positive:
             self._positive_depth += 1
         try:
@@ -516,13 +593,17 @@ class _PredicateFields(TraversingVisitor):
             if positive:
                 self._positive_depth -= 1
 
+    @property
+    def _is_positive(self) -> bool:
+        return bool(self._positive_depth) and not self._negated_depth
+
     def visit_field(self, node: ast.Field) -> None:
         self.fields.append(node)
-        if self._positive_depth:
+        if self._is_positive:
             self.positive_fields.append(node)
 
     def visit_array_access(self, node: ast.ArrayAccess) -> None:
-        if self._positive_depth:
+        if self._is_positive:
             self.positive_array_accesses.append(node)
         super().visit_array_access(node)
 

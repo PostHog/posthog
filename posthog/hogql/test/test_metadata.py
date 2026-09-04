@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.events_scan import EVENT_FILTER_ADVICE
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
@@ -799,6 +800,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
                     },
+                    {
+                        "message": EVENT_FILTER_ADVICE,
+                        "start": 22,
+                        "end": 28,
+                        "fix": None,
+                    },
                 ],
             },
         )
@@ -1263,5 +1270,22 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             "SELECT event, count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event"
         )
         self.assertEqual(all_events.warnings, [])
-        self.assertEqual(len(all_events.notices), 1)
-        self.assertIn("reads every event in its date range", all_events.notices[0].message)
+        self.assertEqual([notice.message for notice in all_events.notices].count(EVENT_FILTER_ADVICE), 1)
+
+    def test_metadata_does_not_warn_about_a_limited_peek_at_events(self):
+        # The editor's own table preview is this query; warning on it would be wrong and would greet
+        # every new user of the SQL editor
+        preview = self._select("SELECT * FROM events LIMIT 100")
+
+        self.assertEqual(preview.warnings, [])
+        self.assertNotIn(EVENT_FILTER_ADVICE, [notice.message for notice in preview.notices])
+
+    def test_metadata_stays_valid_when_a_heuristic_raises(self):
+        with patch(
+            "posthog.hogql.metadata_heuristics.attributed_events_scans", side_effect=ValueError("boom")
+        ) as broken:
+            metadata = self._select("SELECT count() FROM events WHERE properties.plan = 'pro'")
+
+        self.assertTrue(broken.called)
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])

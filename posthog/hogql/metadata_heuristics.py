@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -7,9 +8,8 @@ from posthog.schema import HogQLNotice
 from posthog.hogql import ast
 from posthog.hogql.events_scan import (
     EventsScanReason,
-    attribute_findings,
+    attributed_events_scans,
     events_seen_with_properties,
-    find_events_scans,
     finding_fix,
     finding_message,
 )
@@ -88,7 +88,7 @@ class EventsScanHeuristic(MetadataHeuristic):
         team: "Team | None",
         database: "Database",
         as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
-        without_test_accounts: ast.SelectQuery | ast.SelectSetQuery | None = None,
+        without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None,
     ) -> None:
         self.team = team
         self.database = database
@@ -97,15 +97,7 @@ class EventsScanHeuristic(MetadataHeuristic):
         self.without_test_accounts = without_test_accounts
 
     def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
-        findings = find_events_scans(query, self.database)
-        if self.as_written is not None:
-            findings = attribute_findings(
-                findings,
-                find_events_scans(self.as_written, self.database),
-                find_events_scans(self.without_test_accounts, self.database)
-                if self.without_test_accounts is not None
-                else None,
-            )
+        findings = attributed_events_scans(query, self.database, self.as_written, self.without_test_accounts)
         property_names = [name for finding in findings for name in finding.property_names]
         events_by_property = (
             events_seen_with_properties(self.team, property_names) if self.team and property_names else {}
@@ -131,7 +123,7 @@ def run_metadata_heuristics(
     team: "Team | None" = None,
     database: "Database | None" = None,
     as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
-    without_test_accounts: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None,
 ) -> MetadataHeuristicNotices:
     heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
     # The events scan check resolves table names, which needs a database not every caller has

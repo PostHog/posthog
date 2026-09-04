@@ -155,6 +155,31 @@ class TestFindEventsScans(TestCase):
                 "SELECT count() FROM persons WHERE properties.email = 'x'",
                 [],
             ),
+            (
+                "a limited peek stops early, so it is not a scan",
+                "SELECT * FROM events LIMIT 100",
+                [],
+            ),
+            (
+                "an aggregate has to read every row, limit or not",
+                "SELECT count() FROM events LIMIT 100",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "sorting has to read every row, limit or not",
+                "SELECT * FROM events ORDER BY timestamp DESC LIMIT 100",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "a filtered peek scans until it finds enough rows",
+                "SELECT * FROM events WHERE properties.plan = 'pro' LIMIT 100",
+                [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "a limit far past a peek is a scan",
+                "SELECT * FROM events LIMIT 5000000",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
         ]
     )
     def test_reasons(self, _name: str, query: str, expected: list[EventsScanReason]) -> None:
@@ -176,8 +201,15 @@ class TestFindEventsScans(TestCase):
         self.assertEqual(query[finding.start : finding.end], "events")
         self.assertEqual(finding.property_names, ("plan", "tier"))
 
-    def test_exclusion_filters_still_warn_but_do_not_feed_the_hint(self) -> None:
-        query = "SELECT count() FROM events WHERE properties.$host NOT IN ('localhost') AND timestamp >= today()"
+    @parameterized.expand(
+        [
+            ("not in", "properties.$host NOT IN ('localhost')"),
+            ("not equals", "properties.$host != 'localhost'"),
+            ("negated equals", "NOT (properties.$host = 'localhost')"),
+        ]
+    )
+    def test_exclusion_filters_still_warn_but_do_not_feed_the_hint(self, _name: str, predicate: str) -> None:
+        query = f"SELECT count() FROM events WHERE {predicate} AND timestamp >= today()"
         (finding,) = find_events_scans(parse_select(query), DATABASE)
         self.assertEqual(finding.reason, EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT)
         self.assertEqual(finding.property_names, ())
@@ -202,6 +234,7 @@ class TestFindEventsScans(TestCase):
 
         (unknown,) = attribute_findings(with_test_accounts, as_written, None)
         self.assertEqual(unknown.source, EventsScanSource.UNKNOWN)
+        self.assertIn("contact PostHog support", finding_message(unknown))
         self.assertIn("contact PostHog support", finding_message(unknown))
 
         # The user's own finding keeps its hint properties and the plain advice

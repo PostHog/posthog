@@ -323,12 +323,14 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return []
         try:
             as_written, _ = self._parse_query()
-            without_test_accounts = None
-            if self.query.filters and find_placeholders(as_written).has_filters:
+            filters = self.query.filters
+            without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None
+            if filters and find_placeholders(as_written).has_filters:
+                # Called only when there is a finding to attribute, so a clean query pays no second expansion
                 without_test_accounts = (
-                    self._expand_query(self.query.filters.model_copy(update={"filterTestAccounts": False}))
-                    if self.query.filters.filterTestAccounts
-                    else query
+                    (lambda: self._expand_query(filters.model_copy(update={"filterTestAccounts": False})))
+                    if filters.filterTestAccounts
+                    else (lambda: query)
                 )
             return events_scan_warnings(query, self.shared_database, as_written, without_test_accounts)
         except Exception:

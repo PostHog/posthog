@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
@@ -119,69 +120,76 @@ def get_hogql_metadata(
         elif query.language == HogLanguage.HOG_QL:
             # The heuristics compare the expanded query with the text, so an injected filter is reported as such
             as_written_ast: ast.SelectQuery | ast.SelectSetQuery | None = None
-            without_test_accounts_ast: ast.SelectQuery | ast.SelectSetQuery | None = None
+            without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None
             if not hogql_ast:
                 as_written_ast = parse_select(query.query)
-                hogql_ast = _expand_query(as_written_ast, query, query.filters, team, database)
-                if query.filters and find_placeholders(as_written_ast).has_filters:
-                    without_test_accounts_ast = (
-                        _expand_query(
-                            as_written_ast,
-                            query,
-                            query.filters.model_copy(update={"filterTestAccounts": False}),
-                            team,
-                            database,
+                expanded_ast = _expand_query(as_written_ast, query, query.filters, team, database)
+                hogql_ast = expanded_ast
+                filters = query.filters
+                if filters and find_placeholders(as_written_ast).has_filters:
+                    written_ast = as_written_ast
+                    without_test_accounts = (
+                        (
+                            lambda: _expand_query(
+                                written_ast,
+                                query,
+                                filters.model_copy(update={"filterTestAccounts": False}),
+                                team,
+                                database,
+                            )
                         )
-                        if query.filters.filterTestAccounts
-                        else hogql_ast
+                        if filters.filterTestAccounts
+                        else (lambda: expanded_ast)
                     )
 
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
 
-            if not printed_sql or not prepared_ast:
-                direct_adapter = get_adapter(source.direct_engine) if source else None
-                direct_dialect: HogQLDialect = (
-                    direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
-                )
-                if source and direct_dialect == "trino":
-                    from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
-                        find_unsupported_pure_trino_features,
-                    )
-
-                    # Execution rejects these regardless of Django expansion, so surface the
-                    # same error at edit time.
-                    find_unsupported_pure_trino_features(hogql_ast)
-                    # Direct queries cannot join PostHog person tables, so the team's
-                    # person-on-events mode has no effect; print with the one mode the Trino
-                    # dialect accepts. A direct database exposes no event or person properties,
-                    # so property restrictions cannot apply either.
-                    context.modifiers = context.modifiers.model_copy(
-                        update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
-                    )
-                    context.restricted_properties = set()
-                printed_sql, prepared_ast = prepare_and_print_ast(
-                    clone_expr(hogql_ast),
-                    context=context,
-                    dialect=direct_dialect if source else "clickhouse",
-                )
-
-            if prepared_ast:
-                response.ch_table_names = get_table_names(prepared_ast)
-
-            # After printing, so the heuristics can resolve table names through the database it built, and on
-            # the expanded query: what ClickHouse reads is what counts, whichever filter put it there.
-            # Advisory: a failure here must not mark a valid query invalid.
             try:
-                heuristic_result = run_metadata_heuristics(
-                    hogql_ast, team, context.database, as_written_ast, without_test_accounts_ast
-                )
-            except Exception:
-                logger.exception("hogql_metadata_heuristics_failed", team_id=team.pk)
-            else:
-                heuristic_warnings.extend(heuristic_result.warnings)
-                heuristic_notices.extend(heuristic_result.notices)
+                if not printed_sql or not prepared_ast:
+                    direct_adapter = get_adapter(source.direct_engine) if source else None
+                    direct_dialect: HogQLDialect = (
+                        direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
+                    )
+                    if source and direct_dialect == "trino":
+                        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
+                            find_unsupported_pure_trino_features,
+                        )
+
+                        # Execution rejects these regardless of Django expansion, so surface the
+                        # same error at edit time.
+                        find_unsupported_pure_trino_features(hogql_ast)
+                        # Direct queries cannot join PostHog person tables, so the team's
+                        # person-on-events mode has no effect; print with the one mode the Trino
+                        # dialect accepts. A direct database exposes no event or person properties,
+                        # so property restrictions cannot apply either.
+                        context.modifiers = context.modifiers.model_copy(
+                            update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+                        )
+                        context.restricted_properties = set()
+                    printed_sql, prepared_ast = prepare_and_print_ast(
+                        clone_expr(hogql_ast),
+                        context=context,
+                        dialect=direct_dialect if source else "clickhouse",
+                    )
+
+                if prepared_ast:
+                    response.ch_table_names = get_table_names(prepared_ast)
+            finally:
+                # In a finally so a query that fails to print still gets the advice that does not
+                # need it to print. Printing is also what builds the database the events scan check
+                # resolves table names through, so this cannot move above it.
+                # Advisory: a failure here must not mark a valid query invalid.
+                try:
+                    heuristic_result = run_metadata_heuristics(
+                        hogql_ast, team, context.database, as_written_ast, without_test_accounts
+                    )
+                except Exception:
+                    logger.exception("hogql_metadata_heuristics_failed", team_id=team.pk)
+                else:
+                    heuristic_warnings.extend(heuristic_result.warnings)
+                    heuristic_notices.extend(heuristic_result.notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
