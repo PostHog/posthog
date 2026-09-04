@@ -48,4 +48,18 @@ describe('Popover', () => {
 
         expect(onClickOutside).not.toHaveBeenCalled()
     })
+
+    // Regression: a Popover anchored through `referenceElement` used to read a null anchor as
+    // "not anchored at all", drop its computed coordinates, and repaint itself as a loose
+    // top-centered overlay, far away from the trigger it belongs to.
+    it('hides instead of floating loose when its anchor element goes away', () => {
+        const { rerender } = render(
+            <Popover visible referenceElement={document.createElement('button')} overlay={<div>overlay content</div>} />
+        )
+
+        rerender(<Popover visible referenceElement={null} overlay={<div>overlay content</div>} />)
+
+        expect(screen.getByText('overlay content').closest('.Popover')).toHaveStyle({ display: 'none' })
+        expect(screen.getByText('overlay content').closest('.Popover')).not.toHaveClass('Popover--top-centered')
+    })
 })

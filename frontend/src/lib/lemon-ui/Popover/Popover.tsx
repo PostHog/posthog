@@ -261,8 +261,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         },
         []
     )
+    // Tracked in state, not read off `referenceRef.current`: a ref mutation triggers no render, so
+    // the autoUpdate effect below cannot see the anchor change. It then keeps observing a node that
+    // has left the DOM, instead of re-attaching to the new anchor or tearing down.
+    const [referenceNode, setReferenceNode] = useState<HTMLElement | null>(null)
     const mergedReferenceRef = useMergeRefs([
         referenceRef,
+        setReferenceNode,
         extraReferenceRef || null,
         (children as any)?.ref,
     ]) as React.RefCallback<HTMLElement>
@@ -275,8 +280,11 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         : {}
 
     useLayoutEffect(() => {
-        if (referenceElement) {
-            setReference(referenceElement)
+        // A null `referenceElement` has to reach floating-ui as well, so that it stops measuring a
+        // node that left the DOM. Callers that anchor through children keep their own reference.
+        if (referenceElement || !children) {
+            setReference(referenceElement ?? null)
+            setReferenceNode(referenceElement ?? null)
         }
     }, [referenceElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
@@ -323,10 +331,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     }, [visible, floatingElement, currentPopoverLevel, closeParentPopoverOnClickInside])
 
     useEffect(() => {
-        if (visible && referenceRef?.current && floatingElement) {
-            return autoUpdate(referenceRef.current, floatingElement, update)
+        if (visible && referenceNode && floatingElement) {
+            return autoUpdate(referenceNode, floatingElement, update)
         }
-    }, [visible, placement, referenceRef?.current, floatingElement]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [visible, placement, referenceNode, floatingElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const floatingContainer = useFloatingContainer()
 
@@ -359,13 +367,18 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         [setFloatingElement, floatingRef, extraFloatingRef]
     )
 
-    const isAttached = clonedChildren || referenceElement
+    // A caller that passes `referenceElement` anchors the popover, even while that element is
+    // momentarily null: a trigger remount empties the prop for a render or two. If the popover
+    // reads that as "not anchored", it drops the computed coordinates and repaints itself as a
+    // loose, top-centered overlay, far away from the trigger it belongs to.
+    const isAttached = !!clonedChildren || referenceElement !== undefined
     const top = isAttached ? (y ?? 0) : undefined
     const left = isAttached ? (x ?? 0) : undefined
     // When attached to a reference, floating-ui needs at least one update cycle to compute
     // x/y. Until then, rendering at the (0, 0) fallback would briefly flash the overlay at
-    // the top-left of the viewport. Hide it until positioning resolves.
-    const isPositionPending = isAttached && (x == null || y == null)
+    // the top-left of the viewport. Hide it until positioning resolves. An anchor that is absent
+    // altogether counts as unresolved too.
+    const isPositionPending = isAttached && (x == null || y == null || (!clonedChildren && !referenceElement))
 
     return (
         <>
