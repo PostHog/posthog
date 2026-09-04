@@ -274,8 +274,9 @@ class TestErrorHandling:
     )
 
     async def test_hogql_queries_fail_terminally_if_per_query_resource_limit_reached(self, batch_export):
-        """A user-supplied HogQL query that hits a per-query ClickHouse resource limit should be
-        fail as a non-retryable error (re-running it would not produce a different result).
+        """A user-supplied HogQL query that hits a per-query ClickHouse resource limit is a user
+        error, so it should fail the run but not the Temporal activity or the workflow. Re-running
+        the query would not produce a different result, and it is the user who has to change it.
         """
         inputs = DummyExportInputs(
             team_id=batch_export.team_id,
@@ -290,11 +291,33 @@ class TestErrorHandling:
             "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
             new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
         ):
-            run = await self._run_workflow(inputs, expect_workflow_failure=True)
+            run = await self._run_workflow(inputs, expect_workflow_failure=False)
 
         assert run.status == "Failed"
         assert run.latest_error is not None
         assert "The batch export query needed too much memory to run" in run.latest_error
+
+    async def test_invalid_filters_fail_the_run_but_not_the_workflow(self, batch_export):
+        """An invalid filter is a user error too, but it is raised while building the staging
+        query rather than while running it, so it exercises a different path to the resource
+        limit case above.
+        """
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(
+                name="events",
+                schema=None,
+                filters=[{"key": "event =", "type": "hogql", "value": None}],
+            ),
+        )
+        run = await self._run_workflow(inputs, expect_workflow_failure=False)
+
+        assert run.status == "Failed"
+        assert run.latest_error is not None
+        assert "One or more provided filters are invalid" in run.latest_error
 
     async def test_per_query_resource_limit_only_applies_to_hogql(self, batch_export):
         """The identical ClickHouse error under a fixed model stays retryable, unchanged."""
