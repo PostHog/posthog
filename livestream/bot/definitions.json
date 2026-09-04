@@ -1200,6 +1200,18 @@
     "traffic_type": "Automation"
   },
   {
+    "pattern": "SlimerJS",
+    "name": "SlimerJS",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
+    "pattern": "wkhtmltopdf",
+    "name": "wkhtmltopdf",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
     "pattern": "ClueWeb-Crawler",
     "name": "ClueWeb",
     "category": "search_crawler",
