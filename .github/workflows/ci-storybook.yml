@@ -308,7 +308,7 @@ jobs:
     vr-setup:
         name: Create Visual Review run
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 5
         needs: [changes, build-storybook, select-stories]
         # A status function is required because select-stories is skipped on forced-full
         # PRs and master pushes, and GitHub would otherwise cascade that skip to this job.
