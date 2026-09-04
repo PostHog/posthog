@@ -16,11 +16,18 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     try {
         return circularDeepEqual(obj1, obj2)
     } catch (error) {
-        if (error instanceof RangeError) {
+        if (isStackOverflow(error)) {
             return false
         }
         throw error
     }
+}
+
+// Engines disagree on how they report a blown stack. V8 (Chrome, Edge) and JavaScriptCore (Safari)
+// throw a RangeError. SpiderMonkey (Firefox) throws an InternalError, which extends Error and not
+// RangeError, so a type check alone misses it and the guard above would re-throw on Firefox.
+function isStackOverflow(error: unknown): boolean {
+    return error instanceof RangeError || (error instanceof Error && error.name === 'InternalError')
 }
 
 /**
