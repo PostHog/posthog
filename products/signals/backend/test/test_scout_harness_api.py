@@ -19,7 +19,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import OAuthApplication
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import (
@@ -1191,6 +1191,157 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         config.refresh_from_db()
         assert config.structured_output_schema is None
+
+
+class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def _config(self, **kwargs) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-hygiene", **kwargs)
+
+    def _own_the_scout(self, user: User) -> None:
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-hygiene", user=user
+        )
+
+    def _become_admin(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_patch_persists_a_grant_and_read_surfaces_it(self) -> None:
+        # Wiring guard for the serializer matrix below: the viewset routes `write_scopes` through
+        # the update serializer, and the read shape hands it back so the settings UI can show it.
+        self._become_admin()
+        config = self._config()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["insight:write", "dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["write_scopes"] == ["dashboard:write", "insight:write"]
+        config.refresh_from_db()
+        assert config.write_scopes == ["dashboard:write", "insight:write"]
+
+    def test_patch_rejects_a_scope_outside_the_allowlist(self) -> None:
+        # The whole point of the field is that it can only ever carry the reviewed set, so a
+        # rejection names the grantable values rather than only the refusal.
+        self._become_admin()
+        config = self._config()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["feature_flag:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "dashboard:write" in str(response.json())
+        config.refresh_from_db()
+        assert config.write_scopes == []
+
+    @parameterized.expand(
+        [
+            # A member who neither owns the scout nor administers the project must not widen what
+            # the scout's runs can change in this project.
+            ("plain_member", False, False, status.HTTP_403_FORBIDDEN),
+            ("scout_owner", True, False, status.HTTP_200_OK),
+            ("project_admin", False, True, status.HTTP_200_OK),
+        ]
+    )
+    def test_granting_write_access_requires_owner_or_admin(
+        self, _name: str, is_owner: bool, is_admin: bool, expected: int
+    ) -> None:
+        config = self._config()
+        # A second owner, so the scout is owned by somebody in every case — an ownerless scout
+        # falls back to its author, which is the case below.
+        self._own_the_scout(User.objects.create_and_join(self.organization, "owner@example.com", None))
+        if is_owner:
+            self._own_the_scout(self.user)
+        if is_admin:
+            self._become_admin()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else [])
+
+    def test_the_author_of_an_unowned_scout_may_grant(self) -> None:
+        # Nobody is recorded as an owner, so the gate falls back to the identity the runs act as:
+        # whoever wrote the scout body. Otherwise a scout could only ever be granted by an admin.
+        LLMSkill.objects.create(
+            team=self.team, name="signals-scout-hygiene", description="", body="", created_by=self.user
+        )
+        config = self._config()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_a_non_owner_may_still_edit_other_fields_and_resend_the_grant(self) -> None:
+        # Clients resend whole config objects, so an unchanged `write_scopes` must not turn an
+        # ordinary schedule edit into a permission error.
+        config = self._config(write_scopes=["dashboard:write"])
+        self._own_the_scout(User.objects.create_and_join(self.organization, "owner@example.com", None))
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["dashboard:write"], "run_interval_minutes": 720},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.run_interval_minutes == 720
+
+    def test_revoking_write_access_needs_the_same_claim(self) -> None:
+        # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
+        # cannot rewrite the field at all, so nobody can flip a scout's access behind its owners.
+        config = self._config(write_scopes=["dashboard:write"])
+        self._own_the_scout(User.objects.create_and_join(self.organization, "owner@example.com", None))
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"write_scopes": []}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.write_scopes == ["dashboard:write"]
+
+
+class TestWriteScopesValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_is_read_only", [], True, []),
+            ("allowlisted_pair", ["insight:write", "dashboard:write"], True, ["dashboard:write", "insight:write"]),
+            # Sorted and deduped, so resending the same set in another order is not a change and
+            # never shows up in the activity log as one.
+            ("deduped_and_sorted", ["alert:write", "alert:write"], True, ["alert:write"]),
+            ("ungrantable_scope", ["feature_flag:write"], False, None),
+            # A read scope grants nothing but would read as a grant in the settings UI.
+            ("read_scope", ["dashboard:read"], False, None),
+            ("internal_scope", ["signal_scout_report:write"], False, None),
+        ]
+    )
+    def test_write_scopes_validation(
+        self, _name: str, scopes: list[str], valid: bool, expected: list[str] | None
+    ) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"write_scopes": scopes}, partial=True)
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            assert serializer.validated_data["write_scopes"] == expected
+        else:
+            assert "write_scopes" in serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
