@@ -3,11 +3,19 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+
 from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.mcp_analytics.backend import logic
+from products.mcp_analytics.backend.hogql_queries.base import (
+    EFFECTIVE_DESCRIPTION_SQL,
+    EFFECTIVE_TOOL_SQL,
+    NEW_SDK_SOURCE,
+)
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from . import contracts
@@ -236,3 +244,97 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
             updated_at=timezone.now(),
         )
         raise
+
+
+# ---------------------------------------------------------------------------
+# Measured-server aggregation surface (consumed by mcp_registry).
+#
+# mcp_registry's measured-server pipeline aggregates one project's new-SDK
+# $mcp_tool_call events into per-server and per-tool stats. It needs the same
+# exec-coalescing rules this product's own query runners use, so single-exec
+# servers don't collapse into one `exec` bucket. Those rules live in
+# hogql_queries/base; these helpers return them as parsed HogQL placeholders
+# (and a HogQL fragment for the one cross-team discovery question) so the
+# consumer never handles raw SQL text.
+# ---------------------------------------------------------------------------
+
+_SERVER_STATS_SELECT = """
+    SELECT
+        toString(properties.$mcp_server_name) AS server_name,
+        count() AS calls,
+        uniq(toString(properties.$mcp_session_id)) AS sessions,
+        countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors,
+        countIf(notEmpty(toString(properties.$mcp_intent))) AS calls_with_intent,
+        uniq({effective_tool}) AS distinct_tools,
+        uniq(toString(properties.$mcp_client_name)) AS client_names
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND timestamp >= {date_from}
+        AND properties.$mcp_source = {source}
+        AND notEmpty(toString(properties.$mcp_server_name))
+    GROUP BY server_name
+    ORDER BY calls DESC
+"""
+
+_TOOL_STATS_SELECT = """
+    SELECT
+        {effective_tool} AS tool_name,
+        any({effective_description}) AS description,
+        count() AS calls,
+        countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND timestamp >= {date_from}
+        AND properties.$mcp_source = {source}
+        AND toString(properties.$mcp_server_name) = {server_name}
+        AND notEmpty({effective_tool})
+    GROUP BY tool_name
+    ORDER BY calls DESC
+    LIMIT {tool_limit}
+"""
+
+# Only the deploy-configured database name is interpolated, never caller input.
+_DISCOVERY_SQL = """
+    SELECT DISTINCT team_id
+    FROM {database}.events
+    WHERE event = '$mcp_tool_call'
+        AND timestamp >= now() - INTERVAL %(window_days)s DAY
+        AND JSONExtractString(properties, '$mcp_source') = %(source)s
+    ORDER BY team_id
+    LIMIT %(limit)s
+"""
+
+
+def measured_server_stats_select() -> str:
+    """HogQL select for per-server measured aggregates. Placeholders: date_from, source."""
+    return _SERVER_STATS_SELECT
+
+
+def measured_tool_stats_select() -> str:
+    """HogQL select for per-tool measured aggregates. Placeholders: date_from, source, server_name, tool_limit."""
+    return _TOOL_STATS_SELECT
+
+
+def measured_discovery_sql(database: str) -> str:
+    """ClickHouse SQL listing teams with recent new-SDK $mcp_tool_call traffic.
+
+    Raw ClickHouse rather than HogQL because HogQL execution is scoped to one team and
+    this is the one cross-team question the pipeline asks. Only the deploy-configured
+    database name is interpolated; the rest is parameterised by the caller.
+    """
+    return _DISCOVERY_SQL.format(database=database)
+
+
+def measured_query_placeholders(date_from: datetime) -> dict[str, ast.Expr]:
+    """The placeholder values the measured-server selects share."""
+    return {
+        "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
+        "effective_description": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
+        "date_from": ast.Constant(value=date_from),
+        "source": ast.Constant(value=NEW_SDK_SOURCE),
+    }
+
+
+def measured_source() -> str:
+    """The source marker new-SDK $mcp_tool_call events carry."""
+    return NEW_SDK_SOURCE
