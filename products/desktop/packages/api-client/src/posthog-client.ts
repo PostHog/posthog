@@ -3206,6 +3206,31 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
+  async updateTaskChannelSlackTaskRouting(
+    id: string,
+    slackTaskRouting: {
+      integration: number;
+      slack_channel_id: string;
+    } | null,
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ slack_task_routing: slackTaskRouting }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update Slack task routing: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
   async updateTaskChannelAutoArchive(
     id: string,
     inactivityDays: number | null,

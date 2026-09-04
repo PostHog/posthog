@@ -20,13 +20,22 @@ const analyticsChannel: SlackChannelOption = {
   name: "analytics-platform",
 };
 
+const privateChannel: SlackChannelOption = {
+  ...generalChannel,
+  id: "G_PRIVATE",
+  name: "private-team",
+  is_private: true,
+};
+
 vi.mock("@posthog/ui/features/inbox/hooks/useSlackChannels", () => ({
   useSlackChannels: (
     _integrationId: number,
     options?: { search?: string },
   ) => ({
     data: {
-      channels: options?.search ? [analyticsChannel] : [generalChannel],
+      channels: options?.search
+        ? [analyticsChannel]
+        : [generalChannel, privateChannel],
     },
     isFetching: false,
   }),
@@ -40,6 +49,43 @@ vi.mock("@posthog/ui/primitives/hooks/useDebouncedValue", () => ({
 }));
 
 describe("SlackChannelCombobox", () => {
+  it("hides private channels only when public channels are required", async () => {
+    const user = userEvent.setup();
+    const picker = render(
+      <SlackChannelCombobox
+        integrationId={123}
+        value={null}
+        onChange={vi.fn()}
+        ariaLabel="Slack channel"
+      />,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Slack channel" });
+    trigger.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByText("private-team")).toBeInTheDocument();
+    picker.unmount();
+
+    render(
+      <SlackChannelCombobox
+        integrationId={123}
+        value={null}
+        onChange={vi.fn()}
+        ariaLabel="Slack channel"
+        publicOnly
+      />,
+    );
+
+    const publicOnlyTrigger = screen.getByRole("combobox", {
+      name: "Slack channel",
+    });
+    publicOnlyTrigger.focus();
+    await user.keyboard("{ArrowDown}");
+
+    expect(screen.getByText("general")).toBeInTheDocument();
+    expect(screen.queryByText("private-team")).not.toBeInTheDocument();
+  });
+
   it("updates server search results without replacing the focused input", async () => {
     const user = userEvent.setup();
 
