@@ -447,9 +447,9 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
-    POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-posthog-code
+    POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
-    POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-posthog-code
+    POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
