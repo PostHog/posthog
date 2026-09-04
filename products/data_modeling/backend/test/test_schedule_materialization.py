@@ -201,7 +201,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         with (
             mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
-            mock.patch("products.data_warehouse.backend.facade.api.delete_saved_query_schedule"),
         ):
             self.sq.revert_materialization()
         node.refresh_from_db()

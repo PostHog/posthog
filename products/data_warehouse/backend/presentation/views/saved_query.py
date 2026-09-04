@@ -59,7 +59,6 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, unpause_saved_query_schedule
 from products.data_warehouse.backend.presentation.views.column_annotation_base import (
     DESCRIPTION_HELP_TEXT,
     upsert_annotation,
@@ -1889,21 +1888,22 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
-        Resume paused materialization schedules for multiple matviews.
+        Resume materialization for several models that were suspended after repeated failures.
 
         Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
-        This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+        This endpoint is idempotent - calling it on models that are already running is safe.
         """
+        from products.data_modeling.backend.facade.api import resume_saved_query
+
         view_ids = request.data.get("view_ids", [])
         if not view_ids:
             return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
         saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
         for saved_query in saved_queries:
-            if saved_query_workflow_exists(saved_query):
-                unpause_saved_query_schedule(saved_query)
+            resume_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})

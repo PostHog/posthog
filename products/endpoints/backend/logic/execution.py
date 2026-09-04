@@ -67,8 +67,11 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import is_materialization_fresh, saved_query_materialized_at
-from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import (
+    is_materialization_fresh,
+    materialize_saved_query,
+    saved_query_materialized_at,
+)
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.pagination import EndpointPagination
@@ -809,7 +812,16 @@ class EndpointExecutionService(PydanticModelMixin):
                     endpoint_name=endpoint.name,
                     saved_query_id=saved_query.id,
                 )
-                trigger_saved_query_schedule(saved_query)
+                try:
+                    materialize_saved_query(saved_query)
+                except Exception:
+                    # The caller still has to see the mismatch to fall back to inline, so a refresh
+                    # we could not start must not replace it on the way out.
+                    logger.exception(
+                        "Failed to trigger re-materialization after series mismatch",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=saved_query.id,
+                    )
                 raise
 
             # Freshness relative to the configured target: >1.0 means behind SLA.

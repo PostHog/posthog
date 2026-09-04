@@ -1045,10 +1045,10 @@ export const WarehouseSavedQueriesCheckIncrementalCreateBody = /* @__PURE__ */ z
     .describe('Body of the `check_incremental` action: a query and an optional config to check it against.')
 
 /**
- * Resume paused materialization schedules for multiple matviews.
+ * Resume materialization for several models that were suspended after repeated failures.
  *
  * Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
- * This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+ * This endpoint is idempotent - calling it on models that are already running is safe.
  */
 export const warehouseSavedQueriesResumeSchedulesCreateBodyNameMax = 128
 
