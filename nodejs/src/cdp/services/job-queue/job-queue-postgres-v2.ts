@@ -111,10 +111,45 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 maxBatchSize: this.consumerBatchSize,
             })
 
-            await consumeBatch(invocations)
-
-            pendingJobsGauge.set(this.pendingJobs.size)
+            try {
+                await consumeBatch(invocations)
+            } catch (err) {
+                // The batch never produced results, so nothing will ack/fail/reschedule
+                // these jobs. Release them here or they stay in `pendingJobs` for the
+                // life of the process and only a restart reclaims the memory.
+                await this.releasePendingBatch(jobs)
+                throw err
+            } finally {
+                pendingJobsGauge.set(this.pendingJobs.size)
+            }
         })
+    }
+
+    /**
+     * Hands a batch back to Postgres after processing threw. `reschedule()` with no
+     * options returns the row to `available` and zeroes `janitor_touch_count`, so a
+     * dependency outage costs a retry rather than the job's poison budget.
+     *
+     * Release failures are swallowed: the janitor's stall sweep reclaims the row
+     * anyway, and losing the map entry is what actually matters here.
+     */
+    private async releasePendingBatch(jobs: CyclotronV2DequeuedJob[]): Promise<void> {
+        await Promise.all(
+            jobs.map(async (job) => {
+                // A partially-successful batch may already have disposed of some jobs.
+                if (!this.pendingJobs.delete(job.id)) {
+                    return
+                }
+                try {
+                    await job.reschedule()
+                } catch (err) {
+                    logger.warn('Failed to release V2 job after batch error', {
+                        id: job.id,
+                        error: String(err),
+                    })
+                }
+            })
+        )
     }
 
     public async stopConsumer(): Promise<void> {
