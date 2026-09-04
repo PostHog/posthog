@@ -381,6 +381,39 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
+        it('heals a completed run that is missing a metric added after it finished', async () => {
+            // A metric added after the last run finished is absent from that run's results. The run's own
+            // counts look complete, so only a uuid comparison catches the gap; without the heal the new metric
+            // stays stuck loading on every page load.
+            // Derive the extra metric from a real fixture metric so it stays fully typed; only the uuid differs.
+            const addedMetric = { ...EXPERIMENT.metrics[0], uuid: 'added-after-run-uuid' }
+            const experimentWithExtraMetric: Experiment = {
+                ...EXPERIMENT,
+                metrics: [...EXPERIMENT.metrics, addedMetric],
+            }
+            let capturedBody: any
+            useMocks({
+                get: {
+                    // Completed run that covers only the two original metrics, not the newly added one.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
+                    },
+                },
+            })
+            logic = experimentMetricsLogic({ experiment: experimentWithExtraMetric })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
+            expect(capturedBody).toEqual({ trigger: 'experiment_config_change' })
+        })
+
         it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
             const createMock = jest.fn(() => [201, pendingRecalculation])
             useMocks({
@@ -622,6 +655,98 @@ describe('experimentMetricsLogic', () => {
 
                 expect(logic.values.queuedRerun).toBe('metric_config_change')
                 expect(createMock).not.toHaveBeenCalled()
+            })
+
+            it('posts instead of queuing when only a latest-load is in flight (no running run)', async () => {
+                // Adding a shared metric reloads the experiment, which re-fires loadLatestRecalculation. That
+                // fetch flips recalculationLoading true but never polls, so it can't drain a queue. A config
+                // change here must create a run, not queue against the transient load and strand forever.
+                const createMock = jest.fn(() => [201, pendingRecalculation])
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            completedRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation']).toFinishAllListeners()
+
+                // Reproduce the transient state a latest-load leaves: loading true, only a completed run
+                // resolved. This is busy under isRecalculating, but no run is pending or in_progress.
+                logic.actions.setRecalculationLoading(true)
+                expect(logic.values.isRecalculating).toBe(true)
+                expect(logic.values.currentRecalculation?.status).toBe('completed')
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('metric_config_change')
+                })
+                    .toDispatchActions(['triggerRecalculation'])
+                    .toNotHaveDispatchedActions(['setQueuedRerun'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.queuedRerun).toBeNull()
+                expect(createMock).toHaveBeenCalled()
+            })
+
+            it('queues a config change that arrives while a create POST is still in flight', async () => {
+                // Between the create POST firing and its response landing, currentRecalculation still holds the
+                // previous terminal status. A second config change here must queue, not post a duplicate the
+                // backend would dedupe to the active run and silently drop. cache.createInFlight closes it.
+                let resolveFirstCreate: (value: unknown) => void = () => {}
+                const createMock = jest.fn(async () => {
+                    if (createMock.mock.calls.length === 1) {
+                        // Hold the first create in flight until the test releases it.
+                        await new Promise((resolve) => {
+                            resolveFirstCreate = resolve
+                        })
+                    }
+                    // Terminal-on-create so no poll arms; the drain must fire the queued rerun.
+                    return [201, completedRecalculation2]
+                })
+                useMocks({
+                    get: {
+                        // Completed latest so mount does not auto-trigger; the run is at rest.
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            completedRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation']).toFinishAllListeners()
+
+                // First config change: its create POST is now in flight (held by the mock).
+                logic.actions.triggerRecalculation('metric_config_change')
+                while (createMock.mock.calls.length === 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                }
+                expect(createMock).toHaveBeenCalledTimes(1)
+
+                // Second config change arrives during the in-flight create: it must queue, not post again.
+                // No toFinishAllListeners here: the first create is deliberately held, so its listener is open.
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('experiment_config_change')
+                }).toDispatchActions(['setQueuedRerun'])
+                expect(logic.values.queuedRerun).toBe('experiment_config_change')
+                expect(createMock).toHaveBeenCalledTimes(1)
+
+                // The first create settles terminal; the drain fires the queued rerun, which now creates.
+                await expectLogic(logic, () => {
+                    resolveFirstCreate([201, completedRecalculation2])
+                }).toDispatchActions([
+                    (a) =>
+                        a.type === logic.actionTypes.triggerRecalculation &&
+                        a.payload.trigger === 'experiment_config_change',
+                ])
+                while (createMock.mock.calls.length < 2) {
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                }
+                expect(logic.values.queuedRerun).toBeNull()
+                expect(createMock).toHaveBeenCalledTimes(2)
             })
 
             it('does not queue a cold_run (cold_run always starts fresh)', async () => {
@@ -1105,6 +1230,40 @@ describe('experimentMetricsLogic', () => {
                 logic.actions.triggerRecalculation()
             }).toNotHaveDispatchedActions(['pollRecalculation', 'setCurrentRecalculation'])
             expect(createMock).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('feature flags unresolved on mount', () => {
+        it('defers the latest fetch until flags arrive, then replays it', async () => {
+            // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). Reading the flag as
+            // off here would clear loading and skip the fetch, hiding the recalculation results.
+            initKeaTests()
+            await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
+            const latestMock = jest.fn(() => [200, completedRecalculation])
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
+            })
+            mountLogic()
+
+            // afterMount fires loadLatestRecalculation, but it defers: no fetch while flags are unresolved.
+            await expectLogic(logic)
+                .toDispatchActions(['loadLatestRecalculation'])
+                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
+            expect(latestMock).not.toHaveBeenCalled()
+
+            // While deferred, loading must clear: the loadLatestRecalculation action set it true, and if flags
+            // never arrive it would otherwise freeze the reload control and wrongly queue config-change reruns.
+            expect(logic.values.recalculationLoading).toBe(false)
+            expect(logic.values.isRecalculating).toBe(false)
+
+            // Once flags arrive with the recalculation flag on, the deferred fetch replays.
+            await expectLogic(logic, () => {
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+            expect(latestMock).toHaveBeenCalledTimes(1)
         })
     })
 
