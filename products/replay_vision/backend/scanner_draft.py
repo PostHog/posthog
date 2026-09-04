@@ -1499,9 +1499,107 @@ def draft_scanner_from_goal_v2(
         # A slow count must not throw away a good draft; the wizard falls back to its defaults.
         logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team.id, exc_info=True)
         return replace(draft, sampling_mode=None, sampling_rate=None, estimated_monthly_observations=None)
+    if solution.estimated_monthly_observations == 0:
+        draft, solution = _fall_back_to_pages(
+            team=team,
+            user=user,
+            draft=draft,
+            solution=solution,
+            monthly_credit_budget=monthly_credit_budget,
+        )
     return replace(
         draft,
         sampling_mode=solution.sampling_mode,
         sampling_rate=solution.sampling_rate,
         estimated_monthly_observations=solution.estimated_monthly_observations,
     )
+
+
+def _pages_only(query: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The draft's page and cohort filters, without its events and actions. None when the draft has
+    no page filter to fall back to.
+
+    Cohorts stay because a cohort says who the goal is about, not what the product still emits.
+    Dropping one would scan those pages for everybody, spending credits on sessions the goal never
+    asked about. When the cohort is itself what matched nothing, the caller's re-estimate comes back
+    zero again and the original draft is kept.
+
+    Keeps `filter_test_accounts`, because dropping it would widen the scan to internal traffic while
+    trying to make the filter match.
+    """
+    if not query:
+        return None
+    properties = query.get("properties") or []
+    pages = [p for p in properties if p.get("key") == "visited_page"]
+    if not pages:
+        return None
+    cohorts = [p for p in properties if p.get("type") == "cohort"]
+    return {
+        "kind": "RecordingsQuery",
+        "properties": [*pages, *cohorts],
+        "filter_test_accounts": query.get("filter_test_accounts", True),
+    }
+
+
+def _fall_back_to_pages(
+    *,
+    team: Team,
+    user: User,
+    draft: ScannerDraft,
+    solution: _BudgetSolution,
+    monthly_credit_budget: int,
+) -> tuple[ScannerDraft, _BudgetSolution]:
+    """Replace a filter that matches no sessions with the draft's page filter.
+
+    Events and actions AND with everything else, so one that the product stopped emitting takes the
+    whole filter to zero and the scanner never runs. The pages come from measured traffic, which
+    makes them the one part of the filter that cannot be dead.
+
+    Returns the draft and solution unchanged when the draft has no page filter, when the estimate
+    fails, or when the pages match nothing either, because widening to every session would scan a
+    product the goal never asked about.
+    """
+    fallback = _pages_only(draft.query)
+    if fallback is None:
+        return draft, solution
+    try:
+        relaxed = _solve_budget(
+            team=team,
+            user=user,
+            query=fallback,
+            monthly_credit_budget=monthly_credit_budget,
+            credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
+            model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
+        )
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.fallback_solve_failed", team_id=team.id, exc_info=True)
+        return draft, solution
+    if relaxed.estimated_monthly_observations == 0:
+        return draft, solution
+
+    dropped_events = len(draft.query.get("events") or []) if draft.query else 0
+    dropped_actions = len(draft.query.get("actions") or []) if draft.query else 0
+    logger.warning(
+        "replay_vision.scanner_draft.filters_matched_nothing",
+        team_id=team.id,
+        dropped_events=dropped_events,
+        dropped_actions=dropped_actions,
+    )
+    rationale = _fallback_rationale(draft.rationale, dropped_events=dropped_events, dropped_actions=dropped_actions)
+    return replace(draft, query=fallback, rationale=rationale), relaxed
+
+
+def _fallback_rationale(rationale: str, *, dropped_events: int, dropped_actions: int) -> str:
+    """The draft's rationale plus a note that the filter it describes was replaced.
+
+    The rationale still describes the filter the model picked, so leaving it alone would tell the
+    user this scanner watches something it no longer watches.
+
+    Trims the model's own text rather than the note, so the note cannot be cut in half by the cap.
+    """
+    if dropped_events and dropped_actions:
+        filters = "event and action filters"
+    else:
+        filters = "event filter" if dropped_events else "action filter"
+    note = f"The {filters} matched no recent recordings, so this scans the pages instead."
+    return f"{rationale[: _MAX_RATIONALE_LENGTH - len(note) - 1].strip()} {note}".strip()
