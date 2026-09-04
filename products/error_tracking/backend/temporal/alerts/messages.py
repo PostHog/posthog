@@ -42,11 +42,17 @@ class SlackActions:
 
     integration_id: int
     issue_id: str
-    # Lets a click on a root whose issue was merged away land on the surviving issue.
+    # Fingerprints are unique per environment; together they let a click on a root whose
+    # issue was merged away land on the surviving issue in the same environment.
+    team_id: int
     fingerprint: str | None = None
 
     def value(self) -> str:
-        payload: dict[str, object] = {"integration_id": self.integration_id, "issue_id": self.issue_id}
+        payload: dict[str, object] = {
+            "integration_id": self.integration_id,
+            "issue_id": self.issue_id,
+            "team_id": self.team_id,
+        }
         if self.fingerprint:
             payload["fingerprint"] = self.fingerprint
         return json.dumps(payload)

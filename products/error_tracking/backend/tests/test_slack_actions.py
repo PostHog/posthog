@@ -61,18 +61,36 @@ class TestSlackIssueActions(BaseTest):
         gone_issue_id = self.issue.id
         self.issue.delete()
 
+        # The same fingerprint in a sibling environment must not be picked instead.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Staging")
+        sibling_issue = ErrorTrackingIssue.objects.create(team=sibling, name="Staging twin")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=sibling, issue=sibling_issue, fingerprint="fp-1")
+
         outcome = resolve_issue_from_slack(
-            gone_issue_id, fingerprint="fp-1", integration=self.integration, user=self.user
+            gone_issue_id, fingerprint="fp-1", team_id=self.team.id, integration=self.integration, user=self.user
         )
 
         assert outcome == "ok"
         survivor.refresh_from_db()
         assert survivor.status == ErrorTrackingIssue.Status.RESOLVED
+        sibling_issue.refresh_from_db()
+        assert sibling_issue.status == ErrorTrackingIssue.Status.ACTIVE
 
     def test_member_without_error_tracking_editor_access_is_refused(self):
         with patch(
             "products.error_tracking.backend.logic.slack_actions.UserAccessControl.check_access_level_for_resource",
             return_value=False,
+        ):
+            outcome = resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user)
+
+        assert outcome == "no_access"
+        self.issue.refresh_from_db()
+        assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    def test_member_outside_enforced_verified_domains_is_refused(self):
+        with patch(
+            "products.error_tracking.backend.logic.slack_actions.OrganizationDomain.objects.is_email_blocked_by_domain_enforcement",
+            return_value=True,
         ):
             outcome = resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user)
 

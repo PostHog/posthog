@@ -2,18 +2,20 @@
 
 import uuid
 
+import structlog
 from celery import shared_task
 
-from posthog.models.integration import Integration
-from posthog.models.user import User
+from posthog.models.integration import Integration, SlackIntegration
 
+from products.slack_app.backend import api as slack_api
 from products.slack_app.backend.api import (
     ERROR_TRACKING_RESOLVE_ACTION_ID,
     SLACK_INTEGRATION_KIND,
     does_other_region_claim_workspace,
     send_region_proxy_request,
 )
-from products.slack_app.backend.services import inbox_interactivity
+
+logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
@@ -40,13 +42,21 @@ def mirror_slack_message_event(
 
 @shared_task(ignore_result=True, max_retries=0)
 def run_error_tracking_issue_action(
-    *, action_id: str, issue_id: str, fingerprint: str | None, integration_id: int, user_id: int, response_url: str
+    *,
+    action_id: str,
+    issue_id: str,
+    fingerprint: str | None,
+    team_id: int | None,
+    integration_id: int,
+    slack_user_id: str,
+    channel_id: str,
 ) -> None:
     """Apply a Resolve / Assign to me click from an alert thread and tell the clicker the outcome.
 
-    The interactivity callback has already verified the workspace owns the integration and
-    resolved the clicker to an org member; the error tracking facade re-derives project access
-    from the issue row. Runs out of band so the callback acks Slack within its budget.
+    The interactivity callback has already verified the workspace owns the integration. This
+    resolves the clicker to an org member, hands off to the error tracking facade (which
+    re-derives project access from the issue row), and replies with an ephemeral message
+    through the bot token, so no Slack response URL travels through the broker.
     """
     from products.error_tracking.backend.facade.issues import (  # noqa: PLC0415 — cross-product calls kept off the slack import path
         assign_issue_to_user_from_slack,
@@ -56,29 +66,38 @@ def run_error_tracking_issue_action(
     integration = Integration.objects.filter(
         id=integration_id, kind=SLACK_INTEGRATION_KIND
     ).first()  # nosemgrep: idor-lookup-without-team
-    user = User.objects.filter(id=user_id, is_active=True).first()
-    if integration is None or user is None:
+    if integration is None:
+        return
+
+    def reply(text: str) -> None:
+        try:
+            SlackIntegration(integration).client.chat_postEphemeral(channel=channel_id, user=slack_user_id, text=text)
+        except Exception:
+            logger.warning("error_tracking_slack_action_reply_failed", exc_info=True)
+
+    user = slack_api._is_org_member(integration, slack_user_id)
+    if user is None:
+        reply(
+            f"Only members of {slack_api._org_label(integration)} with a linked PostHog account can act on this issue from Slack."
+        )
         return
 
     if action_id == ERROR_TRACKING_RESOLVE_ACTION_ID:
         outcome = resolve_issue_from_slack(
-            uuid.UUID(issue_id), fingerprint=fingerprint, integration=integration, user=user
+            uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
         )
         texts = {"ok": "Resolved. The thread will update in a moment.", "already": "This issue is already resolved."}
     else:
         outcome = assign_issue_to_user_from_slack(
-            uuid.UUID(issue_id), fingerprint=fingerprint, integration=integration, user=user
+            uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
         )
         texts = {
             "ok": "Assigned to you. The thread will update in a moment.",
             "already": "This issue is already assigned to you.",
         }
     if outcome == "not_found":
-        text = "This issue no longer exists in PostHog."
+        reply("This issue no longer exists in PostHog.")
     elif outcome == "no_access":
-        text = "You do not have access to change this issue in PostHog."
+        reply("You do not have access to change this issue in PostHog.")
     else:
-        text = texts[outcome]
-    inbox_interactivity.post_response_url(
-        response_url, {"response_type": "ephemeral", "replace_original": False, "text": text}
-    )
+        reply(texts[outcome])
