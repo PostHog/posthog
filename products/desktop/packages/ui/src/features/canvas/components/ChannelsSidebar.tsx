@@ -29,6 +29,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
@@ -158,8 +159,9 @@ function ChannelsSidebarImpl() {
 
   const channelsLayout = useChannelsLayout();
   const peek = useSidebarPeekStore((s) => s.peek);
+  const revealOnHover = useSettingsStore((s) => s.revealSidebarOnHover);
   useSidebarEdgeHoverPeek({
-    enabled: !open && !isResizing,
+    enabled: revealOnHover && !open && !isResizing,
     peeked: peek,
     side: "left",
     width,
@@ -169,8 +171,8 @@ function ChannelsSidebarImpl() {
     onClose: () => endSidebarPeek(),
   });
   useEffect(() => {
-    if (open) cancelSidebarPeek();
-  }, [open]);
+    if (open || !revealOnHover) cancelSidebarPeek();
+  }, [open, revealOnHover]);
   // The peek store is a module-level singleton — if this sidebar unmounts
   // while peeked (route without it), a stale peek would greet the remount.
   useEffect(() => () => cancelSidebarPeek(), []);

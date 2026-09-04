@@ -314,6 +314,11 @@ export interface SettingsStore {
   // start a task in. Opt-in: off by default to keep the sidebar uncluttered.
   showSidebarWorktrees: boolean;
   setShowSidebarWorktrees: (enabled: boolean) => void;
+  // Slides the collapsed sidebar out when the pointer reaches the window edge
+  // or the title-bar toggle. On by default; off leaves the toggle and Cmd+B as
+  // the only ways to open it.
+  revealSidebarOnHover: boolean;
+  setRevealSidebarOnHover: (enabled: boolean) => void;
 
   // Experimental / misc
   hedgehogMode: boolean;
@@ -588,6 +593,9 @@ export const useSettingsStore = create<SettingsStore>()(
       showSidebarWorktrees: false,
       setShowSidebarWorktrees: (enabled) =>
         set({ showSidebarWorktrees: enabled }),
+      revealSidebarOnHover: true,
+      setRevealSidebarOnHover: (enabled) =>
+        set({ revealSidebarOnHover: enabled }),
 
       // Experimental / misc
       hedgehogMode: false,
@@ -733,6 +741,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
         // Sidebar
         showSidebarWorktrees: state.showSidebarWorktrees,
+        revealSidebarOnHover: state.revealSidebarOnHover,
 
         // Experimental / misc
         hedgehogMode: state.hedgehogMode,
