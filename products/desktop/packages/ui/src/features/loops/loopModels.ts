@@ -38,9 +38,13 @@ function isKimiModelId(modelId: string): boolean {
 }
 
 // Served-catalog stand-in while the preview config loads or when the request
-// fails, so the picker never collapses to "Default" alone. Ids come from the
-// shared catalog; the labels stay here because a display name is the served
-// catalog's to give. The served catalog is authoritative once it arrives.
+// fails, so the picker never collapses to "Default" alone. The served catalog is
+// authoritative once it arrives.
+//
+// These ids are literals, not derived: the labels have to be written by hand, and
+// pairing each with its id keeps them together. The loops serializer rejects a model
+// the catalog no longer serves, so a retired id here is a save the user cannot make —
+// `everyFallbackModelIsServedByTheCatalog` in the tests is what catches that.
 const FALLBACK_MODEL_OPTIONS: Record<
   LoopSchemas.LoopRuntimeAdapterEnum,
   LoopModelOption[]
