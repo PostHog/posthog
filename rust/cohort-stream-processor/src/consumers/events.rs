@@ -48,7 +48,7 @@ use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
-use crate::partitions::router::{PartitionRouter, SendOutcome};
+use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
@@ -384,9 +384,10 @@ impl EventDispatcher {
         counter!(COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
     }
 
-    /// Non-blocking seed dispatch, raising the **seed** tracker's ceiling only for what lands
-    /// (seeds carry no `event_offset`, so the router can't). Returns the un-dispatched seeds for
-    /// the caller to hold and pause.
+    /// Non-blocking seed dispatch onto the workers' seed lanes, raising the **seed** tracker's
+    /// ceiling only for what lands. A sub-batch may land as a prefix, so the ceiling comes from the
+    /// router's report of the highest offset that reached the lane, never from the batch maximum.
+    /// Returns the un-dispatched seeds for the caller to hold and pause.
     pub fn dispatch_seeds(&self, batch: Vec<ConsumedSeed>) -> HashMap<i32, Vec<ConsumedSeed>> {
         if self.draining.load(Ordering::SeqCst) {
             if !batch.is_empty() {
@@ -399,49 +400,39 @@ impl EventDispatcher {
             return HashMap::new();
         }
 
-        let mut messages: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(batch.len());
-        let mut max_offsets: HashMap<i32, i64> = HashMap::new();
+        let mut owned_seeds: Vec<ConsumedSeed> = Vec::with_capacity(batch.len());
         let mut not_owned = 0u64;
         for consumed in batch {
-            let partition = consumed.partition;
-            if !self.owned.contains(&partition) {
+            if !self.owned.contains(&consumed.partition) {
                 not_owned += 1;
                 continue;
             }
-            self.ensure_worker(partition);
-            let entry = max_offsets.entry(partition).or_insert(consumed.offset);
-            *entry = (*entry).max(consumed.offset);
-            messages.push((partition, consumed.into_message()));
+            self.ensure_worker(consumed.partition);
+            owned_seeds.push(consumed);
         }
         counter!(COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED).increment(not_owned);
 
         let mut full: HashMap<i32, Vec<ConsumedSeed>> = HashMap::new();
         let mut route_errors = 0u64;
-        for (partition, outcome) in self.router.try_route_batch(messages) {
-            match outcome {
-                // A sub-batch lands whole or not at all, so the pre-computed max is the ceiling.
-                SendOutcome::Sent { .. } => {
-                    if let Some(&max_offset) = max_offsets.get(&partition) {
-                        self.merge
-                            .seed_tracker
-                            .mark_dispatched(partition, max_offset + 1);
+        for (partition, outcome) in self.router.try_route_seeds(owned_seeds) {
+            let landed_max = match outcome {
+                SeedSendOutcome::Sent { max_offset } => Some(max_offset),
+                SeedSendOutcome::Refused {
+                    landed_max,
+                    reason,
+                    rest,
+                } => {
+                    if reason != SeedRefusal::Full {
+                        route_errors += 1;
                     }
+                    full.entry(partition).or_default().extend(rest);
+                    landed_max
                 }
-                SendOutcome::Full(returned) => {
-                    full.entry(partition).or_default().extend(
-                        returned
-                            .into_iter()
-                            .filter_map(|message| ConsumedSeed::from_message(partition, message)),
-                    );
-                }
-                SendOutcome::NoWorker(returned) | SendOutcome::ChannelClosed(returned) => {
-                    full.entry(partition).or_default().extend(
-                        returned
-                            .into_iter()
-                            .filter_map(|message| ConsumedSeed::from_message(partition, message)),
-                    );
-                    route_errors += 1;
-                }
+            };
+            if let Some(max_offset) = landed_max {
+                self.merge
+                    .seed_tracker
+                    .mark_dispatched(partition, max_offset + 1);
             }
         }
         if route_errors > 0 {
@@ -513,10 +504,10 @@ impl EventDispatcher {
                     self.reclaim_stale_slice(partition);
                 }
                 match self.router.add_partition(partition) {
-                    Some(receiver) => {
+                    Some(inbox) => {
                         let worker = Stage1Worker::spawn_with_gating(
                             partition as u16,
-                            receiver,
+                            inbox,
                             self.handle.clone(),
                             self.catalog.clone(),
                             self.sink.clone(),
@@ -1482,9 +1473,12 @@ pub(crate) async fn run_pauser_loop(
 // facade.
 #[allow(clippy::disallowed_methods)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use super::*;
     use chrono_tz::UTC;
     use common_kafka::kafka_producer::KafkaProduceError;
+    use futures::FutureExt;
     use serde_json::json;
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -2261,17 +2255,22 @@ mod tests {
         )
     }
 
-    /// Like [`dispatcher_with_buffer`] but with a per-partition event-intake `cap`, so a test can trip
-    /// the event budget while the mpsc slots stay free.
+    /// Like [`dispatcher_with_buffer`] but with a per-partition event-intake `cap` and a seed-lane
+    /// capacity, so a test can trip either lane's budget while the mpsc slots stay free.
     fn dispatcher_with_intake_cap(
         store: &CohortStore,
         catalog: Arc<CatalogHandle>,
         buffer: usize,
         cap: usize,
+        seed_cap: usize,
     ) -> EventDispatcher {
         let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
         EventDispatcher::new(
-            PartitionRouter::with_intake_cap(buffer, cap),
+            PartitionRouter::with_intake_cap(
+                buffer,
+                cap,
+                NonZeroUsize::new(seed_cap).expect("a test seed cap is non-zero"),
+            ),
             Arc::new(OffsetTracker::new()),
             test_handle(store),
             catalog,
@@ -2315,8 +2314,8 @@ mod tests {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with_buffer(&store, behavioral_catalog(), 16);
         dispatcher.assign_partition(0);
-        // Hold the receiver so no worker drains; the ceilings are the observable.
-        let mut rx = dispatcher.router.add_partition(0).unwrap();
+        // Hold the inbox so no worker drains; the ceilings are the observable.
+        let mut inbox = dispatcher.router.add_partition(0).unwrap();
 
         let full = dispatcher.dispatch_seeds(vec![
             consumed_seed(person(1), 0, 3),
@@ -2326,7 +2325,7 @@ mod tests {
         ]);
         assert!(full.is_empty(), "both owned seeds landed");
 
-        // Seeds carry no event offset, so the dispatcher must have raised the seed ceiling
+        // Seeds never ride the live lane, so the dispatcher must have raised the seed ceiling
         // itself.
         let seed_tracker = &dispatcher.merge_deps().seed_tracker;
         assert_eq!(
@@ -2346,27 +2345,72 @@ mod tests {
         );
         assert!(dispatcher.tracker().committable_offsets().is_empty());
 
-        let batch = rx.try_recv().unwrap();
+        let mut landed = Vec::new();
         assert_eq!(
-            batch.iter().filter_map(ShuffleMessage::seed_offset).count(),
-            2,
-            "the two owned seeds ride the worker channel",
+            inbox.seeds.recv_many(&mut landed, 8).now_or_never(),
+            Some(2)
+        );
+        assert_eq!(held_seed_offsets(&landed), vec![3, 5]);
+        assert!(
+            inbox.live.try_recv().is_err(),
+            "nothing reached the live lane",
         );
     }
 
     #[tokio::test]
-    async fn dispatch_seeds_returns_the_over_budget_remainder_without_raising_its_ceiling() {
+    async fn dispatch_seeds_lands_while_the_live_intake_is_full() {
         let (_dir, store) = temp_store();
-        // Seeds share the event intake budget: a one-message cap refuses the second sub-batch.
-        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 1);
+        // One-event live budget, a roomy seed lane: the two must not share a budget.
+        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 1, 16);
         dispatcher.assign_partition(0);
-        let _rx = dispatcher.router.add_partition(0).unwrap();
+        let mut inbox = dispatcher.router.add_partition(0).unwrap();
+        let no_held = HashSet::new();
 
         assert!(dispatcher
-            .dispatch_seeds(vec![consumed_seed(person(1), 0, 10)])
+            .dispatch_events_nonblocking(vec![consumed(person(1), 0, 104)], &no_held)
             .is_empty());
-        let mut full = dispatcher.dispatch_seeds(vec![consumed_seed(person(2), 0, 11)]);
-        let held = full.remove(&0).expect("partition 0 held on the intake cap");
+        assert!(
+            dispatcher
+                .dispatch_events_nonblocking(vec![consumed(person(2), 0, 105)], &no_held)
+                .contains_key(&0),
+            "the live lane is at its event ceiling",
+        );
+
+        assert!(
+            dispatcher
+                .dispatch_seeds(vec![consumed_seed(person(3), 0, 10)])
+                .is_empty(),
+            "the seed lane is unaffected by a full live intake",
+        );
+        let seed_tracker = &dispatcher.merge_deps().seed_tracker;
+        assert_eq!(
+            seed_tracker.mark_processed(0, 11),
+            MarkOutcome::WithinDispatch,
+        );
+        assert_eq!(seed_tracker.committable_offsets().get(&0), Some(&11));
+
+        let mut landed = Vec::new();
+        assert_eq!(
+            inbox.seeds.recv_many(&mut landed, 8).now_or_never(),
+            Some(1)
+        );
+        assert_eq!(held_seed_offsets(&landed), vec![10]);
+    }
+
+    #[tokio::test]
+    async fn dispatch_seeds_holds_the_suffix_on_the_seed_cap_and_raises_the_ceiling_only_for_what_landed(
+    ) {
+        let (_dir, store) = temp_store();
+        // A one-seed lane, so the second seed of the sub-batch is refused.
+        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 16, 1);
+        dispatcher.assign_partition(0);
+        let _inbox = dispatcher.router.add_partition(0).unwrap();
+
+        let mut full = dispatcher.dispatch_seeds(vec![
+            consumed_seed(person(1), 0, 10),
+            consumed_seed(person(2), 0, 11),
+        ]);
+        let held = full.remove(&0).expect("partition 0 held on the seed cap");
         assert_eq!(held_seed_offsets(&held), vec![11]);
 
         let seed_tracker = &dispatcher.merge_deps().seed_tracker;
@@ -2414,7 +2458,7 @@ mod tests {
         );
 
         // Drain A; the retry-flush now sends B and the ceiling advances past it.
-        let _a = rx.recv().await.unwrap();
+        let _a = rx.live.recv().await.unwrap();
         assert!(
             dispatcher.redispatch_held(vec![(0, held)]).is_empty(),
             "the holdover flushed once the channel had room",
@@ -2433,7 +2477,7 @@ mod tests {
     async fn nonblocking_dispatch_holds_on_the_event_cap_while_slots_stay_free() {
         let (_dir, store) = temp_store();
         // 16 mpsc slots but a one-event budget: the event cap, not the slots, is what holds batch B.
-        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 1);
+        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 1, 16);
         dispatcher.assign_partition(0);
         let mut rx = dispatcher.router.add_partition(0).unwrap();
         let no_held = HashSet::new();
@@ -2454,9 +2498,9 @@ mod tests {
         );
 
         // Drain A and step past it so the budget frees (release lands on the next recv), then B flushes.
-        let _a = rx.recv().await.unwrap();
+        let _a = rx.live.recv().await.unwrap();
         assert!(
-            rx.try_recv().is_err(),
+            rx.live.try_recv().is_err(),
             "channel drained; the recv released A's budget",
         );
         assert!(
@@ -2483,7 +2527,10 @@ mod tests {
             dispatcher.dispatch_events_nonblocking(vec![consumed(person(1), 0, 200)], &held);
 
         assert_eq!(held_offsets(&full.remove(&0).unwrap()), vec![200]);
-        assert!(rx.try_recv().is_err(), "nothing was sent to the channel");
+        assert!(
+            rx.live.try_recv().is_err(),
+            "nothing was sent to the channel"
+        );
         assert!(
             !dispatcher.tracker().committable_offsets().contains_key(&0),
             "a deferred event never raised the ceiling",
@@ -2882,7 +2929,7 @@ mod tests {
         dispatcher.route_sweep(cutoff).await;
 
         for rx in [&mut rx0, &mut rx1] {
-            let batch = rx.recv().await.expect("a sweep was routed");
+            let batch = rx.live.recv().await.expect("a sweep was routed");
             assert_eq!(batch.len(), 1);
             match &batch[0] {
                 ShuffleMessage::Sweep { due_before_ms } => assert_eq!(*due_before_ms, cutoff),
@@ -2904,7 +2951,11 @@ mod tests {
         dispatcher.route_reconcile_drain().await;
 
         for receiver in [&mut rx0, &mut rx1] {
-            let batch = receiver.recv().await.expect("a reconcile tick was routed");
+            let batch = receiver
+                .live
+                .recv()
+                .await
+                .expect("a reconcile tick was routed");
             assert!(matches!(batch.as_slice(), [ShuffleMessage::ReconcileDrain]));
         }
     }
@@ -2954,6 +3005,7 @@ mod tests {
         dispatcher.route_sweep(777).await;
         for rx in [&mut rx0, &mut rx2] {
             let batch = rx
+                .live
                 .recv()
                 .await
                 .expect("a worker-bearing partition got the sweep");

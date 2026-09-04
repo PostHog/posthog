@@ -15,12 +15,14 @@ use std::sync::Arc;
 
 use chrono_tz::Asia::Kolkata;
 use chrono_tz::{Tz, UTC};
-use cohort_stream_processor::consumers::{CohortStreamEvent, SeedWork};
+use cohort_stream_processor::consumers::{CohortStreamEvent, ConsumedSeed, SeedWork};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::{MeteredReceiver, OffsetTracker, ShuffleMessage};
-use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
+use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage, WorkerInbox};
+use cohort_stream_processor::producer::{
+    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus,
+};
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::person_record::{MatchedSet, PersonRecord};
 use cohort_stream_processor::stage1::{
@@ -33,6 +35,7 @@ use cohort_stream_processor::store::{
     PersonRecordKey, PersonRecords, Stage2Key, StoreConfig, StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
+use common_kafka::kafka_producer::KafkaProduceError;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
@@ -1120,7 +1123,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1176,7 +1179,7 @@ async fn sub_batch_read_your_writes_survives_offload() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1237,7 +1240,7 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1305,7 +1308,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1352,7 +1355,7 @@ async fn worker_produces_changes_and_advances_offset() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1395,7 +1398,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1430,7 +1433,7 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1461,7 +1464,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1900,7 +1903,7 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -2241,7 +2244,7 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -2418,9 +2421,10 @@ fn seed_tile(person: Uuid, day: i32, count: u32) -> cohort_core::seed::SeedTile 
     )
 }
 
-fn seed_message(person: Uuid, day: i32, count: u32, offset: i64) -> ShuffleMessage {
-    ShuffleMessage::Seed {
-        work: Box::new(SeedWork::Tile(seed_tile(person, day, count))),
+fn consumed_seed(person: Uuid, day: i32, count: u32, offset: i64) -> ConsumedSeed {
+    ConsumedSeed {
+        work: SeedWork::Tile(seed_tile(person, day, count)),
+        partition: PARTITION_ID as i32,
         offset,
         broker_ts_ms: None,
     }
@@ -2430,10 +2434,10 @@ fn utc_today() -> i32 {
     day_idx_in_tz(chrono::Utc::now().timestamp_millis(), UTC)
 }
 
-/// Buffered event-path changes flush before the tile's own emission, each input marks its own
-/// tracker, and the watermark advances only after the batch's final mark.
+/// Live wins the round when both lanes are ready: a `biased;` regression would let the two waiting
+/// seeds go first, and the recorded produce order would flip.
 #[tokio::test]
-async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers() {
+async fn a_live_batch_is_served_before_a_waiting_seed_turn() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
     let alice = person(1);
@@ -2445,11 +2449,36 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     let tracker = Arc::new(OffsetTracker::new());
     let deps = MergeWorkerDeps::capture();
 
-    let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
+    let broker_ts = 1_750_000_000_000_i64;
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
+
+    // Both lanes are filled before the worker starts, so both select branches are ready at its
+    // very first poll and the order is the priority, not a race.
+    live_tx
+        .send(vec![ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+            broker_ts_ms: Some(broker_ts),
+        }])
+        .await
+        .unwrap();
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 6))
+        .await
+        .unwrap();
+    seed_tx
+        .send(consumed_seed(carol, utc_today(), 1, 7))
+        .await
+        .unwrap();
+    drop(live_tx);
+    drop(seed_tx);
+
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
-        rx,
+        WorkerInbox::unmetered(live_rx, seed_rx),
         test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
@@ -2457,22 +2486,6 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
         deps.clone(),
         false,
     );
-
-    let broker_ts = 1_750_000_000_000_i64;
-    tracker.mark_dispatched(PARTITION_ID as i32, 1);
-    deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
-    tx.send(vec![
-        ShuffleMessage::Event {
-            event: Box::new(event(alice, 5, 0)),
-            cse_offset: 0,
-            broker_ts_ms: Some(broker_ts),
-        },
-        seed_message(bob, utc_today(), 1, 6),
-        seed_message(carol, utc_today(), 1, 7),
-    ])
-    .await
-    .unwrap();
-    drop(tx);
     worker.join().await.unwrap();
 
     let changes = sink.changes();
@@ -2480,7 +2493,7 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     assert_eq!(
         (changes[0].person_id.clone(), changes[0].origin),
         (alice.to_string(), None),
-        "the buffered live change flushed before the seed run ran",
+        "the live batch was served before the waiting seed turn",
     );
     assert_eq!(
         changes[1..]
@@ -2488,7 +2501,7 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
             .map(|change| change.person_id.clone())
             .collect::<std::collections::BTreeSet<_>>(),
         std::collections::BTreeSet::from([bob.to_string(), carol.to_string()]),
-        "both seeds of the collection applied",
+        "both seeds of the turn applied",
     );
     assert!(
         changes[1..].iter().all(|change| change.origin.is_some()),
@@ -2497,7 +2510,7 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     assert_eq!(
         sink.produce_calls(),
         2,
-        "one call for the live flush and one for the whole seed run",
+        "one call for the live batch and one for the whole seed run",
     );
 
     assert_eq!(
@@ -2510,7 +2523,7 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
             .committable_offsets()
             .get(&(PARTITION_ID as i32)),
         Some(&8),
-        "the seed tracker advanced past the tile",
+        "the seed tracker advanced past both tiles",
     );
     assert_eq!(
         deps.live_watermarks.get(PARTITION_ID as i32),
@@ -2519,14 +2532,14 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     );
 }
 
-/// The whole point of the batched apply: a channel batch's seeds pay one produce round trip per
-/// run, not one per seed. A regression here shows up as latency, not as a wrong result, so nothing
-/// else would catch it.
+/// The whole point of the lane: a seed backlog is served in run-sized quanta, so it pays one
+/// produce round trip per run rather than one per seed, and one turn never swallows the backlog.
+/// A regression here shows up as latency, not as a wrong result, so nothing else would catch it.
 #[tokio::test]
-async fn a_channel_batch_of_seeds_pays_one_produce_round_trip_per_run() {
-    const SEEDS: usize = 300;
-    // `COHORT_SEED_APPLY_BATCH_MAX` defaults to 256, so 300 seeds form two runs.
-    const RUNS: usize = 2;
+async fn a_seed_backlog_is_served_in_run_sized_quanta() {
+    const SEEDS: usize = 600;
+    // `COHORT_SEED_APPLY_BATCH_MAX` defaults to 256, so 600 seeds form three quanta.
+    const RUNS: usize = 3;
 
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
@@ -2535,11 +2548,28 @@ async fn a_channel_batch_of_seeds_pays_one_produce_round_trip_per_run() {
     let tracker = Arc::new(OffsetTracker::new());
     let deps = MergeWorkerDeps::capture();
 
-    let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(SEEDS);
+    deps.seed_tracker
+        .mark_dispatched(PARTITION_ID as i32, SEEDS as i64);
+    // Sent one at a time, as the dispatcher sends them: the quantum has to batch across sends.
+    for n in 0..SEEDS {
+        seed_tx
+            .send(consumed_seed(
+                person(n as u128 + 1),
+                utc_today(),
+                1,
+                n as i64,
+            ))
+            .await
+            .unwrap();
+    }
+    drop(seed_tx);
+    drop(live_tx);
+
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
-        rx,
+        WorkerInbox::unmetered(live_rx, seed_rx),
         test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
@@ -2547,14 +2577,6 @@ async fn a_channel_batch_of_seeds_pays_one_produce_round_trip_per_run() {
         deps.clone(),
         false,
     );
-
-    deps.seed_tracker
-        .mark_dispatched(PARTITION_ID as i32, SEEDS as i64);
-    let batch: Vec<ShuffleMessage> = (0..SEEDS)
-        .map(|n| seed_message(person(n as u128 + 1), utc_today(), 1, n as i64))
-        .collect();
-    tx.send(batch).await.unwrap();
-    drop(tx);
     worker.join().await.unwrap();
 
     assert_eq!(
@@ -2565,14 +2587,220 @@ async fn a_channel_batch_of_seeds_pays_one_produce_round_trip_per_run() {
     assert_eq!(
         sink.produce_calls(),
         RUNS,
-        "one produce per run, not one per seed",
+        "one produce per run-sized quantum, not one per seed and not one for the backlog",
     );
     assert_eq!(
         deps.seed_tracker
             .committable_offsets()
             .get(&(PARTITION_ID as i32)),
         Some(&(SEEDS as i64)),
-        "both runs marked their whole spans",
+        "every run marked its whole span",
+    );
+}
+
+/// A live batch that arrives mid-backlog is served before the next seed turn, so live latency is
+/// at most one turn. The sink wrapper injects it while run 1 is producing, which is deterministic
+/// on any runtime flavor.
+#[tokio::test]
+async fn a_live_batch_arriving_during_a_seed_backlog_is_served_before_the_next_seed_turn() {
+    const SEEDS: usize = 512;
+
+    struct InjectLiveOnFirstProduce {
+        inner: CaptureSink,
+        /// Taken on the first produce, so the batch is sent and the sender dropped in one step —
+        /// holding the sender past that would keep the live lane open and the worker would never
+        /// exit.
+        inject: std::sync::Mutex<Option<(mpsc::Sender<Vec<ShuffleMessage>>, ShuffleMessage)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl MembershipSink for InjectLiveOnFirstProduce {
+        async fn produce(
+            &self,
+            changes: Vec<CohortMembershipChange>,
+        ) -> Vec<Result<(), KafkaProduceError>> {
+            if let Some((live, message)) = self.inject.lock().unwrap().take() {
+                live.try_send(vec![message])
+                    .expect("the live lane has room");
+            }
+            self.inner.produce(changes).await
+        }
+    }
+
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let catalog = catalog_of(filters);
+    let recorder = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let deps = MergeWorkerDeps::capture();
+    let alice = person(0xA11CE);
+
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(SEEDS);
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    deps.seed_tracker
+        .mark_dispatched(PARTITION_ID as i32, SEEDS as i64);
+    for n in 0..SEEDS {
+        seed_tx
+            .send(consumed_seed(
+                person(n as u128 + 1),
+                utc_today(),
+                1,
+                n as i64,
+            ))
+            .await
+            .unwrap();
+    }
+    drop(seed_tx);
+
+    let sink = InjectLiveOnFirstProduce {
+        inner: recorder.clone(),
+        inject: std::sync::Mutex::new(Some((
+            live_tx,
+            ShuffleMessage::Event {
+                event: Box::new(event(alice, 5, 0)),
+                cse_offset: 0,
+                broker_ts_ms: None,
+            },
+        ))),
+    };
+
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::unmetered(live_rx, seed_rx),
+        test_handle(&store),
+        catalog,
+        Arc::new(sink),
+        tracker.clone(),
+        deps.clone(),
+        false,
+    );
+    worker.join().await.unwrap();
+
+    // Run 1 emits 256 seeded changes, then the injected live change, then run 2's 256.
+    let changes = recorder.changes();
+    assert_eq!(changes.len(), SEEDS + 1);
+    let live_at = changes
+        .iter()
+        .position(|change| change.person_id == alice.to_string())
+        .expect("the injected live change landed");
+    assert_eq!(
+        live_at, 256,
+        "the live batch was served between the two seed turns, not after the backlog",
+    );
+    assert!(
+        changes[..live_at]
+            .iter()
+            .all(|change| change.origin.is_some()),
+        "run 1 is all seeded changes",
+    );
+    assert!(
+        changes[live_at + 1..]
+            .iter()
+            .all(|change| change.origin.is_some()),
+        "run 2 is all seeded changes",
+    );
+}
+
+/// A closed seed lane must not stall the live lane, and the worker must still exit when the live
+/// lane closes.
+#[tokio::test]
+async fn a_closed_seed_lane_does_not_stall_the_live_lane() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let alice = person(1);
+
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let deps = MergeWorkerDeps::capture();
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::live_only(rx),
+        test_handle(&store),
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        deps.clone(),
+        false,
+    );
+
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    tx.send(vec![ShuffleMessage::Event {
+        event: Box::new(event(alice, 5, 0)),
+        cse_offset: 0,
+        broker_ts_ms: None,
+    }])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    assert_eq!(sink.changes().len(), 1, "the live event still folded");
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&1),
+        "the live offset still marked",
+    );
+}
+
+/// Both lanes drain before the worker exits: an exit on the first `None` would silently drop
+/// whatever the other lane still held.
+#[tokio::test]
+async fn both_lanes_drain_before_the_worker_exits() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let alice = person(1);
+    let bob = person(2);
+
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let deps = MergeWorkerDeps::capture();
+
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
+    live_tx
+        .send(vec![ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+            broker_ts_ms: None,
+        }])
+        .await
+        .unwrap();
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 7))
+        .await
+        .unwrap();
+    drop(live_tx);
+    drop(seed_tx);
+
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::unmetered(live_rx, seed_rx),
+        test_handle(&store),
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        deps.clone(),
+        false,
+    );
+    worker.join().await.unwrap();
+
+    assert_eq!(sink.changes().len(), 2, "both lanes' work landed");
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&1),
+        "the events tracker advanced",
+    );
+    assert_eq!(
+        deps.seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        Some(&8),
+        "the seed tracker advanced",
     );
 }
 
@@ -2586,16 +2814,16 @@ async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_
     let bob = person(2);
 
     let catalog = catalog_of(filters);
-    // The seed's produce is the first flush (the tile leads the batch); the event's is the second.
+    // The seed run's produce is the first: the seed lane is drained before the live batch is sent.
     let sink = CaptureSink::failing_first(1);
     let tracker = Arc::new(OffsetTracker::new());
     let deps = MergeWorkerDeps::capture();
 
-    let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
-        rx,
+        WorkerInbox::unmetered(live_rx, seed_rx),
         test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
@@ -2606,17 +2834,30 @@ async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_
 
     tracker.mark_dispatched(PARTITION_ID as i32, 1);
     deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
-    tx.send(vec![
-        seed_message(bob, utc_today(), 1, 7),
-        ShuffleMessage::Event {
+    // The seed turn runs first, and its failure must not touch the live batch that follows. The
+    // two lanes have no defined order between them, so the seed is drained to completion first.
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 7))
+        .await
+        .unwrap();
+    drop(seed_tx);
+    // Bounded: a worker that never produces must fail this test, not hang CI on a spin.
+    for remaining in (0..10_000).rev() {
+        if sink.produce_calls() > 0 {
+            break;
+        }
+        assert!(remaining > 0, "the seed run never reached its produce");
+        tokio::task::yield_now().await;
+    }
+    live_tx
+        .send(vec![ShuffleMessage::Event {
             event: Box::new(event(alice, 5, 0)),
             cse_offset: 0,
             broker_ts_ms: None,
-        },
-    ])
-    .await
-    .unwrap();
-    drop(tx);
+        }])
+        .await
+        .unwrap();
+    drop(live_tx);
     worker.join().await.unwrap();
 
     assert_eq!(
@@ -2641,11 +2882,11 @@ async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_
     let replay_sink = CaptureSink::new();
     let replay_deps = MergeWorkerDeps::capture();
     let replay_tracker = Arc::new(OffsetTracker::new());
-    let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
-        rx,
+        WorkerInbox::unmetered(live_rx, seed_rx),
         test_handle(&store),
         catalog_of(build_team_filters(vec![(
             CohortId(1),
@@ -2659,10 +2900,12 @@ async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_
     replay_deps
         .seed_tracker
         .mark_dispatched(PARTITION_ID as i32, 8);
-    tx.send(vec![seed_message(bob, utc_today(), 1, 7)])
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 7))
         .await
         .unwrap();
-    drop(tx);
+    drop(seed_tx);
+    drop(live_tx);
     worker.join().await.unwrap();
 
     let changes = replay_sink.changes();
@@ -2709,7 +2952,7 @@ async fn watermark_advances_only_after_a_successful_mark() {
         let store = store.clone();
         async move {
             let (tx, rx) = mpsc::channel(16);
-            let rx = MeteredReceiver::unmetered(rx);
+            let rx = WorkerInbox::live_only(rx);
             let worker = Stage1Worker::spawn(
                 PARTITION_ID,
                 rx,
