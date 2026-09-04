@@ -116,7 +116,7 @@ class LLMSkillDuplicateNameConflictError(Exception):
     pass
 
 
-@dataclass
+@frozen
 class LLMSkillRenameNotAllowedError(Exception):
     """The rename would move a skill in or out of a name prefix another product keys its rows on.
 

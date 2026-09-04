@@ -65,6 +65,18 @@ import {
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
+/** Why this skill cannot be renamed, or undefined when it can be.
+ *
+ * Scouts and ReviewHog skills keep their settings under the skill name, so the backend refuses to
+ * rename them. Say so up front instead of letting the click come back a 400.
+ */
+function renameBlockedReason(skillName: string | null): string | undefined {
+    if (skillName === null || !PRODUCT_OWNED_SKILL_NAME_PREFIXES.some((prefix) => skillName.startsWith(prefix))) {
+        return undefined
+    }
+    return 'Skills that run on a schedule or a pull request keep settings under their name, so they cannot be renamed'
+}
+
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
     logic: llmSkillLogic,
@@ -190,13 +202,7 @@ export function LLMSkillScene(): JSX.Element {
                   : undefined
         : undefined
 
-    // Scouts and ReviewHog skills keep their settings under the skill name, so the backend refuses
-    // to rename them. Say so up front instead of letting the click come back a 400.
-    const renameDisabledReason = isSkill(skill)
-        ? PRODUCT_OWNED_SKILL_NAME_PREFIXES.some((prefix) => skill.name.startsWith(prefix))
-            ? 'Skills that run on a schedule or a pull request keep settings under their name, so they cannot be renamed'
-            : undefined
-        : undefined
+    const renameDisabledReason = renameBlockedReason(isSkill(skill) ? skill.name : null)
 
     const content =
         isViewMode || !canEditSkill ? (
