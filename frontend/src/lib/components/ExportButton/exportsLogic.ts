@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import {
     ExportNudge,
@@ -42,6 +43,8 @@ const POLL_DELAY_MS = 10000
 const LONG_RUNNING_POLL_DELAY_MS = 30000
 const EXPORT_PENDING_MESSAGE = 'Preparing export…'
 const EXPORT_COMPLETE_MESSAGE = 'Export complete!'
+const EXPORT_UNANSWERED_MESSAGE =
+    'Export failed: the server did not answer. The export may still be running, so check the exports panel before you try again.'
 
 // An export is still rendering while it has neither produced content nor failed.
 const isRendering = (asset: ExportedAssetType): boolean => !asset.has_content && !asset.exception
@@ -491,6 +494,13 @@ export const exportsLogic = kea<exportsLogicType>([
                             const attr = (error as { data?: APIErrorType })?.data?.attr
                             if (attr === 'export_limit_exceeded' || attr === 'export_duration_unsupported') {
                                 throw error
+                            }
+                            if (isTransientServerError(error)) {
+                                // The gateway stopped waiting, but the render it started keeps going, so
+                                // the asset can still appear and finish. Refresh the list the message
+                                // sends the user to, and keep the transport text out of the toast.
+                                actions.loadExports()
+                                throw new Error(EXPORT_UNANSWERED_MESSAGE)
                             }
                             const message = error instanceof Error ? error.message : String(error)
                             throw new Error('Export failed: ' + message)

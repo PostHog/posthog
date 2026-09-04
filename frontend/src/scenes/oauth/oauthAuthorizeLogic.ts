@@ -113,7 +113,7 @@ type OAuthAuthorizeResult = { redirectTo: string; isNative: boolean }
 // `/oauth/authorize/` fails in two shapes, and `ApiError` reads neither usefully: the RFC 6749
 // §4.1.2.1 envelope `{ error, error_description }`, where it surfaces the machine code rather
 // than the prose, and DRF serializer errors `{ "<field>": ["<message>"] }`, where it finds no
-// key at all and falls back to the transport text ("Non-OK response [POST ...] (status 400: )").
+// key at all and falls back to the transport text ("Non-OK response [POST ...] (status 400)").
 export const describeOAuthError = (data: unknown): string | null => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
         return null

@@ -367,7 +367,10 @@ export async function getJSONOrNull(response: Response): Promise<any> {
 
 function apiErrorFallback(response: Response, method: string, url: string): string {
     const pathname = new URL(url, location.origin).pathname
-    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
+    // HTTP/2 carries no reason phrase, so statusText is empty for every response the app gets over
+    // it. Appending it unconditionally left a colon with nothing after it.
+    const reason = response.statusText ? `: ${response.statusText}` : ''
+    return `Non-OK response [${method} ${pathname}] (status ${response.status}${reason})`
 }
 
 /**

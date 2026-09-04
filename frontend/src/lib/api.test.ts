@@ -293,6 +293,26 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    // HTTP/2 carries no reason phrase, so statusText is empty for almost every response the app
+    // gets, and a gateway failure has no JSON body to read a message out of either.
+    it.each([
+        ['', 'Non-OK response [POST /api/projects/2/exports/] (status 504)'],
+        ['Gateway Time-out', 'Non-OK response [POST /api/projects/2/exports/] (status 504: Gateway Time-out)'],
+    ])('describes a bodyless failure whose statusText is %p', async (statusText, expectedMessage) => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 504,
+            statusText,
+            headers: new Headers(),
+            json: () => Promise.reject(new Error('Unexpected end of JSON input')),
+        })
+
+        await expect(api.create('/api/projects/2/exports/')).rejects.toMatchObject({
+            message: expectedMessage,
+            status: 504,
+        } satisfies Partial<ApiError>)
+    })
+
     describe('OAuth mode auth headers', () => {
         beforeEach(() => {
             window.localStorage.setItem(

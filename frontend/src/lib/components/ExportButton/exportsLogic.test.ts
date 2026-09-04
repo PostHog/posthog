@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -200,6 +201,18 @@ describe('exportsLogic', () => {
                 settles: { rejected: 'Export failed: network down' },
                 expectsDownload: false,
                 expectsViewExportsButton: true,
+                freshIds: [],
+                expectsPanelOpen: false,
+            },
+            {
+                // A gateway that stops waiting says nothing a person can act on, so the toast names
+                // where the render will land instead of repeating the method, path and status.
+                label: 'gateway timeout rejects with where to look, not the transport error',
+                rejectWith: new ApiError('Non-OK response [POST /api/environments/2/exports/] (status 504)', 504),
+                format: ExporterFormat.CSV,
+                settles: { rejected: 'the server did not answer' },
+                expectsDownload: false,
+                expectsViewExportsButton: false,
                 freshIds: [],
                 expectsPanelOpen: false,
             },
