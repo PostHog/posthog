@@ -44,6 +44,7 @@ class TestAITemporalModuleIntegrity:
             "batch_embed_and_sync_actions",
             "process_conversation_activity",
             "process_chat_agent_activity",
+            "mirror_conversation_to_task_activity",
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "investigate_anomaly_activity",

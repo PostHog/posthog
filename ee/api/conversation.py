@@ -52,10 +52,7 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
-from products.posthog_ai.backend.context_wrapper import (
-    ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES,
-    ContextService,
-)
+from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
 from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
@@ -733,21 +730,15 @@ class ConversationViewSet(
         if conversation.task_id is not None:
             _validate_sandbox_task(conversation.task_id, self.team.id, request.user.id)
 
-        has_content = bool(serializer.validated_data.get("content"))
-        convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
-
-        # Sandbox-only endpoint. A converting LangGraph thread is still LANGGRAPH here (the flip happens
-        # inside the routing service), so allow it through; reject any other non-sandbox conversation.
-        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX and not convert_to_acp:
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
             raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
 
+        has_content = bool(serializer.validated_data.get("content"))
         if has_content and conversation.title is None:
             conversation.title = serializer.validated_data["content"][:80]
             conversation.save(update_fields=["title"])
 
-        return self._route_sandbox_message(
-            request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp, created=created
-        )
+        return self._route_sandbox_message(request, conversation, created=created)
 
     def _get_or_create_sandbox_conversation(
         self, request: Request, *, bind_task: uuid.UUID | None = None
@@ -790,35 +781,6 @@ class ConversationViewSet(
             raise exceptions.NotFound("Conversation does not exist")
         return conversation, False
 
-    def _compute_sandbox_conversion(
-        self, request: Request, conversation: Conversation, has_content: bool
-    ) -> tuple[bool, str | None]:
-        """Detect + prepare a legacy LangGraph→sandbox conversion on the first new message.
-
-        A reopened LangGraph thread converts to sandbox on its first message: read the current
-        conversation window into a one-time resumed-context block (while still LangGraph), then the
-        routing service flips the runtime + links the Task atomically. Warm (`content`-less) never
-        converts. A failed read never blocks — the user continues, the legacy thread stays rendered.
-        """
-        convert_to_acp = bool(
-            has_content
-            and conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
-            and conversation.task_id is None
-            and conversation.status == Conversation.Status.IDLE
-            and has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
-        )
-        if not convert_to_acp:
-            return False, None
-        try:
-            resumed_context = asgi_async_to_sync(ContextService().abuild_resumed_legacy_context)(
-                conversation, self.team, cast(User, request.user)
-            )
-        except Exception as e:
-            # A failed read must not block the conversion — continue with no resumed context.
-            capture_exception(e)
-            resumed_context = None
-        return True, resumed_context
-
     def _auto_route_repository(self, request: Request, conversation: Conversation, user: User) -> str | None:
         """Auto-select the repository a sandbox conversation's first message is about.
 
@@ -841,15 +803,11 @@ class ConversationViewSet(
         request: Request,
         conversation: Conversation,
         *,
-        resumed_context: str | None = None,
-        convert_to_acp: bool = False,
         created: bool = False,
     ) -> Response:
         user = cast(User, request.user)
         repository = self._auto_route_repository(request, conversation, user)
-        result = SandboxSession(conversation, user).open(
-            request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp, repository=repository
-        )
+        result = SandboxSession(conversation, user).open(request.data, repository=repository)
         if result is None:
             # Warm intent that provisioned nothing (pool full / released) — no run to open. Drop the
             # row if we created it this request so a content-less warm can't leave orphaned conversations.
@@ -866,7 +824,6 @@ class ConversationViewSet(
                     "conversation_id": str(conversation.id),
                     "execution_type": "sandbox",
                     "agent_runtime": "sandbox",
-                    "converted_to_acp": convert_to_acp,
                     "just_created_run": result.just_created_run,
                     "has_attached_context": result.attached_context_count > 0,
                     "attached_context_count": result.attached_context_count,

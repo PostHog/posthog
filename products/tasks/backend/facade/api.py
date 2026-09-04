@@ -179,7 +179,13 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "WarmRunActivationUnavailable",
+    "append_imported_task_run_log",
     "append_task_run_log",
+    "create_imported_task",
+    "create_imported_task_run",
+    "get_imported_task_run",
+    "get_task_by_origin_key",
+    "touch_imported_task",
     "apply_task_run_model_config",
     "ensure_task_run_session",
     "beacon_task_presence",
@@ -436,6 +442,11 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "context_window",
         "custom_image_id",
         "fast_mode",
+        # An imported transcript's provenance and mirror cursor: the viewer marks the run as
+        # imported, and the legacy mirror reads its own cursor back through this DTO.
+        "conversation_last_message_id",
+        "conversation_messages_copied",
+        "imported_from",
         "initial_permission_mode",
         "mode",
         "model",
@@ -2995,6 +3006,120 @@ def append_task_run_log(
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
+
+
+def get_task_by_origin_key(team_id: int, origin_key: str) -> contracts.TaskDetailDTO | None:
+    """The live task carrying ``origin_key`` in ``team_id``, or None. Bypasses visibility: an
+    origin key is an idempotency handle for a system writer, not a user-facing lookup."""
+    task = Task.objects.filter(team_id=team_id, origin_key=origin_key, deleted=False).first()
+    return _task_detail_to_dto(task) if task is not None else None
+
+
+def get_imported_task_run(task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
+    """The run that holds a task's imported transcript (``state.imported_from`` set), or None."""
+    run = (
+        TaskRun.objects.filter(task_id=task_id, team_id=team_id, state__has_key="imported_from")
+        .order_by("created_at", "id")
+        .first()
+    )
+    return _task_run_detail_to_dto(run) if run is not None else None
+
+
+def create_imported_task(
+    team_id: int,
+    user_id: int,
+    *,
+    title: str,
+    origin_key: str,
+    internal: bool,
+    created_at: datetime,
+) -> contracts.TaskDetailDTO:
+    """Create the task that hosts a transcript imported from elsewhere.
+
+    Backdated to the source's creation time so the task list keeps the order the user remembers;
+    ``create_task`` stamps "now" and the list sorts on it.
+    """
+    created = create_task(
+        team_id,
+        user_id,
+        validated_data={
+            "title": title,
+            "description": "",
+            "origin_product": Task.OriginProduct.POSTHOG_AI,
+            "origin_key": origin_key,
+            "internal": internal,
+        },
+    )
+    Task.objects.filter(id=created.id, team_id=team_id).update(created_at=created_at)
+    return created
+
+
+def create_imported_task_run(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    state: dict,
+    created_at: datetime,
+    completed_at: datetime,
+) -> contracts.TaskRunDetailDTO:
+    """Create a completed run that never executed, to host a transcript imported from elsewhere.
+
+    The run is backdated to the source's timestamps so the task sorts and reads as old as the
+    conversation it came from. Nothing dispatches a workflow for it; a later real run chains to it
+    through ``resume_from_run_id`` like any earlier run.
+    """
+    task = Task.objects.get(id=task_id, team_id=team_id)
+    run = TaskRun.objects.create(
+        task=task,
+        team_id=team_id,
+        status=TaskRun.Status.COMPLETED,
+        environment=TaskRun.Environment.CLOUD,
+        state=state,
+        completed_at=completed_at,
+    )
+    # created_at is auto_now_add, so the backdate has to go through update().
+    TaskRun.objects.filter(id=run.id).update(created_at=created_at)
+    run.refresh_from_db()
+    return _task_run_detail_to_dto(run)
+
+
+def append_imported_task_run_log(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    entries: list[dict],
+    expected_state: dict,
+    state_updates: dict,
+    completed_at: datetime,
+) -> bool:
+    """Append lines to an import run's log and record how far the source has been copied.
+
+    Holds the run's row lock across the append so two copies of the same source cannot both
+    append the same lines: the append only happens while ``expected_state`` still matches the
+    run's state, and returns False when another writer moved it on first. Imported transcripts
+    are user chat history, so the log is never tagged for expiry, and there is no workflow to
+    heartbeat. ``completed_at`` follows the source so the run reads as current as the
+    conversation it copies.
+    """
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().get(id=run_id, task_id=task_id, team_id=team_id)
+        state = run.state or {}
+        if any(state.get(key) != value for key, value in expected_state.items()):
+            return False
+        run.append_log(entries, ttl_days=None)
+        run.state = {**state, **state_updates}
+        run.completed_at = completed_at
+        run.save(update_fields=["state", "completed_at"])
+    return True
+
+
+def touch_imported_task(task_id: str | UUID, team_id: int, *, title: str | None, last_activity_at: datetime) -> None:
+    """Keep an imported task's list row in step with its source conversation."""
+    updates: dict[str, Any] = {"last_activity_at": last_activity_at}
+    if title:
+        updates["title"] = title
+    Task.objects.filter(id=task_id, team_id=team_id).update(**updates)
 
 
 def clear_task_run_conversation(
