@@ -78,6 +78,8 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
         moment before the current period starts and the start is one calendar unit before that, so
         months, quarters and years come back whole regardless of their varying lengths.
         """
+        if not self._full_comparison_period:
+            return None
         if not self._date_range or self._date_range.date_to:
             return None
         unit = _FULL_PREVIOUS_CALENDAR_UNITS.get(self._date_range.date_from) if self._date_range.date_from else None
