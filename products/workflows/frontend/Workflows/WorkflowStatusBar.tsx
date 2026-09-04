@@ -1,15 +1,27 @@
 import { useValues, useActions } from 'kea'
 
-import { IconClock, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconClock, IconDecisionTree, IconInfo, IconList } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { urls } from 'scenes/urls'
 
+import type { HogFlowEditorLayout } from './hogflows/hogFlowEditorLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
-export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null {
+type WorkflowStatusBarProps = WorkflowLogicProps & {
+    editorLayout: HogFlowEditorLayout
+    showEditorLayoutToggle: boolean
+    onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
+}
+
+export function WorkflowStatusBar({
+    editorLayout,
+    showEditorLayoutToggle,
+    onEditorLayoutChange,
+    ...props
+}: WorkflowStatusBarProps): JSX.Element | null {
     const logic = workflowLogic(props)
     const {
         originalWorkflow,
@@ -35,6 +47,27 @@ export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null
     return (
         <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
+                {showEditorLayoutToggle && (
+                    <LemonSegmentedButton
+                        value={editorLayout}
+                        onChange={onEditorLayoutChange}
+                        size="small"
+                        options={[
+                            {
+                                value: 'simple',
+                                icon: <IconList />,
+                                tooltip: 'List view',
+                                'data-attr': 'workflow-switch-to-simple-view',
+                            },
+                            {
+                                value: 'advanced',
+                                icon: <IconDecisionTree />,
+                                tooltip: 'Graph view',
+                                'data-attr': 'workflow-switch-to-advanced-view',
+                            },
+                        ]}
+                    />
+                )}
                 {showWorkflowStatus &&
                     (isEditingDraftOfLive ? (
                         <LemonTag type="warning">Editing draft</LemonTag>
