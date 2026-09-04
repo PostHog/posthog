@@ -297,6 +297,8 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
         channel = config.get("channel")
         if not isinstance(channel, str) or not channel:
             raise AlertValidationError("Slack destinations require a channel id string in the config.")
+        if not isinstance(config.get("reply_broadcast", False), bool):
+            raise AlertValidationError("reply_broadcast must be a boolean.")
     else:
         raise AlertValidationError(f"Unsupported destination channel type: {channel_type}")
 
