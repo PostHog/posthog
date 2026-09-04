@@ -14,14 +14,12 @@ import { isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeStep({
     action,
-    dragged,
     onDragEnd,
     onDragStart,
     showCollapseOffset = false,
     canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action),
 }: {
     action: HogFlowAction
-    dragged: boolean
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string) => void
     showCollapseOffset?: boolean
@@ -64,7 +62,7 @@ export function HogFlowTreeStep({
                 showCollapseOffset && 'ps-10',
                 isSelected && 'border-ring ring-2 ring-ring/30',
                 isAnimationTarget && 'border-success',
-                dragged && 'opacity-50'
+                'data-[workflow-tree-dragging]:opacity-50'
             )}
             data-attr="workflow-tree-step"
             id={`workflow-tree-step-${action.id}`}
@@ -83,12 +81,12 @@ export function HogFlowTreeStep({
             {canDrag && (
                 <div
                     draggable
-                    className="relative z-10 flex cursor-grab items-center text-muted-foreground active:cursor-grabbing"
+                    className="relative z-10 -m-1 flex size-8 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
                     onDragStart={(event) => onDragStart(event, action.id)}
                     onDragEnd={onDragEnd}
                     data-attr="workflow-tree-step-drag"
                 >
-                    <IconDrag />
+                    <IconDrag className="size-4" />
                 </div>
             )}
             <ItemMedia
