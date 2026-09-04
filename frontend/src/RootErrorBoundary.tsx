@@ -41,12 +41,14 @@ function reportBootFailure(error: unknown): void {
                         mechanism: { handled: true, synthetic: false },
                         // Error tracking reads frames from here only. A top-level `stack` string
                         // arrives as a plain property, and the issue then shows no frames.
+                        // JSON.stringify drops this property when no frame parsed.
                         stacktrace: frames.length ? { type: 'raw', frames } : undefined,
                     },
                 ],
-                // Fall back to the raw text when no frame parsed, so the issue still says where it broke.
-                // JSON.stringify drops both of these properties when they are undefined.
-                stack: frames.length ? undefined : err.stack,
+                // Send the raw text as well. The parser skips forms it does not recognize, such as
+                // `at new Promise (<anonymous>)` or a JavaScriptCore `[native code]` frame, so the
+                // frames above can be a partial view of what the browser reported.
+                stack: err.stack,
                 chunk_load_error: isChunkLoadError(error),
             },
         })

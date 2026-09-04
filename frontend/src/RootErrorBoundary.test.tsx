@@ -70,7 +70,8 @@ describe('RootErrorBoundary', () => {
                 expect.objectContaining({ function: 'ThrowRenderError', platform: 'web:javascript' }),
             ]),
         })
-        expect(event.properties.stack).toBeUndefined()
+        // the raw text rides along, so lines the parser skips stay recoverable
+        expect(event.properties.stack).toContain('Error: boot render kaboom')
     })
 
     it('shows load-failure copy for chunk-load errors', () => {
