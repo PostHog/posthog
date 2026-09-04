@@ -20,6 +20,7 @@ import { IconInfo } from '@posthog/icons'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
+import { HogFlowBranchSelectionProvider } from './HogFlowBranchSelection'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { LOW_DETAIL_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
@@ -139,13 +140,15 @@ export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Elem
     const { logicProps } = useValues(workflowLogic)
     return (
         <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
-            {isTreeView ? (
-                <HogFlowTreeEditorContent />
-            ) : (
-                <ReactFlowProvider>
-                    <HogFlowGraphEditor />
-                </ReactFlowProvider>
-            )}
+            <HogFlowBranchSelectionProvider>
+                {isTreeView ? (
+                    <HogFlowTreeEditorContent />
+                ) : (
+                    <ReactFlowProvider>
+                        <HogFlowGraphEditor />
+                    </ReactFlowProvider>
+                )}
+            </HogFlowBranchSelectionProvider>
         </BindLogic>
     )
 }

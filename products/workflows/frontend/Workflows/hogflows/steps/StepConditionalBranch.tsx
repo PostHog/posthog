@@ -8,6 +8,7 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
@@ -74,6 +75,7 @@ export function StepConditionalBranchConfiguration({
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
+    const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
 
     const nodeEdges = edgesByActionId[action.id] ?? []
 
@@ -125,6 +127,7 @@ export function StepConditionalBranchConfiguration({
     }
 
     const removeCondition = (index: number): void => {
+        setSelectedBranch(null)
         setConditions(conditions.filter((_, i) => i !== index))
         // Branch edges come first as they are sorted to show on the left
         setWorkflowActionEdges(action.id, [...removeBranchEdge(branchEdges, index), ...nonBranchEdges])
@@ -134,10 +137,23 @@ export function StepConditionalBranchConfiguration({
         <div>
             <StepSchemaErrors />
             <div className="flex flex-col gap-3">
-                {conditions.map((condition, index) => (
-                    <div key={index} className="flex flex-col gap-2 p-2 rounded border">
+                {conditions.map((condition, index) => {
+                    const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
+
+                    return (
+                    <div
+                        key={index}
+                        className="flex flex-col gap-2 rounded border p-2 transition-colors motion-reduce:transition-none"
+                        style={getHogFlowBranchStyle(index, isBranchSelected)}
+                        onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                        onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                    >
                         <div className="flex justify-between items-center gap-2">
                             <div className="flex flex-1 items-center gap-2 min-w-0">
+                                <span
+                                    className="size-2 shrink-0 rounded-full"
+                                    style={{ backgroundColor: getHogFlowBranchColor(index) }}
+                                />
                                 <HogFlowBranchNameInput
                                     value={localConditionNames[index]}
                                     onChange={(value) => handleNameChange(index, value)}
@@ -173,7 +189,8 @@ export function StepConditionalBranchConfiguration({
                             typeKey={`workflow-trigger-${index}`}
                         />
                     </div>
-                ))}
+                    )
+                })}
             </div>
 
             <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()} className="mt-2">

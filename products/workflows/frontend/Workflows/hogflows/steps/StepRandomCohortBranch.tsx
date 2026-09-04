@@ -6,6 +6,7 @@ import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
@@ -32,6 +33,7 @@ export function StepRandomCohortBranchConfiguration({
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
+    const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
 
     const nodeEdges = edgesByActionId[action.id] ?? []
 
@@ -81,6 +83,7 @@ export function StepRandomCohortBranchConfiguration({
     }
 
     const removeCohort = (index: number): void => {
+        setSelectedBranch(null)
         const newBranchEdges = branchEdges.filter((_, i) => i !== index).map((edge, i) => ({ ...edge, index: i }))
         setCohorts(cohorts.filter((_, i) => i !== index))
         setWorkflowActionEdges(action.id, [...newBranchEdges, ...nonBranchEdges])
@@ -126,15 +129,30 @@ export function StepRandomCohortBranchConfiguration({
         <div className="flex flex-col gap-3">
             <StepSchemaErrors />
 
-            {cohorts.map((cohort, index) => (
-                <div key={index} className="flex flex-col gap-2 p-2 rounded border">
+            {cohorts.map((cohort, index) => {
+                const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
+
+                return (
+                <div
+                    key={index}
+                    className="flex flex-col gap-2 rounded border p-2 transition-colors motion-reduce:transition-none"
+                    style={getHogFlowBranchStyle(index, isBranchSelected)}
+                    onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                    onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                >
                     <div className="flex justify-between items-center gap-2">
-                        <HogFlowBranchNameInput
-                            value={localCohortNames[index]}
-                            onChange={(value) => handleNameChange(index, value)}
-                            placeholder={`Cohort ${index + 1}`}
-                            ariaLabel={`Cohort ${index + 1} name`}
-                        />
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <span
+                                className="size-2 shrink-0 rounded-full"
+                                style={{ backgroundColor: getHogFlowBranchColor(index) }}
+                            />
+                            <HogFlowBranchNameInput
+                                value={localCohortNames[index]}
+                                onChange={(value) => handleNameChange(index, value)}
+                                placeholder={`Cohort ${index + 1}`}
+                                ariaLabel={`Cohort ${index + 1} name`}
+                            />
+                        </div>
                         <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
                     </div>
 
@@ -152,7 +170,8 @@ export function StepRandomCohortBranchConfiguration({
                         <span>%</span>
                     </div>
                 </div>
-            ))}
+                )
+            })}
 
             {cohorts.length > 0 && !isBalanced && (
                 <div className="text-sm text-orange-600">

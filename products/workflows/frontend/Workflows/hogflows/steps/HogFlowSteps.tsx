@@ -244,7 +244,7 @@ const HogFlowStepConfigs: Partial<{
 
             const template = hogFunctionTemplatesById[action.config.template_id]
             return template?.icon_url ? (
-                <img className="LemonIcon rounded" src={template.icon_url} alt={template.name} />
+                <img className="LemonIcon rounded !object-contain" src={template.icon_url} alt={template.name} />
             ) : (
                 <IconBolt />
             )

@@ -387,6 +387,15 @@ ComplexInteractive.decorators = [
                 },
             ],
         },
+        post: {
+            '/api/environments/:team_id/hog_flows/user_blast_radius/': {
+                affected: 240,
+                total: 1200,
+                limit: 100000,
+                dedupe_key: null,
+                confirm_token: 'storybook-confirm-token',
+            },
+        },
     }),
 ]
 ComplexInteractive.parameters = {
