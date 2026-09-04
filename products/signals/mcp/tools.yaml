@@ -497,8 +497,13 @@ tools:
             audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite
             them. Optional `charts` is the full set of queries the inbox renders on the report — it replaces the
             report's charts rather than adding to them (omit it to leave them alone), so read the report first when you
-            mean to add one. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to
-            scouts that list `edit_report` in their skill's `allowed_tools`.
+            mean to add one. Set `supersedes_implementation` alongside a rewrite when the fix itself changed (a
+            different root cause, file, layer, or scope): the report's open pull request is closed and replaced with one
+            built from your new summary. More evidence for the same fix is not a reason — prefer `append_note` there. A
+            report keeps its first four notes as entries and counts the rest, so a later `append_note` raises its
+            corroboration count instead of writing another near-identical entry. NOT idempotent — a retried
+            `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their
+            skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true

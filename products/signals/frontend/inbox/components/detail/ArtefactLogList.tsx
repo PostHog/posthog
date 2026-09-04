@@ -1,4 +1,4 @@
-import { type ComponentType, useState } from 'react'
+import { type ComponentType, Fragment, useState } from 'react'
 
 import {
     IconActivity,
@@ -547,33 +547,67 @@ function ArtefactRow({
  * findings, code references, diffs, commits, task runs, notes, and reviewers. Mirrors desktop
  * `ArtefactLogList`. Returns null when there are no artefacts.
  */
+/**
+ * Stands in for the scout notes the work log stopped keeping. Past the first few, a scout's notes
+ * restate that the finding is still there, so the count carries what the entries would have.
+ * Rendered above the newest note, where those entries would otherwise sit.
+ */
+function CollapsedNotesRow({ count }: { count: number }): JSX.Element {
+    return (
+        <div className="relative flex gap-3 pb-4 last:pb-0">
+            <span className="z-10 flex size-5 shrink-0 items-center justify-center rounded-full border bg-surface-primary text-secondary">
+                <IconComment className="size-3" />
+            </span>
+            <div className="min-w-0 flex-1 text-xs text-tertiary">
+                Corroborated {count} more {count === 1 ? 'time' : 'times'} by a scout, with nothing new to add.
+            </div>
+        </div>
+    )
+}
+
 export function ArtefactLogList({
     reportId,
     artefacts,
     knownTasks,
     knownSignals,
+    collapsedNoteCount = 0,
 }: {
     reportId: string
     artefacts: SignalReportArtefact[]
     /** Tasks the detail logic already resolved, keyed by id — `task_run` rows reuse these instead of refetching. */
     knownTasks?: Map<string, Task>
     knownSignals?: Map<string, SignalNode>
+    /** Scout notes the report received beyond the entries kept below, shown as one line instead. */
+    collapsedNoteCount?: number
 }): JSX.Element | null {
     if (artefacts.length === 0) {
         return null
     }
     const ordered = [...artefacts].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    // The dropped notes came after every note still in the log, and the list runs newest-first, so
+    // they sit above the newest surviving note. With no note left to anchor to they lead the log.
+    const anchorIndex =
+        collapsedNoteCount > 0
+            ? Math.max(
+                  0,
+                  ordered.findIndex((a) => a.type === 'note')
+              )
+            : -1
     return (
         <div className="relative">
             <span className="absolute bottom-2.5 left-2.5 top-2.5 w-px bg-border" aria-hidden />
-            {ordered.map((artefact) => (
-                <ArtefactRow
-                    key={artefact.id}
-                    reportId={reportId}
-                    artefact={artefact}
-                    knownTasks={knownTasks}
-                    knownSignals={knownSignals}
-                />
+            {ordered.map((artefact, index) => (
+                // Fragment rather than a wrapper element: `ArtefactRow`'s `last:pb-0` resolves
+                // against this container's children, and a wrapper would make every row the last.
+                <Fragment key={artefact.id}>
+                    {index === anchorIndex ? <CollapsedNotesRow count={collapsedNoteCount} /> : null}
+                    <ArtefactRow
+                        reportId={reportId}
+                        artefact={artefact}
+                        knownTasks={knownTasks}
+                        knownSignals={knownSignals}
+                    />
+                </Fragment>
             ))}
         </div>
     )

@@ -39,11 +39,13 @@ from pydantic import ValidationError
 from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
+from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ImplementationDecision,
     NoteArtefact,
     PriorityAssessment,
     SafetyJudgment,
@@ -53,7 +55,13 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.models import (
+    MAX_SCOUT_REPORT_NOTES,
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutRun,
+)
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -314,6 +322,19 @@ def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Sta
     return SignalReport.Status(value) if value is not None else None
 
 
+def get_content_revision_count(*, team_id: int, report_id: str) -> int:
+    """Team-scoped read of the report's running content-revision total, so an edit that doesn't itself
+    revise content (a note, a reviewer change, a restatement) can still echo the running total the
+    scout reasons about the cap with. Returns 0 when the report doesn't exist for the team, matching
+    the field's default — `record_content_revision` above is what mutates it."""
+    value = (
+        SignalReport.objects.filter(team_id=team_id, id=report_id)
+        .values_list("content_revision_count", flat=True)
+        .first()
+    )
+    return value if value is not None else 0
+
+
 def update_scout_report(
     *,
     team_id: int,
@@ -395,6 +416,19 @@ def update_scout_report(
     return updated_fields
 
 
+@frozen
+class AppendedNote:
+    """What one `append_report_note` call did to the report."""
+
+    report_id: str
+    # How many notes the report has now received from a scout, counting this one.
+    corroboration_count: int
+    # True when the report was already at `MAX_SCOUT_REPORT_NOTES` notes, so this one raised the
+    # count and wrote no entry. The note text is not kept: past that point the notes restate each
+    # other, and the count is the part that still carries information.
+    collapsed: bool
+
+
 def append_report_note(
     *,
     team_id: int,
@@ -402,29 +436,114 @@ def append_report_note(
     note: str,
     attribution: ArtefactAttribution,
     author: str | None = None,
-) -> str:
+) -> AppendedNote:
     """Append a free-form `note` artefact to an existing report (the `edit_report` annotate path).
 
     Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
     inbox report (decision #2), pipeline-authored ones included, so the note is attributed (to the
-    scout's task) to keep the edit auditable and distinguishable from pipeline output. Returns the
-    report_id on success.
+    scout's task) to keep the edit auditable and distinguishable from pipeline output.
+
+    Past `MAX_SCOUT_REPORT_NOTES` the call raises the report's `corroboration_count` and writes no
+    artefact. Most scout notes say the finding still holds, and a scout re-runs on its own schedule,
+    so left unbounded they bury the report's real work log under near-identical entries. The call
+    still succeeds either way: the row is what stops, not the ability to annotate.
+
+    The report row is locked for the read-then-increment so two runs appending at once cannot both
+    read the same count. The count is written with a queryset update so `updated_at` stays put — a
+    scout re-confirming a report has not changed it, and bumping the timestamp would reorder the
+    inbox and, on the pipeline side, read as the report still moving.
     """
     if not note or not note.strip():
         raise InvalidScoutReportError("note must not be empty")
     _validate_report_id(report_id)
     with transaction.atomic():
         # Existence is the team-scoped gate; the artefact append itself is keyed by report_id.
-        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
-            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
-        SignalReportArtefact.add_log(
-            team_id=team_id,
-            report_id=report_id,
-            content=NoteArtefact(note=note, author=author),
-            attribution=attribution,
+        existing = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("corroboration_count", flat=True)
+            .first()
         )
-    logger.info("signals_scout.edit_report: note appended", extra={"team_id": team_id, "report_id": report_id})
-    return report_id
+        if existing is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        collapsed = existing >= MAX_SCOUT_REPORT_NOTES
+        corroboration_count = existing + 1
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(corroboration_count=corroboration_count)
+        if not collapsed:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=note, author=author),
+                attribution=attribution,
+            )
+    logger.info(
+        "signals_scout.edit_report: note appended",
+        extra={
+            "team_id": team_id,
+            "report_id": report_id,
+            "corroboration_count": corroboration_count,
+            "collapsed": collapsed,
+        },
+    )
+    return AppendedNote(report_id=report_id, corroboration_count=corroboration_count, collapsed=collapsed)
+
+
+def record_content_revision(*, team_id: int, report_id: str) -> int:
+    """Count one scout rewrite of a report's title or summary and return the report's new total.
+
+    Kept out of `update_scout_report` so the field list that call returns stays the report's
+    presentation fields, which is what the edit echoes back to the scout. Locked and written the
+    same way as `append_report_note` above, and for the same reasons.
+    """
+    _validate_report_id(report_id)
+    with transaction.atomic():
+        existing = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("content_revision_count", flat=True)
+            .first()
+        )
+        if existing is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        content_revision_count = existing + 1
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(content_revision_count=content_revision_count)
+    return content_revision_count
+
+
+def record_implementation_decision(
+    *,
+    team_id: int,
+    report_id: str,
+    supersede: bool,
+    updated_fields: list[str],
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> None:
+    """Record what this rewrite means for the report's pull request, as the same
+    `implementation_decision` artefact the research agent writes.
+
+    One shape for both producers, so auto-start reads the decision the same way regardless of who
+    made it. The reason names the rewrite rather than restating it: the report's new summary is the
+    argument, and this artefact only has to say which version of it the open pull request predates.
+
+    Written on every content revision, including the ones that claim nothing. The artefact is
+    latest-wins and auto-start re-reads it from paths a scout never sees (a reviewer edit, a later
+    research pass), so leaving an old `supersede=True` standing after a rewrite that made no such
+    claim would let one of those paths open a replacement off a decision nobody made.
+    """
+    fields = " and ".join(sorted(updated_fields)) or "content"
+    who = author or "A scout"
+    reason = (
+        f"{who} rewrote the report's {fields}. The open pull request was built from the version before that rewrite."
+        if supersede
+        else f"{who} rewrote the report's {fields} without changing what the fix should be."
+    )
+    SignalReportArtefact.append_status(
+        team_id=team_id,
+        report_id=report_id,
+        content=ImplementationDecision(supersede=supersede, reason=reason),
+        attribution=attribution,
+    )
 
 
 def set_report_charts(
