@@ -194,6 +194,21 @@ interface SaveContext {
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
 }
 
+type ScheduleWrite = 'set' | 'removed' | null
+
+// Saving used to deploy immediately, so the changed contract needs a loud cue at the moment of
+// saving, not only the status bar. The schedule sits outside the draft, so a schedule save is
+// already live and the toast has to say so.
+function draftSavedMessage(scheduleWrite: ScheduleWrite): string {
+    if (scheduleWrite === 'set') {
+        return 'Draft saved. The new schedule applies to the live workflow now. Your other changes go live when you publish.'
+    }
+    if (scheduleWrite === 'removed') {
+        return 'Draft saved. The live workflow is no longer scheduled. Your other changes go live when you publish.'
+    }
+    return 'Draft saved. The live version keeps running until you publish.'
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -4045,7 +4060,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 const hasScheduleChanges = pendingSchedule !== false && !!workflowId
 
                 // What the save did to the live schedule, so the toast can say it.
-                let scheduleWrite: 'set' | 'removed' | null = null
+                let scheduleWrite: ScheduleWrite = null
 
                 if (hasScheduleChanges) {
                     try {
@@ -4077,18 +4092,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 if (originalWorkflow.draft) {
-                    // Saving used to deploy immediately, so the changed contract needs a loud cue at
-                    // the moment of saving, not only the status bar.
-                    let message = 'Draft saved. The live version keeps running until you publish.'
-                    // The schedule sits outside the draft, so a schedule save is already live.
-                    if (scheduleWrite === 'set') {
-                        message =
-                            'Draft saved. The new schedule applies to the live workflow now. Your other changes go live when you publish.'
-                    } else if (scheduleWrite === 'removed') {
-                        message =
-                            'Draft saved. The live workflow is no longer scheduled. Your other changes go live when you publish.'
-                    }
-                    lemonToast.success(message, {
+                    lemonToast.success(draftSavedMessage(scheduleWrite), {
                         button: {
                             label: 'Publish',
                             action: () => actions.publishDraft(),
