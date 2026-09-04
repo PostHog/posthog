@@ -16,7 +16,12 @@ from posthog.errors import (
     ExposedCHQueryError,
     QueryErrorCategory,
 )
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
@@ -492,13 +497,20 @@ async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_t
     assert execution.plan_invalidating_failed_count == 1
 
 
+@pytest.mark.parametrize(
+    "capacity_error",
+    [
+        pytest.param(ClickHouseAtCapacity(), id="clickhouse_at_capacity"),
+        pytest.param(ClickHouseClusterMemoryLimitExceeded(), id="cluster_memory_limit"),
+    ],
+)
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_preserves_plan_for_transient_capacity_error(
-    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock, capacity_error: BaseException
 ) -> None:
     error = MaxToolRetryableError("Query temporarily unavailable")
-    error.__context__ = ClickHouseAtCapacity()
+    error.__context__ = capacity_error
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
 
     execution = await _run_steps(

@@ -156,6 +156,15 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
 
     if QueryErrorCategory.QUERY_PERFORMANCE_ERROR in categories:
         return QueryRepairDecision(repair_hint=_QUERY_PERFORMANCE_REPAIR_HINT, invalidates_plan=True)
+    # Preserve a plan only when every classified failure is explicitly self-recoverable. Check this
+    # before safe messages because capacity exceptions may be both user-safe and transient.
+    if (
+        categories
+        and categories <= _SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES
+        and not has_unknown_query_status_error
+        and not has_unclassified_error
+    ):
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
     if safe_message is not None:
         return QueryRepairDecision(repair_hint=safe_message, invalidates_plan=True)
     if QueryErrorCategory.USER_ERROR in categories:
@@ -165,10 +174,6 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         )
     if has_unknown_query_status_error or has_unclassified_error:
         return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
-    # Preserve a plan only when every classified failure is explicitly self-recoverable. This is
-    # deliberately fail-closed so a capacity error cannot mask another unknown or structural cause.
-    if categories and categories <= _SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES:
-        return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
     if has_retryable_error:
         return QueryRepairDecision(repair_hint=_GENERIC_QUERY_REPAIR_HINT, invalidates_plan=True)
     return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
