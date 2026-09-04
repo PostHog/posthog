@@ -234,11 +234,14 @@ async function executeQuery<N extends DataNode>(
         // saw fail, so ask the question again.
         // Not every 404 is an expired status: a managed warehouse whose connection is down answers
         // with one too, and its message is what the user needs to see.
-        // Poll-only callers cannot ask again, having been handed an ID and never the query.
-        if (pollOnly || retriedAfterExpiry || e?.status !== 404 || e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE) {
+        if (retriedAfterExpiry || e?.status !== 404 || e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE) {
             throw e
         }
-        return await executeQuery(
+        // Poll-only callers ask again too. In production the flag means "resume the recompute the
+        // server attached to these cached results" (dataNodeLogic sets it from a running query id),
+        // and that caller holds the query, so an insight or dashboard tile resuming a recompute
+        // hits this same expiry. A view that may only GET is caught below instead.
+        return await resubmit(
             queryNode,
             methodOptions,
             // A forced run that finished has cached what it computed, so the retry reads that
@@ -256,11 +259,25 @@ async function executeQuery<N extends DataNode>(
             setPollResponse,
             filtersOverride,
             variablesOverride,
-            pollOnly,
+            // The retry has to submit, which is the one thing a poll-only call skips.
+            false,
             limitContext,
             acceptStaleCache,
             true
         )
+
+        async function resubmit(...args: Parameters<typeof executeQuery<N>>): Promise<NonNullable<N['response']>> {
+            try {
+                return await executeQuery(...args)
+            } catch (resubmitError: any) {
+                // A shared or exported view may only GET, so its resubmission is refused. The
+                // expired status describes what happened better than a permission error does.
+                if (resubmitError?.status === 401 || resubmitError?.status === 403) {
+                    throw e
+                }
+                throw resubmitError
+            }
+        }
     }
     return statusResponse.results
 }

@@ -348,15 +348,28 @@ describe('query', () => {
             expect(statusSpy).toHaveBeenCalledTimes(2)
         })
 
-        it('reports the error to a caller that only has an id to poll', async () => {
-            const querySpy = jest.spyOn(api, 'query')
+        it('runs the query again for a tile resuming a recompute, which polls by id but holds the query', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
 
             await expect(
-                performQuery(query, undefined, 'async', 'handed-to-us', undefined, undefined, undefined, true)
-            ).rejects.toMatchObject({ status: 404 })
+                performQuery(query, undefined, 'async', 'resumed', undefined, undefined, undefined, true)
+            ).resolves.toMatchObject({ results: ['from the cache'] })
 
-            expect(querySpy).not.toHaveBeenCalled()
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps the expired status when a view that may only read is refused', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(new ApiError('forbidden', 403))
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            // A shared or exported dashboard cannot submit, and its permission error describes
+            // what happened worse than the expired status does.
+            await expect(
+                performQuery(query, undefined, 'async', 'shared', undefined, undefined, undefined, true)
+            ).rejects.toMatchObject({ status: 404 })
         })
     })
 
