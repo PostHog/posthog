@@ -14,7 +14,10 @@ export function buildElementRecordingsFilters(
     return {
         date_from: commonFilters.date_from,
         date_to: commonFilters.date_to,
-        filter_test_accounts: commonFilters.filter_test_accounts,
+        // The clickmap counts come from a stats request that sends no test-account filter, so pin
+        // the link to the same unfiltered set. Omitting the key would let replay apply its own
+        // stored default and hide sessions the counts included.
+        filter_test_accounts: false,
         // Replay applies its default minimum duration to any key the link omits. Clear it, because
         // the clickmap counts every click, including the ones in sessions shorter than that minimum.
         duration: [],

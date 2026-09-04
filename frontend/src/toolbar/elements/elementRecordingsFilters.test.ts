@@ -16,7 +16,8 @@ describe('buildElementRecordingsFilters', () => {
         )
 
         expect(filters.date_from).toBe('-7d')
-        expect(filters.filter_test_accounts).toBe(true)
+        // pinned off even though commonFilters asks for it, because the counts are unfiltered
+        expect(filters.filter_test_accounts).toBe(false)
         expect(filters.duration).toEqual([])
 
         const [event] = (filters.filter_group?.values[0] as any).values
