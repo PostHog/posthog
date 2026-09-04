@@ -4469,6 +4469,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     excludeAttributes?: boolean
     /** Show logs for a given person */
     personId?: string
+    /** Show logs for a given session ID */
+    sessionId?: string
     /**
      * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
      * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
@@ -10071,6 +10073,7 @@ export enum ProductKey {
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
+    BUSINESS_KNOWLEDGE = 'business_knowledge',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
@@ -10109,11 +10112,15 @@ export enum ProductKey {
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     POSTHOG_AI_ONBOARDING = 'posthog_ai_onboarding',
+    POSTHOG_DESKTOP = 'posthog_desktop',
+    POSTHOG_GITHUB = 'posthog_github',
+    POSTHOG_SLACK = 'posthog_slack',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     PULSE = 'pulse',
     REVENUE_ANALYTICS = 'revenue_analytics',
     REVIEW_HOG = 'review_hog',
+    SELF_DRIVING = 'self_driving',
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',

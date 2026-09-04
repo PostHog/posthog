@@ -15,6 +15,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 use usage_ingestion::config::Config;
+use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator};
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
@@ -70,11 +71,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register("kafka_producer".to_string(), Duration::from_secs(30))
         .await;
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
+    let grpc_max_connection_age = config.grpc_max_connection_age();
+    let redis_counter_config = config.redis_counter_config();
+    let counters = (!config.redis_url.is_empty()).then(|| {
+        Arc::new(CounterAccumulator::new(
+            redis_counter_config.max_series_per_bucket,
+        ))
+    });
     let service = UsageIngestionService::new(
         producer,
         resolver,
         config.max_batch_size,
         config.topic.clone(),
+        counters.as_ref().map(Arc::clone),
     );
 
     // Buckets only for the shared gRPC histogram, so it renders the same way personhog's does
@@ -89,6 +98,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             GRPC_DURATION_BUCKETS_MS,
         )?
         .install_recorder()?;
+    if let Some(accumulator) = counters {
+        spawn_flush_task(
+            accumulator,
+            config.redis_url,
+            Duration::from_secs(config.redis_flush_interval_seconds),
+            redis_counter_config,
+        );
+    }
     let metrics_address = config.metrics_address.clone();
     let health_for_routes = health.clone();
     tokio::spawn(async move {
@@ -121,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
     // synchronized reconnect shows up as a latency sawtooth.
     let mut builder = Server::builder();
-    if let Some(age) = config.grpc_max_connection_age() {
+    if let Some(age) = grpc_max_connection_age {
         builder = builder.max_connection_age(age);
     }
     builder

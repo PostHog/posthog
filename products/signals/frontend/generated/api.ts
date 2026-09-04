@@ -32,6 +32,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     PullRequestChecksResponseApi,
+    PullRequestCiStatusesResponseApi,
     PullRequestCommentsResponseApi,
     PullRequestReviewCommentCreateApi,
     PullRequestReviewCommentCreateResponseApi,
@@ -60,6 +61,7 @@ import type {
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
+    SignalReportClaimApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
     SignalReportRefundRequestApi,
@@ -79,6 +81,7 @@ import type {
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
+    SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
     SignalsScoutMembersListParams,
@@ -240,6 +243,28 @@ export const signalsReportsPartialUpdate = async (
     })
 }
 
+export const getSignalsReportsClaimUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/claim/`
+}
+
+/**
+ * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * @summary Claim or release a signal report
+ */
+export const signalsReportsClaim = async (
+    projectId: string,
+    id: string,
+    signalReportClaimApi?: SignalReportClaimApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsClaimUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportClaimApi),
+    })
+}
+
 export const getSignalsReportsFeedbackCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/feedback/`
 }
@@ -267,7 +292,7 @@ export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Fetch the CI status (GitHub Actions check runs and legacy commit statuses) of the pull request the report's implementation task opened, via the team's GitHub integration.
+ * Fetch the CI status (GitHub Actions check runs and legacy commit statuses) of the pull request attached to the report, via the team's GitHub integration.
  * @summary Fetch CI checks for a report's implementation PR
  */
 export const signalsReportPrChecks = async (
@@ -687,6 +712,37 @@ export const signalsReportsBulkStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportBulkStateRequestApi),
+    })
+}
+
+export const getSignalsReportsPrCiStatusesUrl = (projectId: string, params: SignalsReportsPrCiStatusesParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/pr_ci_statuses/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/pr_ci_statuses/`
+}
+
+/**
+ * Resolve the coarse CI rollup of the pull requests several reports opened, so a list of reports can show which pull requests are red without opening each report. One GitHub call covers the whole batch, and the answers are cached briefly and shared across callers. A report is left out when it has no open implementation pull request, and also when GitHub could not answer for it (no integration reaches the repository, a rate limit, an upstream failure), so a caller shows no CI state for it rather than an error. For the individual checks behind the rollup, use `pr_checks`.
+ * @summary Fetch CI status for several reports' implementation PRs
+ */
+export const signalsReportsPrCiStatuses = async (
+    projectId: string,
+    params: SignalsReportsPrCiStatusesParams,
+    options?: RequestInit
+): Promise<PullRequestCiStatusesResponseApi> => {
+    return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1398,7 +1454,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (
