@@ -164,13 +164,25 @@ engine=Distributed(
 > Do not use `ON CLUSTER` clause, it causes issues and is incompatible with our migration setup.
 
 > [!CAUTION]
-> Never write a `DROP COLUMN` migration on your own. `DROP COLUMN` can get stuck in ClickHouse
-> and block releases. Column removal follows a two-step process:
+> Never write a migration that runs a ClickHouse mutation on your own. A mutation rewrites every
+> part of the table: `DROP COLUMN`, `DROP INDEX`, `DROP PROJECTION`, `MATERIALIZE INDEX`,
+> `MATERIALIZE COLUMN`, `MATERIALIZE TTL`, `MODIFY TTL`, `RENAME COLUMN`, `MODIFY COLUMN` with a
+> type, `CLEAR ...`, `UPDATE`, `DELETE`. A table that already has unfinished mutations rejects new
+> ones (`Too many unfinished mutations`), and `sharded_events` always has deletions in flight, so
+> the migration fails on every retry and blocks every deploy behind it (this happened on
+> 2026-09-04 with a `DROP INDEX`, https://posthog.slack.com/archives/C0185UNBSJZ/p1788503855373249).
+> On `sharded_events` a mutation may also never finish in prod. Schema changes that need one
+> follow a two-step process:
 >
-> 1. The ClickHouse team drops the column directly on the cluster.
-> 2. You write a migration with the matching `DROP COLUMN` to keep the codebase schema in sync.
+> 1. The ClickHouse team applies the change directly on every cloud environment.
+> 2. You write a migration with the matching statement (guarded with `IF EXISTS` / `IF NOT EXISTS`
+>    so it is a no-op there) and set `CLICKHOUSE_TEAM_APPLIED_MUTATION = "<date, who, link>"` at
+>    module level. `posthog/clickhouse/test/test_migrations.py` fails any migration from 0314 on
+>    that runs a mutation without that attestation.
 >
-> Do not initiate step 2 without confirmation that step 1 has been completed.
+> Do not initiate step 2 without confirmation that step 1 has been completed. Adding an index or
+> column is metadata-only and needs none of this; replacing an index means `ADD` under a new name,
+> never `DROP` + `ADD`.
 
 > [!INFO]
 > Always use `IF EXISTS` / `IF NOT EXISTS` guards. For `ALTER TABLE` the guard goes on the

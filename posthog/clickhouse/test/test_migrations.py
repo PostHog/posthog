@@ -9,8 +9,10 @@ from pathlib import Path
 from unittest import TestCase, mock
 
 from infi.clickhouse_orm.utils import import_submodules
+from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import DATA_NODE_ROLES, NodeRole
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 # Migrations created before this validation existed are grandfathered.
 MIN_CHECKED_MIGRATION_NUMBER = 150
@@ -18,6 +20,47 @@ MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
 # `operations` lists can be cloud-gated; re-evaluate them under each prod-shaped value plus
 # the unset default so gated branches don't silently bypass the guard.
 CLOUD_DEPLOYMENTS_TO_CHECK = ("", "US", "EU", "DEV")
+# Migrations from this number on may not run ClickHouse mutations (earlier ones are grandfathered).
+MIN_MUTATION_CHECKED_MIGRATION_NUMBER = 314
+# A migration that has to carry a mutation (the ClickHouse team already applied it on every cloud environment, so the
+# IF EXISTS-guarded statement is a no-op there) attests to that with this module attribute.
+MUTATION_ATTESTATION_ATTRIBUTE = "CLICKHOUSE_TEAM_APPLIED_MUTATION"
+
+# ALTER commands ClickHouse executes as a mutation over every part (AlterCommand::isRequireMutationStage and the
+# MutationCommand types) plus the lightweight-delete form. `MODIFY COLUMN` counts only with a type; a COMMENT, DEFAULT,
+# CODEC or SETTINGS change is metadata. `MODIFY TTL` counts because materialize_ttl_after_modify queues one.
+_MUTATION_COMMAND = re.compile(
+    r"\b(?:"
+    r"DROP\s+(?:COLUMN|INDEX|PROJECTION|STATISTICS?)"
+    r"|MATERIALIZE\s+(?:COLUMN|INDEX|PROJECTION|TTL|STATISTICS?)"
+    r"|CLEAR\s+(?:COLUMN|INDEX|PROJECTION|STATISTICS?)"
+    r"|RENAME\s+COLUMN"
+    r"|MODIFY\s+TTL"
+    r"|MODIFY\s+COLUMN\s+(?:IF\s+EXISTS\s+)?\S+\s+(?!COMMENT\b|DEFAULT\b|CODEC\b|REMOVE\b|MODIFY\b|RESET\b|TTL\b|SETTINGS\b)[A-Za-z]"
+    r"|APPLY\s+DELETED\s+MASK"
+    r"|UPDATE\s+\S+\s*="
+    r"|DELETE\s+WHERE"
+    r"|DELETE\s+FROM"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def mutation_command(sql: str) -> str | None:
+    """The first ALTER command in `sql` that ClickHouse runs as a mutation, or None."""
+    match = _MUTATION_COMMAND.search(sql)
+    return match.group(0) if match else None
+
+
+def mutation_error(command: str) -> str:
+    return (
+        f"`{command}` runs as a ClickHouse mutation that rewrites every part of the table. Migrations must not run "
+        "mutations: a table with unfinished mutations (sharded_events always has deletions in flight) rejects new ones "
+        "with `Too many unfinished mutations`, which blocked every deploy on 2026-09-04, and on sharded_events a "
+        "mutation may never finish in prod. Have the ClickHouse team apply the change on every cloud environment "
+        f'first, then set {MUTATION_ATTESTATION_ATTRIBUTE} = "<date, who, link>" in the migration so the IF EXISTS-guarded '
+        "statement is a no-op there. See posthog/clickhouse/migrations/AGENTS.md."
+    )
 
 
 class TestUniqueMigrationPrefixes(TestCase):
@@ -137,14 +180,18 @@ class TestUniqueMigrationPrefixes(TestCase):
 
         return errors
 
-    def _check_operations(self, migration_name: str, operations, deployment_label: str, *, full: bool) -> list[dict]:
+    def _check_operations(
+        self, migration_name: str, operations, deployment_label: str, *, full: bool, attested: bool = False
+    ) -> list[dict]:
         """Walk a migration's operations and return any convention violations.
 
         ``full=False`` is used for per-deployment passes: it only runs the cheap, deployment-
-        agnostic checks (ON CLUSTER + missing _sql) so cloud-gated branches don't get flagged
-        against legacy ALTER-TABLE flag rules they already shipped past.
+        agnostic checks (ON CLUSTER, missing _sql, mutations) so cloud-gated branches don't get
+        flagged against legacy ALTER-TABLE flag rules they already shipped past. ``attested`` skips
+        the mutation check for a migration carrying ``MUTATION_ATTESTATION_ATTRIBUTE``.
         """
         violations: list[dict] = []
+        check_mutations = not attested and int(migration_name.split("_", 1)[0]) >= MIN_MUTATION_CHECKED_MIGRATION_NUMBER
         for idx, operation in enumerate(operations):
             sql = getattr(operation, "_sql", None)
             if sql is None:
@@ -170,6 +217,8 @@ class TestUniqueMigrationPrefixes(TestCase):
             errors: list[str] = []
             if "ON CLUSTER" in sql:
                 errors.append("ON CLUSTER is not supposed to be used in migrations")
+            if check_mutations and (command := mutation_command(sql)):
+                errors.append(mutation_error(command))
             if full:
                 errors += self.check_alter_table(
                     sql,
@@ -191,6 +240,77 @@ class TestUniqueMigrationPrefixes(TestCase):
                     }
                 )
         return violations
+
+    @parameterized.expand(
+        [
+            ("drop_index", "ALTER TABLE sharded_events DROP INDEX IF EXISTS `bloom_filter_$session_id`", "DROP INDEX"),
+            ("drop_column", "ALTER TABLE sharded_events DROP COLUMN IF EXISTS mat_foo", "DROP COLUMN"),
+            ("drop_projection", "ALTER TABLE events DROP PROJECTION IF EXISTS p", "DROP PROJECTION"),
+            ("materialize_index", "ALTER TABLE property_values MATERIALIZE INDEX idx", "MATERIALIZE INDEX"),
+            ("materialize_column", "ALTER TABLE sharded_events MATERIALIZE COLUMN mat_foo", "MATERIALIZE COLUMN"),
+            ("rename_column", "ALTER TABLE t RENAME COLUMN a TO b", "RENAME COLUMN"),
+            ("modify_column_type", "ALTER TABLE t MODIFY COLUMN a Nullable(String)", "MODIFY COLUMN a N"),
+            ("modify_ttl", "ALTER TABLE t MODIFY TTL timestamp + INTERVAL 30 DAY", "MODIFY TTL"),
+            ("clear_column", "ALTER TABLE t CLEAR COLUMN a IN PARTITION '202609'", "CLEAR COLUMN"),
+            ("update", "ALTER TABLE t UPDATE a = 1 WHERE b = 2", "UPDATE a ="),
+            ("delete", "ALTER TABLE t DELETE WHERE team_id = 1", "DELETE WHERE"),
+            ("lightweight_delete", "DELETE FROM t WHERE team_id = 1", "DELETE FROM"),
+        ]
+    )
+    def test_mutation_command_is_detected(self, _name: str, sql: str, expected: str) -> None:
+        assert mutation_command(sql) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "add_index",
+                "ALTER TABLE sharded_events ADD INDEX IF NOT EXISTS i `$session_id` TYPE bloom_filter GRANULARITY 1",
+            ),
+            ("add_column", "ALTER TABLE sharded_events ADD COLUMN IF NOT EXISTS mat_foo String"),
+            (
+                "modify_column_comment",
+                "ALTER TABLE sharded_events MODIFY COLUMN mat_foo COMMENT 'column_materializer::foo'",
+            ),
+            ("modify_column_codec", "ALTER TABLE t MODIFY COLUMN a CODEC(ZSTD(3))"),
+            ("modify_setting", "ALTER TABLE t MODIFY SETTING index_granularity = 8192"),
+            ("drop_table", "DROP TABLE IF EXISTS t SYNC"),
+            ("drop_partition", "ALTER TABLE t DROP PARTITION '202609'"),
+            (
+                "create_table_with_index",
+                "CREATE TABLE t (a String, INDEX i a TYPE minmax GRANULARITY 1) ENGINE = MergeTree ORDER BY a",
+            ),
+        ]
+    )
+    def test_metadata_only_statement_is_not_a_mutation(self, _name: str, sql: str) -> None:
+        assert mutation_command(sql) is None
+
+    def test_mutation_in_a_migration_fails_unless_the_clickhouse_team_applied_it(self) -> None:
+        operations = [
+            run_sql_with_exceptions(
+                "ALTER TABLE sharded_events DROP INDEX IF EXISTS `bloom_filter_$session_id`",
+                sharded=True,
+                is_alter_on_replicated_table=True,
+            )
+        ]
+
+        violations = self._check_operations("0314_example", operations, "<default>", full=True)
+        attested = self._check_operations("0314_example", operations, "<default>", full=True, attested=True)
+
+        assert [v["errors"] for v in violations] == [[mutation_error("DROP INDEX")]]
+        assert attested == []
+
+    def test_mutations_are_allowed_in_migrations_before_the_cutoff(self) -> None:
+        operations = [
+            run_sql_with_exceptions(
+                "ALTER TABLE property_values MATERIALIZE INDEX idx", sharded=False, is_alter_on_replicated_table=True
+            )
+        ]
+
+        assert self._check_operations("0262_example", operations, "<default>", full=True) == []
+
+    @staticmethod
+    def _attested(module) -> bool:
+        return bool(getattr(module, MUTATION_ATTESTATION_ATTRIBUTE, ""))
 
     @staticmethod
     def _checked_modules():
@@ -218,7 +338,9 @@ class TestUniqueMigrationPrefixes(TestCase):
             operations = getattr(module, "operations", None)
             if operations is None:
                 continue
-            violations += self._check_operations(name, operations, "<default>", full=True)
+            violations += self._check_operations(
+                name, operations, "<default>", full=True, attested=self._attested(module)
+            )
 
         # Other prod-shaped deployments: cheap deployment-agnostic checks only. We skip the
         # ALTER flag check here because some legacy cloud-gated migrations shipped without it
@@ -238,7 +360,9 @@ class TestUniqueMigrationPrefixes(TestCase):
                         operations = getattr(module, "operations", None)
                         if operations is None:
                             continue
-                        violations += self._check_operations(name, operations, deployment, full=False)
+                        violations += self._check_operations(
+                            name, operations, deployment, full=False, attested=self._attested(module)
+                        )
         finally:
             # `importlib.reload` mutates the module in place, so the patched-CLOUD_DEPLOYMENT
             # version of each top-level `operations` list survives in sys.modules after the
