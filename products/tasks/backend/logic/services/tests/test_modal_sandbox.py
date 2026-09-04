@@ -542,6 +542,30 @@ class TestModalSandboxAgentServer:
         launch_index = next(index for index, command in enumerate(commands) if "agent-server" in command)
         assert clear_index < launch_index
 
+    def test_start_agent_server_clears_bundled_skills_even_when_the_server_is_already_healthy(
+        self, mock_sandbox: Any
+    ) -> None:
+        # Images that boot the agent server take the no-relaunch shortcut; the clear must still run.
+        mock_sandbox.config = SandboxConfig(
+            name="test-sandbox",
+            environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
+        )
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        with patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                wait_for_health=False,
+            )
+
+        commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
+        assert any("rm -rf" in command and "skills" in command for command in commands)
+        assert not any("agent-server" in command for command in commands)
+
     def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
