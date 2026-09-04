@@ -2,7 +2,7 @@ import json
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import CharField, Count, F, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
@@ -128,10 +128,29 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 GOAL_FLOW_FLAG = "vision-goal-based-creation-flow"
 
 
-def _goal_flow_enabled(user: User, team: Team) -> bool:
-    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
-    it returns True for EVERY variant, control included, which would ship the new flow to the
-    experiment's control group."""
+class ScannerCreationMethod(models.TextChoices):
+    """How a person built a scanner in the UI. Reported once at creation, never stored.
+
+    Shares its values with the `creation_method` property on `replay_vision_scanner_creation_started`,
+    which the app sends when the person picks a path. Same words at both ends, so a report can see
+    who switched paths between starting and saving.
+
+    Separate from the creation-flow experiment arm, which says only which flow a person was offered.
+    Someone offered the AI flow can still fill the form by hand, so this is what says what they did.
+    """
+
+    AI = "ai", "AI draft"
+    TEMPLATE = "template", "Template"
+    SCRATCH = "scratch", "From scratch"
+
+
+def _goal_flow_variant(user: User, team: Team) -> str | None:
+    """The user's arm of the creation-flow experiment, or None when the flag is off for them.
+
+    Never sends an exposure event. The frontend already records one when a person opens the editor,
+    which is the point they enter the flow; a second exposure from here would also enroll API-only
+    callers who never see the UI.
+    """
     variant = get_feature_flag_or_none(
         GOAL_FLOW_FLAG,
         str(user.distinct_id),
@@ -139,7 +158,14 @@ def _goal_flow_enabled(user: User, team: Team) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
-    return isinstance(variant, str) and variant != "control"
+    return variant if isinstance(variant, str) else None
+
+
+def _goal_flow_enabled(user: User, team: Team) -> bool:
+    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
+    it returns True for EVERY variant, control included, which would ship the new flow to the
+    experiment's control group."""
+    return (variant := _goal_flow_variant(user, team)) is not None and variant != "control"
 
 
 def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
@@ -325,6 +351,18 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         choices=ScannerType.choices,
         help_text="What the scanner does: monitor, classifier, scorer, or summarizer.",
     )
+    creation_method = serializers.ChoiceField(
+        choices=ScannerCreationMethod.choices,
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "How the creator built this scanner: from an AI draft, from a template, or from scratch. "
+            "Reported to product analytics at creation and not stored on the scanner. Independent of "
+            "any experiment the creator is in, since a person offered the AI flow can still fill the "
+            "form by hand. Ignored on update."
+        ),
+    )
     scanner_config = serializers.JSONField(
         help_text=(
             "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, "
@@ -470,6 +508,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "description",
             "tags",
             "scanner_type",
+            "creation_method",
             "scanner_config",
             "query",
             "sampling_rate",
@@ -704,6 +743,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             )
         # Tags become TaggedItem rows below, not a scanner column.
         tags = validated_data.pop("tags", None)
+        # Telemetry only, so it must not reach the model constructor.
+        creation_method = validated_data.pop("creation_method", None)
         # One transaction so a failed tag write can't leave an untagged scanner behind. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -716,7 +757,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            _scanner_lifecycle_properties(scanner),
+            # Two different questions ride this event. `creation_flow_variant` is the experiment arm,
+            # read from the flag, so it carries intent to treat and keeps the arms comparable: someone
+            # offered the AI flow counts as treated even when they ignore it. `creation_method` is what
+            # the person actually did, which is what says whether AI-built scanners turn out better.
+            # None when the caller is not the app, since only the UI knows how the form was filled.
+            {
+                **_scanner_lifecycle_properties(scanner),
+                "creation_flow_variant": _goal_flow_variant(user, team),
+                "creation_method": creation_method,
+            },
             team=team,
             request=self.context.get("request"),
         )
@@ -726,6 +776,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Tags are not a scanner column: keep them out of the before/after getattr diff below.
         # The mixin's update (reached via super()) persists them as TaggedItem rows.
         tags = validated_data.pop("tags", None)
+        # A scanner is built once, so this says nothing about an edit. Dropped here because the UI
+        # PATCHes the whole form back and would otherwise send it into the getattr diff below.
+        validated_data.pop("creation_method", None)
         # Compared as tagify()d names, since that is what set_tags_on_object stores.
         tags_changed = tags is not None and {tagify(t) for t in tags} != set(
             instance.tagged_items.values_list("tag__name", flat=True)
