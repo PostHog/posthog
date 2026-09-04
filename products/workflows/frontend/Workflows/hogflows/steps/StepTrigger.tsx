@@ -1,6 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
     IconBolt,
@@ -58,6 +58,8 @@ import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/Hog
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { ConversionGoalEditor } from './components/ConversionGoalEditor'
+import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -372,7 +374,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                         users, use a batch trigger instead.
                     </p>
                     <LemonField.Pure error={validationResult?.errors?.schedule}>
-                        <RecurringSchedulePicker />
+                        <WorkflowRecurringSchedulePicker />
                     </LemonField.Pure>
                 </div>
             ) : node.data.config.type === 'batch' ? (
@@ -515,6 +517,25 @@ function StepTriggerConfigurationManual(): JSX.Element {
     )
 }
 
+function WorkflowRecurringSchedulePicker(): JSX.Element {
+    const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+        useActions(workflowLogic)
+
+    return (
+        <RecurringSchedulePicker
+            state={scheduleState}
+            startsAt={scheduleStartsAt}
+            timezone={scheduleTimezone}
+            repeating={isScheduleRepeating}
+            onStateChange={setScheduleState}
+            onStartsAtChange={setScheduleStartsAtFromPicker}
+            onTimezoneChange={setScheduleTimezone}
+            onRepeatingChange={setScheduleRepeating}
+        />
+    )
+}
+
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
     const isAccountAudience = filters?.audience_type === 'accounts'
@@ -580,7 +601,7 @@ function BatchScheduleSection(): JSX.Element {
         <>
             <LemonDivider />
             <LemonLabel showOptional>Schedule</LemonLabel>
-            <RecurringSchedulePicker />
+            <WorkflowRecurringSchedulePicker />
         </>
     )
 }
@@ -927,8 +948,6 @@ function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
 
-    const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
-
     return (
         <div className="flex flex-col py-2 w-full">
             <span className="flex gap-1 items-center">
@@ -943,41 +962,11 @@ function ConversionGoalSection(): JSX.Element {
                 considered converted.
             </p>
 
-            <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1 items-start">
-                    <LemonLabel>Detect conversion from property changes</LemonLabel>
-                    <PropertyFilters
-                        buttonText="Add property conversion"
-                        buttonClassName="grow-0"
-                        propertyFilters={workflow.conversion?.filters ?? []}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                        onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
-                        pageKey="workflow-conversion-properties"
-                        hideBehavioralCohorts
-                        operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
-                        logicalRowDivider
-                    />
-                </div>
-
-                <div className="flex flex-col gap-1 items-start w-full">
-                    <LemonLabel>Detect conversion from events</LemonLabel>
-                    <HogFlowEventFilters
-                        filtersKey="workflow-conversion-events"
-                        filters={conversionEventFilters}
-                        setFilters={(newFilters) =>
-                            setWorkflowValue('conversion', {
-                                ...workflow.conversion,
-                                events: newFilters ? [{ filters: newFilters }] : undefined,
-                            })
-                        }
-                        typeKey="workflow-conversion-event"
-                        buttonCopy="Add event"
-                    />
-                </div>
-            </div>
+            <ConversionGoalEditor
+                conversion={workflow.conversion}
+                onChange={(conversion) => setWorkflowValue('conversion', conversion)}
+                pageKey="workflow-conversion"
+            />
         </div>
     )
 }
@@ -987,12 +976,6 @@ function SendingRateLimitSection(): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
 
     const rateLimit = workflow.email_sending_rate_limit ?? null
-    // Mirror the count locally so clearing the field doesn't snap back to the committed value
-    // mid-edit; reconcile when the stored value changes externally (toggle, another editor).
-    const [displayCount, setDisplayCount] = useState<number | undefined>(rateLimit?.count)
-    useEffect(() => {
-        setDisplayCount(rateLimit?.count)
-    }, [rateLimit?.count])
 
     const hasEmailAction = workflow.actions.some((action) => action.type === 'function_email')
     // Stay visible while a limit is set even without an email step, so it can still be removed.
@@ -1003,72 +986,10 @@ function SendingRateLimitSection(): JSX.Element | null {
     return (
         <>
             <LemonDivider />
-            <div className="flex flex-col w-full py-2 gap-2">
-                <span className="flex gap-1 items-center">
-                    <IconClock className="text-lg" />
-                    <span className="text-md font-semibold">Email sending rate limit (optional)</span>
-                    <Tooltip title="Sending a large volume too quickly can hurt deliverability. Emails over the limit are delayed until capacity frees up, not dropped.">
-                        <IconInfo className="text-secondary" />
-                    </Tooltip>
-                </span>
-                <p className="mb-0">Spread this workflow's emails out over time instead of sending all at once.</p>
-                <LemonCheckbox
-                    checked={!!rateLimit}
-                    onChange={(checked) =>
-                        setWorkflowValue('email_sending_rate_limit', checked ? { count: 100, period: 'minute' } : null)
-                    }
-                    label="Limit sending rate"
-                    data-attr="workflow-email-rate-limit-toggle"
-                />
-                {rateLimit ? (
-                    <div className="flex items-center gap-2">
-                        <span>Send at most</span>
-                        <LemonInput
-                            type="number"
-                            size="small"
-                            className="w-24"
-                            min={1}
-                            // Mirror the API's accepted range (min_value=1, max_value=1_000_000) so an
-                            // out-of-range entry is clamped here instead of failing the workflow save.
-                            max={1_000_000}
-                            aria-label="Maximum emails per period"
-                            value={displayCount ?? NaN}
-                            onChange={(count) => {
-                                if (count == null || !Number.isFinite(count)) {
-                                    setDisplayCount(undefined)
-                                    return
-                                }
-                                const next = Math.min(1_000_000, Math.max(1, Math.floor(count)))
-                                setDisplayCount(next)
-                                setWorkflowValue('email_sending_rate_limit', { ...rateLimit, count: next })
-                            }}
-                            onBlur={() =>
-                                displayCount === undefined
-                                    ? setDisplayCount(rateLimit.count)
-                                    : setWorkflowValue('email_sending_rate_limit', {
-                                          ...rateLimit,
-                                          count: displayCount,
-                                      })
-                            }
-                            data-attr="workflow-email-rate-limit-count"
-                        />
-                        <span>emails per</span>
-                        <LemonSelect
-                            size="small"
-                            aria-label="Rate limit period"
-                            value={rateLimit.period}
-                            options={[
-                                { value: 'minute' as const, label: 'minute' },
-                                { value: 'hour' as const, label: 'hour' },
-                            ]}
-                            onChange={(period) =>
-                                setWorkflowValue('email_sending_rate_limit', { ...rateLimit, period })
-                            }
-                            data-attr="workflow-email-rate-limit-period"
-                        />
-                    </div>
-                ) : null}
-            </div>
+            <EmailSendingRateLimitPicker
+                value={rateLimit}
+                onChange={(value) => setWorkflowValue('email_sending_rate_limit', value)}
+            />
         </>
     )
 }
