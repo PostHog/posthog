@@ -21,17 +21,14 @@ from random import choice
 from django.db.models import Q
 
 from posthog.models.organization import Organization
-from posthog.models.product_intent.product_intent import (
-    ACTIVATION_CHECK_PRODUCT_KEYS,
-    SURFACE_ADOPTION_CHECKS,
-    ProductIntent,
-)
+from posthog.models.product_intent.product_intent import ACTIVATION_CHECK_PRODUCT_KEYS, ProductIntent
 from posthog.models.project import Project
 from posthog.products import Products
 from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import is_retry_eligible
+from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS
 
 # The order in which we push products to organizations that don't use them yet.
 # Seeded from the preference weights of the retired cross-sell suggester, whose
@@ -138,9 +135,7 @@ def get_org_used_product_keys(organization: Organization) -> set[str]:
 
     used = {product for product, projects in projects_using.items() if len(projects) * 2 > total_projects}
 
-    # Growth surfaces are org-wide: one connection/acceptance/acted-on report anywhere in the
-    # org counts, and the direct check also excludes orgs that adopted before this shipped and
-    # so have no ProductIntent row yet.
+    # Surfaces adopt org-wide from live state, not a ProductIntent row (see surfaces.py).
     for surface_key, is_adopted in SURFACE_ADOPTION_CHECKS.items():
         if is_adopted(organization.id):
             used.add(surface_key)

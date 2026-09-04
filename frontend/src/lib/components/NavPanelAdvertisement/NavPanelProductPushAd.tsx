@@ -2,6 +2,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { isExternalLink } from 'lib/utils/url'
+
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 
 import { AdvertisementCard } from './navPanelAdShared'
@@ -21,7 +23,7 @@ export function NavPanelProductPushAd({ campaign }: { campaign: ProductPushCampa
         <div className="w-full">
             <Link
                 to={destination}
-                target={display.external ? '_blank' : undefined}
+                target={isExternalLink(destination) ? '_blank' : undefined}
                 className="text-primary"
                 onClick={() => reportAdClicked()}
             >

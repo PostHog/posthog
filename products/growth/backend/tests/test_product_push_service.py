@@ -138,18 +138,13 @@ class TestProductPushService(BaseTest):
         assert campaign.metadata["adoption_team_id"] == self.team.id
 
     def test_surface_campaign_closes_as_adopted_when_org_connects_it(self) -> None:
-        # End-to-end for a growth surface: connecting Slack fires the intent-capture receiver, which
-        # registers and activates the surface intent, so the active campaign closes as adopted.
+        # A surface campaign closes as adopted once the org connects the surface — here the Slack
+        # app — read straight from live state, with no ProductIntent involved.
         from posthog.models.integration.model import Integration
 
         campaign = self._active_campaign("posthog_slack")
         Integration.objects.create(
-            team=self.team,
-            kind=Integration.IntegrationKind.SLACK,
-            integration_id="T1",
-            config={},
-            errors="",
-            created_by=self.user,
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T1", config={}, errors=""
         )
 
         result = evaluate_and_close_campaign_batch([str(campaign.id)], self.now)
@@ -157,7 +152,7 @@ class TestProductPushService(BaseTest):
         assert result.adopted == 1
         campaign.refresh_from_db()
         assert campaign.status == ProductPushCampaign.Status.ADOPTED
-        assert campaign.metadata["adoption_signal"] == "intent_activated"
+        assert campaign.metadata["adoption_signal"] == "surface_connected"
 
     def test_activation_before_campaign_start_does_not_count(self) -> None:
         campaign = self._active_campaign("product_analytics", started_days_ago=5)

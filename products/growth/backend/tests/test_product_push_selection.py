@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.product_intent.product_intent import SURFACE_ADOPTION_CHECKS, ProductIntent
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.products import Products
 from posthog.schema_enums import ProductItemCategory
@@ -20,6 +20,7 @@ from products.growth.backend.product_push.selection import (
     get_org_used_product_keys,
     select_next_product,
 )
+from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 

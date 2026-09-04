@@ -29,7 +29,6 @@ export interface navPanelProductPushAdLogicValues {
     destination: string | undefined
     display: ProductPushDisplay
     flagGated: boolean
-    isSurface: boolean
     label: string | undefined
     productInfo: FileSystemImport | undefined
     shouldRender: boolean
@@ -55,16 +54,9 @@ export interface navPanelProductPushAdLogicMeta {
         productInfo: (arg: any) => FileSystemImport | undefined
         display: (arg: any) => ProductPushDisplay
         flagGated: (productInfo: FileSystemImport | undefined, featureFlags: FeatureFlagsSet) => boolean
-        isSurface: (display: ProductPushDisplay) => boolean
         destination: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | undefined
         label: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | undefined
-        shouldRender: (
-            hidden: boolean,
-            productInfo: FileSystemImport | undefined,
-            flagGated: boolean,
-            isSurface: boolean,
-            destination: string | undefined
-        ) => boolean
+        shouldRender: (hidden: boolean, flagGated: boolean, destination: string | undefined) => boolean
     }
 }
 
@@ -110,9 +102,7 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): boolean => !!productInfo?.flag && !(featureFlags as Record<string, boolean>)[productInfo.flag],
         ],
-        // Growth surfaces (Desktop, Slack, GitHub, Self-driving) aren't in the product catalog, so
-        // their card details come from the display config's own href/label rather than a catalog entry.
-        isSurface: [(s) => [s.display], (display: ProductPushDisplay): boolean => !!display.href],
+        // A surface links to its own href/label; a catalog product resolves them from its catalog entry.
         destination: [
             (s) => [s.display, s.productInfo],
             (display: ProductPushDisplay, productInfo: FileSystemImport | undefined): string | undefined =>
@@ -123,15 +113,11 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
             (display: ProductPushDisplay, productInfo: FileSystemImport | undefined): string | undefined =>
                 display.label ?? productInfo?.displayLabel ?? productInfo?.path,
         ],
+        // flagGated is always false for a surface (no catalog entry, so no flag), so this covers both.
         shouldRender: [
-            (s) => [s.hidden, s.productInfo, s.flagGated, s.isSurface, s.destination],
-            (
-                hidden: boolean,
-                productInfo: FileSystemImport | undefined,
-                flagGated: boolean,
-                isSurface: boolean,
-                destination: string | undefined
-            ): boolean => !hidden && !!destination && (isSurface || (!!productInfo && !flagGated)),
+            (s) => [s.hidden, s.flagGated, s.destination],
+            (hidden: boolean, flagGated: boolean, destination: string | undefined): boolean =>
+                !hidden && !!destination && !flagGated,
         ],
     }),
     listeners(({ props }) => {

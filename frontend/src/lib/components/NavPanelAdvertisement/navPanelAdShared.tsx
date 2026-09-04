@@ -61,9 +61,11 @@ export interface ProductPushDisplay {
     /** Hoggie illustration shown at the bottom of the promo card (a PNG, via `pngHoggie`). Mutually
      * exclusive with `Icon` — a card shows one or the other. */
     Hoggie?: React.ComponentType<AssetSvgProps>
-    /** Brand/product icon shown centered instead of a Hoggie. Growth surfaces (Desktop, Slack,
-     * GitHub, Self-driving) use their own logo rather than a hoggie. */
-    Icon?: React.ComponentType<{ className?: string }>
+    /** Pre-rendered brand logo shown instead of a Hoggie, for surfaces that aren't catalog products.
+     * The card positions and rotates it; the element carries its own size and color. */
+    Icon?: JSX.Element
+    /** Soft purple glow behind `Icon`, echoing the AI surfaces' sidebar treatment. */
+    iconBackdrop?: boolean
     /** Product brand color, used for the title and - mixed down - its highlight */
     accentColor: string
     /** Default promo copy, used when the campaign has no custom reason text */
@@ -74,8 +76,6 @@ export interface ProductPushDisplay {
     label?: string
     /** Destination the card links to. Absolute URL for external surfaces, in-app path otherwise. */
     href?: string
-    /** When true, `href` is external and the card opens it in a new tab */
-    external?: boolean
 }
 
 const DEFAULT_HOGGIE_OFFSET: Required<HoggieOffset> = { x: 50, y: 22 }
@@ -119,9 +119,15 @@ export function ProductHogHero({
             </div>
             <p className="mb-0 text-secondary">{text}</p>
             {hero.Icon ? (
-                // Growth surfaces show their own logo centered instead of a hoggie running off the edge.
-                <div className="-mx-2 mt-1 flex h-20 items-center justify-center" aria-hidden="true">
-                    <hero.Icon className="text-[52px]" />
+                // A surface has no hoggie: show its logo as a rotated mark tucked toward the
+                // bottom-right, bleeding slightly off the edge like the hoggies do.
+                <div className="relative -mx-2 -mt-1 h-24 overflow-hidden" aria-hidden="true">
+                    <div className="absolute -bottom-2 right-4 rotate-[14deg]">
+                        {hero.iconBackdrop ? (
+                            <div className="absolute inset-0 scale-[1.6] rounded-full bg-[var(--color-purple-200)] opacity-70 blur-xl" />
+                        ) : null}
+                        <div className="relative">{hero.Icon}</div>
+                    </div>
                 </div>
             ) : hero.Hoggie ? (
                 // Pulled out of the card's horizontal padding so `x` is a share of the full card width

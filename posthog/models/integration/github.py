@@ -226,23 +226,6 @@ class GitHubIntegration(GitHubIntegrationBase):
                 # that actually succeeded as a failure.
                 logger.exception("github_integration: failed to report integration created")
 
-            try:
-                # Growth's product push stops advertising "connect GitHub" once the org has, and
-                # closes an active GitHub campaign as adopted.
-                from posthog.models.product_intent.product_intent import (
-                    ProductIntent,  # noqa: PLC0415 — off the model import path
-                )
-                from posthog.schema_enums import ProductIntentContext, ProductKey  # noqa: PLC0415
-
-                ProductIntent.register(
-                    team=integration.team,
-                    product_type=ProductKey.POSTHOG_GITHUB,
-                    context=ProductIntentContext.GITHUB_INTEGRATION_CONNECTED,
-                    user=created_by,
-                )
-            except Exception:
-                logger.exception("github_integration: failed to record product intent")
-
         invalidate_github_repository_caches_for_installation(installation_id)
 
         return integration

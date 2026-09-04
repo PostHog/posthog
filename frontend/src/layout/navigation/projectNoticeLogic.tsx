@@ -72,7 +72,6 @@ function ProvisionedProductStrip(): JSX.Element {
             {FLAGSHIP_PRODUCT_KEYS.map((productKey) => {
                 const { Hoggie } = getProductPushDisplay(productKey)
                 const meta = brandingForProduct(productKey)
-                // Every flagship key has a hoggie; the guard just satisfies the now-optional type.
                 if (!Hoggie) {
                     return null
                 }
