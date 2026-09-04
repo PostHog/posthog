@@ -147,7 +147,7 @@ def search_github_file(
     url = f"https://api.github.com/search/code?q={encoded_query}"
 
     headers = {
-        "Authorization": f"token {token}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.text-match+json",
     }
 
