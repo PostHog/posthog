@@ -34,42 +34,47 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 
 Rows marked "in review" are not on `master` yet. See "Regenerating the lists" for a live count.
 
-| Product                | Scene                                                                               | Status                |
-| ---------------------- | ----------------------------------------------------------------------------------- | --------------------- |
-| MCP analytics          | `products/mcp_analytics/frontend/MCPAnalyticsScene.tsx`                             | on master (reference) |
-| LLM analytics          | `products/ai_observability/frontend/AIObservabilityScene.tsx`                       | on master             |
-| LLM prompts            | `products/ai_observability/frontend/prompts/LLMPromptsScene.tsx`                    | on master             |
-| Support                | `products/conversations/frontend/scenes/tickets/SupportTicketsScene.tsx`            | on master             |
-| Early access features  | `products/early_access_features/frontend/EarlyAccessFeatures.tsx`                   | on master             |
-| Endpoints              | `products/endpoints/frontend/EndpointsScene.tsx`                                    | on master             |
-| Experiments            | `products/experiments/frontend/scenes/ExperimentsScene.tsx`                         | on master             |
-| Feature flags          | `frontend/src/scenes/feature-flags/FeatureFlags.tsx`                                | on master             |
-| Links                  | `products/links/frontend/LinksScene.tsx`                                            | on master             |
-| Product tours          | `frontend/src/scenes/product-tours/ProductTours.tsx`                                | on master             |
-| Replay vision          | `products/replay_vision/frontend/replay_scanners/ReplayScannersScene.tsx`           | on master             |
-| Skills                 | `products/skills/frontend/LLMSkillsScene.tsx`                                       | on master             |
-| User interviews        | `products/user_interviews/frontend/UserInterviews.tsx`                              | on master             |
-| Web scripts            | `frontend/src/scenes/data-pipelines/WebScriptsScene.tsx`                            | on master             |
-| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | on master             |
-| Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | on master             |
-| Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | on master             |
-| Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | on master             |
-| Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | on master             |
-| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | on master             |
-| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | on master             |
-| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | on master             |
-| Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | on master             |
-| Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | on master             |
-| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | on master             |
-| Actions                | `products/actions/frontend/pages/Actions.tsx`                                       | on master             |
-| Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`                                   | on master             |
-| Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                           | on master             |
-| Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                           | on master             |
-| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`                              | on master             |
-| Notebooks              | `frontend/src/scenes/notebooks/NotebooksScene.tsx`                                  | on master             |
-| Alerts                 | `products/alerts/frontend/AlertsScene.tsx`                                          | on master             |
-| Data catalog           | `products/data_catalog/frontend/DataCatalogScene.tsx`                               | on master             |
-| Subscriptions          | `products/subscriptions/frontend/scenes/SubscriptionsScene.tsx`                     | on master             |
+| Product                | Scene                                                                                | Status                |
+| ---------------------- | ------------------------------------------------------------------------------------ | --------------------- |
+| MCP analytics          | `products/mcp_analytics/frontend/MCPAnalyticsScene.tsx`                              | on master (reference) |
+| LLM analytics          | `products/ai_observability/frontend/AIObservabilityScene.tsx`                        | on master             |
+| LLM prompts            | `products/ai_observability/frontend/prompts/LLMPromptsScene.tsx`                     | on master             |
+| Support                | `products/conversations/frontend/scenes/tickets/SupportTicketsScene.tsx`             | on master             |
+| Early access features  | `products/early_access_features/frontend/EarlyAccessFeatures.tsx`                    | on master             |
+| Endpoints              | `products/endpoints/frontend/EndpointsScene.tsx`                                     | on master             |
+| Experiments            | `products/experiments/frontend/scenes/ExperimentsScene.tsx`                          | on master             |
+| Feature flags          | `frontend/src/scenes/feature-flags/FeatureFlags.tsx`                                 | on master             |
+| Links                  | `products/links/frontend/LinksScene.tsx`                                             | on master             |
+| Product tours          | `frontend/src/scenes/product-tours/ProductTours.tsx`                                 | on master             |
+| Replay vision          | `products/replay_vision/frontend/replay_scanners/ReplayScannersScene.tsx`            | on master             |
+| Skills                 | `products/skills/frontend/LLMSkillsScene.tsx`                                        | on master             |
+| User interviews        | `products/user_interviews/frontend/UserInterviews.tsx`                               | on master             |
+| Web scripts            | `frontend/src/scenes/data-pipelines/WebScriptsScene.tsx`                             | on master             |
+| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx`  | on master             |
+| Logs                   | `products/logs/frontend/LogsScene.tsx`                                               | on master             |
+| Tracing                | `products/tracing/frontend/TracingScene.tsx`                                         | on master             |
+| Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                         | on master             |
+| Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                            | on master             |
+| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                       | on master             |
+| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                            | on master             |
+| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`              | on master             |
+| Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                     | on master             |
+| Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`                | on master             |
+| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                    | on master             |
+| Actions                | `products/actions/frontend/pages/Actions.tsx`                                        | on master             |
+| Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`                                    | on master             |
+| Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                            | on master             |
+| Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                            | on master             |
+| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`                               | on master             |
+| Notebooks              | `frontend/src/scenes/notebooks/NotebooksScene.tsx`                                   | on master             |
+| Alerts                 | `products/alerts/frontend/AlertsScene.tsx`                                           | on master             |
+| Data catalog           | `products/data_catalog/frontend/DataCatalogScene.tsx`                                | on master             |
+| Subscriptions          | `products/subscriptions/frontend/scenes/SubscriptionsScene.tsx`                      | on master             |
+| AI datasets            | `products/ai_observability/frontend/datasets/AIObservabilityDatasetsScene.tsx`       | on master             |
+| AI evaluations         | `products/ai_observability/frontend/evaluations/AIObservabilityEvaluationsScene.tsx` | on master             |
+| AI clusters            | `products/ai_observability/frontend/clusters/AIObservabilityClustersScene.tsx`       | on master             |
+| Business knowledge     | `products/business_knowledge/frontend/scenes/BusinessKnowledgeScene.tsx`             | on master             |
+| Heatmaps               | `products/web_analytics/frontend/heatmaps/scenes/heatmaps/HeatmapsScene.tsx`         | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -115,10 +120,10 @@ Max conversation history, and data pipelines destinations and transformations
 (`frontend/src/scenes/data-pipelines/DataPipelinesHogFunctions.tsx` covers the last two).
 
 Hand-rolled empty states: review hog, streamlit apps, groups (`GroupsIntroduction`), persons, and
-the LLM analytics sessions and evaluations tabs.
+the LLM analytics sessions tab.
 
 Bare string or nothing: the data warehouse overview scene, SQL editor, data modeling,
-heatmaps, business knowledge, legal documents, MCP gateway, visual review, live debugger, batch
+legal documents, MCP gateway, visual review, live debugger, batch
 exports, experiments shared metrics, skills community, and several LLM analytics sub-tabs.
 
 ## Out of scope
