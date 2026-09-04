@@ -8,6 +8,7 @@ import {
     IconChevronRight,
     IconClock,
     IconCollapse,
+    IconExpand,
     IconGear,
     IconInfo,
     IconPlayFilled,
@@ -341,19 +342,23 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         <h3 className="text-lg font-semibold m-0">Recording</h3>
                     </div>
                 ) : (
-                    // Collapsed, this card is the only sign the page holds a video, so it takes the shape of
-                    // the player it opens: a dark poster with one play target in the middle.
+                    // Collapsed, this row is the only sign the page holds a video, so it leads with a
+                    // thumbnail of the player it opens: a dark screen carrying one play target.
                     <button
                         type="button"
-                        className="w-full flex flex-col items-center justify-center gap-3 py-12 bg-black group"
+                        className="w-full flex items-center gap-3 p-3 text-left bg-surface-primary hover:bg-surface-secondary"
                         onClick={toggleRecordingExpanded}
                         aria-expanded={false}
                         data-attr="vision-observation-recording-toggle"
                     >
-                        <span className="flex items-center justify-center size-16 rounded-full bg-white/10 transition-colors group-hover:bg-white/20">
-                            <IconPlayFilled className="text-3xl text-brand-red" />
+                        <span className="flex items-center justify-center w-20 h-12 rounded bg-black shrink-0">
+                            <IconPlayFilled className="text-xl text-brand-red" />
                         </span>
-                        <span className="text-white font-semibold">Watch the recording</span>
+                        <span className="flex-1 min-w-0">
+                            <h3 className="text-lg font-semibold m-0">Watch the recording</h3>
+                            <span className="text-sm text-muted">Play the session this observation was made from</span>
+                        </span>
+                        <IconExpand className="text-lg text-muted-alt shrink-0" />
                     </button>
                 )}
                 {recordingExpanded && (
