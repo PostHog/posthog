@@ -611,6 +611,9 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
+    error-tracking-symbol-sets-missing-references-retrieve:
+        operation: error_tracking_symbol_sets_missing_references_retrieve
+        enabled: false
     error-tracking-symbol-sets-retrieve:
         operation: error_tracking_symbol_sets_retrieve
         enabled: true

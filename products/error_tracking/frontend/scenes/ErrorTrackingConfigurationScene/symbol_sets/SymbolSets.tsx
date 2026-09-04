@@ -23,6 +23,7 @@ import { pluralize } from 'lib/utils/strings'
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
 import { errorTrackingEditAccessDisabledReason } from 'products/error_tracking/frontend/utils'
 
+import { MissingReferencesBanner } from './MissingReferencesBanner'
 import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
@@ -43,15 +44,18 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 export function SymbolSets(): JSX.Element {
     const { symbolSetStatusFilter, searchQuery, selectedSymbolSetIds, deleteSymbolSetResponseLoading } =
         useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter, setSearchQuery, bulkDeleteSymbolSets } =
+    const { loadSymbolSets, loadMissingReferences, setSymbolSetStatusFilter, setSearchQuery, bulkDeleteSymbolSets } =
         useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
-    }, [loadSymbolSets])
+        loadMissingReferences()
+    }, [loadSymbolSets, loadMissingReferences])
 
     return (
         <div className="deprecated-space-y-4">
+            <MissingReferencesBanner />
+
             <p>
                 Source maps are required to demangle any minified code in your exception stack traces. PostHog
                 automatically retrieves source maps where possible.

@@ -31994,6 +31994,13 @@ export namespace Schemas {
       config?: ErrorTrackingListWidgetConfig;
     }
 
+    export interface ErrorTrackingMissingReferenceFrames {
+      /** Build step that should stamp the reference. `hermes` for React Native chunk IDs, `proguard` for Android mapping IDs. */
+      platform: string;
+      /** Number of recent frames that arrived without a reference. */
+      frame_count: number;
+    }
+
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
       id: string;
@@ -32512,6 +32519,13 @@ export namespace Schemas {
     export interface ErrorTrackingSymbolSetFinishUpload {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
+    }
+
+    export interface ErrorTrackingSymbolSetMissingReferences {
+      /** Size of the window the frames were counted over. */
+      lookback_hours: number;
+      /** One entry per platform that sent unreferenced frames. Empty when every recent frame carried a reference. */
+      platforms: ErrorTrackingMissingReferenceFrames[];
     }
 
     /**

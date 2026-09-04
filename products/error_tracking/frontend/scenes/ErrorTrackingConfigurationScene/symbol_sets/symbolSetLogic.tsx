@@ -7,9 +7,13 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { pluralize } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+
+import { errorTrackingSymbolSetsMissingReferencesRetrieve } from 'products/error_tracking/frontend/generated/api'
+import { ErrorTrackingSymbolSetMissingReferencesApi } from 'products/error_tracking/frontend/generated/api.schemas'
 
 export const RESULTS_PER_PAGE = 20
 
@@ -21,6 +25,8 @@ export interface symbolSetLogicValues {
     breadcrumbs: Breadcrumb[]
     deleteSymbolSetResponse: null
     deleteSymbolSetResponseLoading: boolean
+    missingReferences: ErrorTrackingSymbolSetMissingReferencesApi | null
+    missingReferencesLoading: boolean
     page: number
     previouslyCheckedIndex: number | null
     searchQuery: string
@@ -66,6 +72,21 @@ export interface symbolSetLogicActions {
     }
     downloadSymbolSet: (id: string) => {
         id: string
+    }
+    loadMissingReferences: () => void
+    loadMissingReferencesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMissingReferencesSuccess: (
+        missingReferences: ErrorTrackingSymbolSetMissingReferencesApi | null,
+        payload?: void
+    ) => {
+        missingReferences: ErrorTrackingSymbolSetMissingReferencesApi | null
+        payload?: void
     }
     loadSymbolSets: () => void
     loadSymbolSetsFailure: (
@@ -130,6 +151,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         searchQuery: '' as string,
         selectedSymbolSetIds: [] as string[],
         deleteSymbolSetResponse: null as null,
+        missingReferences: null as ErrorTrackingSymbolSetMissingReferencesApi | null,
         shiftKeyHeld: false as boolean,
         previouslyCheckedIndex: null as number | null,
     }),
@@ -175,6 +197,15 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                     search: values.searchQuery.trim() || undefined,
                 })
                 return res
+            },
+        },
+        missingReferences: {
+            loadMissingReferences: async (): Promise<ErrorTrackingSymbolSetMissingReferencesApi | null> => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return null
+                }
+                return await errorTrackingSymbolSetsMissingReferencesRetrieve(String(teamId))
             },
         },
         deleteSymbolSetResponse: {

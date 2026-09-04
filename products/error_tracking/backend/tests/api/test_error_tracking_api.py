@@ -968,6 +968,37 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json(), {"detail": "Symbol set has no uploaded file."})
 
+    def test_missing_references_counts_recent_unreferenced_frames_per_team(self) -> None:
+        other_team = self.create_team_with_organization(organization=self.organization)
+        for raw_id, team, failure in [
+            ("hermes_one", self.team, "No chunk id sent with frame"),
+            ("hermes_two", self.team, "No chunk id sent with frame"),
+            ("proguard_one", self.team, "No map ID sent with frame"),
+            ("other_failure", self.team, "No sourcemap uploaded for chunk id: abc"),
+            ("other_team", other_team, "No chunk id sent with frame"),
+        ]:
+            ErrorTrackingStackFrame.objects.create(
+                raw_id=raw_id, team=team, resolved=False, contents={"resolve_failure": failure}
+            )
+        with freeze_time(timezone.now() - timedelta(days=2)):
+            ErrorTrackingStackFrame.objects.create(
+                raw_id="stale",
+                team=self.team,
+                resolved=False,
+                contents={"resolve_failure": "No chunk id sent with frame"},
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/missing_references")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "lookback_hours": 24,
+            "platforms": [
+                {"platform": "hermes", "frame_count": 2},
+                {"platform": "proguard", "frame_count": 1},
+            ],
+        }
+
     def test_fetching_stack_frames(self):
         other_team = self.create_team_with_organization(organization=self.organization)
         symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)

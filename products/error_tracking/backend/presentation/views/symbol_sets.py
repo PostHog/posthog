@@ -141,6 +141,21 @@ class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingMissingReferenceFramesSerializer(serializers.Serializer):
+    platform = serializers.CharField(
+        help_text="Build step that should stamp the reference. `hermes` for React Native chunk IDs, `proguard` for Android mapping IDs.",
+    )
+    frame_count = serializers.IntegerField(help_text="Number of recent frames that arrived without a reference.")
+
+
+class ErrorTrackingSymbolSetMissingReferencesSerializer(serializers.Serializer):
+    lookback_hours = serializers.IntegerField(help_text="Size of the window the frames were counted over.")
+    platforms = ErrorTrackingMissingReferenceFramesSerializer(
+        many=True,
+        help_text="One entry per platform that sent unreferenced frames. Empty when every recent frame carried a reference.",
+    )
+
+
 class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
     url = serializers.URLField(
         help_text="Presigned URL to download the source map file. Use immediately; expires after one hour."
@@ -157,7 +172,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     pagination_class = ErrorTrackingSymbolSetPagination
     parser_classes = [MultiPartParser, FileUploadParser]
     throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
-    scope_object_read_actions = ["list", "retrieve", "download"]
+    scope_object_read_actions = ["list", "retrieve", "download", "missing_references"]
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
@@ -227,6 +242,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             return Response({"detail": "ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
         deleted_count = symbol_sets_facade.bulk_delete_symbol_sets(self.team.id, ids)
         return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
+
+    @extend_schema(responses={200: ErrorTrackingSymbolSetMissingReferencesSerializer})
+    @action(methods=["GET"], detail=False, parser_classes=[JSONParser])
+    def missing_references(self, request: Request, **kwargs) -> Response:
+        """Report recent frames that carried no symbol set reference, so no upload could match them."""
+        missing = symbol_sets_facade.get_missing_references(self.team.id)
+        return Response(
+            ErrorTrackingSymbolSetMissingReferencesSerializer(missing).data,
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(responses={200: _SymbolSetDownloadResponseSerializer})
     @action(methods=["GET"], detail=True, parser_classes=[JSONParser])

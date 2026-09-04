@@ -169,6 +169,18 @@ class ErrorTrackingSymbolSet:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingMissingReferenceFrames:
+    platform: str
+    frame_count: int
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSymbolSetMissingReferences:
+    lookback_hours: int
+    platforms: list[ErrorTrackingMissingReferenceFrames]
+
+
+@dataclass(frozen=True)
 class ErrorTrackingSymbolSetDownload:
     has_file: bool
     url: str | None

@@ -9,11 +9,13 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 import hashlib
 import datetime
 from dataclasses import dataclass
+from functools import reduce
+from operator import or_
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 
 import structlog
@@ -37,6 +39,17 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 # thousands of chunks per merge would rewrite all of them on each run. Cymbal throttles its own
 # `last_used` writes over the same window for the same reason.
 LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
+
+# Cymbal writes one of these strings onto a frame's `resolve_failure` when the frame carries no
+# reference to any symbol set (see `HermesError::NoChunkId` and `ProguardError::NoMapId` in
+# rust/cymbal/src/core/error.rs). Nothing can match such a frame, so every upload the team makes
+# stays unused until the build injects the reference.
+MISSING_REFERENCE_FAILURES: dict[str, str] = {
+    "hermes": "No chunk id sent with frame",
+    "proguard": "No map ID sent with frame",
+}
+
+MISSING_REFERENCE_LOOKBACK_HOURS = 24
 
 
 class SymbolSetNotFoundError(Exception):
@@ -339,6 +352,26 @@ def list_symbol_sets(
     total = queryset.count()
     rows = queryset if limit is None else queryset[offset : offset + limit]
     return list(rows), total
+
+
+def count_frames_missing_reference(team_id: int) -> dict[str, int]:
+    """Count recent frames that reached us with no symbol set reference, keyed by platform.
+
+    Platforms with no such frames are left out. The scan is bounded by `et_frame_team_created_at_idx`.
+    """
+    since = timezone.now() - datetime.timedelta(hours=MISSING_REFERENCE_LOOKBACK_HOURS)
+    failure_filter = reduce(or_, (Q(contents__resolve_failure=f) for f in MISSING_REFERENCE_FAILURES.values()))
+
+    counts = {
+        row["contents__resolve_failure"]: row["frame_count"]
+        for row in ErrorTrackingStackFrame.objects.filter(team_id=team_id, created_at__gte=since)
+        .filter(failure_filter)
+        .values("contents__resolve_failure")
+        .annotate(frame_count=Count("id"))
+    }
+    return {
+        platform: counts[failure] for platform, failure in MISSING_REFERENCE_FAILURES.items() if counts.get(failure)
+    }
 
 
 def get_symbol_set(team_id: int, symbol_set_id: str) -> ErrorTrackingSymbolSet | None:
