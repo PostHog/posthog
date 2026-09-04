@@ -30,6 +30,10 @@ export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
     distinct_id: string
 }
 
+// Longest a cached person copy can lag the database. Callers that must not act on a copy older
+// than some other write use this to bound how long they compensate for it.
+export const PERSON_CACHE_MAX_STALENESS_MS = 1000 * 60
+
 export class PersonsManagerService {
     private lazyLoaderByPersonId: LazyLoader<PersonManagerPerson>
     private lazyLoaderByDistinctId: LazyLoader<PersonManagerPersonWithDistinctId>
@@ -42,12 +46,12 @@ export class PersonsManagerService {
         this.lazyLoaderByPersonId = new LazyLoader({
             name: 'person_manager_lookup_by_person_id',
             loader: async (ids) => await this.fetchPersonsByPersonIds(ids),
-            refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
+            refreshAgeMs: PERSON_CACHE_MAX_STALENESS_MS,
         })
         this.lazyLoaderByDistinctId = new LazyLoader({
             name: 'person_manager_lookup_by_distinct_id',
             loader: async (ids) => await this.fetchPersonsByDistinctIds(ids),
-            refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
+            refreshAgeMs: PERSON_CACHE_MAX_STALENESS_MS,
         })
     }
 

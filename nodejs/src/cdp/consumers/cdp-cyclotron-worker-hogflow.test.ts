@@ -109,7 +109,13 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres)
+        // The default fixture leaves this empty, which makes every person display name fall back to
+        // the distinct id. Set it so the tests can tell which properties a display name came from.
+        // Written as a Postgres array literal because the fixture helper sends a non-empty JS array
+        // as JSON, which this text[] column rejects.
+        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres, {
+            person_display_name_properties: '{email,name}',
+        })
         team = fixtureTeam
         const team2Id = await createTeam(hub.postgres, organizationId)
         team2 = (await getTeam(hub.postgres, team2Id))!
@@ -427,6 +433,106 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 email: 'batch@posthog.com',
             })
             expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
+        })
+
+        it.each([
+            ['recently captured', new Date().toISOString(), 'fresh@example.com'],
+            [
+                'captured longer ago than the person cache can lag',
+                new Date(Date.now() - 3600_000).toISOString(),
+                undefined,
+            ],
+            [
+                'dated well ahead of now by a fast client clock',
+                new Date(Date.now() + 3600_000).toISOString(),
+                undefined,
+            ],
+        ])(
+            'overlays the trigger event $set onto the resolved person when the event was %s',
+            async (_label, capturedAt, expectedEmail) => {
+                // Person A 1 is cached with no email. When the trigger is the very event that sets one,
+                // the cached copy can predate that write, so a message step reads no recipient and the
+                // send fails. Outside the window the person read is authoritative and the trigger's
+                // values must not win over it, however the event dates itself.
+                const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                    event: {
+                        distinct_id: 'distinct_A_1',
+                        captured_at: capturedAt,
+                        properties: { $set: { email: 'fresh@example.com' } },
+                    } as any,
+                })
+
+                const results = (await processor.processInvocations([
+                    invocation,
+                ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+                expect(results[0].invocation.person?.properties.email).toBe(expectedEmail)
+            }
+        )
+
+        it('reads the person again uncached when the trigger event wrote one and the first read missed', async () => {
+            // The person read is eventually consistent and caches a miss for as long as it caches a
+            // hit, so a person the trigger event just created can stay unresolved for the whole
+            // window. The run then has no recipient and the send drops.
+            const personsManager = processor['personsManager'] as any
+            jest.spyOn(personsManager, 'fetchPersonsByDistinctIds').mockResolvedValueOnce({})
+
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: 'distinct_A_1',
+                    captured_at: new Date().toISOString(),
+                    properties: { $set: { email: 'fresh@example.com' } },
+                } as any,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results[0].invocation.person?.id).toBe('dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1')
+            expect(results[0].invocation.person?.properties.email).toBe('fresh@example.com')
+        })
+
+        it('does not read again when the first read missed and the event wrote no person properties', async () => {
+            // An anonymous distinct id has no person and never will, so it must not cost two reads
+            // on every invocation.
+            const personsManager = processor['personsManager'] as any
+            const spy = jest.spyOn(personsManager, 'fetchPersonsByDistinctIds')
+
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { distinct_id: 'missing_person', properties: { foo: 'bar' } } as any,
+            })
+
+            await processor.processInvocations([invocation])
+
+            expect(spy).toHaveBeenCalledTimes(1)
+        })
+
+        it('ignores $set_once and recomputes the display name from the merged properties', async () => {
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: 'distinct_A_1',
+                    captured_at: new Date().toISOString(),
+                    properties: {
+                        $set: { email: 'fresh@example.com' },
+                        $set_once: { signup_source: 'ad' },
+                    },
+                } as any,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            // $set_once resolves against the real person row, which this worker cannot read, so
+            // replaying it would invent a value the database may have rejected.
+            expect(results[0].invocation.person?.properties).toEqual({
+                name: 'Person A 1',
+                email: 'fresh@example.com',
+            })
+            // 'email' comes before 'name' in the default display-name properties, so the name follows
+            // the new email. A template must not greet one address in a message sent to another.
+            expect(results[0].invocation.person?.name).toBe('fresh@example.com')
         })
 
         it('persists the resolved person UUID into state so a re-parked wait keeps its person_id', async () => {
