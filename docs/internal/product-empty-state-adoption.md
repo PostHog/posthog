@@ -67,6 +67,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                           | on master             |
 | Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`                              | on master             |
 | Notebooks              | `frontend/src/scenes/notebooks/NotebooksScene.tsx`                                  | on master             |
+| Alerts                 | `products/alerts/frontend/AlertsScene.tsx`                                          | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -101,14 +102,13 @@ deeper, so the product is half-migrated.
 | Parent product     | Sub-surface                                                                                                 |
 | ------------------ | ----------------------------------------------------------------------------------------------------------- |
 | Workflows          | `Channels/MessageChannels.tsx`, `OptOuts/OptOutCategories.tsx`, `TemplateLibrary/MessageTemplatesTable.tsx` |
-| Logs               | `components/LogsAlerting/LogsAlertList.tsx`                                                                 |
 | Replay vision      | `replay_scanners/components/VisionActionsTab.tsx`                                                           |
 | Customer analytics | `components/CustomerJourneys/CustomerJourneysEmptyState.tsx`                                                |
 
 ### Tier 4: everything else
 
-Still on `ProductIntroduction`: alerts (`products/alerts/frontend/views/InsightAlerts.tsx`),
-subscriptions, pulse, data catalog, engineering analytics, comments, ingestion warnings (v1 and v2),
+Still on `ProductIntroduction`: subscriptions, pulse, data catalog, engineering analytics,
+comments, ingestion warnings (v1 and v2),
 Max conversation history, and data pipelines destinations and transformations
 (`frontend/src/scenes/data-pipelines/DataPipelinesHogFunctions.tsx` covers the last two).
 
