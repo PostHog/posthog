@@ -63,7 +63,7 @@ import {
     isAccountsTableRow,
     supportedAccountFilters,
 } from './accountsTableQuery'
-import { normalizeRoleFilter } from './accountsViewState'
+import { type AssignmentStatus, isAssignmentStatus, normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -101,7 +101,9 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to'
+export type { AssignmentStatus }
+
+export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -133,6 +135,10 @@ function accountsPathToWriteBackTo(accountIdFilter: string | null): string {
 export interface AccountsViewUrlState {
     search?: string
     tags?: string[]
+    /** The canonical assignment status. Absent on legacy links, which resolve to
+     * assigned-only so they never silently broaden. */
+    assignmentStatus?: AssignmentStatus
+    /** @deprecated Legacy unassigned-only flag; still read for old shared links. Never written. */
     unassigned?: boolean
     /** Concrete user ids for the "Assigned to" / "My accounts" filter — explicit
      * (not viewer-relative) so a shared link resolves identically for everyone. */
@@ -172,9 +178,9 @@ export interface accountsLogicValues {
     accountsTableQueryPlan: AccountsTableQueryPlan
     accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
     activeFilterCount: number
-    allRolesUnassigned: boolean
     assignedToCurrentUser: boolean
     assignedToFilter: RoleFilterValue
+    assignmentStatus: AssignmentStatus
     awaitingSavedView: boolean
     canSortClientSide: boolean
     currentUserId: number | null
@@ -395,14 +401,14 @@ export interface accountsLogicActions {
     setAccountIdFilter: (accountId: string | null) => {
         accountId: string | null
     }
-    setAllRolesUnassigned: (value: boolean) => {
-        value: boolean
-    }
     setAssignedToCurrentUser: (value: boolean) => {
         value: boolean
     }
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
+    }
+    setAssignmentStatus: (status: AssignmentStatus) => {
+        status: AssignmentStatus
     }
     setAwaitingSavedView: (awaiting: boolean) => {
         awaiting: boolean
@@ -496,14 +502,13 @@ export interface accountsLogicMeta {
         activeFilterCount: (
             searchQuery: string,
             tagsFilter: string[],
-            allRolesUnassigned: boolean,
-            assignedToFilter: RoleFilterValue,
+            assignmentStatus: AssignmentStatus,
             accountFilters: AccountFilter[]
         ) => number
         viewUrlState: (
             searchQuery: string,
             tagsFilter: string[],
-            allRolesUnassigned: boolean,
+            assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
             sortOrder: AccountSortOrder,
             selectColumns: string[],
@@ -523,7 +528,7 @@ export interface accountsLogicMeta {
             visibleColumnNames: string[],
             searchQuery: string,
             tagsFilter: string[],
-            allRolesUnassigned: boolean,
+            assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
@@ -624,7 +629,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         updateAccountFilters: (filters: AccountFilter[]) => ({ filters }),
-        setAllRolesUnassigned: (value: boolean) => ({ value }),
+        setAssignmentStatus: (status: AssignmentStatus) => ({ status }),
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
         // Shortcut for the "My accounts" checkbox — resolves to the current
         // user's id and routes through setAssignedToFilter.
@@ -705,10 +710,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAccountFilters: (_, { filters }) => filters,
             },
         ],
-        allRolesUnassigned: [
-            false,
+        assignmentStatus: [
+            'all' as AssignmentStatus,
             {
-                setAllRolesUnassigned: (_, { value }) => value,
+                setAssignmentStatus: (_, { status }) => status,
             },
         ],
         assignedToFilter: [
@@ -859,19 +864,19 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingTags[accountId],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter, s.accountFilters],
+            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters],
             (
                 searchQuery: string,
                 tagsFilter: string[],
-                allRolesUnassigned: boolean,
-                assignedToFilter: RoleFilterValue,
+                assignmentStatus: AssignmentStatus,
                 accountFilters: AccountFilter[]
             ): number =>
                 [
                     !!searchQuery.trim(),
                     tagsFilter.length > 0,
-                    allRolesUnassigned,
-                    assignedToFilter.length > 0,
+                    // `all` is the default, so any other status (including assigned-to
+                    // narrowing, which forces `assigned`) is one active filter.
+                    assignmentStatus !== 'all',
                     accountFilters.length > 0,
                 ].filter(Boolean).length,
         ],
@@ -879,7 +884,7 @@ export const accountsLogic = kea<accountsLogicType>([
             (s) => [
                 s.searchQuery,
                 s.tagsFilter,
-                s.allRolesUnassigned,
+                s.assignmentStatus,
                 s.assignedToFilter,
                 s.sortOrder,
                 s.selectColumns,
@@ -891,7 +896,7 @@ export const accountsLogic = kea<accountsLogicType>([
             (
                 searchQuery: string,
                 tagsFilter: string[],
-                allRolesUnassigned: boolean,
+                assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[],
@@ -908,11 +913,13 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (tagsFilter.length > 0) {
                     state.tags = tagsFilter
                 }
-                if (allRolesUnassigned) {
-                    state.unassigned = true
-                }
-                if (assignedToFilter.length > 0) {
-                    state.assignedTo = assignedToFilter
+                if (assignmentStatus === 'unassigned') {
+                    state.assignmentStatus = 'unassigned'
+                } else if (assignmentStatus === 'assigned') {
+                    state.assignmentStatus = 'assigned'
+                    if (assignedToFilter.length > 0) {
+                        state.assignedTo = assignedToFilter
+                    }
                 }
                 if (sortOrder) {
                     state.sort = sortOrder
@@ -928,6 +935,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (accountFilters.length > 0) {
                     state.customProperties = accountFilters
+                }
+                // The default `all` status is omitted so a pure-default view keeps an empty
+                // hash. But a legacy hash without the field reads as assigned-only, so once
+                // any other filter is present we mark `all` explicitly to avoid that mislabel.
+                if (assignmentStatus === 'all' && Object.keys(state).length > 0) {
+                    state.assignmentStatus = 'all'
                 }
                 return state
             },
@@ -956,7 +969,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.visibleColumnNames,
                 s.searchQuery,
                 s.tagsFilter,
-                s.allRolesUnassigned,
+                s.assignmentStatus,
                 s.assignedToFilter,
                 s.accountIdFilter,
                 s.tileFilter,
@@ -972,7 +985,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 visibleColumnNames: string[],
                 searchQuery: string,
                 tagsFilter: string[],
-                allRolesUnassigned: boolean,
+                assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
@@ -987,7 +1000,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 visibleColumnNames,
                 searchQuery,
                 tagsFilter,
-                allRolesUnassigned,
+                assignmentStatus,
                 assignedToFilter,
                 accountIdFilter,
                 tileFilter,
@@ -1158,9 +1171,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.tag_count = values.tagsFilter.length
                     properties.is_cleared = values.tagsFilter.length === 0
                     break
-                case 'unassigned_only':
-                    properties.value = values.allRolesUnassigned
-                    properties.is_cleared = !values.allRolesUnassigned
+                case 'assignment_status':
+                    properties.value = values.assignmentStatus
+                    properties.is_cleared = values.assignmentStatus === 'all'
                     break
                 case 'my_accounts':
                     properties.value = values.assignedToCurrentUser
@@ -1174,8 +1187,11 @@ export const accountsLogic = kea<accountsLogicType>([
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
         },
-        setAllRolesUnassigned: ({ value }) => {
-            if (value && values.assignedToFilter.length > 0) {
+        // The assigned-to narrowing only applies within the assigned status, so leaving
+        // that status clears any selected users. This keeps the canonical status and the
+        // user filter from ever describing contradictory sets.
+        setAssignmentStatus: ({ status }) => {
+            if (status !== 'assigned' && values.assignedToFilter.length > 0) {
                 actions.setAssignedToFilter([])
             }
         },
@@ -1185,11 +1201,10 @@ export const accountsLogic = kea<accountsLogicType>([
         setAssignedToCurrentUser: ({ value }) => {
             actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
         },
-        // "Assigned to" (an account's CSM or AE is one of these users) clears the
-        // unassigned flag — the two are a genuine contradiction.
+        // Selecting users narrows assigned accounts, so it forces the assigned status.
         setAssignedToFilter: ({ value }) => {
-            if (value.length > 0 && values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(false)
+            if (value.length > 0 && values.assignmentStatus !== 'assigned') {
+                actions.setAssignmentStatus('assigned')
             }
             // Keep the shared "mine only" toggle in step with the assigned-to filter
             // (set via the "My accounts" shortcut or the assigned-to picker) so
@@ -1206,7 +1221,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 values.mineOnly &&
                 values.currentUserId !== null &&
                 !values.assignedToFilter.length &&
-                !values.allRolesUnassigned
+                values.assignmentStatus !== 'unassigned'
             ) {
                 actions.setAssignedToFilter([values.currentUserId])
             }
@@ -1365,8 +1380,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.tagsFilter.length > 0) {
                     actions.setTagsFilter([])
                 }
-                if (values.allRolesUnassigned) {
-                    actions.setAllRolesUnassigned(false)
+                if (values.assignmentStatus !== 'all') {
+                    actions.setAssignmentStatus('all')
                 }
                 if (values.assignedToFilter.length > 0) {
                     actions.setAssignedToFilter([])
@@ -1424,7 +1439,7 @@ export const accountsLogic = kea<accountsLogicType>([
             setSearchQuery: toUrl,
             setTagsFilter: toUrl,
             setAccountFilters: toUrl,
-            setAllRolesUnassigned: toUrl,
+            setAssignmentStatus: toUrl,
             setAssignedToFilter: toUrl,
             setSortOrder: toUrl,
             setSelectColumns: toUrl,
@@ -1471,9 +1486,20 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAccountFilters(customProperties)
             }
 
-            const unassigned = view.unassigned ?? false
-            if (unassigned !== values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(unassigned)
+            // Resolve the canonical status: an explicit field wins; a legacy hash with any
+            // key but no field is assigned-only (never broadens); an empty hash is the pure
+            // default and shows all.
+            const explicitStatus = isAssignmentStatus(view.assignmentStatus) ? view.assignmentStatus : undefined
+            const hasViewKeys = Object.keys(view).length > 0
+            const nextStatus: AssignmentStatus = explicitStatus
+                ? explicitStatus
+                : hasViewKeys
+                  ? view.unassigned
+                      ? 'unassigned'
+                      : 'assigned'
+                  : 'all'
+            if (nextStatus !== values.assignmentStatus) {
+                actions.setAssignmentStatus(nextStatus)
             }
 
             const assignedTo = normalizeRoleFilter(view.assignedTo)
@@ -1481,11 +1507,16 @@ export const accountsLogic = kea<accountsLogicType>([
             // resolve it to the opener's own id so old shared links still work.
             const legacyMine =
                 !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
-            // With no explicit assignment in the hash (e.g. arriving via the tab
-            // link), fall back to the shared "mine only" toggle so the choice made
-            // on the Notes tab carries over.
+            // With no assignment intent in the hash at all (no status, no assignedTo, no
+            // mine — e.g. arriving via the tab link), fall back to the shared "mine only"
+            // toggle so the choice made on the Notes tab carries over. An explicit status
+            // always wins over that toggle.
             const sharedMine =
-                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
+                explicitStatus === undefined &&
+                !assignedTo.length &&
+                !view.mine &&
+                values.mineOnly &&
+                values.currentUserId !== null
                     ? [values.currentUserId]
                     : []
             // The persisted "my accounts" intent can't be resolved until the user id is
@@ -1493,7 +1524,11 @@ export const accountsLogic = kea<accountsLogicType>([
             // writing an empty one, which would cascade to setMineOnly(false) and clobber the
             // preference) and let the loadUserSuccess listener apply it once the user resolves.
             const mineRestorePending =
-                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId === null
+                explicitStatus === undefined &&
+                !assignedTo.length &&
+                !view.mine &&
+                values.mineOnly &&
+                values.currentUserId === null
             const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
             if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
                 actions.setAssignedToFilter(nextAssignedTo)
