@@ -66,6 +66,19 @@ describe("TabStrip", () => {
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["an unpinned", false],
+    ["a pinned", true],
+  ])("closes %s tab without selecting it on middle-click", (_label, pinned) => {
+    const props = setup({ tabs: [{ ...tabs[0], pinned }, tabs[1]] });
+    const tab = pinned
+      ? screen.getByLabelText("Overview (pinned)")
+      : screen.getByText("Overview");
+    fireEvent(tab, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+    expect(props.onClose).toHaveBeenCalledWith("t1");
+    expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
   it("calls onNewTab when the new-tab button is clicked", async () => {
     const props = setup();
     await userEvent.click(screen.getByLabelText("New tab"));
