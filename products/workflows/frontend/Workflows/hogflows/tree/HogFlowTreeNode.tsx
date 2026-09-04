@@ -66,6 +66,11 @@ export function HogFlowTreeNode({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             showCollapseOffset={node.branches.length > 0}
+            canDrag={
+                node.action.type !== 'trigger' &&
+                node.action.type !== 'exit' &&
+                (!node.branches.length || !!node.joinActionId)
+            }
         />
     )
 

@@ -18,12 +18,14 @@ export function HogFlowTreeStep({
     onDragEnd,
     onDragStart,
     showCollapseOffset = false,
+    canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action),
 }: {
     action: HogFlowAction
     dragged: boolean
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string) => void
     showCollapseOffset?: boolean
+    canDrag?: boolean
 }): JSX.Element {
     const { animatingEdgePair, nodesById, selectedNode } = useValues(hogFlowEditorLogic)
     const { duplicateNodeBelow, onNodesDelete, setSelectedNodeId } = useActions(hogFlowEditorLogic)
@@ -48,7 +50,6 @@ export function HogFlowTreeStep({
             draggable: false,
             connectable: false,
         } satisfies HogFlowActionNode)
-    const canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action)
     const validationResult = actionValidationErrorsById[action.id]
     const hasValidationIssue =
         validationResult?.valid === false || Object.keys(validationResult?.warnings ?? {}).length > 0

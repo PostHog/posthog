@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import type { DragEvent } from 'react'
 
@@ -8,6 +8,7 @@ import { Button, cn } from 'lib/ui/quill'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
+import { computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeDropzone({
     active,
@@ -24,7 +25,9 @@ export function HogFlowTreeDropzone({
     showConnector?: boolean
     compact?: boolean
 }): JSX.Element {
-    const { moveNodeToEdge, onDragOver, onDrop, setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
+    const { workflow } = useValues(hogFlowEditorLogic)
+    const { moveNodeToEdge, onDragOver, onDrop, setHighlightedDropzoneNodeId, setSelectedNodeId, setWorkflowInfo } =
+        useActions(hogFlowEditorLogic)
     const [highlighted, setHighlighted] = useState(false)
     const isNoOpTarget =
         !!draggedActionId && (edge.to === draggedActionId || (!isBranchJoin && edge.from === draggedActionId))
@@ -56,7 +59,21 @@ export function HogFlowTreeDropzone({
                     onDrop={(event: DragEvent<HTMLButtonElement>) => {
                         setHighlighted(false)
                         if (draggedActionId) {
-                            moveNodeToEdge(draggedActionId, edge, isBranchJoin)
+                            const action = workflow.actions.find((action) => action.id === draggedActionId)
+                            if (!action || !isBranchingAction(action)) {
+                                moveNodeToEdge(draggedActionId, edge, isBranchJoin)
+                            } else {
+                                const newEdges = computeMoveTreeBranchEdges(
+                                    workflow,
+                                    draggedActionId,
+                                    edge,
+                                    isBranchJoin
+                                )
+                                if (newEdges) {
+                                    setWorkflowInfo({ actions: workflow.actions, edges: newEdges })
+                                    setSelectedNodeId(draggedActionId)
+                                }
+                            }
                         } else if (isBranchJoin) {
                             setHighlightedDropzoneNodeId(`dropzone_target_${edge.to}_branch_join`)
                             onDrop(event)
