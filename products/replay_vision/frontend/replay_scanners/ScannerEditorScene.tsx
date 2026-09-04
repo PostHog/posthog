@@ -476,9 +476,11 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges, hasSectionEditChanges } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { searchParams } = useValues(router)
-    const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
+    const { discardScannerDraft, discardSectionEdits } = useActions(replayScannerLogic({ id: scannerId }))
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     // The backend rejects scanner creation without org AI consent, so the popover interposes at
@@ -495,8 +497,10 @@ function EditorFooter({
     const ownsDurationFilter = step === 'triggers' || step === 'budget'
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
-    // Editing one section from the goal overview: the edit is already in the form state, so the only
-    // action needed is to return to the overview, where the whole draft is reviewed and created.
+    // Editing one section from the goal overview: the edit is already in the form state, so keeping it
+    // is just a return to the overview, where the whole draft is reviewed and created. The button still
+    // reads "Save changes" — beside "Discard changes", a bare "Back to overview" reads like leaving
+    // without keeping the edit.
     const { from, ...overviewParams } = searchParams
     const fromOverview = from === 'overview'
 
@@ -525,7 +529,7 @@ function EditorFooter({
             {/* The duration field lives on the recordings step, so budget needs the error spelled out. */}
             {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             {fromOverview ? (
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                     <LemonButton
                         type="tertiary"
                         onClick={handleCancel}
@@ -534,14 +538,30 @@ function EditorFooter({
                     >
                         Discard scanner
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        to={scannerStepUrlWithParams('overview', scannerId, overviewParams)}
-                        disabledReason={saveDisabledReason ?? undefined}
-                        data-attr="vision-editor-back-to-overview"
-                    >
-                        Back to overview
-                    </LemonButton>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => discardSectionEdits()}
+                            disabledReason={
+                                isSubmitting
+                                    ? 'Saving…'
+                                    : !hasSectionEditChanges
+                                      ? "You haven't changed anything here"
+                                      : undefined
+                            }
+                            data-attr="vision-editor-discard-section-edits"
+                        >
+                            Discard changes
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            to={scannerStepUrlWithParams('overview', scannerId, overviewParams)}
+                            disabledReason={saveDisabledReason ?? undefined}
+                            data-attr="vision-editor-save-section-edits"
+                        >
+                            Save changes
+                        </LemonButton>
+                    </div>
                 </div>
             ) : (
                 <div className="flex flex-wrap items-center justify-between gap-2">

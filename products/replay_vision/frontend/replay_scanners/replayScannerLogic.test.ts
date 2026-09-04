@@ -1233,6 +1233,47 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('editing one section from the goal overview', () => {
+        beforeEach(() => {
+            teamLogic.mount()
+        })
+
+        it('restores the section snapshot and returns to the overview on discard', async () => {
+            logic.actions.setScannerValues({ name: 'Drafted', description: 'From the goal' })
+            logic.actions.editScannerSection('details')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.from).toBe('overview')
+
+            logic.actions.setScannerValues({ name: 'Edited' })
+            expect(logic.values.hasSectionEditChanges).toBe(true)
+
+            logic.actions.discardSectionEdits()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.scanner?.name).toBe('Drafted')
+            expect(logic.values.hasSectionEditChanges).toBe(false)
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerOverview('new'))
+            // The rest of the drafted scanner survives, so only this section's edits were thrown away.
+            expect(logic.values.scanner?.description).toBe('From the goal')
+        })
+
+        it('keeps the snapshot across a reload, so discarding still works', async () => {
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.editScannerSection('details')
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setScannerValues({ name: 'Edited' })
+            logic.unmount()
+
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.scanner?.name).toBe('Edited')
+
+            logic.actions.discardSectionEdits()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.scanner?.name).toBe('Drafted')
+        })
+    })
+
     describe('hasUnsavedChanges', () => {
         it('is false when no original scanner is loaded', () => {
             expect(logic.values.hasUnsavedChanges).toBe(false)
