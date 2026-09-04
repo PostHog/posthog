@@ -9,7 +9,8 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
+import { getViewRecordingFiltersLegacy, isUnlinkableEventFilter } from '~/scenes/experiments/utils'
+import { viewRecordingsLinkabilityLogic } from '~/scenes/experiments/viewRecordingsLinkabilityLogic'
 import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
 
 import {
@@ -40,6 +41,7 @@ export function LegacySummaryTable({
     isSecondary?: boolean
 }): JSX.Element {
     const { experiment, legacyPrimaryMetricsResults, legacySecondaryMetricsResults } = useValues(legacyExperimentLogic)
+    const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
 
     const insightType = getInsightType(metric as ExperimentTrendsQuery | ExperimentFunnelsQuery)
     const result = isSecondary
@@ -315,7 +317,15 @@ export function LegacySummaryTable({
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
 
-            const filters = getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
+            const rawFilters = getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
+            // A metric event captured server-side never carries a `$session_id`, so ANDing its filter
+            // into the recordings query zeroes out every session. Drop those filters, the same way
+            // the new metrics view does, so the link opens the exposed sessions rather than a dead
+            // end. While the check is in flight, keep today's behavior (fail open).
+            const filters = linkabilityLoaded
+                ? rawFilters.filter((filter) => !isUnlinkableEventFilter(filter, unlinkableEventNames))
+                : rawFilters
+            const droppedEventCount = rawFilters.length - filters.length
 
             const filterGroup: Partial<RecordingUniversalFilters> = {
                 filter_group: {
@@ -339,7 +349,16 @@ export function LegacySummaryTable({
                     filters={filterGroup}
                     size="xsmall"
                     type="secondary"
-                    tooltip="Watch recordings of people who were exposed to this variant."
+                    tooltip={[
+                        'Watch recordings of people who were exposed to this variant.',
+                        ...(droppedEventCount > 0
+                            ? [
+                                  `Excluded ${droppedEventCount} server-side ${
+                                      droppedEventCount === 1 ? 'event' : 'events'
+                                  } captured without a session ID, which can't match recordings.`,
+                              ]
+                            : []),
+                    ].join(' ')}
                     disabled={filters.length === 0}
                     disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
                     data-attr="experiment-summary-view-recordings"
