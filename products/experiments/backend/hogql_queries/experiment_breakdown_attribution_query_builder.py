@@ -146,6 +146,15 @@ class ExperimentBreakdownAttributionQueryBuilder:
         ``exposures.first_exposure_time`` to gate on; the optimized ordered path has no
         exposure-time column yet (its first-exposures CTE is built for unordered and CUPED only),
         so gating both paths together is deferred to the caller that wires this class in.
+
+        Integration should also align attribution with the occurrence the funnel walk matched.
+        The step condition is a per-row flag with no ordering, so this aggregate can pick a step
+        occurrence the walk skipped. This is sharpest for specific-step attribution: a step-2 event
+        that fires before step_1, then again after, gives the funnel the second occurrence and this
+        aggregate the first. First and last touch now scan every metric step, which is near how
+        insights treats them, but insights still restricts them to the events the aggregate walks.
+        The fix routes per-event values through ``funnel_evaluation_expr`` (or reads them by the
+        aggregate's matched-step UUIDs), which changes a shared helper this class does not own.
         """
         resolution = self.context.resolve_attribution()
         condition: ast.Expr = ast.And(
