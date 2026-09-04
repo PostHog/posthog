@@ -171,6 +171,40 @@ class TestFindEventsScans(TestCase):
                 [],
             ),
             (
+                "a correlated column is no timestamp bound",
+                "SELECT count() FROM events e JOIN persons p ON e.person_id = p.id "
+                "WHERE e.event = 'a' AND e.timestamp >= p.created_at",
+                [EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "a correlated column is no timestamp bound in function form",
+                "SELECT count() FROM events e JOIN persons p ON e.person_id = p.id "
+                "WHERE equals(e.event, 'a') AND greaterOrEquals(e.timestamp, p.created_at)",
+                [EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "a column BETWEEN lower value is no timestamp bound",
+                "SELECT count() FROM events e JOIN persons p ON e.person_id = p.id "
+                "WHERE e.event = 'a' AND e.timestamp BETWEEN p.created_at AND p.created_at",
+                [EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "matching one events alias against another pins no event name",
+                "SELECT count() FROM events a JOIN events b ON a.person_id = b.person_id AND a.event = b.event "
+                "WHERE a.properties.plan = 'pro' AND a.timestamp >= today() AND b.timestamp >= today()",
+                [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT, EventsScanReason.NO_EVENT_FILTER],
+            ),
+            (
+                "a scalar subquery still bounds the timestamp",
+                "SELECT count() FROM events WHERE event = 'a' AND timestamp >= (SELECT max(created_at) FROM persons)",
+                [],
+            ),
+            (
+                "a select alias expands to a constant bound",
+                "SELECT today() AS cutoff, count() FROM events WHERE event = 'a' AND timestamp >= cutoff",
+                [],
+            ),
+            (
                 "other tables are not checked",
                 "SELECT count() FROM persons WHERE properties.email = 'x'",
                 [],

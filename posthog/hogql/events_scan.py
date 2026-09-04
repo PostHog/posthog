@@ -511,6 +511,33 @@ def _is_timestamp_expr(node: ast.Expr, aliases: set[str]) -> bool:
     return False
 
 
+class _ColumnRead(TraversingVisitor):
+    """Whether an expression reads a column, ignoring subqueries, which resolve before the scan."""
+
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.found = True
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+
+def _is_fixed_bound(node: ast.Expr) -> bool:
+    """Whether the operand holds one value for the whole read, so the sort key can range over it.
+
+    Another column gives no range: ClickHouse reads every row to compare the two. A scalar subquery
+    does give one, because ClickHouse runs it before the scan.
+    """
+    visitor = _ColumnRead()
+    visitor.visit(node)
+    return not visitor.found
+
+
 def _is_filters_placeholder(node: ast.Expr) -> bool:
     """`{filters}` becomes the UI's date range and property filters, so it bounds the read without being the user's own filter."""
     if not isinstance(node, ast.Placeholder) or not node.chain:
@@ -528,16 +555,22 @@ def _constrains_event(expr: ast.Expr, aliases: set[str]) -> bool:
         case ast.Or(exprs=exprs):
             return len(exprs) > 0 and all(_constrains_event(part, aliases) for part in exprs)
         case ast.CompareOperation(op=op, left=left, right=right):
-            return op in _EVENT_NAME_OPS and (_is_event_field(left, aliases) or _is_event_field(right, aliases))
+            if op not in _EVENT_NAME_OPS:
+                return False
+            return (_is_event_field(left, aliases) and _is_fixed_bound(right)) or (
+                _is_event_field(right, aliases) and _is_fixed_bound(left)
+            )
         case ast.Call(name="and", args=args):
             return any(_constrains_event(part, aliases) for part in args)
         case ast.Call(name="or", args=args):
             return len(args) > 0 and all(_constrains_event(part, aliases) for part in args)
         case ast.Call(name=name, args=args):
             if name in _EVENT_NAME_FUNCTIONS and len(args) == 2:
-                return any(_is_event_field(arg, aliases) for arg in args)
+                return (_is_event_field(args[0], aliases) and _is_fixed_bound(args[1])) or (
+                    _is_event_field(args[1], aliases) and _is_fixed_bound(args[0])
+                )
             if name == "has" and len(args) == 2:
-                return _is_event_field(args[1], aliases)
+                return _is_event_field(args[1], aliases) and _is_fixed_bound(args[0])
             return False
         case _:
             return False
@@ -554,10 +587,12 @@ def _bounds_timestamp(expr: ast.Expr, aliases: set[str]) -> bool:
             return len(exprs) > 0 and all(_bounds_timestamp(part, aliases) for part in exprs)
         case ast.CompareOperation(op=op, left=left, right=right):
             if _is_timestamp_expr(left, aliases) and op in _LOWER_BOUND_OPS_TIMESTAMP_LEFT:
-                return True
-            return _is_timestamp_expr(right, aliases) and op in _LOWER_BOUND_OPS_TIMESTAMP_RIGHT
-        case ast.BetweenExpr(expr=inner, negated=negated):
-            return not negated and _is_timestamp_expr(inner, aliases)
+                return _is_fixed_bound(right)
+            return (
+                _is_timestamp_expr(right, aliases) and op in _LOWER_BOUND_OPS_TIMESTAMP_RIGHT and _is_fixed_bound(left)
+            )
+        case ast.BetweenExpr(expr=inner, low=low, negated=negated):
+            return not negated and _is_timestamp_expr(inner, aliases) and _is_fixed_bound(low)
         case ast.Placeholder():
             return _is_filters_placeholder(expr)
         case ast.Call(name="and", args=args):
@@ -568,8 +603,12 @@ def _bounds_timestamp(expr: ast.Expr, aliases: set[str]) -> bool:
             if len(args) != 2:
                 return False
             if name in _LOWER_BOUND_FUNCTIONS_TIMESTAMP_FIRST and _is_timestamp_expr(args[0], aliases):
-                return True
-            return name in _LOWER_BOUND_FUNCTIONS_TIMESTAMP_SECOND and _is_timestamp_expr(args[1], aliases)
+                return _is_fixed_bound(args[1])
+            return (
+                name in _LOWER_BOUND_FUNCTIONS_TIMESTAMP_SECOND
+                and _is_timestamp_expr(args[1], aliases)
+                and _is_fixed_bound(args[0])
+            )
         case _:
             return False
 
