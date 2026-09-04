@@ -37,7 +37,7 @@ export function ExperimentReloadActionContainer({
 
 function RecalculationReloadAction({ experiment }: { experiment: Experiment }): JSX.Element {
     const metricsLogic = experimentMetricsLogic({ experiment })
-    const { isRecalculating, recalculationProgress, lastRefresh } = useValues(metricsLogic)
+    const { isRecalculating, recalculationProgress, lastRefresh, queuedRerun } = useValues(metricsLogic)
     const { triggerRecalculation } = useActions(metricsLogic)
     const { autoRefresh, currentRefresh } = useValues(experimentLogic)
     const { refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
@@ -47,6 +47,7 @@ function RecalculationReloadAction({ experiment }: { experiment: Experiment }): 
             isRefreshing={isRecalculating}
             lastRefresh={lastRefresh}
             progress={recalculationProgress}
+            queuedHint={queuedRerun ? 'Changes will apply after the current recalculation finishes' : undefined}
             onClick={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {
                     triggered_by: 'manual',

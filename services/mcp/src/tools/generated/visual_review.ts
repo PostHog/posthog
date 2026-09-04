@@ -418,8 +418,18 @@ const visualReviewRunsRetrieve = (): ToolBase<
 const VisualReviewRunsSnapshotHistoryListSchema = () => {
     const VisualReviewRunsSnapshotHistoryListParams = orvalSchemas.VisualReviewRunsSnapshotHistoryListParams()
     const VisualReviewRunsSnapshotHistoryListQueryParams = orvalSchemas.VisualReviewRunsSnapshotHistoryListQueryParams()
-    return VisualReviewRunsSnapshotHistoryListParams.omit({ project_id: true }).extend(
-        VisualReviewRunsSnapshotHistoryListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['run_id'] }),
+        VisualReviewRunsSnapshotHistoryListParams.omit({ project_id: true })
+            .extend(VisualReviewRunsSnapshotHistoryListQueryParams.shape)
+            .extend({
+                id: VisualReviewRunsSnapshotHistoryListParams.shape['id'].describe(
+                    "UUID of the visual review run to look the snapshot up from — a run id, not the `id` of a snapshot inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`. Required, and `identifier` is required alongside it."
+                ),
+                identifier: VisualReviewRunsSnapshotHistoryListQueryParams.shape['identifier'].describe(
+                    'Identifier of the snapshot to trace, for example a Storybook story id plus theme. Copy the `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in addition to `id`; without it the call is rejected rather than returning history for the whole run.'
+                ),
+            })
     )
 }
 
@@ -509,8 +519,18 @@ const visualReviewRunsTolerateCreate = (): ToolBase<
 const VisualReviewRunsToleratedHashesListSchema = () => {
     const VisualReviewRunsToleratedHashesListParams = orvalSchemas.VisualReviewRunsToleratedHashesListParams()
     const VisualReviewRunsToleratedHashesListQueryParams = orvalSchemas.VisualReviewRunsToleratedHashesListQueryParams()
-    return VisualReviewRunsToleratedHashesListParams.omit({ project_id: true }).extend(
-        VisualReviewRunsToleratedHashesListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['run_id'] }),
+        VisualReviewRunsToleratedHashesListParams.omit({ project_id: true })
+            .extend(VisualReviewRunsToleratedHashesListQueryParams.shape)
+            .extend({
+                id: VisualReviewRunsToleratedHashesListParams.shape['id'].describe(
+                    "UUID of the visual review run whose repo holds the tolerated hashes — a run id, not the `id` of a snapshot inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`. Required, and `identifier` is required alongside it."
+                ),
+                identifier: VisualReviewRunsToleratedHashesListQueryParams.shape['identifier'].describe(
+                    'Identifier of the snapshot whose tolerated hashes you want, for example a Storybook story id plus theme. Copy the `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in addition to `id`; there is no way to list every tolerated hash in the repo from this tool.'
+                ),
+            })
     )
 }
 

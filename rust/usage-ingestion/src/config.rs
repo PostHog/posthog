@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
@@ -40,6 +42,13 @@ pub struct Config {
         default = "clickhouse_billing_usage_records"
     )]
     pub topic: String,
+    /// Maximum age of a gRPC connection in seconds before the server sends GOAWAY.
+    /// Producers reconnect transparently, which restaggers them across the pods.
+    /// 0 = disabled (connections live indefinitely).
+    /// Shorter than personhog's 300 because a producer holds one connection and this fleet
+    /// runs near its CPU request when the load lands unevenly.
+    #[envconfig(from = "USAGE_INGESTION_GRPC_MAX_CONNECTION_AGE_SECS", default = "60")]
+    pub grpc_max_connection_age_secs: u64,
 }
 
 impl Config {
@@ -47,7 +56,21 @@ impl Config {
         if self.max_batch_size == 0 || self.max_batch_size > 5_000 {
             return Err("USAGE_INGESTION_MAX_BATCH_SIZE must be between 1 and 5000".to_string());
         }
+        // A few seconds would make every producer spend its time reconnecting.
+        if self.grpc_max_connection_age_secs > 0 && self.grpc_max_connection_age_secs < 10 {
+            return Err(
+                "USAGE_INGESTION_GRPC_MAX_CONNECTION_AGE_SECS must be 0 or at least 10".to_string(),
+            );
+        }
         Ok(())
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
+        }
     }
 
     /// A setting dropped from here reverts to a `KafkaConfig` default instead of failing.
@@ -90,6 +113,7 @@ mod tests {
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
             topic: "clickhouse_billing_usage_records".to_string(),
+            grpc_max_connection_age_secs: 60,
         }
     }
 

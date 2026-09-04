@@ -926,12 +926,10 @@ def refresh_cimd_metadata_task(url: str) -> None:
     try:
         with ph_scoped_capture() as capture_ph_event:
             fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-    except CIMDValidationError as e:
-        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+    except (CIMDValidationError, CIMDFetchError) as e:
+        # A non-compliant document or an unreachable partner endpoint is expected here — the URL and its
+        # host belong to a third party we do not control. Log for observability, don't surface as an error.
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
-    except CIMDFetchError as e:
-        logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
-        capture_exception(e)
 
 
 def get_or_create_cimd_application(url: str) -> OAuthApplication:

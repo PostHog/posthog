@@ -2455,7 +2455,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
     origin: string
 }
 
@@ -3826,6 +3826,29 @@ export interface FleetFindingsSummaryApi {
      * @nullable
      */
     latest_at: string | null
+}
+
+/**
+ * What one scout run spent on model calls.
+ */
+export interface ScoutRunTokenCostApi {
+    /** UUID of the `SignalScoutRun` this cost belongs to. */
+    run_id: string
+    /**
+     * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
+     * @nullable
+     */
+    token_cost_usd: number | null
+}
+
+/**
+ * Model spend for a batch of scout runs.
+ */
+export interface ScoutRunTokenCostsApi {
+    /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
+    costs: ScoutRunTokenCostApi[]
+    /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
+    available: boolean
 }
 
 /**
