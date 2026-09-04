@@ -29905,6 +29905,19 @@ export namespace Schemas {
     }
 
     /**
+     * One observation backing an authored report — becomes a bound signal row on the report.
+     */
+    export interface ReportEvidence {
+      /**
+         * Prose for this observation. Embedded and rendered to the safety/research surfaces.
+         * @maxLength 4000
+         */
+      description: string;
+      /** Stable id for this observation within the report (lets a later edit address it). */
+      source_id: string;
+    }
+
+    /**
      * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
      *
      * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
@@ -29997,6 +30010,12 @@ export namespace Schemas {
          */
       append_note?: string | null;
       /**
+         * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
+         * @maxItems 50
+         * @nullable
+         */
+      append_evidence?: ReportEvidence[] | null;
+      /**
          * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
          * @maxItems 10
          */
@@ -30023,6 +30042,8 @@ export namespace Schemas {
       updated_fields: string[];
       /** Whether a note artefact was appended. */
       note_appended: boolean;
+      /** How many observations this edit added to the report's evidence rail; 0 if none. */
+      evidence_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /**
@@ -30375,21 +30396,6 @@ export namespace Schemas {
          * @nullable
          */
       remediation: string | null;
-    }
-
-    /**
-     * One observation backing an authored report — becomes a bound signal row on the report.
-     */
-    export interface ReportEvidence {
-      /** Prose for this observation. Embedded and rendered to the safety/research surfaces. */
-      description: string;
-      /** Stable id for this observation within the report (lets a later edit address it). */
-      source_id: string;
-      /**
-         * Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.
-         * @minimum 0
-         */
-      weight?: number;
     }
 
     /**
@@ -33009,7 +33015,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -33019,11 +33025,13 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
     };
 
     /**
@@ -33237,7 +33245,7 @@ export namespace Schemas {
        * * `boolean` - Boolean (Pass/Fail)
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -56434,6 +56442,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch
+     */
+    export type ScannerCreationMethodEnum = typeof ScannerCreationMethodEnum[keyof typeof ScannerCreationMethodEnum];
+
+
+    export const ScannerCreationMethodEnum = {
+      Ai: 'ai',
+      Template: 'template',
+      Scratch: 'scratch',
+    } as const;
+
+    /**
      * * `google` - Google
      */
     export type ScannerProviderEnum = typeof ScannerProviderEnum[keyof typeof ScannerProviderEnum];
@@ -56471,6 +56493,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+       *
+       * * `ai` - AI draft
+       * * `template` - Template
+       * * `scratch` - From scratch */
+      creation_method?: ScannerCreationMethodEnum | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -62753,7 +62781,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -62763,11 +62791,13 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
     };
 
     /**
@@ -62838,7 +62868,7 @@ export namespace Schemas {
        * * `boolean` - Boolean (Pass/Fail)
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -66495,6 +66525,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+       *
+       * * `ai` - AI draft
+       * * `template` - Template
+       * * `scratch` - From scratch */
+      creation_method?: ScannerCreationMethodEnum | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -86886,7 +86922,7 @@ export namespace Schemas {
 
     export interface TestHogRequest {
       /**
-         * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+         * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -86934,7 +86970,7 @@ export namespace Schemas {
       /** First 200 characters of output from the sampled unit. */
       output_preview: string;
       /**
-         * True = pass, False = fail, null = N/A or error.
+         * Raw boolean result, or null when the evaluation returns N/A or raises an error.
          * @nullable
          */
       result: boolean | null;

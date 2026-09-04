@@ -10,7 +10,7 @@ import { hogql } from '~/queries/utils'
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     EVALUATION_NOT_SKIPPED_HOGQL,
-    EVALUATION_PASSED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
@@ -1296,7 +1296,7 @@ export async function queryEvaluationRuns(params: {
 export interface EvaluationRunsStats {
     total: number
     applicable: number
-    passed: number
+    trueCount: number
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
@@ -1322,7 +1322,7 @@ export async function queryEvaluationRunsStats(params: {
         SELECT
             count() as total,
             countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
-            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
+            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as true_count
         FROM events
         WHERE
             event = '$ai_evaluation'
@@ -1338,12 +1338,12 @@ export async function queryEvaluationRunsStats(params: {
     const row = response.results?.[0]
 
     if (!row) {
-        return { total: 0, applicable: 0, passed: 0 }
+        return { total: 0, applicable: 0, trueCount: 0 }
     }
 
     return {
         total: Number(row[0]) || 0,
         applicable: Number(row[1]) || 0,
-        passed: Number(row[2]) || 0,
+        trueCount: Number(row[2]) || 0,
     }
 }
