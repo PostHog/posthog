@@ -63,28 +63,29 @@ impl LedgerShadow {
         };
         match ledger.charge(topic_partition, stamp, charges.iter().copied()) {
             Ok(held) => set_held_gauges(&topic_partition.topic, topic_partition.partition, held),
-            Err(rejection) => count_rejection("charge", topic_partition, rejection),
+            Err(rejection) => count_rejection("charge", topic_partition, rejection, charges),
         }
     }
 
-    /// Settle one batch's slice of a partition: complete its offsets and
-    /// compare the frontier with the commit the batch submits. Returns the
-    /// settlement, or `None` when the ledger rejected the slice. The window
-    /// holds the offsets until `drain`.
+    /// Settle one batch's slice of a partition: complete the offsets it
+    /// charged and compare the frontier with the commit the batch submits.
+    /// Returns the settlement, or `None` when the ledger rejected the slice.
+    /// The window holds the offsets until `drain`.
     pub(crate) fn settle(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
-        offsets: impl IntoIterator<Item = Offset>,
+        charges: &[(Offset, Charge)],
         span: &OffsetSpan,
     ) -> Option<Settlement> {
         let Some(ledger) = &self.ledger else {
             return None;
         };
+        let offsets = charges.iter().map(|(offset, _)| *offset);
         let settlement = match ledger.settle(topic_partition, stamp, offsets) {
             Ok(settlement) => settlement,
             Err(rejection) => {
-                count_rejection("settle", topic_partition, rejection);
+                count_rejection("settle", topic_partition, rejection, charges);
                 return None;
             }
         };
@@ -194,23 +195,45 @@ fn frontier_mismatch(
 
 /// Count one charge or settlement the ledger rejected. A stale slice is
 /// expected around a rebalance; a violation is a bug in the accounting.
-fn count_rejection(stage: &'static str, topic_partition: &TopicPartition, rejection: Rejection) {
+///
+/// `charges` is the rejected slice in delivery order. It is read only to
+/// describe a violation, so the happy path pays nothing for the detail.
+fn count_rejection(
+    stage: &'static str,
+    topic_partition: &TopicPartition,
+    rejection: Rejection,
+    charges: &[(Offset, Charge)],
+) {
     match rejection {
         Rejection::Stale { .. } => {
             counter!("ingestion_consumer_ledger_stale_slices_total", "stage" => stage).increment(1);
         }
-        Rejection::Violation(error) => {
+        Rejection::Violation {
+            error,
+            stamp,
+            generation,
+            held,
+        } => {
             counter!(
                 "ingestion_consumer_ledger_errors_total",
                 "stage" => stage,
                 "kind" => error.kind()
             )
             .increment(1);
+            let first = charges.first().map(|(offset, _)| offset.0);
+            let last = charges.last().map(|(offset, _)| offset.0);
             warn!(
                 stage,
                 topic = %topic_partition.topic,
                 partition = topic_partition.partition,
                 error = %error,
+                kind = error.kind(),
+                batch_generation = stamp,
+                ledger_generation = generation,
+                slice_first = ?first,
+                slice_last = ?last,
+                slice_offsets = charges.len(),
+                depth = held.offsets,
                 "Offset ledger rejected a slice and reset its partition"
             );
         }
@@ -280,12 +303,12 @@ mod tests {
 
         assert!(
             shadow
-                .settle(&reassigned, 0, [Offset(10)], &span(10, 10))
+                .settle(&reassigned, 0, &charges(&[10]), &span(10, 10))
                 .is_none(),
             "the stale batch settles nothing against the new ledger"
         );
         let settlement = shadow
-            .settle(&live, 0, [Offset(20)], &span(20, 20))
+            .settle(&live, 0, &charges(&[20]), &span(20, 20))
             .expect("the live batch settles");
         assert_eq!(settlement.frontier, Some(Offset(21)));
         shadow.drain(&live);
@@ -301,7 +324,7 @@ mod tests {
         shadow.charge(&held, 0, &charges(&[10, 11]));
 
         let settlement = shadow
-            .settle(&held, 0, [Offset(11)], &span(11, 11))
+            .settle(&held, 0, &charges(&[11]), &span(11, 11))
             .expect("the batch settles");
         assert_eq!(settlement.frontier, None);
         shadow.drain(&held);
@@ -314,7 +337,9 @@ mod tests {
         let shadow = LedgerShadow::new(None);
         let p0 = tp("events", 0);
         shadow.charge(&p0, 0, &charges(&[10]));
-        assert!(shadow.settle(&p0, 0, [Offset(10)], &span(10, 10)).is_none());
+        assert!(shadow
+            .settle(&p0, 0, &charges(&[10]), &span(10, 10))
+            .is_none());
         shadow.drain(&p0);
 
         assert_eq!(shadow.generations_version(), 0);
@@ -328,11 +353,11 @@ mod tests {
         shadow.charge(&p0, 0, &charges(&[10, 11]));
 
         // Only offset 11 completes: the frontier stays behind the commit.
-        shadow.settle(&p0, 0, [Offset(11)], &span(10, 11));
+        shadow.settle(&p0, 0, &charges(&[11]), &span(10, 11));
         assert_eq!(shadow.mismatched.lock().unwrap().get(&p0), Some(&0));
 
         // Offset 10 completes and the frontier catches up.
-        shadow.settle(&p0, 0, [Offset(10)], &span(10, 11));
+        shadow.settle(&p0, 0, &charges(&[10]), &span(10, 11));
         assert!(shadow.mismatched.lock().unwrap().is_empty());
     }
 
@@ -374,10 +399,10 @@ mod tests {
 
         // The batch in flight from before the reset settles as stale, and the
         // next delivery under the new generation founds a fresh ledger.
-        shadow.settle(&p0, 0, [Offset(10)], &span(10, 10));
+        shadow.settle(&p0, 0, &charges(&[10]), &span(10, 10));
         shadow.charge(&p0, 1, &charges(&[11]));
         assert_eq!(ledger.held(&p0).offsets, 1);
-        shadow.settle(&p0, 1, [Offset(11)], &span(11, 11));
+        shadow.settle(&p0, 1, &charges(&[11]), &span(11, 11));
         shadow.drain(&p0);
         assert_eq!(
             ledger.held(&p0).offsets,
@@ -393,12 +418,12 @@ mod tests {
         shadow.charge(&p0, 0, &charges(&[10]));
 
         // Settling an offset the ledger never charged resets the partition.
-        shadow.settle(&p0, 0, [Offset(15)], &span(15, 15));
+        shadow.settle(&p0, 0, &charges(&[15]), &span(15, 15));
         assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
 
         shadow.charge(&p0, 1, &charges(&[11]));
-        shadow.settle(&p0, 1, [Offset(11)], &span(11, 11));
+        shadow.settle(&p0, 1, &charges(&[11]), &span(11, 11));
         shadow.drain(&p0);
         assert_eq!(
             ledger.held(&p0).offsets,

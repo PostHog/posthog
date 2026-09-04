@@ -781,7 +781,7 @@ impl IngestionConsumer {
         self.ledger_shadow.settle(
             topic_partition,
             partition.generation,
-            partition.charges.iter().map(|(offset, _)| *offset),
+            &partition.charges,
             &partition.span,
         )
     }
