@@ -40,6 +40,7 @@ FUNNEL_STAGE_PROMOTED = "promoted"
 
 LLM_STATUS_OK = "ok"
 LLM_STATUS_ERROR = "error"
+LLM_STATUS_MALFORMED = "malformed"
 
 
 def _in_temporal_context() -> bool:

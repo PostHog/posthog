@@ -104,10 +104,23 @@ class EmptyLLMResponseError(Exception):
     pass
 
 
-def _extract_text_content(response: Message) -> str:
+class MalformedLLMResponseError(Exception):
+    """Raised when the reply is not a Message, e.g. a non-JSON gateway body the SDK returns as a string."""
+
+    pass
+
+
+# Keep the snippet short: the body can be large and hold sensitive data.
+MALFORMED_RESPONSE_SNIPPET_LIMIT = 200
+
+
+def _extract_text_content(response: object) -> str:
     """Extract text content from Anthropic response."""
     if not isinstance(response, Message):
-        raise TypeError(f"Expected Anthropic Message response, got {type(response).__name__}")
+        snippet = repr(response)[:MALFORMED_RESPONSE_SNIPPET_LIMIT]
+        raise MalformedLLMResponseError(
+            f"Expected Anthropic Message response, got {type(response).__name__}: {snippet}"
+        )
 
     for block in reversed(response.content):
         if block.type == "text":
@@ -204,14 +217,34 @@ async def call_llm(
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
     for attempt in range(retries):
-        # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
-        # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
+        # A transport failure (the create call raising) is a hot-path LLM error we don't retry.
         try:
             response = await client.messages.create(**create_kwargs)
-            text_content = _extract_text_content(response)
         except Exception:
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise
+
+        try:
+            text_content = _extract_text_content(response)
+        except MalformedLLMResponseError as e:
+            # The gateway sometimes answers with a non-JSON body, so the SDK hands back a plain
+            # string. Another attempt usually recovers, so retry instead of discarding the report.
+            logger.warning(
+                f"LLM returned a malformed response (attempt {attempt + 1}/{retries}): {e}",
+                stage=stage_label,
+                attempt=attempt + 1,
+                retries=retries,
+            )
+            # Count the malformed reply under its own status, so the gateway degradation rate stays
+            # visible even when the retry recovers and the call ends "ok".
+            metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_MALFORMED)
+            last_exception = e
+            continue
+        except Exception:
+            # EmptyLLMResponseError and the like carry meaning for callers, so keep them fatal.
+            metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
+            raise
+
         text_content = _strip_markdown_json_fences(text_content)
         if prefill:
             # Prepend the `{` we pre-filled

@@ -5,7 +5,7 @@ from django.test import override_settings
 
 from anthropic.types import Message, TextBlock, Usage
 
-from products.signals.backend.temporal.llm import call_llm
+from products.signals.backend.temporal.llm import MalformedLLMResponseError, call_llm
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
 MODULE_PATH = "products.signals.backend.temporal.llm"
@@ -84,13 +84,42 @@ async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
 
 @pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
-async def test_non_message_response_raises_descriptive_error():
+async def test_non_message_response_retries_then_recovers():
+    # A gateway blip that hands back a non-Message body must not discard the whole call: the loop
+    # takes another attempt and the next valid reply succeeds.
+    client = _mock_anthropic_client()
+    client.messages.create = AsyncMock(side_effect=["not json", _text_response("ok")])
+
+    with (
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        patch(f"{MODULE_PATH}.metrics.increment_llm_call") as increment_llm_call,
+    ):
+        result = await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="match",
+            ai_product="signals_grouping",
+        )
+
+    assert result == "{ok"
+    assert client.messages.create.call_count == 2
+    # The malformed reply is counted under its own status even though the retry recovers, so the
+    # gateway degradation rate stays observable instead of hiding behind the final "ok".
+    assert ("match", "malformed") in {args for args, _ in increment_llm_call.call_args_list}
+    assert ("match", "ok") in {args for args, _ in increment_llm_call.call_args_list}
+
+
+@pytest.mark.asyncio
+@override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
+async def test_non_message_response_raises_descriptive_error_after_retries():
     client = _mock_anthropic_client()
     client.messages.create.return_value = "not json"
 
     with (
         patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
-        pytest.raises(TypeError, match="Expected Anthropic Message response, got str"),
+        pytest.raises(MalformedLLMResponseError, match="Expected Anthropic Message response, got str: 'not json'"),
     ):
         await call_llm(
             team_id=1,
@@ -99,7 +128,10 @@ async def test_non_message_response_raises_descriptive_error():
             validate=lambda text: text,
             stage="match",
             ai_product="signals_grouping",
+            retries=2,
         )
+
+    assert client.messages.create.call_count == 2
 
 
 # `ai_product` is the opt-in switch, not just a label: dropping it from a call site silently
