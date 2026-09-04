@@ -162,6 +162,15 @@ def _format_rate(rate: float) -> str:
     return f"{percent:.2f}".rstrip("0").rstrip(".") + "%"
 
 
+def _hour_floor(value: datetime) -> datetime:
+    return value.replace(minute=0, second=0, microsecond=0)
+
+
+def _hour_ceil(value: datetime) -> datetime:
+    floored = _hour_floor(value)
+    return floored if floored == value else floored + timedelta(hours=1)
+
+
 def _rate(events: int, sent: int) -> float:
     # Sends are counted at send time but feedback when it arrives, so feedback landing just inside
     # the window for sends just outside it can push the ratio past 1. Clamp to 100%, matching the
@@ -178,11 +187,14 @@ def _discover_candidate_team_ids(*, now: datetime, thresholds: list[DetectorThre
     the safe one: it under-detects rather than pausing a workflow that is fine.
     """
     candidate_team_ids: set[int] = set()
+    before = _hour_floor(now)
     for window, group in _thresholds_by_window(thresholds).items():
         totals = fetch_app_metric_totals_by_team_and_source(
             app_source=APP_SOURCE,
             name=EMAIL_HEALTH_METRIC_NAMES,
-            after=now - window,
+            after=before - window,
+            before=before,
+            hour_aligned=True,
             min_totals={SENT_METRIC: min(threshold.min_sent for threshold in group)},
             any_min_totals={threshold.metric_name: threshold.min_events for threshold in group},
         )
@@ -198,7 +210,7 @@ def _thresholds_by_window(thresholds: list[DetectorThreshold]) -> dict[timedelta
 
 
 def _counts_by_flow(
-    *, team_ids: list[int], after: datetime
+    *, team_ids: list[int], after: datetime, before: datetime
 ) -> dict[int, tuple[dict[str, EmailSendingCounts], dict[str, str]]]:
     """Exact per-workflow totals for the candidate teams, with batch-job counts folded in.
 
@@ -211,6 +223,8 @@ def _counts_by_flow(
         app_source=APP_SOURCE,
         name=EMAIL_HEALTH_METRIC_NAMES,
         after=after,
+        before=before,
+        hour_aligned=True,
         team_ids=team_ids,
     )
     folded: dict[int, tuple[dict[str, EmailSendingCounts], dict[str, str]]] = {}
@@ -222,12 +236,17 @@ def _counts_by_flow(
     return folded
 
 
-def _clamped_counts_for_flow(*, flow: HogFlow, after: datetime) -> EmailSendingCounts:
+def _clamped_counts_for_flow(*, flow: HogFlow, after: datetime, before: datetime) -> EmailSendingCounts:
     """Totals for one workflow over a window that starts after its last resume."""
+    if after >= before:
+        # No complete hour has passed since the resume, so there is nothing judgeable yet.
+        return EmailSendingCounts()
     totals_by_source = fetch_app_metric_totals_by_source(
         team_id=flow.team_id,
         app_source=APP_SOURCE,
         after=after,
+        before=before,
+        hour_aligned=True,
         name=EMAIL_HEALTH_METRIC_NAMES,
     )
     result = fold_email_totals_by_flow(
@@ -307,10 +326,15 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
     pauses: list[PauseDecision] = []
     warnings_by_flow: dict[str, PauseDecision] = {}
     paused_flow_ids: set[str] = set()
+    # Whole hours only: the metrics table collapses rows per clock hour with an arbitrary surviving
+    # raw timestamp, so a mid-hour bound would include or exclude a whole collapsed hour by merge
+    # luck, and the two sides of a rate could disagree about the edge hour. The current partial
+    # hour is excluded, which adds up to an hour of detection lag on top of the hourly cadence.
+    window_end = _hour_floor(now)
     for window, group in sorted(_thresholds_by_window(thresholds).items()):
-        window_start = now - window
+        window_start = window_end - window
         warn_group = [threshold for threshold in warn_thresholds if threshold.window == window]
-        counts_by_team = _counts_by_flow(team_ids=sorted(candidate_team_ids), after=window_start)
+        counts_by_team = _counts_by_flow(team_ids=sorted(candidate_team_ids), after=window_start, before=window_end)
         for team_id, (counts_by_flow, names_by_flow_id) in counts_by_team.items():
             for flow_id, counts in counts_by_flow.items():
                 flow = flows_by_id.get(flow_id)
@@ -320,10 +344,15 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                     continue
                 effective_counts = counts
                 resumed_at = flow.email_sending_resumed_at
-                if resumed_at is not None and resumed_at > window_start:
+                if resumed_at is not None and _hour_ceil(resumed_at) > window_start:
                     # Re-arm after a resume. Without this, feedback that arrived before the pause
                     # is still inside the window, so resuming would immediately re-trip on it.
-                    effective_counts = _clamped_counts_for_flow(flow=flow, after=resumed_at)
+                    # The clamp starts at the first full hour after the resume: the resume hour's
+                    # rows can hold pre-resume feedback merged with post-resume feedback, so that
+                    # partial hour is not judgeable either way.
+                    effective_counts = _clamped_counts_for_flow(
+                        flow=flow, after=_hour_ceil(resumed_at), before=window_end
+                    )
                 flow_name = names_by_flow_id.get(flow_id, "")
                 for threshold in group:
                     decision = _breach(flow=flow, flow_name=flow_name, counts=effective_counts, threshold=threshold)
@@ -537,9 +566,9 @@ def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now
     re-read inside the transaction: the caller's instance can be stale, and a customer resume that
     checked an automatic pause must not clear a staff pause that landed in between.
 
-    `email_sending_resumed_at` is what re-arms the detector: every window is clamped to start after
-    it, so a workflow that is still misbehaving trips again within minutes on fresh feedback
-    instead of on the feedback that caused the first pause.
+    `email_sending_resumed_at` is what re-arms the detector: every window is clamped to start at
+    the first full hour after it, so a workflow that is still misbehaving trips again within a
+    couple of hours on fresh feedback instead of on the feedback that caused the first pause.
     """
     now = now or timezone.now()
     with transaction.atomic():

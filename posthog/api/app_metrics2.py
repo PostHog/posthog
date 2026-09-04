@@ -248,6 +248,7 @@ def fetch_app_metric_totals_by_source(
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
     name: Optional[list[str]] = None,
+    hour_aligned: bool = False,
 ) -> dict[str, dict[str, int]]:
     """Per-`app_source_id` metric totals for a whole team in one grouped query.
 
@@ -259,6 +260,13 @@ def fetch_app_metric_totals_by_source(
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    # Hour-aligned bounds compare on toStartOfHour(timestamp) with a half-open upper bound. The
+    # table's sorting key collapses rows per clock hour and keeps one arbitrary raw timestamp, so a
+    # mid-hour bound on the raw column includes or excludes a whole collapsed hour by luck. Callers
+    # pass hour-start datetimes; whole hours are then in or out deterministically.
+    bound_expr = "toStartOfHour(timestamp)" if hour_aligned else "timestamp"
+    before_op = "<" if hour_aligned else "<="
+
     clickhouse_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "app_source": app_source,
@@ -275,8 +283,8 @@ def fetch_app_metric_totals_by_source(
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
-        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
-        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
+        {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s
         GROUP BY app_source_id, metric_name
     """
@@ -300,6 +308,7 @@ def fetch_app_metric_totals_by_team_and_source(
     team_ids: Optional[list[int]] = None,
     min_totals: Optional[dict[str, int]] = None,
     any_min_totals: Optional[dict[str, int]] = None,
+    hour_aligned: bool = False,
 ) -> dict[int, dict[str, dict[str, int]]]:
     """Per-`app_source_id` metric totals across many teams in one grouped query.
 
@@ -319,6 +328,13 @@ def fetch_app_metric_totals_by_team_and_source(
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    # Hour-aligned bounds compare on toStartOfHour(timestamp) with a half-open upper bound. The
+    # table's sorting key collapses rows per clock hour and keeps one arbitrary raw timestamp, so a
+    # mid-hour bound on the raw column includes or excludes a whole collapsed hour by luck. Callers
+    # pass hour-start datetimes; whole hours are then in or out deterministically.
+    bound_expr = "toStartOfHour(timestamp)" if hour_aligned else "timestamp"
+    before_op = "<" if hour_aligned else "<="
+
     clickhouse_kwargs: dict[str, Any] = {
         "app_source": app_source,
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
@@ -356,8 +372,8 @@ def fetch_app_metric_totals_by_team_and_source(
         FROM app_metrics2
         WHERE app_source = %(app_source)s
         {"AND team_id IN %(team_ids)s" if team_ids else ""}
-        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
-        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
+        {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s
         GROUP BY team_id, app_source_id
         {f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""}

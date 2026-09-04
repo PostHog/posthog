@@ -28,10 +28,10 @@ AUTO_PAUSE_ON = {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": True}
 class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        # Pinned late in the hour so every seed these tests place (down to 40 minutes back) lands
-        # in one clock hour. app_metrics2 buckets its sort key by hour, so that is the arrangement
-        # most likely to collapse two seeds into a single row and lose one of the timestamps.
-        # Keeping the date today, rather than an absolute one, avoids drifting out of any window.
+        # The detector reads whole clock hours and excludes the current partial hour, so seeds
+        # default to the previous hour (see _seed). Pinned late in the hour so relative offsets in
+        # individual tests stay inside the hour they aim for. Keeping the date today, rather than
+        # an absolute one, avoids drifting out of any window.
         self.now = timezone.now().replace(minute=50, second=0, microsecond=0)
         self._seed_count = 0
         self.flow = HogFlow.objects.create(name="Welcome email", team=self.team)
@@ -44,13 +44,16 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         complaints: int = 0,
         hard_bounces: int = 0,
         at: datetime | None = None,
+        instance: str | None = None,
     ) -> None:
-        timestamp = at or self.now - timedelta(minutes=5)
+        # The previous hour by default: the detector reads complete hours only, so a seed in the
+        # current (partial) hour is invisible to it.
+        timestamp = at or self.now - timedelta(hours=1)
         # app_metrics2 keys rows on (…, instance_id, toStartOfHour(timestamp), …), so two seeds in
         # the same clock hour would collapse into one row and keep just one of the timestamps.
         # A distinct instance per call keeps them separate whatever time the suite runs at.
         self._seed_count += 1
-        instance_id = f"instance-{self._seed_count}"
+        instance_id = instance or f"instance-{self._seed_count}"
         for metric_name, count in (
             ("email_sent", sent),
             ("email_blocked", complaints),
@@ -167,8 +170,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_paused_at is None
 
     def test_window_starts_after_the_last_resume(self):
-        self._seed(sent=400, complaints=8, at=self.now - timedelta(minutes=40))
-        self.flow.email_sending_resumed_at = self.now - timedelta(minutes=20)
+        # Breach feedback two hours back, resume a few minutes later in the same hour: the clamp
+        # starts at the next full hour, so the pre-resume feedback is out of scope.
+        self._seed(sent=400, complaints=8, at=self.now - timedelta(hours=2))
+        self.flow.email_sending_resumed_at = self.now - timedelta(hours=2) + timedelta(minutes=5)
         self.flow.save(update_fields=["email_sending_resumed_at"])
 
         applied, _ = self._sweep()
@@ -178,9 +183,9 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_paused_at is None
 
     def test_feedback_after_a_resume_still_trips(self):
-        self._seed(sent=400, complaints=8, at=self.now - timedelta(minutes=40))
-        self._seed(sent=400, complaints=8, at=self.now - timedelta(minutes=5))
-        self.flow.email_sending_resumed_at = self.now - timedelta(minutes=20)
+        self._seed(sent=400, complaints=8, at=self.now - timedelta(hours=2))
+        self._seed(sent=400, complaints=8, at=self.now - timedelta(hours=1))
+        self.flow.email_sending_resumed_at = self.now - timedelta(hours=2) + timedelta(minutes=5)
         self.flow.save(update_fields=["email_sending_resumed_at"])
 
         applied, _ = self._sweep()
@@ -310,7 +315,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 pause_workflow_email_sending(
                     team_id=self.team.pk,
                     hog_flow_id=str(self.flow.id),
-                    hog_flow_name=self.flow.name,
+                    hog_flow_name=self.flow.name or "",
                     reason="Staff pause",
                     paused_by=PAUSED_BY_STAFF,
                 )
@@ -341,6 +346,23 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             pass
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_at is not None
+
+    def test_a_resume_hour_shared_with_old_feedback_is_not_judged(self):
+        # Production stamps one instance id (the action id) on every row, so pre-resume and
+        # post-resume feedback in the resume's own hour merge into a single hourly row. That mixed
+        # hour is excluded by the clamp: the detector must not re-trip on it, and only a later full
+        # hour of fresh feedback counts.
+        hour = self.now - timedelta(hours=1)
+        self._seed(sent=400, complaints=8, at=hour, instance="shared-action-id")
+        self._seed(sent=400, complaints=8, at=hour + timedelta(minutes=8), instance="shared-action-id")
+        self.flow.email_sending_resumed_at = hour + timedelta(minutes=4)
+        self.flow.save(update_fields=["email_sending_resumed_at"])
+
+        applied, _ = self._sweep()
+
+        assert applied == []
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_at is None
 
     def test_resume_is_a_no_op_when_not_paused(self):
         assert resume_workflow_email_sending(self.flow) is False
