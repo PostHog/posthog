@@ -21,7 +21,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 
-from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS
+from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS, update_alert
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.temporal.alerts.delivery import (
     ALERT_THROTTLE_KEY_PREFIX,
@@ -86,6 +86,18 @@ class AlertTestMixin(BaseTest):
         client.chat_postMessage.return_value = {"channel": "C0123", "ts": "111.222"}
         return client
 
+    def _slack_error(self, code: str, status: int = 200, headers: dict | None = None) -> SlackApiError:
+        response = SlackResponse(
+            client=None,
+            http_verb="POST",
+            api_url="https://slack.com/api/chat.postMessage",
+            req_args={},
+            data={"ok": False, "error": code},
+            headers=headers or {},
+            status_code=status,
+        )
+        return SlackApiError(f"slack {code}", response)
+
     def _thread(self, alert, *, rooted=True) -> ErrorTrackingAlertThread:
         with team_scope(self.team.id):
             return ErrorTrackingAlertThread.objects.create(
@@ -93,7 +105,7 @@ class AlertTestMixin(BaseTest):
                 alert=alert,
                 issue=self.issue,
                 destination=alert.destinations.get(),
-                external_ref={"channel": "C0123", "ts": "111.222"} if rooted else {},
+                external_ref={"channel": "C0123", "ts": "111.222", "notification_id": "notif-root"} if rooted else {},
                 root_headline="🔴 New issue" if rooted else "",
             )
 
@@ -260,7 +272,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert "TypeError" in kwargs["text"]
         with team_scope(self.team.id):
             thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
-        assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
+        assert thread.external_ref == {"channel": "C0123", "ts": "111.222", "notification_id": "notif-1"}
         assert thread.root_headline == "🔴 New issue"
         assert thread.delivered_notification_ids == ["notif-1"]
 
@@ -420,7 +432,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert delivered == 1
         assert client.chat_postMessage.call_args.kwargs["channel"] == "C0123"
         thread.refresh_from_db()
-        assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
+        assert thread.external_ref == {"channel": "C0123", "ts": "111.222", "notification_id": "notif-1"}
         assert thread.delivered_notification_ids == ["notif-1"]
 
     def test_root_header_stays_within_slack_limit(self):
@@ -477,18 +489,6 @@ class TestSlackThreadDelivery(AlertTestMixin):
         with team_scope(self.team.id):
             rooted = [t for t in ErrorTrackingAlertThread.objects.filter(issue=self.issue) if t.external_ref.get("ts")]
         assert len(rooted) == 1
-
-    def _slack_error(self, code: str, status: int = 200, headers: dict | None = None) -> SlackApiError:
-        response = SlackResponse(
-            client=None,
-            http_verb="POST",
-            api_url="https://slack.com/api/chat.postMessage",
-            req_args={},
-            data={"ok": False, "error": code},
-            headers=headers or {},
-            status_code=status,
-        )
-        return SlackApiError(f"slack {code}", response)
 
     @parameterized.expand([("not_in_channel",), ("channel_not_found",), ("token_revoked",), ("missing_scope",)])
     def test_terminal_slack_errors_are_recorded_and_not_retried(self, code):
@@ -818,6 +818,123 @@ class TestAlertThrottlingAndOutcomes(AlertTestMixin):
         thread.refresh_from_db()
         assert thread.external_ref.get("ts") == "111.222"
 
+    def test_terminal_opener_failure_releases_the_window_for_a_repaired_destination(self):
+        # The root was never posted, so the user's repair (a new channel) must
+        # alert inside the window instead of waiting for the key to expire.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        client.chat_postMessage.side_effect = [
+            self._slack_error("channel_not_found"),
+            {"channel": "C0999", "ts": "5.6"},
+        ]
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 0
+        with team_scope(self.team.id):
+            update_alert(
+                self.team.id,
+                alert.id,
+                destinations=[
+                    {"channel_type": "slack", "integration_id": self.integration.id, "config": {"channel": "C0999"}}
+                ],
+            )
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created", notification_id="n-2")) == 1
+
+        assert client.chat_postMessage.call_args.kwargs["channel"] == "C0999"
+
+    def test_window_stays_when_one_destination_rooted_and_another_is_terminal(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        with team_scope(self.team.id):
+            alert.destinations.create(
+                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0456"}
+            )
+        client.chat_postMessage.side_effect = [
+            {"channel": "C0123", "ts": "1.2"},
+            self._slack_error("channel_not_found"),
+        ]
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+
+        assert get_client().get(f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}") == b"notif-1"
+
+    def test_window_stays_when_a_sibling_rooted_on_an_earlier_attempt(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        with team_scope(self.team.id):
+            alert.destinations.create(
+                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0456"}
+            )
+        client.chat_postMessage.side_effect = [
+            {"channel": "C0123", "ts": "1.2"},
+            Exception("transient"),
+            self._slack_error("channel_not_found"),
+        ]
+        inputs = self._inputs("$error_tracking_issue_created")
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(inputs)
+        assert deliver_alert_notifications(inputs) == 0
+
+        assert get_client().get(f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}") == b"notif-1"
+
+    def test_an_older_sibling_conversation_does_not_keep_a_failed_opener_claim(self):
+        # Destination A rooted in an earlier window and only gets a reply now; the
+        # window claimed for the new destination B opened nothing, so it is released.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        self._thread(alert)
+        with team_scope(self.team.id):
+            alert.destinations.create(
+                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0456"}
+            )
+        terminal = self._slack_error("channel_not_found")
+
+        def post(**kwargs):
+            if kwargs["channel"] == "C0456":
+                raise terminal
+            return {"channel": "C0123", "ts": "3.4"}
+
+        client.chat_postMessage.side_effect = post
+
+        deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert get_client().get(f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}") is None
+
+    def test_retry_that_turns_terminal_releases_the_window(self):
+        # The first attempt claimed the window and left an unrooted row; the retry
+        # finds that row, fails for good, and must give the window back.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        client.chat_postMessage.side_effect = [Exception("transient"), self._slack_error("channel_not_found")]
+        inputs = self._inputs("$error_tracking_issue_created")
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(inputs)
+        assert deliver_alert_notifications(inputs) == 0
+
+        assert get_client().get(f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}") is None
+
+    def test_release_leaves_another_notifications_window_alone(self):
+        self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        thread = self._thread(alert, rooted=False)
+        key = f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}"
+        get_client().set(key, "someone-else", ex=3600)
+        with team_scope(self.team.id):
+            alert.destinations.update(integration=None)
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 0
+
+        assert get_client().get(key) == b"someone-else"
+        thread.refresh_from_db()
+        assert thread.external_ref == {}
+
     def test_successful_delivery_records_outcome_and_resets_failures(self):
         self._mock_slack()
         alert = self._create_alert(triggers=["issue_created"])
@@ -834,7 +951,8 @@ class TestAlertThrottlingAndOutcomes(AlertTestMixin):
     def test_failed_delivery_records_outcome(self):
         client = self._mock_slack()
         alert = self._create_alert(triggers=["issue_created"])
-        client.chat_postMessage.side_effect = Exception("channel archived")
+        # The API shows last_error to every reader, so the exception text stays in the logs.
+        client.chat_postMessage.side_effect = ConnectionError("db-host-1:5432 refused")
 
         with self.assertRaises(AlertDeliveryError):
             deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
@@ -842,7 +960,7 @@ class TestAlertThrottlingAndOutcomes(AlertTestMixin):
         with team_scope(self.team.id):
             destination = alert.destinations.get()
         assert destination.consecutive_failures == 1
-        assert "channel archived" in destination.last_error
+        assert destination.last_error == "Delivery failed unexpectedly"
         assert destination.last_failure_at is not None
         assert destination.last_delivered_at is None
 
