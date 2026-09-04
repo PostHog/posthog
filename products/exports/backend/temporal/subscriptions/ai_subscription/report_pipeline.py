@@ -165,13 +165,14 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         and not has_unclassified_error
     ):
         return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
+    # Exposed ClickHouse errors are user-safe, so their server text reaches `safe_message`. Check them
+    # first to keep query-derived identifiers out of the repair prompt.
+    if has_clickhouse_user_error:
+        return QueryRepairDecision(repair_hint=_CLICKHOUSE_QUERY_REPAIR_HINT, invalidates_plan=True)
     if safe_message is not None:
         return QueryRepairDecision(repair_hint=safe_message, invalidates_plan=True)
     if QueryErrorCategory.USER_ERROR in categories:
-        return QueryRepairDecision(
-            repair_hint=_CLICKHOUSE_QUERY_REPAIR_HINT if has_clickhouse_user_error else _ASYNC_USER_QUERY_REPAIR_HINT,
-            invalidates_plan=True,
-        )
+        return QueryRepairDecision(repair_hint=_ASYNC_USER_QUERY_REPAIR_HINT, invalidates_plan=True)
     if has_unknown_query_status_error or has_unclassified_error:
         return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
     if has_retryable_error:
