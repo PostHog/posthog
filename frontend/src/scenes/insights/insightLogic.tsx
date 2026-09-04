@@ -19,7 +19,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
-import { isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
+import { isAccessDeniedError, isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -677,7 +677,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             query: convertedQuery,
                         }
                     } catch (error: any) {
-                        if (error.status === 403 && error.code === 'permission_denied') {
+                        if (isAccessDeniedError(error)) {
                             actions.setAccessDeniedToInsight()
                         }
                         throw error
@@ -865,7 +865,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== id) }
             },
         },
-        accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
+        accessDeniedToInsight: [
+            false,
+            {
+                setAccessDeniedToInsight: () => true,
+                loadInsight: () => false,
+                loadInsightSuccess: () => false,
+            },
+        ],
         insightMissing: [false, { setInsightMissing: () => true, loadInsight: () => false }],
         /** The insight's state as it is in the database. */
         savedInsight: [

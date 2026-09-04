@@ -73,6 +73,17 @@ describe('notebookLogic markdown editor state', () => {
         jest.restoreAllMocks()
     })
 
+    it('clears access denied when the notebook is loaded again', async () => {
+        logic.actions.setAccessDeniedToNotebook()
+        expect(logic.values.accessDeniedToNotebook).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadNotebook()
+        }).toDispatchActions(['loadNotebookSuccess'])
+
+        expect(logic.values.accessDeniedToNotebook).toBe(false)
+    })
+
     it('applies editor changes to local content when no interaction is active', () => {
         const nextMarkdown = `${BASE_MARKDOWN} edited`
 

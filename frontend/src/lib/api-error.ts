@@ -1,9 +1,29 @@
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-/** A 403 with DRF's `permission_denied` code — the user lacks access to the resource itself. */
+/**
+ * Codes on a 403 that mean something other than "you lack access to this resource". Each has its
+ * own recovery flow in `apiStatusLogic` (2FA setup or verification, re-auth, a verified-domain
+ * block, read-only impersonation, or a blocked impersonation path), so it must not route to the
+ * AccessDenied scene.
+ */
+const NON_ACCESS_DENIED_403_CODES: ReadonlySet<string> = new Set([
+    'two_factor_setup_required',
+    'two_factor_verification_required',
+    'sensitive_action_required_reauth',
+    'verified_domain_required',
+    'impersonation_read_only',
+    'impersonation_path_blocked',
+])
+
+/**
+ * A 403 that means the user lacks access to the resource. DRF sends the `permission_denied` code,
+ * but many 403s reach the client without that body — an edge or proxy 403, or a non-DRF view — so
+ * `code` is null. Treat any 403 as access denied unless it carries a code with its own recovery
+ * flow, so the AccessDenied scene renders instead of a dead-end error.
+ */
 export function isAccessDeniedError(error: { status?: number; code?: string | null }): boolean {
-    return error.status === 403 && error.code === 'permission_denied'
+    return error.status === 403 && !(error.code != null && NON_ACCESS_DENIED_403_CODES.has(error.code))
 }
 
 /**
@@ -50,7 +70,8 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 401 — an authentication state rather than a crash. `apiStatusLogic` re-checks the session and
  *   logs the user out, best-effort: it bails while impersonating (where `ImpersonationNotice`
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
- * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
+ * - 403 access denied — the sceneLogic gates render the AccessDenied scene. This covers a DRF
+ *   `permission_denied` body and any 403 without a recovery-flow code (see `isAccessDeniedError`).
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
