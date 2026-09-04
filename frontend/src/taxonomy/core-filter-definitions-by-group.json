@@ -3586,6 +3586,11 @@
             ],
             "label": "App build"
         },
+        "credits": {
+            "description": "Credits charged for the observation, priced when the event was emitted. 1 credit is $0.01. Sum this to see spend by scanner, model, or trigger.",
+            "label": "Credits (Replay Vision)",
+            "type": "Numeric"
+        },
         "currency": {
             "description": "The currency code associated with the event.",
             "examples": [
@@ -3611,6 +3616,10 @@
             "description": "Older unprefixed variant of $mcp_duration_ms. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_duration_ms for new dashboards.",
             "label": "Duration (ms, unprefixed)",
             "type": "Numeric"
+        },
+        "emits_signals": {
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+            "label": "Emits signals (Replay Vision)"
         },
         "epik": {
             "description": "Pinterest Click ID",
@@ -3760,6 +3769,10 @@
             "label": "MCP server version (unprefixed, internal)",
             "type": "Numeric"
         },
+        "model_used": {
+            "description": "Gemini model that analyzed the recording. Sets the credit price of the observation.",
+            "label": "Model used (Replay Vision)"
+        },
         "msclkid": {
             "description": "Microsoft Click ID",
             "label": "msclkid"
@@ -3778,6 +3791,10 @@
             ],
             "label": "App previous version"
         },
+        "provider_used": {
+            "description": "Provider that served the model call.",
+            "label": "Provider used (Replay Vision)"
+        },
         "qclid": {
             "description": "Quora Click ID",
             "label": "qclid"
@@ -3785,6 +3802,14 @@
         "rdt_cid": {
             "description": "Reddit Click ID",
             "label": "rdt_cid"
+        },
+        "recording_distinct_id": {
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+            "label": "Observed distinct ID (Replay Vision)"
+        },
+        "recording_subject_email": {
+            "description": "Email of the person in the recording, captured when the scan ran.",
+            "label": "Observed subject email (Replay Vision)"
         },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
@@ -3804,9 +3829,36 @@
             ],
             "label": "Revenue"
         },
+        "scanner_id": {
+            "description": "Scanner that produced the observation.",
+            "label": "Scanner ID (Replay Vision)"
+        },
+        "scanner_name": {
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+            "label": "Scanner name (Replay Vision)"
+        },
+        "scanner_type": {
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": [
+                "monitor",
+                "classifier",
+                "scorer",
+                "summarizer"
+            ],
+            "label": "Scanner type (Replay Vision)"
+        },
+        "scanner_version": {
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "label": "Scanner version (Replay Vision)",
+            "type": "Numeric"
+        },
         "sccid": {
             "description": "Snapchat Click ID",
             "label": "sccid"
+        },
+        "session_id": {
+            "description": "Session recording the scanner analyzed. Deliberately not `$session_id`: the observation is emitted long after the recording ended, and `$session_id` would fold it into that session's duration and bounce rate. Join to a recording on this property instead.",
+            "label": "Observed session ID (Replay Vision)"
         },
         "token": {
             "description": "Token used for authentication.",
@@ -3819,6 +3871,16 @@
         "tool_name": {
             "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
             "label": "Tool name (unprefixed)"
+        },
+        "triggered_by": {
+            "description": "What started the scan: the scanner's own schedule, a person scanning on demand, a historical backfill, or a retry.",
+            "examples": [
+                "schedule",
+                "on_demand",
+                "backfill",
+                "retry"
+            ],
+            "label": "Triggered by (Replay Vision)"
         },
         "ttclid": {
             "description": "TikTok Click ID",
@@ -4153,6 +4215,11 @@
         "$rageclick": {
             "description": "A user has rapidly and repeatedly clicked in a single place.",
             "label": "Rageclick"
+        },
+        "$recording_observed": {
+            "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
+            "label": "Recording observed (Replay Vision)",
+            "primary_property": "scanner_name"
         },
         "$screen": {
             "description": "When a user loads a screen in a mobile app.",
@@ -8647,6 +8714,11 @@
             ],
             "label": "App build"
         },
+        "credits": {
+            "description": "Credits charged for the observation, priced when the event was emitted. 1 credit is $0.01. Sum this to see spend by scanner, model, or trigger.",
+            "label": "Credits (Replay Vision)",
+            "type": "Numeric"
+        },
         "currency": {
             "description": "The currency code associated with the event.",
             "examples": [
@@ -8682,6 +8754,10 @@
             ],
             "label": "Email address",
             "type": "String"
+        },
+        "emits_signals": {
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+            "label": "Emits signals (Replay Vision)"
         },
         "epik": {
             "description": "Pinterest Click ID Data from the last time this user was seen.",
@@ -8831,6 +8907,10 @@
             "label": "MCP server version (unprefixed, internal)",
             "type": "Numeric"
         },
+        "model_used": {
+            "description": "Gemini model that analyzed the recording. Sets the credit price of the observation.",
+            "label": "Model used (Replay Vision)"
+        },
         "msclkid": {
             "description": "Microsoft Click ID Data from the last time this user was seen.",
             "label": "Latest msclkid"
@@ -8849,6 +8929,10 @@
             ],
             "label": "App previous version"
         },
+        "provider_used": {
+            "description": "Provider that served the model call.",
+            "label": "Provider used (Replay Vision)"
+        },
         "qclid": {
             "description": "Quora Click ID Data from the last time this user was seen.",
             "label": "Latest qclid"
@@ -8856,6 +8940,14 @@
         "rdt_cid": {
             "description": "Reddit Click ID Data from the last time this user was seen.",
             "label": "Latest rdt_cid"
+        },
+        "recording_distinct_id": {
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+            "label": "Observed distinct ID (Replay Vision)"
+        },
+        "recording_subject_email": {
+            "description": "Email of the person in the recording, captured when the scan ran.",
+            "label": "Observed subject email (Replay Vision)"
         },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
@@ -8875,9 +8967,36 @@
             ],
             "label": "Revenue"
         },
+        "scanner_id": {
+            "description": "Scanner that produced the observation.",
+            "label": "Scanner ID (Replay Vision)"
+        },
+        "scanner_name": {
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+            "label": "Scanner name (Replay Vision)"
+        },
+        "scanner_type": {
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": [
+                "monitor",
+                "classifier",
+                "scorer",
+                "summarizer"
+            ],
+            "label": "Scanner type (Replay Vision)"
+        },
+        "scanner_version": {
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "label": "Scanner version (Replay Vision)",
+            "type": "Numeric"
+        },
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
+        },
+        "session_id": {
+            "description": "Session recording the scanner analyzed. Deliberately not `$session_id`: the observation is emitted long after the recording ended, and `$session_id` would fold it into that session's duration and bounce rate. Join to a recording on this property instead.",
+            "label": "Observed session ID (Replay Vision)"
         },
         "token": {
             "description": "Token used for authentication.",
@@ -8890,6 +9009,16 @@
         "tool_name": {
             "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
             "label": "Tool name (unprefixed)"
+        },
+        "triggered_by": {
+            "description": "What started the scan: the scanner's own schedule, a person scanning on demand, a historical backfill, or a retry.",
+            "examples": [
+                "schedule",
+                "on_demand",
+                "backfill",
+                "retry"
+            ],
+            "label": "Triggered by (Replay Vision)"
         },
         "ttclid": {
             "description": "TikTok Click ID Data from the last time this user was seen.",

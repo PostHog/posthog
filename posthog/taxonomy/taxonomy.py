@@ -282,6 +282,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
         },
+        "$recording_observed": {
+            "label": "Recording observed (Replay Vision)",
+            "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
+            "primary_property": "scanner_name",
+        },
         "$csp_violation": {
             "label": "CSP violation",
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
@@ -3104,6 +3109,59 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP session vendor client",
             "description": "Vendor client captured at session initialize and carried across every request in that session.",
             "examples": ["ClaudeCode", "ClaudeAI"],
+        },
+        # Replay Vision properties, all on `$recording_observed`.
+        "session_id": {
+            "label": "Observed session ID (Replay Vision)",
+            "description": "Session recording the scanner analyzed. Deliberately not `$session_id`: the observation is emitted long after the recording ended, and `$session_id` would fold it into that session's duration and bounce rate. Join to a recording on this property instead.",
+        },
+        "scanner_id": {
+            "label": "Scanner ID (Replay Vision)",
+            "description": "Scanner that produced the observation.",
+        },
+        "scanner_name": {
+            "label": "Scanner name (Replay Vision)",
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+        },
+        "scanner_type": {
+            "label": "Scanner type (Replay Vision)",
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": ["monitor", "classifier", "scorer", "summarizer"],
+        },
+        "scanner_version": {
+            "label": "Scanner version (Replay Vision)",
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "type": "Numeric",
+        },
+        "triggered_by": {
+            "label": "Triggered by (Replay Vision)",
+            "description": "What started the scan: the scanner's own schedule, a person scanning on demand, a historical backfill, or a retry.",
+            "examples": ["schedule", "on_demand", "backfill", "retry"],
+        },
+        "model_used": {
+            "label": "Model used (Replay Vision)",
+            "description": "Gemini model that analyzed the recording. Sets the credit price of the observation.",
+        },
+        "provider_used": {
+            "label": "Provider used (Replay Vision)",
+            "description": "Provider that served the model call.",
+        },
+        "credits": {
+            "label": "Credits (Replay Vision)",
+            "description": "Credits charged for the observation, priced when the event was emitted. 1 credit is $0.01. Sum this to see spend by scanner, model, or trigger.",
+            "type": "Numeric",
+        },
+        "emits_signals": {
+            "label": "Emits signals (Replay Vision)",
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+        },
+        "recording_distinct_id": {
+            "label": "Observed distinct ID (Replay Vision)",
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+        },
+        "recording_subject_email": {
+            "label": "Observed subject email (Replay Vision)",
+            "description": "Email of the person in the recording, captured when the scan ran.",
         },
         "$csp_document_url": {
             "label": "Document URL",
