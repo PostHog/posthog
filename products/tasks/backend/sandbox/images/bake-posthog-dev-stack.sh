@@ -90,7 +90,18 @@ mkdir -p "$BAKE_ROOT" "$(dirname "$REPO_DIR")"
 # the project name (and therefore volume/container names) from the directory basename,
 # and cargo keys workspace-crate fingerprints on the absolute source path, so the baked
 # Rust target dir only counts as warm for a checkout at this same path.
-git clone --depth 1 https://github.com/posthog/posthog.git "$REPO_DIR"
+# Retry the clone: a transient GitHub hiccup (a momentary credential or network failure)
+# must not spend the workflow's last attempt in seconds and skip the nightly refresh.
+for attempt in 1 2 3; do
+    git clone --depth 1 https://github.com/posthog/posthog.git "$REPO_DIR" && break
+    if [[ "$attempt" -eq 3 ]]; then
+        echo "git clone failed after ${attempt} attempts" >&2
+        exit 1
+    fi
+    log "git clone attempt ${attempt} failed; retrying in $((attempt * 5))s"
+    rm -rf "$REPO_DIR"
+    sleep "$((attempt * 5))"
+done
 cd "$REPO_DIR"
 BAKED_SHA=$(git rev-parse HEAD)
 export COMPOSE_PROJECT_NAME=posthog
@@ -181,9 +192,21 @@ log "warming cargo registry for the rust workspace"
 log "building the rust workspace binaries"
 mapfile -t RUST_BINS < <(cd rust && cargo metadata --no-deps --format-version 1 \
     | python3 -c 'import json, sys; print("\n".join(sorted({t["name"] for p in json.load(sys.stdin)["packages"] for t in p["targets"] if "bin" in t["kind"] and not t.get("required-features")})))')
+# Fail loud if metadata yielded no binaries: a bare `cargo build` with no --bin flags
+# would build the whole workspace instead, so an empty list must stop the bake, not
+# silently change what gets warmed.
+if [[ ${#RUST_BINS[@]} -eq 0 ]]; then
+    echo "no rust binaries discovered from cargo metadata" >&2
+    exit 1
+fi
+# One cargo build over every binary, not a per-binary loop: cargo prints its `Finished`
+# line and the multi-line js-source-scopes patch warning once instead of ~30 times, which
+# is most of what floods the retained log tail.
+BUILD_BIN_ARGS=()
 for bin in "${RUST_BINS[@]}"; do
-    (cd rust && cargo build --bin "$bin")
+    BUILD_BIN_ARGS+=(--bin "$bin")
 done
+(cd rust && cargo build "${BUILD_BIN_ARGS[@]}")
 du -sh "$RUST_TARGET_DIR"
 
 log "warming go module cache (livestream)"
@@ -201,14 +224,16 @@ log "warming pnpm store"
 # store (under ~/.local/share/pnpm), which lives outside the checkout and survives the
 # cleanup below — the task-time `pnpm install` becomes mostly a linking pass. Bake and
 # task time run the same image's pnpm, so the store layout always matches.
-pnpm fetch --frozen-lockfile
+# --reporter=append-only collapses the per-package progress lines that otherwise flood
+# the retained log tail.
+pnpm fetch --frozen-lockfile --reporter=append-only
 # Link a full node_modules once: it backfills anything fetch skipped (git/tarball
 # resolutions) and provides the workspace-pinned playwright CLI for the browser
 # install below. --ignore-scripts keeps third-party postinstall hooks from failing
 # the bake — the deliberate cost is that native-addon builds (node-rdkafka's node-gyp
 # compile, chiefly) are not warmed and still compile during the task-time install,
 # which runs scripts as usual. node_modules itself is discarded with the checkout.
-pnpm install --prefer-offline --frozen-lockfile --ignore-scripts
+pnpm install --prefer-offline --frozen-lockfile --ignore-scripts --reporter=append-only
 
 log "smoke-testing Desktop cloud-task bootstrap"
 # Exercise the same branch-correct preparation that task provisioning runs after
