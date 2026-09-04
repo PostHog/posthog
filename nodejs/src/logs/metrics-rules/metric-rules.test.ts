@@ -104,6 +104,45 @@ describe('metric rules compile + tally', () => {
             expect(tallies.valueSkipped).toBe(2)
         })
 
+        it('a log_attribute filter on a column-named key tallies from the attribute map', () => {
+            // Metric rules match through the drop-rule matcher. This pins that they keep doing so,
+            // so a filter picked from the log-attributes list cannot start resolving to the
+            // same-named column and silently tally nothing.
+            const rules = compileMetricRules([
+                ruleRow({
+                    filter_group: {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: 'AND',
+                                values: [
+                                    {
+                                        key: 'service_name',
+                                        type: 'log_attribute',
+                                        operator: 'exact',
+                                        value: ['contour/envoy'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                }),
+            ])
+            const tallies = createBatchTallies()
+            tallyRecords(
+                rules,
+                [
+                    record({ service_name: 'contour', attributes: { service_name: '"contour/envoy"' } }),
+                    record({ service_name: 'contour', attributes: { service_name: '"contour/contour"' } }),
+                ],
+                tallies,
+                NOW_MS
+            )
+            const entries = [...tallies.byRule.get('rule-1')!.values()]
+            expect(entries).toHaveLength(1)
+            expect(entries[0]!.count).toBe(1)
+        })
+
         it('resolves group-by labels, using empty string for missing keys and truncating long values', () => {
             const longValue = 'x'.repeat(MAX_LABEL_VALUE_LENGTH + 50)
             const rules = compileMetricRules([
