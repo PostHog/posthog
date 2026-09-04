@@ -171,6 +171,7 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
     },
     [ProductKey.POSTHOG_DESKTOP]: {
         Icon: <Logomark size="xl" />,
+        iconUpright: true,
         accentColor: 'var(--color-accent)',
         tagline:
             'The product editor for builders. Run AI agents that use your product data as context to ship changes.',

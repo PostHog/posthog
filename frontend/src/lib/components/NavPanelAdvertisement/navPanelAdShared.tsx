@@ -66,6 +66,8 @@ export interface ProductPushDisplay {
     Icon?: JSX.Element
     /** Soft purple glow behind `Icon`, echoing the AI surfaces' sidebar treatment. */
     iconBackdrop?: boolean
+    /** Render `Icon` upright instead of the default slight rotation (the PostHog logomark reads wrong tilted). */
+    iconUpright?: boolean
     /** Product brand color, used for the title and - mixed down - its highlight */
     accentColor: string
     /** Default promo copy, used when the campaign has no custom reason text */
@@ -119,10 +121,10 @@ export function ProductHogHero({
             </div>
             <p className="mb-0 text-secondary">{text}</p>
             {hero.Icon ? (
-                // A surface has no hoggie: show its logo as a rotated mark tucked toward the
-                // bottom-right, bleeding slightly off the edge like the hoggies do.
+                // A surface has no hoggie: show its own logo toward the bottom-right, tilted by
+                // default (uprighted for marks that read wrong at an angle, e.g. the PostHog logo).
                 <div className="relative -mx-2 -mt-1 h-24 overflow-hidden" aria-hidden="true">
-                    <div className="absolute bottom-1 right-4 rotate-[14deg]">
+                    <div className={`absolute bottom-3 right-4 ${hero.iconUpright ? '' : 'rotate-[14deg]'}`}>
                         {hero.iconBackdrop ? (
                             <div className="absolute inset-0 scale-75 rounded-full bg-[var(--color-purple-200)] opacity-70 blur-lg" />
                         ) : null}
