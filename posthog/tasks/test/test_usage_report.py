@@ -1635,7 +1635,7 @@ class TestQueryUsageReportSQL:
                 "python_mcp_events": [(1, 6)],
                 "kmp_events": [(1, 8)],
                 "ruby_events": [(1, 2)],
-                "dotnet_events": [(1, 3)],
+                "dotnet_events": [(1, 5)],
                 "openclaw_events": [],
                 "opencode_events": [],
                 "posthog_pi_events": [],
@@ -1649,6 +1649,7 @@ class TestQueryUsageReportSQL:
                 (1, "posthog-node", "posthog-opencode", 1),
                 (1, "posthog-python", "posthog-ai", 4),
                 (1, "posthog-dotnet", "posthog-ai", 1),
+                (1, "posthog-aspnetcore", "posthog-ai", 2),
             ],
         ]
         # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
@@ -1685,7 +1686,7 @@ class TestQueryUsageReportSQL:
         ai_query = mock_execute_split_query.call_args_list[1].kwargs["query_template"]
         assert "startsWith(event, '$ai_')" in ai_query
         assert "lib_expr AS sdk_lib" in ai_query
-        assert "lib_expr IN ('posthog-node', 'posthog-python', 'posthog-dotnet')" in ai_query
+        assert "lib_expr IN ('posthog-node', 'posthog-python', 'posthog-dotnet', 'posthog-aspnetcore')" in ai_query
         assert "ai_lib_expr IN (" in ai_query
         assert "GROUP BY team_id, sdk_lib, ai_lib" in ai_query
         assert "'posthog-ai'" in ai_query
@@ -1713,7 +1714,7 @@ class TestQueryUsageReportSQL:
         # Subtract AI sub-SDK counts so each event belongs to one SDK metric.
         assert result["posthog_ai_events"] == [(1, 2)]
         assert result["posthog_python_ai_events"] == [(1, 4)]
-        assert result["posthog_dotnet_ai_events"] == [(1, 1)]
+        assert result["posthog_dotnet_ai_events"] == [(1, 3)]
         assert result["openclaw_events"] == [(1, 3)]
         assert result["opencode_events"] == [(1, 1)]
         assert result["node_events"] == [(1, 4)]
@@ -6124,6 +6125,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         _create_event(
             event="$ai_generation",
             team=self.team,
+            distinct_id="aspnetcore_ai_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-aspnetcore", "$ai_lib": "posthog-ai"},
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
             distinct_id="openclaw_user",
             timestamp=self.begin + relativedelta(hours=12),
             properties={"$lib": "posthog-node", "$ai_lib": "posthog-openclaw"},
@@ -6161,7 +6169,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(dict(result["python_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["posthog_python_ai_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["dotnet_events"]).get(self.team.id), 1)
-        self.assertEqual(dict(result["posthog_dotnet_ai_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["posthog_dotnet_ai_events"]).get(self.team.id), 2)
 
     @patch("posthog.tasks.usage_report._execute_split_query")
     def test_split_query_with_different_num_splits(self, mock_execute_split_query: MagicMock) -> None:
