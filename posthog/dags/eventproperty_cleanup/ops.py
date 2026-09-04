@@ -6,7 +6,9 @@ Discovery and scoring read the replica when one is configured; only deletes touc
 """
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from typing import Any
 
 from django.conf import settings
 from django.db import connection, connections
@@ -14,6 +16,7 @@ from django.db.backends.base.base import BaseDatabaseWrapper
 
 import dagster
 import psycopg2
+import structlog
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
@@ -22,7 +25,7 @@ from posthog.dataclasses import frozen
 
 from . import sql
 from .config import EventPropertyCleanupConfig
-from .cursor import read_cursor, record_cursor, reset_cursor
+from .cursor import START, ResumePoint, read_resume_point, record_resume_point, reset_resume_point
 from .dormancy import (
     ClickHouseProbe,
     DormancyVerdict,
@@ -38,6 +41,8 @@ from .dormancy import (
 )
 from .engine import DeleteEngine, DjangoPostgresBackend, UnitResult
 from .units import WorkUnit, discover_pollution_units, discover_retention_units
+
+logger = structlog.get_logger(__name__)
 
 REPLICA_ALIAS = "replica"
 UNIT_LOG_LIMIT = 200
@@ -81,14 +86,28 @@ def discovery_connection() -> BaseDatabaseWrapper:
     return connections[REPLICA_ALIAS] if REPLICA_ALIAS in connections.databases else connection
 
 
-def discovery_cursor(config: EventPropertyCleanupConfig):
-    """A cursor on the discovery connection with the discovery statement_timeout applied.
+@contextmanager
+def discovery_cursor(config: EventPropertyCleanupConfig) -> Iterator[Any]:
+    """A cursor on the discovery connection, with the discovery statement_timeout applied and reset.
 
-    On the primary the delete transactions override this with `SET LOCAL`, so it only bounds discovery.
+    Readers on these tables normally set this with `SET LOCAL` inside `transaction.atomic()`
+    (see `posthog/taxonomy/property_definition_api.py`), but that convention is for one short list
+    query. Discovery here streams for hours, and a transaction open that long pins `xmin`, which
+    stops VACUUM reclaiming dead tuples anywhere in the database -- including the ones this job
+    creates. So the setting is session-scoped and reset on the way out instead.
+
+    On the primary the delete transactions override it with `SET LOCAL`, so it only bounds discovery.
     """
     cursor = discovery_connection().cursor()
-    cursor.execute("SET statement_timeout = %s", (config.discovery_statement_timeout,))
-    return cursor
+    try:
+        cursor.execute("SET statement_timeout = %s", (config.discovery_statement_timeout,))
+        yield cursor
+    finally:
+        try:
+            cursor.execute("SET statement_timeout = DEFAULT")
+        except Exception:
+            logger.warning("eventproperty_cleanup.discovery_timeout_not_reset")
+        cursor.close()
 
 
 def _skipped(mode: str) -> ModeResult:
@@ -280,35 +299,30 @@ def run_units(
     return mode_result
 
 
-def _resume_point(context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, mode: str) -> int:
-    """Where this mode's discovery starts. An explicit override wins over the recorded point.
-
-    Only modes that record a resume point resume from one; see `_chunk_recorder`.
-    """
+def _resume_point(context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig) -> ResumePoint:
+    """Where pollution discovery starts. An explicit override wins over the recorded point."""
     if config.start_after_team_id is not None:
-        return max(config.start_after_team_id, 0)
-    if not config.resume or mode != "pollution":
-        return 0
-    start = read_cursor(context.instance, mode)
-    if start:
-        context.log.info("%s: resuming above team_id %s", mode, f"{start:,}")
-    return start
+        return ResumePoint(last_completed_team_id=max(config.start_after_team_id, 0))
+    if not config.resume:
+        return START
+    point = read_resume_point(context.instance, "pollution")
+    if point != START:
+        context.log.info("pollution: resuming from %s", point)
+    return point
 
 
-def _chunk_recorder(
-    context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, mode: str
-) -> Callable[[int], None] | None:
-    """A range may only be recorded when finishing it means its rows are gone.
+def _progress_recorder(
+    context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig
+) -> Callable[[ResumePoint], None] | None:
+    """Only pollution records progress, and only when it is really deleting.
 
-    Pollution qualifies: its predicate is constant across a unit, so a short batch means the unit
-    is exhausted. Retention does not. One retention unit covers a set of event names, and the
-    per-row re-check can end a batch early while rows for the other names in the set are still
-    eligible (see `RETENTION_DELETE`). Recording that range would skip those rows for good, so
-    retention re-walks instead.
+    A dry run must not advance the point, since it deletes nothing. Retention is excluded because
+    one of its units can end with rows for its other event names still eligible, so a finished
+    range does not mean finished rows -- see `RETENTION_DELETE`.
     """
-    if config.dry_run or mode != "pollution":
+    if config.dry_run:
         return None
-    return lambda team_id: record_cursor(context, mode, team_id)
+    return lambda point: record_resume_point(context, "pollution", point)
 
 
 @dagster.op
@@ -325,8 +339,8 @@ def run_pollution_op(
         units = discover_pollution_units(
             cursor,
             config,
-            start_after=_resume_point(context, config, "pollution"),
-            on_chunk_done=_chunk_recorder(context, config, "pollution"),
+            resume=_resume_point(context, config),
+            on_progress=_progress_recorder(context, config),
         )
         return run_units(context, config, preflight, "pollution", units, cluster)
 
@@ -343,12 +357,7 @@ def run_retention_op(
         context.log.info("retention mode disabled (retention_days is None)")
         return _skipped("retention")
     with discovery_cursor(config) as cursor:
-        units = discover_retention_units(
-            cursor,
-            config,
-            start_after=_resume_point(context, config, "retention"),
-            on_chunk_done=_chunk_recorder(context, config, "retention"),
-        )
+        units = discover_retention_units(cursor, config)
         return run_units(context, config, preflight, "retention", units, cluster)
 
 
@@ -444,7 +453,7 @@ def collect_and_vacuum_op(
 ) -> dict[str, int]:
     results = [pollution, retention, dormant]
     if config.reset_cursor_after_run and not config.dry_run:
-        reset_cursor(context, "pollution")
+        reset_resume_point(context, "pollution")
         context.log.info("pollution resume point reset; the next run re-walks every range")
     rows_since_vacuum = sum(r.rows_since_vacuum for r in results)
     final_vacuums = 0

@@ -13,7 +13,13 @@ from parameterized import parameterized
 
 from posthog.dags.eventproperty_cleanup import ops
 from posthog.dags.eventproperty_cleanup.config import EventPropertyCleanupConfig
-from posthog.dags.eventproperty_cleanup.cursor import cursor_asset_key, read_cursor, record_cursor
+from posthog.dags.eventproperty_cleanup.cursor import (
+    START,
+    ResumePoint,
+    cursor_asset_key,
+    read_resume_point,
+    record_resume_point,
+)
 from posthog.dags.eventproperty_cleanup.dormancy import (
     PROBE_UNAVAILABLE,
     DormancySignals,
@@ -43,7 +49,13 @@ REAL_NOW = datetime.now(UTC)
 HEALTHY = HealthProbe(dead_tuple_ratio=0.0, blocked_propdefs_backends=0)
 UNHEALTHY = HealthProbe(dead_tuple_ratio=0.5, blocked_propdefs_backends=0)
 POLLUTION_UNIT = WorkUnit(
-    mode="pollution", team_id=1, project_id=1, key="$initial_geoip_city_name", est_rows=5, reason=""
+    mode="pollution",
+    team_id=1,
+    project_id=1,
+    key=("$pageview", "signup"),
+    est_rows=5,
+    reason="",
+    properties=("$initial_geoip_city_name",),
 )
 
 
@@ -99,7 +111,8 @@ class TestDeleteEngine:
 
         assert (result.rows_deleted, result.batches, result.vacuums, result.stopped_reason) == (207, 3, 0, None)
         assert backend.vacuum_calls == []
-        assert backend.delete_calls[0]["property"] == "$initial_geoip_city_name"
+        assert backend.delete_calls[0]["properties"] == ["$initial_geoip_city_name"]
+        assert backend.delete_calls[0]["events"] == ["$pageview", "signup"]
 
     def test_vacuums_once_when_row_budget_is_crossed(self):
         backend = FakeBackend([100, 100, 7])
@@ -243,115 +256,119 @@ class TestTeamChunking:
         ranges = [c.kwargs or c.args[1] for c in cursor.execute.call_args_list[1:]]
         assert [(r["lo"], r["hi"]) for r in ranges] == [(0, 5), (5, 10), (10, 12)]
         assert all(r["days"] == 7 for r in ranges)
-        assert chunks == [[3, 4], [11]]
+        assert chunks == [([3, 4], 5), ([], 10), ([11], 12)]
 
     def test_explicit_team_ids_skip_the_range_walk(self):
         cursor = MagicMock()
         config = EventPropertyCleanupConfig(team_ids=[9, 2])
 
-        assert list(iter_team_chunks(cursor, config, "UNIVERSE", {})) == [[2, 9]]
+        assert list(iter_team_chunks(cursor, config, "UNIVERSE", {})) == [([2, 9], 0)]
         cursor.execute.assert_not_called()
 
-
-class TestResumeCursor:
-    def test_read_falls_back_to_the_start_when_the_instance_read_fails(self):
-        # A Dagster+ read is a network call. It must never fail the run -- falling back to 0 is
-        # the behaviour the job had before the cursor existed.
-        instance = MagicMock()
-        instance.get_latest_materialization_event.side_effect = RuntimeError("cloud unavailable")
-
-        assert read_cursor(instance, "pollution") == 0
-
-    @parameterized.expand(
-        [
-            ("no_materialization", None, 0),
-            ("no_metadata_entry", {}, 0),
-            ("unreadable_value", {"last_completed_team_id": "not-a-number"}, 0),
-            ("valid", {"last_completed_team_id": 25_000}, 25_000),
-            ("negative_is_clamped", {"last_completed_team_id": -5}, 0),
-        ]
-    )
-    def test_read_cursor_tolerates_every_stored_shape(self, _name: str, metadata: Any, expected: int):
-        instance = MagicMock()
-        if metadata is None:
-            instance.get_latest_materialization_event.return_value = None
-        else:
-            event = MagicMock()
-            event.asset_materialization = dagster.AssetMaterialization(
-                asset_key=cursor_asset_key("pollution"), metadata=metadata
-            )
-            instance.get_latest_materialization_event.return_value = event
-
-        assert read_cursor(instance, "pollution") == expected
-
-    def test_each_mode_keeps_its_own_resume_point(self):
-        assert cursor_asset_key("pollution") != cursor_asset_key("retention")
-
-    def test_record_cursor_never_raises(self):
-        context = MagicMock()
-        context.log_event.side_effect = RuntimeError("event log down")
-
-        record_cursor(context, "pollution", 500)
-
-        context.log.warning.assert_called_once()
-
-
-class TestResumeChunkWalk:
-    def make_cursor(self, max_team_id: int, per_chunk: list[list[tuple[int]]]) -> MagicMock:
-        cursor = MagicMock()
-        cursor.fetchone.return_value = (max_team_id,)
-        cursor.fetchall.side_effect = per_chunk
-        return cursor
-
     def test_resumed_walk_skips_the_ranges_an_earlier_run_finished(self):
-        cursor = self.make_cursor(12, [[(11,)]])
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (12,)
+        cursor.fetchall.side_effect = [[(11,)]]
         config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0)
 
         chunks = list(iter_team_chunks(cursor, config, "UNIVERSE", {}, sleep=lambda _: None, start_after=10))
 
         ranges = [c.kwargs or c.args[1] for c in cursor.execute.call_args_list[1:]]
         assert [(r["lo"], r["hi"]) for r in ranges] == [(10, 12)]
-        assert chunks == [[11]]
+        assert chunks == [([11], 12)]
 
-    def test_a_range_is_recorded_only_after_its_units_are_consumed(self):
-        # The generator is lazy, so a recorded range means every unit in it was already run.
-        cursor = self.make_cursor(10, [[(1,)], [(6,)]])
-        config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0)
-        recorded: list[int] = []
 
-        walk = iter_team_chunks(cursor, config, "UNIVERSE", {}, sleep=lambda _: None, on_chunk_done=recorded.append)
-        assert next(walk) == [1]
-        assert recorded == []
-        assert next(walk) == [6]
-        assert recorded == [5]
-        with pytest.raises(StopIteration):
-            next(walk)
-        assert recorded == [5, 10]
-
-    def test_an_empty_range_still_advances_the_resume_point(self):
-        cursor = self.make_cursor(10, [[], []])
-        config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0)
-        recorded: list[int] = []
-
-        assert (
-            list(iter_team_chunks(cursor, config, "UNIVERSE", {}, sleep=lambda _: None, on_chunk_done=recorded.append))
-            == []
+class TestResumePoint:
+    def materialization(self, metadata: Any) -> Any:
+        event = MagicMock()
+        event.asset_materialization = dagster.AssetMaterialization(
+            asset_key=cursor_asset_key("pollution"), metadata=metadata
         )
-        assert recorded == [5, 10]
+        return event
+
+    def test_read_falls_back_to_the_start_when_the_instance_read_fails(self):
+        # A Dagster+ read is a network call. It must never fail the run -- falling back to the start
+        # is the behaviour the job had before the resume point existed.
+        instance = MagicMock()
+        instance.get_latest_materialization_event.side_effect = RuntimeError("cloud unavailable")
+
+        assert read_resume_point(instance, "pollution") == START
+
+    @parameterized.expand(
+        [
+            ("no_materialization", None, START),
+            ("no_metadata", {}, START),
+            ("unreadable_team", {"last_completed_team_id": "nope"}, START),
+            ("team_only", {"last_completed_team_id": 25_000}, ResumePoint(last_completed_team_id=25_000)),
+            ("negative_is_clamped", {"last_completed_team_id": -5}, START),
+            (
+                "mid_project",
+                {
+                    "last_completed_team_id": 5_000,
+                    "in_progress_project_id": 5_101,
+                    "in_progress_after_event": "$pageview",
+                },
+                ResumePoint(
+                    last_completed_team_id=5_000,
+                    in_progress_project_id=5_101,
+                    in_progress_after_event="$pageview",
+                ),
+            ),
+        ]
+    )
+    def test_read_tolerates_every_stored_shape(self, _name: str, metadata: Any, expected: ResumePoint):
+        instance = MagicMock()
+        instance.get_latest_materialization_event.return_value = (
+            None if metadata is None else self.materialization(metadata)
+        )
+
+        assert read_resume_point(instance, "pollution") == expected
+
+    @parameterized.expand(
+        [
+            ("the_cut_off_project", 5_101, "$pageview"),
+            ("any_other_project", 7_777, ""),
+            ("no_project_recorded", 0, ""),
+        ]
+    )
+    def test_only_the_cut_off_project_resumes_mid_way(self, _name: str, project_id: int, expected: str):
+        # Every other project has to start from its first event, or rows get skipped.
+        point = ResumePoint(
+            last_completed_team_id=5_000, in_progress_project_id=5_101, in_progress_after_event="$pageview"
+        )
+
+        assert point.event_start_for(project_id) == expected
+
+    def test_each_mode_keeps_its_own_point(self):
+        assert cursor_asset_key("pollution") != cursor_asset_key("retention")
+
+    def test_record_never_raises(self):
+        context = MagicMock()
+        context.log_event.side_effect = RuntimeError("event log down")
+
+        record_resume_point(context, "pollution", ResumePoint(last_completed_team_id=500))
+
+        context.log.warning.assert_called_once()
 
 
 class TestDeleteStatement:
     @parameterized.expand(
         [
-            ("retention", WorkUnit(mode="retention", team_id=1, project_id=1, key=("a",), est_rows=0, reason="")),
-            ("dormant", WorkUnit(mode="dormant", team_id=1, project_id=1, key="*", est_rows=0, reason="")),
+            (
+                "retention_without_its_window",
+                WorkUnit(mode="retention", team_id=1, project_id=1, key=("a",), est_rows=0, reason=""),
+            ),
+            (
+                "pollution_without_properties",
+                WorkUnit(mode="pollution", team_id=1, project_id=1, key=("a",), est_rows=0, reason=""),
+            ),
         ]
     )
-    def test_a_mode_without_its_window_is_refused(self, _name: str, unit: WorkUnit):
-        # Both windows reach SQL as a bound parameter; a missing one would surface as a driver
-        # error mid-delete instead of failing the unit up front.
+    def test_a_unit_missing_what_its_statement_binds_is_refused(self, _name: str, unit: WorkUnit):
+        # These reach SQL as bound parameters; a missing one would surface as a driver error
+        # mid-delete instead of failing the unit up front.
         with pytest.raises(ValueError):
-            delete_statement(unit, 10, None, None)
+            delete_statement(unit, 10, None)
 
 
 def dormant_signals(**overrides: Any) -> DormancySignals:
@@ -470,6 +487,10 @@ class TestPredicatesAgainstPostgres:
         engine = DeleteEngine(self.config, backend, sleep=lambda _: None)
         return sum(engine.run_unit(u).rows_deleted for u in units)
 
+    def discover_pollution(self, config: Any = None) -> list[WorkUnit]:
+        with connection.cursor() as cursor:
+            return list(discover_pollution_units(cursor, config or self.config))
+
     def test_pollution_deletes_person_only_properties_and_keeps_event_properties(self):
         self.add_propdef("$initial_geoip_city_name", PropertyDefinition.Type.PERSON)
         self.add_propdef("$browser", PropertyDefinition.Type.EVENT)
@@ -478,23 +499,55 @@ class TestPredicatesAgainstPostgres:
         self.add_row("signup", "$initial_geoip_city_name")
         self.add_row("$pageview", "$browser")
 
-        with connection.cursor() as cursor:
-            units = list(discover_pollution_units(cursor, self.config))
+        units = self.discover_pollution()
 
-        assert [(u.team_id, u.key) for u in units] == [(self.team.id, "$initial_geoip_city_name")]
+        assert [u.properties for u in units] == [("$initial_geoip_city_name",)]
+        assert sorted(units[0].key) == ["$pageview", "signup"]
         assert self.run_units(units) == 2
         assert self.rows() == {"$pageview:$browser"}
 
-    def test_pollution_delete_recheck_keeps_rows_when_event_definition_appears_late(self):
+    def test_pollution_finds_rows_whose_event_has_no_definition(self):
+        # Discovery reads events from posthog_eventproperty, not posthog_eventdefinition. On prod
+        # 0.1% of rows have no definition row, and driving discovery from there would leave them
+        # unreachable for good.
+        self.add_propdef("$initial_os", PropertyDefinition.Type.PERSON)
+        self.add_row("event_with_no_definition", "$initial_os")
+        assert not EventDefinition.objects.filter(team=self.team).exists()
+
+        units = self.discover_pollution()
+
+        assert [tuple(u.key) for u in units] == [("event_with_no_definition",)]
+        assert self.run_units(units) == 1
+        assert self.rows() == set()
+
+    def test_pollution_events_are_paged_and_every_page_is_covered(self):
+        # A project can hold more events than one page, and prod's largest holds so many that
+        # counting them does not finish. Every page has to be walked.
+        self.add_propdef("$initial_os", PropertyDefinition.Type.PERSON)
+        for event in ("a_evt", "b_evt", "c_evt", "d_evt", "e_evt"):
+            self.add_row(event, "$initial_os")
+        config = replace_config(self.config, pollution_event_batch=2)
+
+        units = self.discover_pollution(config)
+
+        assert [tuple(u.key) for u in units] == [("a_evt", "b_evt"), ("c_evt", "d_evt"), ("e_evt",)]
+        assert self.run_units(units) == 5
+        assert self.rows() == set()
+
+    def test_pollution_delete_never_selects_a_property_that_gained_an_event_definition(self):
+        # The re-check lives inside the ctid subquery, so a property that became legitimate is not
+        # selected at all. That keeps a short batch meaning "exhausted", which is what lets the run
+        # record a resume point.
         self.add_propdef("plan", PropertyDefinition.Type.PERSON)
+        self.add_propdef("keep", PropertyDefinition.Type.PERSON)
         self.add_row("upgrade", "plan")
-        with connection.cursor() as cursor:
-            units = list(discover_pollution_units(cursor, self.config))
-        assert len(units) == 1
+        self.add_row("upgrade", "keep")
+        units = self.discover_pollution()
+        assert sorted(units[0].properties) == ["keep", "plan"]
 
         self.add_propdef("plan", PropertyDefinition.Type.EVENT)
 
-        assert self.run_units(units) == 0
+        assert self.run_units(units) == 1
         assert self.rows() == {"upgrade:plan"}
 
     def test_retention_deletes_stale_events_only(self):
@@ -542,36 +595,26 @@ class TestPredicatesAgainstPostgres:
             pollution = list(discover_pollution_units(cursor, config))
             retention = list(discover_retention_units(cursor, config))
 
-        assert [u.key for u in pollution] == ["$initial_os"]
+        assert [u.properties for u in pollution] == [("$initial_os",)]
         assert retention == []
 
-    @parameterized.expand([("revived_tenant", 0, 0, {"$pageview:$browser"}), ("quiet_tenant", 400, 1, set())])
-    def test_dormant_delete_rechecks_the_window_inside_the_statement(
-        self, _name: str, last_seen_days_ago: int, expected_deleted: int, expected_rows: set[str]
-    ):
-        # A tenant that wakes up mid-delete must keep its rows without waiting for the coarse
-        # revalidate_every_rows check, so the predicate lives in the DELETE like the other modes.
+    def test_dormant_delete_removes_the_tenants_rows(self):
+        # The statement carries no predicate beyond the tenant on purpose: re-checking dormancy per
+        # batch measured ~8s against a 60s statement_timeout. `still_dormant` guards it out of band.
         self.add_row("$pageview", "$browser")
-        EventDefinition.objects.create(
-            team=self.team,
-            project_id=self.project_id,
-            name="e",
-            last_seen_at=REAL_NOW - timedelta(days=last_seen_days_ago),
-        )
         unit = WorkUnit(
             mode="dormant", team_id=self.team.id, project_id=self.project_id, key="*", est_rows=1, reason=""
         )
 
-        assert self.run_units([unit]) == expected_deleted
-        assert self.rows() == expected_rows
+        assert self.run_units([unit]) == 1
+        assert self.rows() == set()
 
     def test_never_delete_team_ids_removes_the_team_from_discovery(self):
         self.add_propdef("$initial_referrer", PropertyDefinition.Type.PERSON)
         self.add_row("$pageview", "$initial_referrer")
         config = replace_config(self.config, never_delete_team_ids=[self.team.id])
 
-        with connection.cursor() as cursor:
-            assert list(discover_pollution_units(cursor, config)) == []
+        assert self.discover_pollution(config) == []
 
     @parameterized.expand(
         [
@@ -629,17 +672,17 @@ class TestJobWiring:
         team = self.seed_team()
         with dagster.DagsterInstance.ephemeral() as instance:
             first = self.mode_result(instance, dry_run=False, vacuum=False)
-            recorded = read_cursor(instance, "pollution")
+            recorded = read_resume_point(instance, "pollution")
 
             assert first.units == 1
             assert first.rows_deleted == 1
-            assert recorded > 0
+            assert recorded.last_completed_team_id > 0
             assert EventProperty.objects.filter(team=team).count() == 0
 
             # Everything at or below the recorded point is skipped, so a second pass finds nothing.
             second = self.mode_result(instance, dry_run=False, vacuum=False)
             assert second.units == 0
-            assert read_cursor(instance, "pollution") == recorded
+            assert read_resume_point(instance, "pollution").last_completed_team_id == (recorded.last_completed_team_id)
 
     def test_a_dry_run_leaves_the_resume_point_untouched(self):
         self.seed_team()
@@ -648,7 +691,7 @@ class TestJobWiring:
 
             assert result.units == 1
             assert result.rows_deleted == 0
-            assert read_cursor(instance, "pollution") == 0
+            assert read_resume_point(instance, "pollution") == START
 
     def test_retention_never_records_a_resume_point(self):
         # A retention unit can end early with rows for its other event names still eligible, so
@@ -657,7 +700,7 @@ class TestJobWiring:
         with dagster.DagsterInstance.ephemeral() as instance:
             self.run_job(instance=instance, dry_run=False, vacuum=False, retention_days=180)
 
-            assert read_cursor(instance, "retention") == 0
+            assert read_resume_point(instance, "retention") == START
 
     def test_default_config_is_a_dry_run_that_deletes_nothing(self):
         team = self.seed_team()

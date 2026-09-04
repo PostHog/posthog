@@ -12,6 +12,7 @@ import structlog
 
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dataclasses import frozen
+from posthog.taxonomy.property_definition_api import is_query_canceled
 
 from . import sql
 from .config import EventPropertyCleanupConfig
@@ -19,8 +20,9 @@ from .units import WorkUnit
 
 logger = structlog.get_logger(__name__)
 
+QUERY_CANCELED = "57014"
 # serialization_failure, deadlock_detected, lock_not_available (lock_timeout), query_canceled (statement_timeout)
-RETRYABLE_SQLSTATES = frozenset({"40001", "40P01", "55P03", "57014"})
+RETRYABLE_SQLSTATES = frozenset({"40001", "40P01", "55P03", QUERY_CANCELED})
 MAX_RETRY_ATTEMPTS = 5
 RETRY_BACKOFF_SECONDS = 1.0
 
@@ -113,18 +115,25 @@ class DjangoPostgresBackend:
 
 
 def sqlstate_of(exc: BaseException) -> str | None:
+    """The SQLSTATE behind a Django error, looking through its cause the way the driver reports it.
+
+    `is_query_canceled` in `posthog/taxonomy/property_definition_api.py` is the canonical check for
+    one code; this needs the code itself, to tell a retryable class from a fatal one.
+    """
+    if is_query_canceled(exc):
+        return QUERY_CANCELED
     cause = exc.__cause__ if isinstance(exc, DatabaseError) and exc.__cause__ else exc
     return getattr(cause, "pgcode", None) or getattr(cause, "sqlstate", None)
 
 
-def delete_statement(
-    unit: WorkUnit, batch_size: int, retention_days: int | None, dormant_days: int | None = None
-) -> tuple[str, dict[str, Any]]:
+def delete_statement(unit: WorkUnit, batch_size: int, retention_days: int | None) -> tuple[str, dict[str, Any]]:
     if unit.mode == "pollution":
+        if not unit.properties:
+            raise ValueError("pollution unit without properties")
         return sql.POLLUTION_DELETE, {
-            "team_id": unit.team_id,
             "project_id": unit.project_id,
-            "property": unit.key,
+            "events": list(unit.key),
+            "properties": list(unit.properties),
             "batch": batch_size,
         }
     if unit.mode == "retention":
@@ -137,9 +146,7 @@ def delete_statement(
             "batch": batch_size,
         }
     if unit.mode == "dormant":
-        if dormant_days is None:
-            raise ValueError("dormant unit without dormant_days")
-        return sql.DORMANT_DELETE, {"team_id": unit.team_id, "days": dormant_days, "batch": batch_size}
+        return sql.DORMANT_DELETE, {"team_id": unit.team_id, "batch": batch_size}
     raise ValueError(f"unknown mode {unit.mode}")
 
 
@@ -175,9 +182,7 @@ class DeleteEngine:
     def run_unit(self, unit: WorkUnit, revalidate: Callable[[], bool] | None = None) -> UnitResult:
         """Delete one unit. `revalidate` runs after every `revalidate_every_rows` deleted rows; False stops the unit."""
         started = self.clock()
-        statement, params = delete_statement(
-            unit, self.config.batch_size, self.config.retention_days, self.config.dormant_days
-        )
+        statement, params = delete_statement(unit, self.config.batch_size, self.config.retention_days)
         rows_deleted = batches = pauses = vacuums = rows_since_vacuum = 0
         rows_since_revalidation = 0
         stopped_reason: str | None = None

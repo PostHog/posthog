@@ -13,6 +13,7 @@ from posthog.dataclasses import frozen
 
 from . import sql
 from .config import EventPropertyCleanupConfig
+from .cursor import START, ResumePoint
 
 Mode = Literal["pollution", "retention", "dormant"]
 
@@ -24,15 +25,18 @@ class WorkUnit:
     mode: Mode
     team_id: int
     project_id: int
-    # Property name (pollution), event names (retention) or "*" (dormant tenant).
+    # Event names (pollution and retention) or "*" (dormant tenant).
     key: str | tuple[str, ...]
     est_rows: int
     reason: str
+    # Pollution only: the polluted property names to remove from this unit's events.
+    properties: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
         key = self.key if isinstance(self.key, str) else f"{len(self.key)} events"
-        return f"{self.mode}:team={self.team_id}:{key}"
+        suffix = f" x {len(self.properties)} properties" if self.properties else ""
+        return f"{self.mode}:team={self.team_id}:{key}{suffix}"
 
 
 @frozen
@@ -88,18 +92,17 @@ def iter_team_chunks(
     sleep: Callable[[float], None] = time.sleep,
     *,
     start_after: int = 0,
-    on_chunk_done: Callable[[int], None] | None = None,
-) -> Iterator[list[int]]:
-    """Yield team ids per team_id range, so no discovery statement covers a whole table.
+) -> Iterator[tuple[list[int], int]]:
+    """Yield `(team ids, top of the range)` per team_id range, so no statement covers a whole table.
 
-    Starts above `start_after`, so a resumed run skips the ranges an earlier run exhausted.
-    `on_chunk_done` fires once a range is fully consumed: the generator is lazy, so control only
-    returns here after the caller finished every unit of the range it just yielded.
+    Starts above `start_after`, so a resumed run skips the ranges an earlier run exhausted. The
+    caller only sees a range's top once it has consumed everything the range yielded, because this
+    generator is lazy -- which is what makes it safe to treat as a resume point.
 
     With an explicit `team_ids` config the ranges are skipped and the list is yielded once.
     """
     if config.team_ids is not None:
-        yield sorted(config.team_ids)
+        yield sorted(config.team_ids), 0
         return
     cursor.execute(sql.MAX_TEAM_ID)
     max_team_id = int(cursor.fetchone()[0])
@@ -108,10 +111,7 @@ def iter_team_chunks(
         hi = min(lo + config.discovery_team_chunk, max_team_id)
         cursor.execute(universe_sql, {**params, "lo": lo, "hi": hi})
         team_ids = [int(row[0]) for row in cursor.fetchall()]
-        if team_ids:
-            yield team_ids
-        if on_chunk_done is not None:
-            on_chunk_done(hi)
+        yield team_ids, hi
         lo = hi
         if config.discovery_sleep_seconds:
             sleep(config.discovery_sleep_seconds)
@@ -122,56 +122,75 @@ def discover_pollution_units(
     config: EventPropertyCleanupConfig,
     sleep: Callable[[float], None] = time.sleep,
     *,
-    start_after: int = 0,
-    on_chunk_done: Callable[[int], None] | None = None,
+    resume: ResumePoint = START,
+    on_progress: Callable[[ResumePoint], None] | None = None,
 ) -> Iterator[WorkUnit]:
-    """One unit per (team, property) whose property has no EVENT-type definition in the project."""
-    for team_ids in iter_team_chunks(
+    """One unit per (project, page of events), carrying that project's polluted property names.
+
+    Events come from posthog_eventproperty itself, not from posthog_eventdefinition: 0.1% of rows
+    have no definition row, and driving from there would leave them unreachable. Each page is a
+    keyset step over the unique index, so a project with millions of event names costs one bounded
+    statement at a time and is never counted.
+    """
+    for team_ids, chunk_hi in iter_team_chunks(
         cursor,
         config,
         sql.POLLUTION_TEAM_UNIVERSE,
         {},
         sleep,
-        start_after=start_after,
-        on_chunk_done=on_chunk_done,
+        start_after=resume.last_completed_team_id,
     ):
         for scope in eligible_team_scopes(cursor, config, team_ids, apply_paying_org_filter=False):
             cursor.execute(sql.POLLUTION_CANDIDATE_NAMES, {"project_id": scope.project_id})
-            names = [row[0] for row in cursor.fetchall()]
-            for name in names:
-                cursor.execute(sql.POLLUTION_ESTIMATE, {"team_id": scope.team_id, "property": name})
-                est = planner_estimate(cursor.fetchone()[0])
+            properties = tuple(row[0] for row in cursor.fetchall())
+            if not properties:
+                continue
+            after = resume.event_start_for(scope.project_id)
+            while True:
+                cursor.execute(
+                    sql.POLLUTION_EVENT_PAGE,
+                    {
+                        "project_id": scope.project_id,
+                        "after": after,
+                        "limit": config.pollution_event_batch,
+                    },
+                )
+                events = tuple(row[0] for row in cursor.fetchall())
+                if not events:
+                    break
                 yield WorkUnit(
                     mode="pollution",
                     team_id=scope.team_id,
                     project_id=scope.project_id,
-                    key=name,
-                    est_rows=est,
-                    reason="property has only non-event definitions",
+                    key=events,
+                    est_rows=0,
+                    reason=f"{len(properties)} properties with only non-event definitions",
+                    properties=properties,
                 )
+                after = events[-1]
+                # Reached only after the unit above was deleted, so this page really is finished.
+                if on_progress is not None:
+                    on_progress(
+                        ResumePoint(
+                            last_completed_team_id=resume.last_completed_team_id,
+                            in_progress_project_id=scope.project_id,
+                            in_progress_after_event=after,
+                        )
+                    )
+                if len(events) < config.pollution_event_batch:
+                    break
+        if on_progress is not None:
+            on_progress(ResumePoint(last_completed_team_id=chunk_hi))
 
 
 def discover_retention_units(
-    cursor,
-    config: EventPropertyCleanupConfig,
-    sleep: Callable[[float], None] = time.sleep,
-    *,
-    start_after: int = 0,
-    on_chunk_done: Callable[[int], None] | None = None,
+    cursor, config: EventPropertyCleanupConfig, sleep: Callable[[float], None] = time.sleep
 ) -> Iterator[WorkUnit]:
     """One unit per batch of event names not seen for `retention_days` in a project."""
     if config.retention_days is None:
         return
     params = {"days": config.retention_days}
-    for team_ids in iter_team_chunks(
-        cursor,
-        config,
-        sql.RETENTION_TEAM_UNIVERSE,
-        params,
-        sleep,
-        start_after=start_after,
-        on_chunk_done=on_chunk_done,
-    ):
+    for team_ids, _chunk_hi in iter_team_chunks(cursor, config, sql.RETENTION_TEAM_UNIVERSE, params, sleep):
         for scope in eligible_team_scopes(cursor, config, team_ids, apply_paying_org_filter=True):
             after = ""
             while True:

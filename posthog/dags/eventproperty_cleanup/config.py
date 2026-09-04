@@ -103,11 +103,13 @@ class EventPropertyCleanupConfig(dagster.Config):
         ),
     )
     revalidate_every_rows: int = Field(
-        default=25_000_000,
+        default=1_000_000,
         gt=0,
         description=(
-            "Re-check a unit's eligibility after this many deleted rows and stop the unit if it no longer "
-            "qualifies. The dormant re-check walks the tenant's event definitions, so keep this coarse."
+            "Re-check a unit's eligibility after this many deleted rows and stop the unit if it no "
+            "longer qualifies. The dormant re-check walks the tenant's event definitions, which "
+            "measured ~8s on the largest tenant, so this trades a little throughput for how quickly "
+            "a revived tenant is noticed: at the default pace, roughly every two minutes."
         ),
     )
     discovery_statement_timeout: str = Field(
@@ -144,6 +146,14 @@ class EventPropertyCleanupConfig(dagster.Config):
     team_ids: list[int] | None = Field(
         default=None,
         description="Restrict pollution and retention modes to these teams. None means every team with candidates.",
+    )
+    pollution_event_batch: int = Field(
+        default=200,
+        gt=0,
+        description=(
+            "Event names per pollution DELETE. Each page is one keyset step over the unique index; "
+            "200 measured 137ms on the largest project."
+        ),
     )
     skip_paying_orgs: bool = Field(
         default=True,

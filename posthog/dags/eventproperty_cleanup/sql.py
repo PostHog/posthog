@@ -5,10 +5,9 @@ row that became legitimate between discovery and deletion is never removed.
 """
 
 TABLE = "posthog_eventproperty"
-REQUIRED_INDEXES = (
-    "posthog_event_property_unique_proj_event_property",
-    "posthog_eventproperty_team_id_and_property_r32khd9s",
-)
+# Only the unique constraint's index. Every other index on this table is near-dead in at least one
+# region and has already lost siblings to bloat sweeps, so the job depends on nothing droppable.
+REQUIRED_INDEXES = ("posthog_event_property_unique_proj_event_property",)
 
 # statement_timeout is reported so the run record shows it: prod-EU inherits 30 minutes from the
 # cluster while prod-US overrides it to 0 at the database level, and only the vacuum session opts out.
@@ -77,31 +76,48 @@ WHERE coalesce(pd.project_id, pd.team_id) = %(project_id)s
 ORDER BY pd.name
 """
 
-POLLUTION_ESTIMATE = """
-EXPLAIN (FORMAT JSON)
-SELECT 1 FROM posthog_eventproperty WHERE team_id = %(team_id)s AND property = %(property)s
+# Mode 2a. One page of a project's event names, read from the table being cleaned rather than from
+# posthog_eventdefinition: 0.1% of rows have no definition row, and driving from there would leave
+# them unreachable for good. Keyset-paginated on the unique index's second column, so a project with
+# millions of event names never lands in memory and is never counted.
+POLLUTION_EVENT_PAGE = """
+SELECT DISTINCT event
+FROM posthog_eventproperty
+WHERE coalesce(project_id, team_id) = %(project_id)s
+  AND event > %(after)s
+ORDER BY event
+LIMIT %(limit)s
 """
 
+# Mode 2a. Deletes a page of events' polluted properties through the unique index, which covers all
+# three predicates. The re-check sits inside the ctid subquery on purpose: a property that gained an
+# EVENT-type definition since discovery is never selected, so every returned ctid is deletable and a
+# short batch still means the unit is exhausted. That invariant is what lets the run record a resume
+# point. Moving the re-check to the outer statement would delete fewer rows than it selected and
+# strand the rest.
 POLLUTION_DELETE = """
 DELETE FROM posthog_eventproperty
 WHERE ctid = ANY(ARRAY(
-        SELECT ctid FROM posthog_eventproperty
-        WHERE team_id = %(team_id)s AND property = %(property)s
+        SELECT ep.ctid FROM posthog_eventproperty ep
+        WHERE coalesce(ep.project_id, ep.team_id) = %(project_id)s
+          AND ep.event = ANY(%(events)s)
+          AND ep.property = ANY(%(properties)s)
+          AND NOT EXISTS (
+              SELECT 1 FROM posthog_propertydefinition e
+              WHERE coalesce(e.project_id, e.team_id) = %(project_id)s
+                AND e.name = ep.property
+                AND e.type = 1)
         LIMIT %(batch)s))
-  AND coalesce(project_id, team_id) = %(project_id)s
-  AND NOT EXISTS (
-      SELECT 1 FROM posthog_propertydefinition e
-      WHERE coalesce(e.project_id, e.team_id) = %(project_id)s
-        AND e.name = %(property)s
-        AND e.type = 1)
 """
 
-# Mode 2b. Teams in a team_id range that own at least one stale event definition. Bounded range scan
-# on posthog_eventdefinition_team_id_818ed0f2.
+# Mode 2b. Teams in a project_id range that own at least one stale event definition. Ranges over the
+# coalesce expression so it scans event_definition_proj_uniq, the index this table's readers use,
+# rather than the near-dead team-only one. Measured 15.9s against 22.2s per chunk on prod-US.
 RETENTION_TEAM_UNIVERSE = """
 SELECT DISTINCT team_id
 FROM posthog_eventdefinition
-WHERE team_id > %(lo)s AND team_id <= %(hi)s
+WHERE coalesce(project_id, team_id) > %(lo)s
+  AND coalesce(project_id, team_id) <= %(hi)s
   AND last_seen_at IS NOT NULL AND last_seen_at < now() - make_interval(days => %(days)s)
 ORDER BY team_id
 """
@@ -138,17 +154,14 @@ WHERE ctid = ANY(ARRAY(
         AND (ed.last_seen_at IS NULL OR ed.last_seen_at >= now() - make_interval(days => %(days)s)))
 """
 
-# Mode 2c. Whole-tenant delete through the (team_id, property) index prefix. Like the other two
-# modes the DELETE re-checks its own predicate: if the tenant sent an event since scoring, its
-# event definitions carry a fresh last_seen_at and the statement deletes nothing. Cheap because
-# EXISTS stops at the first hit and the batch pays it once, not per row.
+# Mode 2c. Whole-tenant delete. No predicate beyond the tenant: for a dormant tenant the EXISTS
+# below finds nothing and has to walk all of its event definitions, which measured ~8s per batch on
+# the largest tenant against a 60s statement_timeout. Revalidation is out of band instead, spaced by
+# `revalidate_every_rows`, and goes through `still_dormant` so ClickHouse gets a say too.
 DORMANT_DELETE = """
 DELETE FROM posthog_eventproperty
 WHERE ctid = ANY(ARRAY(
         SELECT ctid FROM posthog_eventproperty WHERE team_id = %(team_id)s LIMIT %(batch)s))
-  AND NOT EXISTS (
-      SELECT 1 FROM posthog_eventdefinition
-      WHERE team_id = %(team_id)s AND last_seen_at >= now() - make_interval(days => %(days)s))
 """
 
 # Mode 2c. Largest owners of the table from planner statistics, without touching the table.
@@ -163,6 +176,12 @@ ORDER BY est_rows DESC
 LIMIT %(top_n)s
 """
 
+# Mode 2c. One index scan that answers all three questions at once. Do not split it into three
+# EXISTS probes: measured on prod-US that costs 17.6s against this query's 8.7s, because the planner
+# reads a bare EXISTS as "a sequential scan will hit a match early" and picks a Seq Scan over a
+# 125M-row table for two of the three. Scoped on bare team_id deliberately -- for a point lookup the
+# team-leading index beats event_definition_proj_uniq, which carries `name` in every entry.
+# The remaining cost is inherent: no index carries last_seen_at.
 DORMANT_EVENTDEFS = """
 SELECT count(*) AS event_defs,
        count(*) FILTER (WHERE last_seen_at IS NULL) AS null_last_seen,
