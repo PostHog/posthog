@@ -440,19 +440,42 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         // A webhook only delivers what changes after it is registered, so rows that changed since
         // the last sync stay missing from the table unless a backfill picks them up.
         if (syncType === 'webhook' && schema.sync_type !== 'webhook' && schema.last_synced_at) {
+            // The catch-up reads forward from the cursor the previous sync type left behind. A
+            // schema with no incremental field never had one, so its only backfill is a rebuild of
+            // the whole table. Say so before the person approves the sync that bills for it.
+            const backfillRebuildsTable = !schema.incremental_field
+            const tableName = schema.table?.name ?? schema.name
             LemonDialog.open({
-                title: 'Backfill changes since the last sync?',
+                title: backfillRebuildsTable
+                    ? 'Backfill by resyncing the whole table?'
+                    : 'Backfill changes since the last sync?',
                 content: (
                     <div className="text-sm text-secondary deprecated-space-y-2">
                         <p>
                             The webhook delivers changes from the moment it is registered. Rows in{' '}
-                            <strong>{schema.table?.name ?? schema.name}</strong> that changed since the last sync do not
-                            arrive on their own.
+                            <strong>{tableName}</strong> that changed since the last sync do not arrive on their own.
                         </p>
-                        <p>A backfill syncs them once. The rows it syncs count toward your usage.</p>
+                        {backfillRebuildsTable ? (
+                            <p>
+                                <strong>{tableName}</strong> has no incremental field, so there is no position to read
+                                changes from. A backfill resyncs the whole table from the source. The existing synced
+                                data is replaced, and every row it syncs counts toward your usage. This can take a while
+                                for large tables.
+                            </p>
+                        ) : (
+                            <p>
+                                A backfill reads forward from the last synced value of{' '}
+                                <strong>{schema.incremental_field}</strong> and syncs the rows after it. Those rows
+                                count toward your usage. If PostHog has not recorded a position for that field yet, it
+                                resyncs the whole table instead.
+                            </p>
+                        )}
                     </div>
                 ),
-                primaryButton: { children: 'Switch and backfill', onClick: () => void applyUpdate(true) },
+                primaryButton: {
+                    children: backfillRebuildsTable ? 'Switch and resync' : 'Switch and backfill',
+                    onClick: () => void applyUpdate(true),
+                },
                 secondaryButton: { children: 'Switch without backfill', onClick: () => void applyUpdate() },
                 tertiaryButton: { children: 'Cancel', type: 'tertiary' },
             })
