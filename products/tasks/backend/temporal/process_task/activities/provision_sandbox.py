@@ -574,9 +574,10 @@ def _build_sandbox_tags(
     prepared: PrepareSandboxForRepositoryOutput,
     use_vm_sandbox: bool,
 ) -> dict[str, str]:
-    """Tags forwarded to the Modal sandbox so it can be traced back when debugging.
+    """Tags forwarded to the sandbox so it can be traced back when debugging.
 
-    Modal tag values must be strings; None values are dropped so we don't emit empty tags.
+    Tag values must be strings; None values are dropped so we don't emit empty tags.
+    Hogland also caps each tag at 64 characters and truncates on its side.
     """
     tags: dict[str, str | int | None] = {
         "task_id": ctx.task_id,
