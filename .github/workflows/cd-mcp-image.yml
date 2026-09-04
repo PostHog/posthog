@@ -13,9 +13,13 @@ on:
         paths:
             - 'services/mcp/**'
             - '.github/workflows/cd-mcp-image.yml'
-            # Bundled into the MCP image at build time (copy-instructions.ts `shared/` copy +
-            # shared parser sources) — without these paths an edit there never rebuilds the
-            # image and the bundle goes stale.
+            # Product and package sources the image bundles at build time. Without these
+            # paths an edit there never rebuilds the image and the bundle goes stale.
+            # Keep in sync with the `products/` copies in services/mcp/Dockerfile.
+            - 'products/*/mcp/**'
+            - 'products/product_analytics/frontend/insights/**'
+            - 'products/notebooks/notebook-widget-catalog.json'
+            - 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
             - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
             - 'packages/llm-normalizer/**'
     # paths mirror the push trigger; the build-mcp-image label only forces a
@@ -25,6 +29,10 @@ on:
         paths:
             - 'services/mcp/**'
             - '.github/workflows/cd-mcp-image.yml'
+            - 'products/*/mcp/**'
+            - 'products/product_analytics/frontend/insights/**'
+            - 'products/notebooks/notebook-widget-catalog.json'
+            - 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
             - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
             - 'packages/llm-normalizer/**'
     workflow_dispatch:

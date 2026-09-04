@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1-labs
 # PostHog MCP server (Hono / Node.js).
 #
 # Production runtime image. Build context is the repo root so we can install
@@ -17,7 +18,12 @@ ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 # Everything (including ioredis) is bundled, so the runtime stage doesn't need
 # `node_modules` at all.
 #
-FROM ${NODE_IMAGE} AS build
+# Pin to $BUILDPLATFORM so the JS bundling runs once on the builder's native
+# architecture. The output is platform-independent (.mjs + static assets), so the
+# multi-platform runtime stage below copies the same bundle for every target.
+# Without the pin, esbuild + vite run once per target platform under emulation.
+#
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 WORKDIR /code
 
 # `corepack enable` reads the `packageManager` field in package.json to pick the
@@ -48,10 +54,18 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 COPY services/mcp/ services/mcp/
 COPY tools/openapi-codegen/ tools/openapi-codegen/
-# `scripts/build-ui-apps.ts` imports React components from `products/<x>/mcp/apps/`
-# (the generator scans `products/*/mcp/tools.yaml` and synthesizes entry points),
-# so the whole `products/` tree needs to be in the build context.
-COPY products/ products/
+# The build reads only a slice of `products/`. Copying the whole tree busts this
+# layer on every unrelated product change and forces a full bundle rebuild. Copy
+# just the inputs the bundle resolves:
+#   - products/*/mcp/**   tool configs + UI app components (generate:ui-apps, vite)
+#   - product_analytics chart transforms   (src/ui-apps/components/TrendsVisualizer.tsx)
+#   - notebook widget catalog              (src/tools/notebooks/widgetCatalog.ts)
+#   - two shared prompt files              (copy-instructions.ts)
+COPY --parents products/*/mcp ./
+COPY products/product_analytics/frontend/insights products/product_analytics/frontend/insights
+COPY products/notebooks/notebook-widget-catalog.json products/notebooks/notebook-widget-catalog.json
+COPY products/posthog_ai/skills/querying-posthog-data/references/guidelines.md products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+COPY products/ai_observability/backend/prompts/parser_recipe_examples.yaml products/ai_observability/backend/prompts/parser_recipe_examples.yaml
 WORKDIR /code/services/mcp
 RUN pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
 
