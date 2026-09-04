@@ -1006,6 +1006,84 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    # --- Rename ---
+
+    def test_rename_moves_every_version_with_its_files_and_owners(self):
+        v1 = self.create_skill(name="typoo", version=1, is_latest=False)
+        v2 = self.create_skill(name="typoo", version=2)
+        LLMSkillFile.objects.create(skill=v2, path="scripts/run.sh", content="#!/bin/bash")
+        member = User.objects.create_and_join(self.organization, "rename-owner@example.com", None)
+        set_skill_owners(self.team, "typoo", [member])
+        updated_at_before = v2.updated_at
+
+        response = self.client.post(
+            self._url("name/typoo/rename"),
+            data={"new_name": "typo-free"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["name"] == "typo-free"
+        # A rename is not an edit: the version history carries over intact rather than restarting.
+        assert data["version"] == 2
+        assert data["version_count"] == 2
+        assert not LLMSkill.objects.filter(team=self.team, name="typoo", deleted=False).exists()
+        assert sorted(
+            LLMSkill.objects.filter(team=self.team, name="typo-free", deleted=False).values_list("version", flat=True)
+        ) == [1, 2]
+        assert [f["path"] for f in data["files"]] == ["scripts/run.sh"]
+        assert [o.email for o in resolve_skill_owners(self.team, "typo-free")] == [member.email]
+        assert resolve_skill_owners(self.team, "typoo") == []
+        # The marketplace plugin version is max(updated_at) across the team, so the rename has to
+        # advance it or installs keep the old directory name.
+        v1.refresh_from_db()
+        v2.refresh_from_db()
+        assert v2.updated_at > updated_at_before
+        assert v1.name == "typo-free"
+
+    def test_rename_to_an_existing_name_is_rejected(self):
+        self.create_skill(name="source")
+        self.create_skill(name="taken")
+
+        response = self.client.post(
+            self._url("name/source/rename"),
+            data={"new_name": "taken"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMSkill.objects.filter(team=self.team, name="source", deleted=False).exists()
+
+    @parameterized.expand(
+        [
+            ("out_of_scout", "signals-scout-churn", "churn-watch"),
+            ("into_scout", "churn-watch", "signals-scout-churn"),
+            ("into_review_hog", "churn-watch", "review-hog-perspective-churn"),
+        ]
+    )
+    def test_rename_touching_a_product_owned_prefix_is_rejected(self, _name: str, old_name: str, new_name: str):
+        self.create_skill(name=old_name)
+
+        response = self.client.post(
+            self._url(f"name/{old_name}/rename"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+        assert not LLMSkill.objects.filter(team=self.team, name=new_name).exists()
+
+    def test_rename_of_a_missing_skill_is_not_found(self):
+        response = self.client.post(
+            self._url("name/nope/rename"),
+            data={"new_name": "still-nope"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- Get file ---
 
     def test_get_file_by_path(self):
@@ -1539,12 +1617,19 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         [
             ("create",),
             ("update_by_name",),
+            ("rename",),
         ]
     )
     def test_member_without_skill_access_cannot_write(self, action):
         if action == "create":
             response = self.client.post(
                 self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+            )
+        elif action == "rename":
+            response = self.client.post(
+                self._url(f"name/{self.skill.name}/rename"),
+                data={"new_name": "renamed-fractals"},
+                format="json",
             )
         else:
             response = self.client.patch(
