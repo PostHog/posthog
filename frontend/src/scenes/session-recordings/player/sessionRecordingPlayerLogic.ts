@@ -25,6 +25,7 @@ import { RefObject } from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 import {
     AudioMuteReplayerPlugin,
+    BoxOrientPlugin,
     COMMON_REPLAYER_CONFIG,
     CanvasReplayerPlugin,
     CorsPlugin,
@@ -2142,7 +2143,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             const hlsPlugin = createHLSPlayerPlugin()
-            const plugins: ReplayPlugin[] = [hlsPlugin]
+            const plugins: ReplayPlugin[] = [hlsPlugin, BoxOrientPlugin]
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
             if (values.preflight?.cloud || window.location.hostname === 'localhost') {

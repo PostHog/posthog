@@ -78,6 +78,7 @@ export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'
+export { BoxOrientPlugin } from './box-orient-plugin'
 export { WindowTitlePlugin } from './window-title-plugin'
 
 export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } {

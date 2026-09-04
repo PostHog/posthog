@@ -3,6 +3,7 @@ import { EventType, type eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     AudioMuteReplayerPlugin,
+    BoxOrientPlugin,
     CanvasReplayerPlugin,
     CorsPlugin,
     COMMON_REPLAYER_CONFIG,
@@ -118,7 +119,13 @@ export async function createReplayer(
         ],
         mouseTail: config.mouseTail,
         useVirtualDom: false,
-        plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(events)],
+        plugins: [
+            BoxOrientPlugin,
+            CorsPlugin,
+            HLSPlayerPlugin,
+            AudioMuteReplayerPlugin(true),
+            CanvasReplayerPlugin(events),
+        ],
         speed: config.playbackSpeed,
     })
 
