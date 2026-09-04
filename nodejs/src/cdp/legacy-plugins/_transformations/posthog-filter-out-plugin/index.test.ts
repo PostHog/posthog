@@ -255,3 +255,19 @@ test('Event satisfies no filter groups and is dropped', () => {
     const processedEvent = processEvent(event, meta_or)
     expect(processedEvent).toBeUndefined()
 })
+
+test('a regex filter with a pathological pattern stays linear', () => {
+    // The built-in engine backtracks exponentially on this nested-quantifier pattern.
+    // RE2 evaluates it in linear time, so the bound stays small.
+    const regexFilters: Filter[] = [{ property: '$pathname', type: 'string', operator: 'regex', value: '(x+x+)+y' }]
+    const regexMeta = {
+        global: { filters: regexFilters, eventsToDrop: [] },
+    } as unknown as LegacyTransformationPluginMeta
+    const event = createEvent({ properties: { $pathname: 'x'.repeat(40) } }) as unknown as PluginEvent
+
+    const start = performance.now()
+    processEvent(event, regexMeta)
+    const elapsedMs = performance.now() - start
+
+    expect(elapsedMs).toBeLessThan(1000)
+})

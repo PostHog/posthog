@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 import { Meta, PluginAttachment, PluginEvent } from '~/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
@@ -31,8 +32,10 @@ const operations: Record<Filter['type'], Record<string, (a: any, b: any) => bool
         is_not: (a, b) => a !== b,
         contains: (a, b) => a.includes(b),
         not_contains: (a, b) => !a.includes(b),
-        regex: (a, b) => new RegExp(b).test(a),
-        not_regex: (a, b) => !new RegExp(b).test(a),
+        // RE2 evaluates user patterns in linear time, matching the engine used elsewhere for
+        // user-supplied patterns (HogVM match, action matcher).
+        regex: (a, b) => createTrackedRE2(b, undefined, 'filter-out:regex').test(a),
+        not_regex: (a, b) => !createTrackedRE2(b, undefined, 'filter-out:not_regex').test(a),
     },
     number: {
         gt: (a, b) => a > b,
