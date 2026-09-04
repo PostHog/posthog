@@ -1,8 +1,7 @@
 import pytest
 
-from posthog.schema import DataWarehouseSourceCategory
-
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
 ALL_SOURCES = SourceRegistry.get_all_sources()

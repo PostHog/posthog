@@ -1,15 +1,13 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.clockodo import (
     ClockodoResumeConfig,
     clockodo_source,
@@ -129,7 +127,7 @@ class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLOCKODO,
+            name=ExternalDataSourceType.CLOCKODO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Clockodo",
             releaseStatus=ReleaseStatus.ALPHA,

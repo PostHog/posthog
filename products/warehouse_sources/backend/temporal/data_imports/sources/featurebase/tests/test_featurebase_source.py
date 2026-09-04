@@ -4,15 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source import FeaturebaseSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source"
 
@@ -42,7 +38,7 @@ class TestFeaturebaseSource:
 
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config
-        assert config.name == SchemaExternalDataSourceType.FEATUREBASE
+        assert config.name == ExternalDataSourceType.FEATUREBASE
         # unreleasedSource hides the connector from every user; a finished source must not carry it.
         assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA

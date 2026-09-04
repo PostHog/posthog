@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,7 +54,7 @@ class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CONFLUENCE,
+            name=ExternalDataSourceType.CONFLUENCE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Confluence",
             releaseStatus=ReleaseStatus.ALPHA,

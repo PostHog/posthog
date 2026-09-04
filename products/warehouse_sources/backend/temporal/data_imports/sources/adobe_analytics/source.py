@@ -3,15 +3,13 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
     ADOBE_ANALYTICS_API_VERSION_2_0,
     ADOBE_ANALYTICS_API_VERSION_V1,
@@ -75,7 +73,7 @@ class AdobeAnalyticsSource(ResumableSource[AdobeAnalyticsSourceConfig, AdobeAnal
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ADOBE_ANALYTICS,
+            name=ExternalDataSourceType.ADOBEANALYTICS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Adobe Analytics",
             caption="""Pull Adobe Analytics report data and metadata into the PostHog Data warehouse.

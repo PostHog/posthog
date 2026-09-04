@@ -1,8 +1,7 @@
 import re
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -13,7 +12,6 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
@@ -129,7 +127,7 @@ class PlanetScalePostgresSource(PostgresSource):
         ]
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLANET_SCALE_POSTGRES,
+            name=ExternalDataSourceType.PLANETSCALEPOSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql", "postgresql", "postgres", "planetscale"],
             label="PlanetScale Postgres",

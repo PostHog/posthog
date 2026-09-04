@@ -7,9 +7,16 @@ from django.core.cache import cache
 import requests
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import (
+from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    GoogleAdsIntegration,
+    Integration,
+    OauthIntegration,
+    google_ads_hierarchy_level,
+)
+
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -19,15 +26,6 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
-
-from posthog.models.integration import (
-    ERROR_TOKEN_REFRESH_FAILED,
-    GoogleAdsIntegration,
-    Integration,
-    OauthIntegration,
-    google_ads_hierarchy_level,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -264,7 +262,7 @@ class GoogleAdsSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_ADS,
+            name=ExternalDataSourceType.GOOGLEADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
             keywords=["adwords"],

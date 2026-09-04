@@ -2,8 +2,7 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

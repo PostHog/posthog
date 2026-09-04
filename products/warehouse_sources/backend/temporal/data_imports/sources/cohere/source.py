@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
     cohere_source,
     validate_credentials as validate_cohere_credentials,
@@ -39,7 +37,7 @@ class CohereSource(SimpleSource[CohereSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COHERE,
+            name=ExternalDataSourceType.COHERE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cohere",
             releaseStatus=ReleaseStatus.ALPHA,

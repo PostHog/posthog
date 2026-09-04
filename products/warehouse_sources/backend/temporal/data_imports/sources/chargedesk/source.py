@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.chargedesk import (
     ChargedeskResumeConfig,
     chargedesk_source,
@@ -49,7 +47,7 @@ class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHARGEDESK,
+            name=ExternalDataSourceType.CHARGEDESK,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Chargedesk",
             releaseStatus=ReleaseStatus.ALPHA,

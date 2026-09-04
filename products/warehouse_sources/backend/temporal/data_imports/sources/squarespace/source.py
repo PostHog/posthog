@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -58,7 +56,7 @@ class SquarespaceSource(ResumableSource[SquarespaceSourceConfig, SquarespaceResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SQUARESPACE,
+            name=ExternalDataSourceType.SQUARESPACE,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Squarespace",
             caption="""Enter a Squarespace API key to pull your Squarespace Commerce data into the PostHog Data warehouse.

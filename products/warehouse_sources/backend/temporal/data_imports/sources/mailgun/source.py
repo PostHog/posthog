@@ -1,8 +1,7 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -99,7 +97,7 @@ class MailgunSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MAILGUN,
+            name=ExternalDataSourceType.MAILGUN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Mailgun",
             caption=f"""Enter your Mailgun private API key to pull your Mailgun data into the PostHog Data warehouse.

@@ -1,5 +1,4 @@
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally import ApitallyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.source import ApitallySource
 

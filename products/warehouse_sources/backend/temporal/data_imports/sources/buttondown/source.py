@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.buttondown import (
     BUTTONDOWN_BASE_URL,
     ButtondownResumeConfig,
@@ -50,7 +48,7 @@ class ButtondownSource(ResumableSource[ButtondownSourceConfig, ButtondownResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUTTONDOWN,
+            name=ExternalDataSourceType.BUTTONDOWN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Buttondown",
             releaseStatus=ReleaseStatus.ALPHA,

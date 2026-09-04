@@ -2,8 +2,7 @@ from typing import Any
 
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source import CapsuleCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.capsulecrm import (
     CapsuleCRMSourceConfig,

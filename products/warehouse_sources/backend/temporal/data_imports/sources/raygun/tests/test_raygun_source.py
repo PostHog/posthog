@@ -1,13 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source import RaygunSource

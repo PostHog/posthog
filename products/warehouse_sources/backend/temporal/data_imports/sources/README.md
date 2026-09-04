@@ -15,19 +15,21 @@ has one. Optionally set `keywords` (a list of lowercase search aliases, e.g. `["
 alternate spellings users might search.
 
 ```python
-from posthog.schema import DataWarehouseSourceCategory
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 return SourceConfig(
-    name=SchemaExternalDataSourceType.STRIPE,
+    name=ExternalDataSourceType.STRIPE,
     category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
     keywords=["billing", "subscriptions"],
     ...
 )
 ```
 
-The category list lives in `frontend/src/queries/schema/schema-general.ts` (`dataWarehouseSourceCategories`);
-`pnpm run schema:build` regenerates the Python enum. See the `implementing-warehouse-sources` skill for the
-full list of buckets and guidance on picking one.
+The category list is backend-owned: `DataWarehouseSourceCategory` in
+`products/warehouse_sources/backend/source_config.py` is the source of truth, and `hogli build:openapi`
+regenerates the frontend type from it. See the `implementing-warehouse-sources` skill for the full list of
+buckets and guidance on picking one.
 
 ## Source fields
 
@@ -35,7 +37,7 @@ The fields shown on the frontend are all backend driven. We have a collection of
 
 The frontend logic for rendering the below fields can be found in `frontend/src/scenes/data-warehouse/external/forms/SourceForm.tsx`.
 
-All of the below are defined in `posthog/schema.py` with a union of them defined as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`. Check out the other sources for examples of how we implement these.
+All of the below are defined in `products/warehouse_sources/backend/source_config.py` with a union of them defined as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`. Check out the other sources for examples of how we implement these.
 
 #### `SourceFieldInputConfig`
 
@@ -190,7 +192,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
 
 - "Kind not configured" → Check environment variables are set
 - Source not listed → Verify step 8 (source registration)
-- Frontend errors → Run `pnpm schema:build`
+- Frontend errors → Run `hogli build:openapi`
 
 ## Mixins
 

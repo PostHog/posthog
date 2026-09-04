@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.algolia import (
     AlgoliaResumeConfig,
     algolia_source,
@@ -53,7 +51,7 @@ class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ALGOLIA,
+            name=ExternalDataSourceType.ALGOLIA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Algolia",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -2,9 +2,10 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.schema import (
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, INSTAGRAM_OAUTH_SCOPE, InstagramIntegration
+
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -12,9 +13,6 @@ from posthog.schema import (
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
-
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, INSTAGRAM_OAUTH_SCOPE, InstagramIntegration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -71,7 +69,7 @@ class InstagramSource(ResumableSource[InstagramSourceConfig, InstagramResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INSTAGRAM,
+            name=ExternalDataSourceType.INSTAGRAM,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Instagram",
             caption="""Pull posts, stories, comments and insights from an Instagram professional (Business or Creator) account into the PostHog Data warehouse.

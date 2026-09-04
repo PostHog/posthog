@@ -1,8 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import (
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.source import AblySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ably import AblySourceConfig

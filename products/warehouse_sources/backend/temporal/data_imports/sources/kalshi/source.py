@@ -1,12 +1,6 @@
 from typing import Optional, cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, ReleaseStatus, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -45,7 +39,7 @@ class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.KALSHI,
+            name=ExternalDataSourceType.KALSHI,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Kalshi",
             releaseStatus=ReleaseStatus.ALPHA,

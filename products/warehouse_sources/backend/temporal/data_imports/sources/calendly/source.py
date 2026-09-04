@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
     CALENDLY_API_VERSION_V1,
     CALENDLY_API_VERSION_V2,
@@ -89,7 +87,7 @@ class CalendlySource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CALENDLY,
+            name=ExternalDataSourceType.CALENDLY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Calendly",
             releaseStatus=ReleaseStatus.ALPHA,

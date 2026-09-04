@@ -1,12 +1,10 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -111,7 +109,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SALESFORCE,
+            name=ExternalDataSourceType.SALESFORCE,
             category=DataWarehouseSourceCategory.CRM,
             keywords=["sfdc"],
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",

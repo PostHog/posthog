@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.bigeye import (
     WORKSPACE_ID_REQUIRED_MESSAGE,
     BigeyeResumeConfig,
@@ -109,7 +107,7 @@ class BigeyeSource(ResumableSource[BigeyeSourceConfig, BigeyeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIGEYE,
+            name=ExternalDataSourceType.BIGEYE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bigeye",
             releaseStatus=ReleaseStatus.ALPHA,

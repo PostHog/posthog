@@ -4,8 +4,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unstructured import (
     UnstructuredSourceConfig,
 )

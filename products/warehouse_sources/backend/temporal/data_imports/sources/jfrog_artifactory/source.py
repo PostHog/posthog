@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,7 +54,7 @@ class JfrogArtifactorySource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.JFROG_ARTIFACTORY,
+            name=ExternalDataSourceType.JFROGARTIFACTORY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="JFrog (Artifactory / JFrog Platform)",
             releaseStatus=ReleaseStatus.ALPHA,

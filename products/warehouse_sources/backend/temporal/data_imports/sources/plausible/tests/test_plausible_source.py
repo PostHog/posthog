@@ -3,8 +3,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     ENDPOINTS,
     PLAUSIBLE_ENDPOINTS,

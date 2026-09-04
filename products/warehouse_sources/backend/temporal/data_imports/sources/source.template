@@ -1,44 +1,37 @@
-# 1. TODO: add a new value for your source in these TWO hand-edited places:
+# 1. TODO: add a new value for your source in the ONE place a source type is declared:
 #       - ExternalDataSourceType at `products/warehouse_sources/backend/types.py`
 #         (models.TextChoices: `KEY = "PascalValue", "PascalValue"`, KEY is ALL_CAPS with NO underscores)
-#       - externalDataSources at `frontend/src/queries/schema/schema-general.ts`
-#         (PascalCase string, identical to the types.py value — NOT kebab-case)
-#       Do NOT hand-edit `posthog/schema.py` / `posthog/schema_enums.py` — `pnpm run schema:build`
-#       (step 12) regenerates the ExternalDataSourceType enum there from schema-general.ts.
 # 2. TODO: run django migrations with `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate`
 # 3. TODO: change the name of your source class from TemplateSource
 # 4. TODO: update the return value of source_type to match the ExternalDataSourceType you created in step one
-# 5. NOTE: you do NOT hand-edit posthog/schema.py — `pnpm run schema:build` (step 12) regenerates the
-#       SchemaExternalDataSourceType enum from your schema-general.ts entry (step 1). The member key is
-#       derived automatically (PascalCase value -> ALL_CAPS_WITH_UNDERS key, e.g. GoogleAds -> GOOGLE_ADS).
-# 6. TODO: update get_source_config(). set the name to SchemaExternalDataSourceType.<YOUR_KEY> (generated in step 12).
-#       also add any config fields users will need to connect the source. see other sources for examples.
-#       set `category` to the closest DataWarehouseSourceCategory bucket (required — it groups the source in
-#       the new-source wizard catalog) and optionally `keywords` (search aliases). see other sources for examples.
-# 7. TODO: add a line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` to import your
+# 5. TODO: update get_source_config(). set the name to ExternalDataSourceType.<YOUR_KEY> (the same value
+#       from step one). also add any config fields users will need to connect the source. see other
+#       sources for examples. set `category` to the closest DataWarehouseSourceCategory bucket (required —
+#       it groups the source in the new-source wizard catalog) and optionally `keywords` (search aliases).
+#       see other sources for examples.
+# 6. TODO: add a line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` to import your
 #       source and include it in the  __all__ list
-# 8. TODO: run `pnpm run generate:source-configs`. you should see "Generating config for
+# 7. TODO: run `pnpm run generate:source-configs`. you should see "Generating config for
 #       {YOUR_SOURCE}" in the logs. you should also see a generated config class for your
 #       source in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/{your_source}.py`
-# 9. TODO: update all the references to `Config` in this file to the newly generated source
-#       config class from step 8
-# 10. TODO: implement the logic for your source or mark it as unreleased by setting
+# 8. TODO: update all the references to `Config` in this file to the newly generated source
+#       config class from step 7
+# 9. TODO: implement the logic for your source or mark it as unreleased by setting
 #       unreleasedSource=True in the SourceConfig constructor
-# 11. TODO: add a new .png icon for your source in `frontend/public/services/`
+# 10. TODO: add a new .png icon for your source in `frontend/public/services/`
 #       and update the iconPath field in your SourceConfig including the
 #       extension. this is important because the icon is rendered in the frontend
 #       by `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx`
-# 12. TODO: rerun `pnpm run generate:source-configs`. you will need to do this every time you
+# 11. TODO: rerun `pnpm run generate:source-configs`. you will need to do this every time you
 #       modify the implementation of your source
-# 13. TODO: run `pnpm run schema:build` to update typing information. this also ensures your
+# 12. TODO: run `hogli build:openapi` to regenerate the frontend types. this also ensures your
 #       source will appear in frontend dropdowns and menus.
-# 14. TODO: phew! you're done. just delete these TODOs before you PR
+# 13. TODO: phew! you're done. just delete these TODOs before you PR
 
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
 
@@ -64,7 +57,7 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SOURCE_TYPE,  # replace this enum value
+            name=ExternalDataSourceType.SOURCE_TYPE,  # replace this enum value
             category=DataWarehouseSourceCategory.DATABASES,  # TODO: pick the closest catalog bucket (groups this source in the new-source wizard)
             keywords=[],  # TODO (optional): lowercase search terms — acronyms/alt spellings (e.g. ["ga4", "ga"])
             iconPath="/static/services/template.png",  # update this icon path

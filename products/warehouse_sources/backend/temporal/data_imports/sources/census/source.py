@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.census import (
     CensusResumeConfig,
     census_source,
@@ -100,7 +98,7 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CENSUS,
+            name=ExternalDataSourceType.CENSUS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Census (Fivetran)",
             caption="""Enter a Census workspace API access token to sync your syncs, sync runs, sources, and destinations.

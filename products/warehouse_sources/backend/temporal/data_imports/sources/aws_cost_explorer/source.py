@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.aws_cost_explorer import (
     AwsCostExplorerResumeConfig,
     aws_cost_explorer_source,
@@ -115,7 +113,7 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AWS_COST_EXPLORER,
+            name=ExternalDataSourceType.AWSCOSTEXPLORER,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="AWS Cost Explorer",
             caption="""Sync your AWS cost and usage data into the PostHog Data warehouse.

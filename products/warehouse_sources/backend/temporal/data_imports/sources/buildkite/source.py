@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.buildkite import (
     BuildkiteResumeConfig,
     buildkite_source,
@@ -58,7 +56,7 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUILDKITE,
+            name=ExternalDataSourceType.BUILDKITE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Buildkite",
             releaseStatus=ReleaseStatus.ALPHA,

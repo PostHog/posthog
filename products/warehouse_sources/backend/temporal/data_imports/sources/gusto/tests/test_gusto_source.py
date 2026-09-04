@@ -5,8 +5,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,

@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blackbaudraisersedgenxt import (
@@ -23,7 +18,7 @@ class BlackbaudRaisersEdgeNxtSource(SimpleSource[BlackbaudRaisersEdgeNxtSourceCo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BLACKBAUD_RAISERS_EDGE_NXT,
+            name=ExternalDataSourceType.BLACKBAUDRAISERSEDGENXT,
             category=DataWarehouseSourceCategory.CRM,
             label="Blackbaud Raiser's Edge NXT (SKY API)",
             iconPath="/static/services/blackbaud_raisers_edge_nxt.png",

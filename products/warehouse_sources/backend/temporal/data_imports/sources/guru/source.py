@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -58,7 +56,7 @@ class GuruSource(ResumableSource[GuruSourceConfig, GuruResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GURU,
+            name=ExternalDataSourceType.GURU,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Guru",
             caption="""Enter your Guru API credentials to pull your Guru knowledge base data into the PostHog Data warehouse.

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -67,7 +65,7 @@ class Mem0Source(ResumableSource[Mem0SourceConfig, Mem0ResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MEM0,
+            name=ExternalDataSourceType.MEM0,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mem0",
             caption="""Enter your Mem0 API key to automatically pull your Mem0 memories, entities, and operation events into the PostHog Data warehouse.

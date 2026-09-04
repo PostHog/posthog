@@ -5,15 +5,13 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -159,7 +157,7 @@ class RevenueCatSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.REVENUE_CAT,
+            name=ExternalDataSourceType.REVENUECAT,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="RevenueCat",
             caption=(

@@ -3,8 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zonkafeedback import (
     ZonkaFeedbackSourceConfig,
 )

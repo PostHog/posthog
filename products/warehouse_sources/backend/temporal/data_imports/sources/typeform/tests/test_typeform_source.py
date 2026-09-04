@@ -1,5 +1,4 @@
-from posthog.schema import SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.typeform import (
     TypeformSourceConfig,
 )

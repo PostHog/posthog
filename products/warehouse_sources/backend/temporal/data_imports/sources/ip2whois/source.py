@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -46,7 +44,7 @@ class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.IP2_WHOIS,
+            name=ExternalDataSourceType.IP2WHOIS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="IP2WHOIS",
             releaseStatus=ReleaseStatus.ALPHA,

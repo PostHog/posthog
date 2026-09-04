@@ -6,8 +6,7 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets import (
     aws_budgets as transport_module,
     source as source_module,

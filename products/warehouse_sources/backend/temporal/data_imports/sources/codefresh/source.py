@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
     CodefreshResumeConfig,
     codefresh_source,
@@ -48,7 +46,7 @@ class CodefreshSource(ResumableSource[CodefreshSourceConfig, CodefreshResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODEFRESH,
+            name=ExternalDataSourceType.CODEFRESH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codefresh",
             releaseStatus=ReleaseStatus.ALPHA,

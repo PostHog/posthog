@@ -4,8 +4,11 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldSelectConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import (
     ENDPOINTS,
     FIREHYDRANT_ENDPOINTS,

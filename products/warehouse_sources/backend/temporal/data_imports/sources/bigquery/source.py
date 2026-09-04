@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_API_VERSION_V2,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
@@ -377,7 +375,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIG_QUERY,
+            name=ExternalDataSourceType.BIGQUERY,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["bq", "gbq", "sql", "gcp", "google cloud"],
             featured=True,

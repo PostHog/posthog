@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.athenahealth import (
@@ -23,7 +18,7 @@ class AthenahealthSource(SimpleSource[AthenahealthSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ATHENAHEALTH,
+            name=ExternalDataSourceType.ATHENAHEALTH,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="athenahealth (athenaOne)",
             iconPath="/static/services/athenahealth.png",

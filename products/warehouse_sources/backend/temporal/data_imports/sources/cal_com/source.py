@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import (
     CalComResumeConfig,
     cal_com_source,
@@ -50,7 +48,7 @@ class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CAL_COM,
+            name=ExternalDataSourceType.CALCOM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Cal.com",
             releaseStatus=ReleaseStatus.ALPHA,

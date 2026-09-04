@@ -3,12 +3,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.settings import (
     DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
@@ -17,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstack import (
     AppstackSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> AppstackSourceConfig:
@@ -26,7 +22,7 @@ def _config() -> AppstackSourceConfig:
 class TestAppstackSourceConfig:
     def test_get_source_config(self) -> None:
         config = AppstackSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.APPSTACK
+        assert config.name == ExternalDataSourceType.APPSTACK
         assert config.category == DataWarehouseSourceCategory.ADVERTISING
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # The source ships visible: the scaffold's unreleasedSource flag must stay deleted.
