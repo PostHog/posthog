@@ -22,13 +22,15 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         priority: 'P2',
         source_products: ['error_tracking'],
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
+        implementation_pr_state: null,
+        work_state: 'unclaimed',
+        assignee: null,
         ...overrides,
     } as SignalReport
 }
@@ -81,5 +83,83 @@ describe('ReportCard', () => {
         })
         const { container } = render(<ReportCard report={report} preview />)
         expect(container.querySelector('a')).toBeNull()
+    })
+
+    it.each([
+        [
+            'an external claim',
+            {
+                work_state: 'working' as const,
+                assignee: {
+                    kind: 'agent' as const,
+                    user: {
+                        id: 1,
+                        uuid: 'user-1',
+                        first_name: 'Mikayla',
+                        last_name: 'Thompson',
+                        email: 'mikayla@example.com',
+                    },
+                    task_id: null,
+                    agent: 'Codex',
+                    claimed_at: '2026-09-04T12:00:00Z',
+                },
+            },
+            "In progress by Mikayla's Codex",
+        ],
+        [
+            'an external pull request',
+            {
+                implementation_pr_url: 'https://github.com/PiedPiper/pipernet/pull/486',
+                implementation_pr_state: 'open' as const,
+                work_state: 'in_review' as const,
+                assignee: {
+                    kind: 'agent' as const,
+                    user: {
+                        id: 1,
+                        uuid: 'user-1',
+                        first_name: 'Mikayla',
+                        last_name: 'Thompson',
+                        email: 'mikayla@example.com',
+                    },
+                    task_id: null,
+                    agent: 'Codex',
+                    claimed_at: '2026-09-04T12:00:00Z',
+                },
+            },
+            "External PR by Mikayla's Codex",
+        ],
+        [
+            'a PostHog pull request',
+            {
+                implementation_pr_url: 'https://github.com/PostHog/posthog/pull/486',
+                implementation_pr_state: 'open' as const,
+                work_state: 'in_review' as const,
+                assignee: {
+                    kind: 'task' as const,
+                    user: null,
+                    task_id: '019e64b8-0000-7000-8000-000000000001',
+                    agent: null,
+                    claimed_at: '2026-09-04T12:00:00Z',
+                },
+            },
+            'PR by PostHog agent',
+        ],
+    ])('shows %s', (_case, overrides, label) => {
+        const { getByText } = render(<ReportCard report={makeReport(overrides)} />)
+
+        expect(getByText(label)).toBeInTheDocument()
+    })
+
+    it('uses the attached pull request state even before the report status catches up', () => {
+        const { getByLabelText } = render(
+            <ReportCard
+                report={makeReport({
+                    implementation_pr_url: 'https://github.com/PiedPiper/pipernet/pull/486',
+                    implementation_pr_state: 'closed',
+                })}
+            />
+        )
+
+        expect(getByLabelText('Open pull request #486 (Closed) on GitHub')).toBeInTheDocument()
     })
 })

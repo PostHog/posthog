@@ -90,6 +90,7 @@ export type InboxReportActionType =
     | 'discuss'
     | 'restore'
     | 'create_pr'
+    | 'copy_implementation_prompt'
     | 'refund'
     | 'open_pr'
     | 'view_diff'
