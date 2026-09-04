@@ -78,7 +78,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
-from posthog.models.property.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -326,18 +326,15 @@ class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 # Keep in sync with OperatorType in posthog/models/property/property.py
 DATE_OPERATORS = ("is_date_after", "is_date_before")
 
-# Operators that compare against exactly one string. A multi-value list is meaningful for
+# Operators that compare against exactly one value. A multi-value list is meaningful for
 # `icontains`/`not_icontains` in HogQL, which turns it into multiSearchAnyCaseInsensitive, so
-# only the single-element case is unwrapped here. See _single_value_operator_value.
+# only the single-element case is unwrapped here.
 SINGLE_VALUE_STRING_OPERATORS = (
     "icontains",
     "not_icontains",
     "is_date_after",
     "is_date_before",
-    "startswith",
-    "not_startswith",
-    "endswith",
-    "not_endswith",
+    *STRING_PREFIX_SUFFIX_OPERATORS,
 )
 
 
@@ -350,7 +347,10 @@ def _single_value_operator_value(operator: str | None, value: Any) -> Any:
     the unwrapped string is what both readers already agree on.
     """
     if operator in SINGLE_VALUE_STRING_OPERATORS and isinstance(value, list) and len(value) == 1:
-        return value[0]
+        # Only a string element unwraps. A `[None]` value would otherwise become `None` and fail
+        # the missing-value check below, which rejects a payload that saved before.
+        if isinstance(value[0], str):
+            return value[0]
     return value
 
 

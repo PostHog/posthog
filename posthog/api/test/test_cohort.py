@@ -4396,10 +4396,15 @@ email@example.org,
         [
             ("icontains_single_list", "icontains", ["@example.com"], "@example.com"),
             ("not_icontains_single_list", "not_icontains", ["@example.com"], "@example.com"),
-            ("startswith_single_list", "startswith", ["admin"], "admin"),
-            ("endswith_single_list", "endswith", [".com"], ".com"),
+            ("starts_with_single_list", "starts_with", ["admin"], "admin"),
+            ("not_starts_with_single_list", "not_starts_with", ["admin"], "admin"),
+            ("ends_with_single_list", "ends_with", [".com"], ".com"),
+            ("not_ends_with_single_list", "not_ends_with", [".com"], ".com"),
+            ("is_date_after_single_list", "is_date_after", ["-7d"], "-7d"),
             ("icontains_multi_list_kept", "icontains", ["@a.com", "@b.com"], ["@a.com", "@b.com"]),
             ("icontains_plain_string_kept", "icontains", "@example.com", "@example.com"),
+            ("icontains_empty_list_kept", "icontains", [], []),
+            ("icontains_non_string_element_kept", "icontains", [None], [None]),
             ("exact_single_list_kept", "exact", ["admin"], ["admin"]),
         ]
     )
@@ -4421,6 +4426,7 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 201, response.json())
         cohort = Cohort.objects.get(pk=response.json()["id"])
+        assert cohort.filters is not None
         self.assertEqual(cohort.filters["properties"]["values"][0]["value"], expected)
 
     @patch("posthog.api.cohort.report_user_action")
