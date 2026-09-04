@@ -2125,6 +2125,10 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
 
 
 SENDING_ALLOWANCE_CACHE_SECONDS = 60
+# EmailSendingAllowance is slotted, so it pickles its state as a bare positional list. An entry
+# written by a pod running an older field list would restore into the wrong slots instead of
+# failing, and a rolling deploy has both pods reading the same Redis. Bump on any field change.
+SENDING_ALLOWANCE_CACHE_VERSION = 2
 
 
 @frozen
@@ -2158,7 +2162,7 @@ def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     what the rest of this page reports. Cached briefly because the endpoint reloads on every search
     keystroke while these two aggregations do not depend on the search.
     """
-    cache_key = f"workflows_email_sending_allowance_{team_id}"
+    cache_key = f"workflows_email_sending_allowance_v{SENDING_ALLOWANCE_CACHE_VERSION}_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
