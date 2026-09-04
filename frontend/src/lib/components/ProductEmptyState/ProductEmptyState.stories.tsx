@@ -9,6 +9,7 @@ import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { customerAnalyticsEmptyState } from 'products/customer_analytics/frontend/emptyState/customerAnalyticsEmptyState'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
@@ -18,6 +19,7 @@ import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
+import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
@@ -29,6 +31,7 @@ import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysE
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
 import { ProductEmptyStateStory, productEmptyStateStory } from './storybookHelpers'
@@ -316,4 +319,30 @@ export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyState
             },
         },
     }
+)
+
+// Workflows detection counts workflows on mount - answer "none yet".
+export const WorkflowsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(workflowsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/hog_flows/': [200, { count: 0, results: [] }] } },
+})
+
+// Marketing analytics detection mirrors the scene logic's sources check; the
+// default query mocks answer its source queries with empty results.
+export const MarketingAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    marketingAnalyticsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                // nosemgrep: no-environments-api-urls-frontend -- the sources API is env-scoped, so the msw mock must match /api/environments to intercept it
+                '/api/environments/:team_id/external_data_sources/': [200, { results: [] }],
+            },
+        },
+    }
+)
+
+// Customer analytics detection is synchronous (groups access from the team), so no mocks needed.
+export const CustomerAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    customerAnalyticsEmptyState,
+    'needs-setup'
 )

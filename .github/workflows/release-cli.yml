@@ -261,6 +261,27 @@ jobs:
                   echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
                   echo "Prepared posthog-cli v$new_version"
 
+            # This job commits straight to master, so nothing stands between what Sampo
+            # writes and master's own markdown gates. Sampo indents a multi-paragraph
+            # changeset under its changelog bullet and leaves that indent on the blank
+            # lines between the paragraphs, which the format check rejects.
+            - name: Install pnpm dependencies
+              if: steps.prepare-release.outputs.new-version != ''
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+
+            # Same two passes as `hogli format:markdown`, called directly because hogli
+            # needs a Python venv this job does not set up. The last command re-runs the
+            # gate, so an unfixable violation stops the release instead of reddening
+            # master for every open PR.
+            - name: Format the changelog
+              if: steps.prepare-release.outputs.new-version != ''
+              run: |
+                  pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix cli/CHANGELOG.md
+                  pnpm exec oxfmt cli/CHANGELOG.md
+                  pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc cli/CHANGELOG.md
+
             - name: Check release tag
               if: steps.prepare-release.outputs.new-version != ''
               env:

@@ -170,7 +170,7 @@
             "type": "boolean"
         },
         "start_date": {
-            "description": "When to start delivering (ISO 8601 datetime).",
+            "description": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
@@ -185,12 +185,12 @@
             "type": "string"
         },
         "target_type": {
-            "description": "Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack",
-            "enum": ["email", "slack"],
+            "description": "Delivery channel: email, slack, or teams.\n\n* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+            "enum": ["email", "slack", "teams"],
             "type": "string"
         },
         "target_value": {
-            "description": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.",
+            "description": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.",
             "type": "string"
         },
         "title": {

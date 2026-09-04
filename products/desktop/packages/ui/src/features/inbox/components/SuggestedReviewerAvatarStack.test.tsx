@@ -155,7 +155,6 @@ describe("SuggestedReviewerAvatarStack", () => {
     expect(onCardClick).not.toHaveBeenCalled();
     expect(mocks.mutate).toHaveBeenCalledWith(
       {
-        artefactId: "reviewers-1",
         content: [{ github_login: "bob" }],
         optimisticReviewers: [teammate],
       },

@@ -15,7 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
-import { ResourceTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionResourceTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionDeliveryHistory } from './components/SubscriptionDeliveryHistory'
 import { isSubscriptionEnabled, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
@@ -131,7 +131,7 @@ export function SubscriptionScene(): JSX.Element {
                         onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
                         testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
                         onDeliveryFeedback={
-                            subscription?.resource_type === ResourceTypeEnumApi.AiPrompt
+                            subscription?.resource_type === SubscriptionResourceTypeEnumApi.AiPrompt
                                 ? (deliveryId, feedback) => submitDeliveryFeedback(deliveryId, feedback, 'in_app')
                                 : undefined
                         }

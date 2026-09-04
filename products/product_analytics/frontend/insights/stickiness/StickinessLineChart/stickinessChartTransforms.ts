@@ -9,6 +9,7 @@ import { ChartDisplayType } from '~/types'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../../trends/shared/compareDimming'
 import { humanizeSeriesLabel } from '../../trends/shared/humanizeSeriesLabel'
+import { computeMagnitudeAxisIds } from '../../trends/shared/magnitudeAxisIds'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -51,9 +52,9 @@ export function toPercentData(data: number[], count: number): number[] {
 export function buildStickinessMainSeries<R extends StickinessResultLike, M = unknown>(
     r: R,
     index: number,
-    opts: BuildStickinessSeriesOpts<R, M>
+    opts: BuildStickinessSeriesOpts<R, M>,
+    yAxisId: string = DEFAULT_Y_AXIS_ID
 ): Series<M> {
-    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     // Dim the compare-against-previous series so it recedes behind the current period, matching trends.
@@ -75,7 +76,11 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
     results: R[],
     opts: BuildStickinessSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.map((r, index) => buildStickinessMainSeries(r, index, opts))
+    // Group on the rendered (percent-converted) values, not the raw counts.
+    const yAxisIds = opts.showMultipleYAxes
+        ? computeMagnitudeAxisIds(results.map((r) => toPercentData(r.data, r.count)))
+        : undefined
+    return results.map((r, index) => buildStickinessMainSeries(r, index, opts, yAxisIds?.[index]))
 }
 
 /** Produce per-bucket labels ("Day 0", "Day 1", …). The API's own "X day(s)" labels

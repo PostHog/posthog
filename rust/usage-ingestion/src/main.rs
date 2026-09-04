@@ -4,7 +4,6 @@ use std::time::Duration;
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_grpc::GrpcMetricsLayer;
-use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use envconfig::Envconfig;
 use health::HealthRegistry;
@@ -65,12 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let resolver = Arc::new(PostgresOrganizationResolver::new(database));
 
-    let kafka_config = KafkaConfig {
-        kafka_hosts: config.kafka_hosts,
-        kafka_tls: config.kafka_tls,
-        kafka_client_id: "usage-ingestion".to_string(),
-        ..Default::default()
-    };
+    let kafka_config = config.kafka_config();
     let health = Arc::new(HealthRegistry::new("usage-ingestion"));
     let producer_liveness = health
         .register("kafka_producer".to_string(), Duration::from_secs(30))
@@ -122,7 +116,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(address = %config.grpc_address, "Starting usage-ingestion gRPC service");
     // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
     // before exposing it beyond that boundary because records affect tenant billing.
-    Server::builder()
+    // Producers pin one HTTP/2 connection for the life of the process, so a scale-up takes no
+    // traffic until connections churn. A periodic GOAWAY makes them re-resolve the service.
+    // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
+    // synchronized reconnect shows up as a latency sawtooth.
+    let mut builder = Server::builder();
+    if let Some(age) = config.grpc_max_connection_age() {
+        builder = builder.max_connection_age(age);
+    }
+    builder
         .layer(GrpcMetricsLayer)
         .add_service(UsageIngestionServer::new(service))
         .serve(config.grpc_address.parse()?)

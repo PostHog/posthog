@@ -12,9 +12,9 @@
  * * `in_progress` - In progress
  * * `canceling` - Canceling
  */
-export type ConversationStatusApi = (typeof ConversationStatusApi)[keyof typeof ConversationStatusApi]
+export type ConversationStatusEnumApi = (typeof ConversationStatusEnumApi)[keyof typeof ConversationStatusEnumApi]
 
-export const ConversationStatusApi = {
+export const ConversationStatusEnumApi = {
     Idle: 'idle',
     InProgress: 'in_progress',
     Canceling: 'canceling',
@@ -31,9 +31,9 @@ export const ConversationStatusApi = {
  * * `data_warehouse` - Data warehouse
  * * `other` - Other
  */
-export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
+export type ConversationTopicEnumApi = (typeof ConversationTopicEnumApi)[keyof typeof ConversationTopicEnumApi]
 
-export const TopicEnumApi = {
+export const ConversationTopicEnumApi = {
     WebAnalytics: 'web_analytics',
     ProductAnalytics: 'product_analytics',
     SessionReplay: 'session_replay',
@@ -108,9 +108,9 @@ export interface UserBasicApi {
  * * `deep_research` - Deep research
  * * `slack` - Slack
  */
-export type ConversationTypeApi = (typeof ConversationTypeApi)[keyof typeof ConversationTypeApi]
+export type ConversationTypeEnumApi = (typeof ConversationTypeEnumApi)[keyof typeof ConversationTypeEnumApi]
 
-export const ConversationTypeApi = {
+export const ConversationTypeEnumApi = {
     Assistant: 'assistant',
     ToolCall: 'tool_call',
     DeepResearch: 'deep_research',
@@ -121,9 +121,9 @@ export const ConversationTypeApi = {
  * * `acp` - ACP
  * * `pi` - Pi
  */
-export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+export type TaskRuntimeEnumApi = (typeof TaskRuntimeEnumApi)[keyof typeof TaskRuntimeEnumApi]
 
-export const RuntimeEnumApi = {
+export const TaskRuntimeEnumApi = {
     Acp: 'acp',
     Pi: 'pi',
 } as const
@@ -174,7 +174,7 @@ export interface ConversationTaskApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    readonly runtime: RuntimeEnumApi
+    readonly runtime: TaskRuntimeEnumApi
     /** @nullable */
     repository: string | null
     /** @nullable */
@@ -205,7 +205,7 @@ export interface ConversationTaskApi {
 
 export interface ConversationMinimalApi {
     readonly id: string
-    readonly status: ConversationStatusApi
+    readonly status: ConversationStatusEnumApi
     /**
      * Title of the conversation.
      * @nullable
@@ -222,13 +222,13 @@ export interface ConversationMinimalApi {
      * * `error_tracking` - Error tracking
      * * `data_warehouse` - Data warehouse
      * * `other` - Other */
-    readonly topic: TopicEnumApi | null
+    readonly topic: ConversationTopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
     /** @nullable */
     readonly updated_at: string | null
-    readonly type: ConversationTypeApi
+    readonly type: ConversationTypeEnumApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -319,16 +319,17 @@ export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
  * * `langgraph` - LangGraph
  * * `sandbox` - Sandbox
  */
-export type AgentRuntimeEnumApi = (typeof AgentRuntimeEnumApi)[keyof typeof AgentRuntimeEnumApi]
+export type ConversationAgentRuntimeEnumApi =
+    (typeof ConversationAgentRuntimeEnumApi)[keyof typeof ConversationAgentRuntimeEnumApi]
 
-export const AgentRuntimeEnumApi = {
+export const ConversationAgentRuntimeEnumApi = {
     Langgraph: 'langgraph',
     Sandbox: 'sandbox',
 } as const
 
 export interface ConversationApi {
     readonly id: string
-    readonly status: ConversationStatusApi
+    readonly status: ConversationStatusEnumApi
     /**
      * Title of the conversation.
      * @nullable
@@ -345,13 +346,13 @@ export interface ConversationApi {
      * * `error_tracking` - Error tracking
      * * `data_warehouse` - Data warehouse
      * * `other` - Other */
-    readonly topic: TopicEnumApi | null
+    readonly topic: ConversationTopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
     /** @nullable */
     readonly updated_at: string | null
-    readonly type: ConversationTypeApi
+    readonly type: ConversationTypeEnumApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -375,7 +376,7 @@ export interface ConversationApi {
      *
      * * `langgraph` - LangGraph
      * * `sandbox` - Sandbox */
-    readonly agent_runtime: AgentRuntimeEnumApi
+    readonly agent_runtime: ConversationAgentRuntimeEnumApi
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
      *
@@ -399,7 +400,7 @@ export type PatchedConversationApiPendingApprovalsItem = { [key: string]: unknow
 
 export interface PatchedConversationApi {
     readonly id?: string
-    readonly status?: ConversationStatusApi
+    readonly status?: ConversationStatusEnumApi
     /**
      * Title of the conversation.
      * @nullable
@@ -416,13 +417,13 @@ export interface PatchedConversationApi {
      * * `error_tracking` - Error tracking
      * * `data_warehouse` - Data warehouse
      * * `other` - Other */
-    readonly topic?: TopicEnumApi | null
+    readonly topic?: ConversationTopicEnumApi | null
     readonly user?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null
     /** @nullable */
     readonly updated_at?: string | null
-    readonly type?: ConversationTypeApi
+    readonly type?: ConversationTypeEnumApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -446,7 +447,7 @@ export interface PatchedConversationApi {
      *
      * * `langgraph` - LangGraph
      * * `sandbox` - Sandbox */
-    readonly agent_runtime?: AgentRuntimeEnumApi
+    readonly agent_runtime?: ConversationAgentRuntimeEnumApi
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
      *

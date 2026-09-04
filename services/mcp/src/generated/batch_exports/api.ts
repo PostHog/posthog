@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const BatchExportsListParams = /* @__PURE__ */ zod.object({
+export const BatchExportsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const BatchExportsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const BatchExportsListQueryParams = /* @__PURE__ */ zod.object({
+export const BatchExportsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const BatchExportsCreateParams = /* @__PURE__ */ zod.object({
+export const BatchExportsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -53,7 +53,7 @@ export const batchExportsCreateBodyOffsetDayMax = 6
 export const batchExportsCreateBodyOffsetHourMin = 0
 export const batchExportsCreateBodyOffsetHourMax = 23
 
-export const BatchExportsCreateBody = /* @__PURE__ */ zod
+export const BatchExportsCreateBody = () => zod
     .object({
         name: zod.string().describe('Human-readable name for the batch export.'),
         model: zod
@@ -208,7 +208,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -263,7 +263,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -343,9 +343,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Redshift']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -462,7 +461,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
         'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
-export const BatchExportsRetrieveParams = /* @__PURE__ */ zod.object({
+export const BatchExportsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
         .string()
@@ -471,7 +470,7 @@ export const BatchExportsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const BatchExportsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const BatchExportsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
         .string()
@@ -504,7 +503,7 @@ export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 export const batchExportsPartialUpdateBodyOffsetHourMin = 0
 export const batchExportsPartialUpdateBodyOffsetHourMax = 23
 
-export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
+export const BatchExportsPartialUpdateBody = () => zod
     .object({
         name: zod.string().optional().describe('Human-readable name for the batch export.'),
         model: zod
@@ -661,7 +660,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -716,7 +715,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -796,9 +795,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Redshift']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -919,7 +917,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
         'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
-export const BatchExportsDestroyParams = /* @__PURE__ */ zod.object({
+export const BatchExportsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
         .string()
@@ -931,7 +929,7 @@ export const BatchExportsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Create and start a batch export on demand run to download a file.
  */
-export const FileDownloadBatchExportsCreateParams = /* @__PURE__ */ zod.object({
+export const FileDownloadBatchExportsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -951,7 +949,7 @@ export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
 export const fileDownloadBatchExportsCreateBodyFourFileFormatDefault = `Parquet`
 export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin = 0
 
-export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
+export const FileDownloadBatchExportsCreateBody = () => zod.union([
     zod
         .object({
             file: zod
@@ -1102,7 +1100,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
  * generated file downloads so that users may download them by making a request
  * to /download.
  */
-export const FileDownloadBatchExportsRetrieveParams = /* @__PURE__ */ zod.object({
+export const FileDownloadBatchExportsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export run.'),
     project_id: zod
         .string()
@@ -1114,7 +1112,7 @@ export const FileDownloadBatchExportsRetrieveParams = /* @__PURE__ */ zod.object
 /**
  * Cancel an ongoing file-download batch export.
  */
-export const FileDownloadBatchExportsCancelCreateParams = /* @__PURE__ */ zod.object({
+export const FileDownloadBatchExportsCancelCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export run.'),
     project_id: zod
         .string()
@@ -1126,7 +1124,7 @@ export const FileDownloadBatchExportsCancelCreateParams = /* @__PURE__ */ zod.ob
 export const fileDownloadBatchExportsCancelCreateBodyFileFormatDefault = `Parquet`
 export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin = 0
 
-export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
+export const FileDownloadBatchExportsCancelCreateBody = () => zod
     .object({
         file: zod
             .object({
@@ -1177,7 +1175,7 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
 /**
  * Count the rows a HogQL batch export would produce if started now.
  */
-export const FileDownloadBatchExportsCountRowsCreateParams = /* @__PURE__ */ zod.object({
+export const FileDownloadBatchExportsCountRowsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1185,7 +1183,7 @@ export const FileDownloadBatchExportsCountRowsCreateParams = /* @__PURE__ */ zod
         ),
 })
 
-export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
+export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
     .object({
         model: zod
             .enum(['hogql'])

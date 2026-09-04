@@ -12,9 +12,9 @@
  * * `iframe` - Iframe
  * * `recording` - Recording
  */
-export type HeatmapTypeApi = (typeof HeatmapTypeApi)[keyof typeof HeatmapTypeApi]
+export type SavedHeatmapTypeEnumApi = (typeof SavedHeatmapTypeEnumApi)[keyof typeof SavedHeatmapTypeEnumApi]
 
-export const HeatmapTypeApi = {
+export const SavedHeatmapTypeEnumApi = {
     Screenshot: 'screenshot',
     Iframe: 'iframe',
     Recording: 'recording',
@@ -24,10 +24,9 @@ export const HeatmapTypeApi = {
  * * `server` - Server
  * * `toolbar` - Toolbar
  */
-export type HeatmapScreenshotResponseSourceEnumApi =
-    (typeof HeatmapScreenshotResponseSourceEnumApi)[keyof typeof HeatmapScreenshotResponseSourceEnumApi]
+export type SavedHeatmapSourceEnumApi = (typeof SavedHeatmapSourceEnumApi)[keyof typeof SavedHeatmapSourceEnumApi]
 
-export const HeatmapScreenshotResponseSourceEnumApi = {
+export const SavedHeatmapSourceEnumApi = {
     Server: 'server',
     Toolbar: 'toolbar',
 } as const
@@ -37,10 +36,9 @@ export const HeatmapScreenshotResponseSourceEnumApi = {
  * * `completed` - Completed
  * * `failed` - Failed
  */
-export type HeatmapScreenshotResponseStatusEnumApi =
-    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+export type SavedHeatmapStatusEnumApi = (typeof SavedHeatmapStatusEnumApi)[keyof typeof SavedHeatmapStatusEnumApi]
 
-export const HeatmapScreenshotResponseStatusEnumApi = {
+export const SavedHeatmapStatusEnumApi = {
     Processing: 'processing',
     Completed: 'completed',
     Failed: 'failed',
@@ -137,18 +135,18 @@ export interface HeatmapScreenshotResponseApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
      *
      * * `server` - Server
      * * `toolbar` - Toolbar */
-    readonly source: HeatmapScreenshotResponseSourceEnumApi
+    readonly source: SavedHeatmapSourceEnumApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
      *
      * * `processing` - Processing
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: HeatmapScreenshotResponseStatusEnumApi
+    readonly status: SavedHeatmapStatusEnumApi
     /** Whether at least one rendered image is ready to fetch. */
     readonly has_content: boolean
     /** Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint. */
@@ -250,7 +248,7 @@ export interface SavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
@@ -283,7 +281,7 @@ export interface PatchedSavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */

@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import OuterRef, Subquery
 
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
@@ -13,7 +13,7 @@ from posthog.temporal.health_checks.framework import (
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 class MaterializedViewFailureCheck(HealthCheck):
@@ -69,22 +69,30 @@ class MaterializedViewFailureCheck(HealthCheck):
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+        # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not
+        # stand in for the serving run.
+        latest_job = (
+            DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
+            .exclude(engine=DataModelingJobEngine.DUCKGRES)
+            .order_by("-last_run_at")
+        )
+
         queryset = (
-            DataWarehouseSavedQuery.objects.filter(
-                team_id__in=team_ids,
-                deleted=False,
+            DataWarehouseSavedQuery.objects
+            # `deleted` is nullable and NULL on views that were never deleted, which `deleted=False` drops.
+            .exclude(deleted=True)
+            .filter(team_id__in=team_ids)
+            .annotate(
+                latest_job_status=Subquery(latest_job.values("status")[:1]),
+                latest_job_error=Subquery(latest_job.values("error")[:1]),
             )
-            .filter(
-                Q(status=DataWarehouseSavedQuery.Status.FAILED)
-                | (~Q(is_materialized=True) & Q(latest_error__isnull=False))
-            )
-            .exclude(status=DataWarehouseSavedQuery.Status.RUNNING)
+            .filter(latest_job_status=DataModelingJob.Status.FAILED)
         )
 
         issues: dict[int, list[HealthCheckResult]] = {}
-        for row in queryset.values("team_id", "id", "name", "latest_error"):
+        for row in queryset.values("team_id", "id", "name", "latest_job_error"):
             team_id = row["team_id"]
-            error = row["latest_error"] or ""
+            error = row["latest_job_error"] or ""
             issues.setdefault(team_id, []).append(
                 HealthCheckResult(
                     severity=HealthIssue.Severity.WARNING,

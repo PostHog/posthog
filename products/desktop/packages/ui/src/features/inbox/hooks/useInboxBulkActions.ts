@@ -1,3 +1,4 @@
+import { buildSnoozeRequest } from "@posthog/core/inbox/bulkActions";
 import {
   buildBulkActionEvents,
   type InboxBulkActionType,
@@ -32,8 +33,8 @@ type BulkActionName =
 
 /**
  * Map an enriched reviewer list back to the write shape the artefact PUT expects
- * (mirrors `ReportReviewersHeader`). The server takes the full replacement
- * list, not a diff, so removing a reviewer means sending everyone else.
+ * The server takes the full replacement list, not a diff, so removing a
+ * reviewer means sending everyone else.
  */
 function toReviewerWriteContent(
   reviewers: SuggestedReviewer[],
@@ -124,7 +125,7 @@ function formatBulkActionSummary(
   const pluralized = successCount === 1 ? "report" : "reports";
   const formulated =
     action === "suppress"
-      ? `${pluralized} archived`
+      ? `${pluralized} dismissed`
       : action === "snooze"
         ? `${pluralized} snoozed`
         : action === "delete"
@@ -371,22 +372,25 @@ export function useInboxBulkActions(
         toast.success(formatBulkActionSummary("suppress", result));
       },
       onError: (error) => {
-        toast.error(error.message || "Failed to archive reports");
+        toast.error(error.message || "Failed to dismiss reports");
       },
     },
   );
 
   const snoozeMutation = useAuthenticatedMutation(
-    async (client, reportIds: string[]) =>
-      runBulkAction(reportIds, (reportId) =>
-        client.updateSignalReportState(reportId, {
-          state: "potential",
-          snooze_for: 1,
-        }),
+    async (
+      client,
+      input: { reportIds: string[]; dismissal?: DismissReportDialogResult },
+    ) =>
+      runBulkAction(input.reportIds, (reportId) =>
+        client.updateSignalReportState(
+          reportId,
+          buildSnoozeRequest(input.dismissal),
+        ),
       ),
     {
-      onSuccess: async (result) => {
-        trackBulkAction("snooze", result);
+      onSuccess: async (result, variables) => {
+        trackBulkAction("snooze", result, variables.dismissal);
         await invalidateInboxQueries();
         applyBulkResultToSelection(result);
 
@@ -489,7 +493,20 @@ export function useInboxBulkActions(
     {
       onSuccess: async (result) => {
         trackBulkAction("remove_suggested_reviewer", result);
-        await invalidateInboxQueries();
+        // A reviewer-artefact write changes list membership, report detail, and
+        // the reviewer artefacts, but not chart results, which are evidence
+        // snapshots a reviewer change cannot alter. Skip chart-data queries so
+        // the pending flag that gates triage navigation does not wait on
+        // unrelated ClickHouse-backed chart refetches.
+        await queryClient.invalidateQueries({
+          queryKey: reportKeys.all,
+          exact: false,
+          predicate: (query) => !query.queryKey.includes("chart-data"),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: taskFeedResultsQueryRoot,
+          exact: false,
+        });
         applyBulkResultToSelection(result);
 
         if (result.failureCount > 0) {
@@ -524,18 +541,20 @@ export function useInboxBulkActions(
     ],
   );
 
-  const snoozeSelected = useCallback(async () => {
-    if (eligibility.snoozeDisabledReason !== null) {
-      return false;
-    }
+  const snoozeSelected = useCallback(
+    async (dismissal?: DismissReportDialogResult) => {
+      if (eligibility.snoozeDisabledReason !== null) {
+        return false;
+      }
 
-    await snoozeMutation.mutateAsync(eligibility.selectedIds);
-    return true;
-  }, [
-    eligibility.snoozeDisabledReason,
-    eligibility.selectedIds,
-    snoozeMutation,
-  ]);
+      await snoozeMutation.mutateAsync({
+        reportIds: eligibility.selectedIds,
+        ...(dismissal != null ? { dismissal } : {}),
+      });
+      return true;
+    },
+    [eligibility.snoozeDisabledReason, eligibility.selectedIds, snoozeMutation],
+  );
 
   const deleteSelected = useCallback(async () => {
     if (eligibility.deleteDisabledReason !== null) {
