@@ -1783,7 +1783,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
-                keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
+                keywords: [
+                    'ai',
+                    'max',
+                    'llm',
+                    'artificial intelligence',
+                    'consent',
+                    'approve',
+                    'enable',
+                    'opt-in',
+                    'data sharing',
+                ],
                 searchDescription:
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
             },
@@ -1889,6 +1899,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+        keywords: ['usage', 'subscription', 'invoice', 'plan', 'payment', 'spend', 'quota', 'credits', 'card'],
     },
     {
         level: 'organization',
