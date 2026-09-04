@@ -23,11 +23,13 @@ signal the gate skips on (its policies target human-driven changes, and a reques
 caller cannot surface a 409/change request), so ``ApprovalRequired`` is never raised.
 """
 
+from datetime import datetime
 from typing import Any
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -35,9 +37,26 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
-from products.feature_flags.backend.facade.contracts import FlagSummary
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+@frozen
+class FlagSummary:
+    id: int
+    key: str
+    active: bool
+    deleted: bool
+    archived: bool
+    created_at: datetime
+    updated_at: datetime | None
+    last_called_at: datetime | None
+    status: str
+    status_reason: str
+    effectively_full_rollout: bool
+    max_rollout_percentage: int | None
+    variant_keys: tuple[str, ...]
+    fully_rolled_out_variant: str | None
 
 
 def _serializer_context(team: Team, user: Any, request: Any | None, *, method: str = "POST") -> dict:
