@@ -3481,7 +3481,23 @@ ${queryMarkdown}`)
 
     it('moves slash menu selection with arrow keys', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Widget',
+                label: 'Widget',
+                category: 'Code',
+                insertCommand: { category: 'Common' },
+                ViewComponent: () => createElement('div'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(' '),
+                registry,
+                onAskAI: jest.fn(),
+                onChange,
+            })
+        )
         const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
@@ -3492,9 +3508,9 @@ ${queryMarkdown}`)
         const getSelectedLabel = (): string | null =>
             container.querySelector('.MarkdownNotebook__insert-item[aria-selected="true"]')?.textContent ?? null
 
-        expect(getSelectedLabel()).toEqual('Text')
+        expect(getSelectedLabel()).toEqual('Ask AI')
 
-        for (const label of ['SQL', 'Trend', 'Funnel']) {
+        for (const label of ['Text', 'SQL', 'Widget', 'Trend', 'Funnel']) {
             fireEvent.keyDown(textBlock, { key: 'ArrowDown' })
             expect(getSelectedLabel()).toEqual(label)
         }
