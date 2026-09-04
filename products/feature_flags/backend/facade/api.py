@@ -35,6 +35,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+from products.feature_flags.backend.facade.contracts import FlagSummary
+from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -305,3 +307,32 @@ def flag_is_active(key: str, *, team_id: int | None = None) -> bool:
     if team_id is not None:
         qs = qs.filter(team_id=team_id)
     return qs.exists()
+
+
+def list_flag_summaries(team_id: int) -> list[FlagSummary]:
+    """Every flag on the team, soft-deleted ones included, with its staleness and rollout read."""
+    checker = FeatureFlagStatusChecker()
+    summaries: list[FlagSummary] = []
+    for flag in FeatureFlag.objects_including_soft_deleted.filter(team_id=team_id).order_by("key"):
+        status, reason = FeatureFlagStatusChecker(feature_flag=flag).get_status()
+        rollout = checker.get_rollout_summary(flag)
+        _, rolled_out_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
+        summaries.append(
+            FlagSummary(
+                id=flag.id,
+                key=flag.key,
+                active=flag.active,
+                deleted=flag.deleted,
+                archived=flag.archived,
+                created_at=flag.created_at,
+                updated_at=flag.updated_at,
+                last_called_at=flag.last_called_at,
+                status=status.value,
+                status_reason=reason,
+                effectively_full_rollout=rollout.effectively_full_rollout,
+                max_rollout_percentage=rollout.max_rollout_percentage,
+                variant_keys=tuple(v["key"] for v in flag.variants if v.get("key")),
+                fully_rolled_out_variant=rolled_out_variant or None,
+            )
+        )
+    return summaries
