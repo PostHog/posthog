@@ -693,10 +693,12 @@ def _is_safe_public_ip(host: str) -> bool:
 
     # Require global routability rather than enumerating the families to reject. The enumeration
     # missed shared address space (100.64.0.0/10), which is neither private nor global to
-    # `ipaddress` but is routinely internal — `posthog/security/url_validation.py` and
-    # `rust/common/dns` both already reject it. Multicast is global by this measure, so it keeps
-    # its own clause.
-    return ip.is_global and not ip.is_multicast
+    # `ipaddress` but is routinely internal, and which `posthog/security/url_validation.py` and
+    # `rust/common/dns` both already reject. Two families count as global by this measure and
+    # keep their own clause: multicast, and the reserved IPv6 blocks. Reserved matters because
+    # `::/8` holds the NAT64 well-known prefix (64:ff9b::/96) and the deprecated IPv4-compatible
+    # form, both of which carry an embedded IPv4 address that the unwrapping above does not see.
+    return ip.is_global and not ip.is_multicast and not ip.is_reserved
 
 
 # The AWS half matches the global, regional, dashed-regional, dualstack and accelerate endpoints,
