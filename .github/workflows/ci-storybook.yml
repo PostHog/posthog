@@ -308,7 +308,10 @@ jobs:
     vr-setup:
         name: Create Visual Review run
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # The VR CLI install dominates this job, and it runs against a cold npm cache
+        # whenever the restore misses. vr-complete allows the same budget for the same
+        # install.
+        timeout-minutes: 15
         needs: [changes, build-storybook, select-stories]
         # A status function is required because select-stories is skipped on forced-full
         # PRs and master pushes, and GitHub would otherwise cascade that skip to this job.
@@ -365,8 +368,28 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
+            # The CLI is a standalone npm package outside the pnpm workspace, so no other
+            # job warms its tarballs. Without this cache, every run downloads the whole
+            # dependency tree, which includes the sharp binaries and the test toolchain
+            # that the build never uses.
+            - name: Restore VR CLI npm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('vr-cli/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
+
             - name: Install VR CLI
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
+
+            - name: Save VR CLI npm cache
+              # vr-setup is the only writer because it precedes every other job that
+              # installs the CLI, and they all key on the same lockfile hash.
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('vr-cli/products/visual_review/cli/package-lock.json') }}
 
             - name: Create VR run
               id: create
@@ -827,6 +850,14 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # Reads the cache that vr-setup writes. This job never saves it.
+            - name: Restore VR CLI npm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('vr-cli/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
 
             - name: Install VR CLI
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
