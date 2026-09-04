@@ -10,7 +10,6 @@ anywhere in this module is False to True, and teams a human touched are never mo
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Count
 
 import structlog
 
@@ -20,6 +19,7 @@ from posthog.models.team import Team
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.temporal.metric_resolution import iter_metric_dicts
 
 logger = structlog.get_logger(__name__)
 
@@ -179,26 +179,23 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
 
 
 def running_experiment_load(team_ids: list[int]) -> dict[int, TeamRunningLoad]:
-    """Per team: running experiment count and metric count across them.
+    """Per team: running experiment count and scheduled metric count across them.
 
-    Counts inline, secondary, and saved metrics — the same set nightly recalculation
-    resolves — so the projected build load matches what enrollment would actually run.
+    Counts through iter_metric_dicts, the same discovery nightly recalculation uses, so the
+    projected build load matches what enrollment would actually schedule. Metric entries
+    without a uuid are never scheduled and must not count toward the build-load cap.
+    Iterates in Python instead of aggregating in SQL to keep that single source of truth;
+    the set is bounded by qualified candidates and the census runs once a day.
     """
     load: dict[int, TeamRunningLoad] = {}
-    experiments = (
-        Experiment.objects.filter(team_id__in=team_ids, start_date__isnull=False, end_date__isnull=True)
-        .exclude(deleted=True)
-        .annotate(saved_metric_count=Count("experimenttosavedmetric"))
-        .values_list("team_id", "metrics", "metrics_secondary", "saved_metric_count")
-    )
-    for team_id, metrics, metrics_secondary, saved_metric_count in experiments:
-        current = load.get(team_id, TeamRunningLoad(running_experiments=0, running_metrics=0))
-        load[team_id] = TeamRunningLoad(
+    experiments = Experiment.objects.filter(
+        team_id__in=team_ids, start_date__isnull=False, end_date__isnull=True
+    ).exclude(deleted=True)
+    for experiment in experiments:
+        current = load.get(experiment.team_id, TeamRunningLoad(running_experiments=0, running_metrics=0))
+        load[experiment.team_id] = TeamRunningLoad(
             running_experiments=current.running_experiments + 1,
-            running_metrics=current.running_metrics
-            + len(metrics or [])
-            + len(metrics_secondary or [])
-            + saved_metric_count,
+            running_metrics=current.running_metrics + len(iter_metric_dicts(experiment)),
         )
     return load
 

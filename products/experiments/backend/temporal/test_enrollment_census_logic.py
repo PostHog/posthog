@@ -32,6 +32,10 @@ from products.experiments.backend.temporal.enrollment_census_logic import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
+def _metric() -> dict[str, Any]:
+    return {"kind": "ExperimentMetric", "uuid": str(uuid.uuid4())}
+
+
 def _stats(**overrides: Any) -> TeamDirectScanStats:
     defaults: dict[str, Any] = {
         "team_id": 1,
@@ -91,7 +95,7 @@ class TestEnrollmentCensusCriteria(BaseTest):
                 team=self.team, created_by=self.user, key=f"flag-{uuid.uuid4().hex[:8]}"
             ),
             name="exp",
-            metrics=[{"kind": "ExperimentMetric"}] * metric_count,
+            metrics=[_metric() for _ in range(metric_count)],
             start_date=timezone.now() - timedelta(days=3),
         )
         stats = _stats(team_id=self.team.id, total_read_bytes=6 * 10**12)
@@ -128,15 +132,18 @@ class TestEnrollmentCensusCriteria(BaseTest):
                 **kwargs,
             )
 
+        # The uuid-less inline metric must not count: recalculation never schedules it.
         running = _experiment(
-            metrics=[{"kind": "ExperimentMetric"}] * 2, metrics_secondary=[{"kind": "ExperimentMetric"}]
+            metrics=[_metric(), _metric(), {"kind": "ExperimentMetric"}], metrics_secondary=[_metric()]
         )
         saved = ExperimentSavedMetric.objects.create(
-            team=self.team, name="saved", query={"kind": "ExperimentMetric", "metric_type": "funnel"}
+            team=self.team,
+            name="saved",
+            query={"kind": "ExperimentMetric", "metric_type": "funnel", "uuid": str(uuid.uuid4())},
         )
         ExperimentToSavedMetric.objects.create(experiment=running, saved_metric=saved, metadata={"type": "primary"})
-        _experiment(metrics=[{"kind": "ExperimentMetric"}], end_date=timezone.now())
-        _experiment(metrics=[{"kind": "ExperimentMetric"}], deleted=True)
+        _experiment(metrics=[_metric()], end_date=timezone.now())
+        _experiment(metrics=[_metric()], deleted=True)
 
         assert running_experiment_load([self.team.id]) == {
             self.team.id: TeamRunningLoad(running_experiments=1, running_metrics=4)
