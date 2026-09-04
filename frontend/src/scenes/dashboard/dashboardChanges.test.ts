@@ -58,6 +58,28 @@ describe('getDashboardFilterChanges', () => {
         ])
     })
 
+    it('marks the exact time range mode on each side of a date change', () => {
+        expect(
+            getDashboardFilterChanges(
+                { date_from: '-7d', explicitDate: true },
+                { date_from: '-7d', explicitDate: false }
+            )
+        ).toEqual([
+            {
+                label: 'Date range',
+                previousValue: ['Last 7 days (exact time range)'],
+                value: ['Last 7 days'],
+                status: 'changed',
+            },
+        ])
+    })
+
+    it('shows the exact time range mode when no date range is set', () => {
+        expect(getDashboardFilterChanges({}, { explicitDate: true })).toEqual([
+            { label: 'Date range', previousValue: [], value: ['All time (exact time range)'], status: 'new' },
+        ])
+    })
+
     it.each([
         ['excludes test accounts when the filter is turned on', true, 'Excluded'],
         ['includes test accounts when the filter is turned off', false, 'Included'],

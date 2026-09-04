@@ -76,7 +76,10 @@ function propertyIdentity(property: AnyPropertyFilter): string {
 }
 
 function formatDateRange(filters: DashboardFilter): string {
-    return dateFilterToText(filters.date_from, filters.date_to, 'All time') || 'All time'
+    const dateRange = dateFilterToText(filters.date_from, filters.date_to, 'All time') || 'All time'
+    // explicitDate moves the period boundaries to the current time, so a flip of the "Exact time
+    // range" switch alone has to read as a change rather than as the same range twice.
+    return filters.explicitDate ? `${dateRange} (exact time range)` : dateRange
 }
 
 function formatBreakdown(filters: DashboardFilter): string[] {
@@ -176,8 +179,8 @@ export function getDashboardFilterChanges(
             status: getChangeStatus(previousPropertiesAreExplicit, currentPropertiesAreExplicit),
         })
     }
-    const previousHasDate = !!previousFilters.date_from || !!previousFilters.date_to
-    const currentHasDate = !!currentFilters.date_from || !!currentFilters.date_to
+    const previousHasDate = !!previousFilters.date_from || !!previousFilters.date_to || !!previousFilters.explicitDate
+    const currentHasDate = !!currentFilters.date_from || !!currentFilters.date_to || !!currentFilters.explicitDate
 
     if (
         !equal(
