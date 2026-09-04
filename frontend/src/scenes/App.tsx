@@ -26,6 +26,7 @@ import { AppLoadError } from '~/layout/AppLoadError'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
@@ -203,14 +204,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <ChunkLoadErrorBoundary fallback={(error) => <AppLoadError error={error} />}>
-            <Suspense
-                fallback={
-                    // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.
-                    <div className="relative h-screen">
-                        <SpinnerOverlay sceneLevel />
-                    </div>
-                }
-            >
+            <Suspense fallback={<AuthenticatedShellFallback showSpinner={showingDelayedSpinner} />}>
                 <AuthenticatedShell>{wrappedSceneElement}</AuthenticatedShell>
             </Suspense>
         </ChunkLoadErrorBoundary>
