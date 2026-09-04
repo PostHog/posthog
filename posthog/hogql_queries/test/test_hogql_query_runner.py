@@ -541,6 +541,18 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(query[scan_warnings[0].start : scan_warnings[0].end], "events")
 
+        all_events_response = HogQLQueryRunner(
+            query=HogQLQuery(
+                query="SELECT event, count() FROM events WHERE {filters} GROUP BY event",
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            ),
+            team=self.team,
+        ).calculate()
+        all_events_warnings = [
+            warning for warning in all_events_response.warnings or [] if isinstance(warning, EventsScanWarning)
+        ]
+        self.assertEqual([warning.reason for warning in all_events_warnings], [EventsScanWarningReason.NO_EVENT_FILTER])
+
     def test_response_blames_the_test_account_setting_for_a_filter_it_added(self):
         self.team.test_account_filters = [
             {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}

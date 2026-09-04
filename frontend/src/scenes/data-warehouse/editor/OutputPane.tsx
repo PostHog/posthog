@@ -1125,7 +1125,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                     className="m-2 flex-shrink-0"
                     data-attr="sql-editor-output-pane-events-scan-warnings"
                 >
-                    This query reads more of your events than it needs to:
+                    This query scans events without one or more recommended limits:
                     <ul className="list-disc pl-5">
                         {scanWarnings.map((warning, index) => (
                             <li key={index}>{warning.message}</li>

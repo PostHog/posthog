@@ -24435,7 +24435,7 @@
         },
         "EventsScanWarningReason": {
             "description": "Why the events table cannot be pruned: a property filter with no event name filter reads every event in the date range; no timestamp bound reads the whole history.",
-            "enum": ["property_filter_without_event", "no_time_bound"],
+            "enum": ["property_filter_without_event", "no_event_filter", "no_time_bound"],
             "type": "string"
         },
         "EventsScanWarningSource": {

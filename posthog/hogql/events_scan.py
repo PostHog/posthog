@@ -149,11 +149,7 @@ def events_scan_warnings(
     as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
     without_test_accounts: "Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None" = None,
 ) -> list[EventsScanWarning]:
-    """The findings that mean real work is being wasted, shaped for a query response's `warnings`.
-
-    Reading every event with no filter at all is often the point of the query, so that finding only
-    surfaces as an editor notice, not as a response warning.
-    """
+    """The missing event-name and time-range bounds, shaped for a query response's `warnings`."""
     findings = attributed_events_scans(query, database, as_written, without_test_accounts)
     return [
         EventsScanWarning(
@@ -165,7 +161,6 @@ def events_scan_warnings(
             end=finding.end,
         )
         for finding in findings
-        if finding.reason != EventsScanReason.NO_EVENT_FILTER
     ]
 
 

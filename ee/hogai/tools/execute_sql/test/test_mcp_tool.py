@@ -204,7 +204,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError):
             await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT 1", sendRawQuery=True))
 
-    async def test_scan_warning_for_property_filter_without_event_name(self):
+    async def test_scan_warning_for_missing_event_name(self):
         content = await self.tool.execute(
             ExecuteSQLMCPToolArgs(
                 query="SELECT count() FROM events WHERE properties.plan = 'pro' AND timestamp >= now() - INTERVAL 7 DAY"
@@ -213,6 +213,15 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("performance_warnings", content)
         self.assertIn("filtering by event name is the most effective", content)
+
+        all_events_content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(
+                query="SELECT event, count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event"
+            ),
+        )
+
+        self.assertIn("performance_warnings", all_events_content)
+        self.assertIn("reads every event in its date range", all_events_content)
 
     async def test_no_scan_warning_for_event_filtered_query(self):
         content = await self.tool.execute(

@@ -12,16 +12,15 @@ export const DashboardEventsScanBanner = (): JSX.Element | null => {
         return null
     }
 
-    const subject =
+    const summary =
         eventsScanWarningTileCount === 1
-            ? 'One SQL insight on this dashboard reads'
-            : `${eventsScanWarningTileCount} SQL insights on this dashboard read`
+            ? 'One SQL insight on this dashboard does not limit its event names, time range, or both.'
+            : `${eventsScanWarningTileCount} SQL insights on this dashboard do not limit their event names, time ranges, or both.`
 
     return (
         <LemonBanner type="warning" className="mt-4 mb-2" onClose={snoozeEventsScanBanner}>
-            {subject} more events than needed on each refresh, which is slow. Each one is marked with a warning icon
-            next to its name. Limiting the query to the events it needs, or adding a timestamp filter, makes it much
-            faster.
+            {summary} This can make each refresh slow. Each insight is marked with a warning icon next to its name. Add
+            the missing event or time limit to reduce the scan.
         </LemonBanner>
     )
 }

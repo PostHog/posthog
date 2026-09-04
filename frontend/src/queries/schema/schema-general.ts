@@ -590,7 +590,7 @@ export interface AccessControlFilterWarning {
  * Why the events table cannot be pruned: a property filter with no event name filter reads every
  * event in the date range; no timestamp bound reads the whole history.
  */
-export type EventsScanWarningReason = 'property_filter_without_event' | 'no_time_bound'
+export type EventsScanWarningReason = 'property_filter_without_event' | 'no_event_filter' | 'no_time_bound'
 
 /**
  * What put the unprunable filter into the query that runs: the SQL text, the "filter out internal and test

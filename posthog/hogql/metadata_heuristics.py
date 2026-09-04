@@ -6,13 +6,7 @@ from typing import TYPE_CHECKING
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
-from posthog.hogql.events_scan import (
-    EventsScanReason,
-    attributed_events_scans,
-    events_seen_with_properties,
-    finding_fix,
-    finding_message,
-)
+from posthog.hogql.events_scan import attributed_events_scans, events_seen_with_properties, finding_fix, finding_message
 
 from posthog.dataclasses import frozen
 
@@ -78,9 +72,8 @@ class SimilarSubqueryHeuristic(MetadataHeuristic):
 class EventsScanHeuristic(MetadataHeuristic):
     """Warn when a SELECT reads `events` without a filter the sort key can use.
 
-    A property filter with no event name filter, or a missing timestamp bound, is a warning:
-    the query does far more work than the same question needs. Reading every event with no
-    filter at all is often the point of the query, so that is only a notice.
+    Event name and lower timestamp bounds are independent. Report each missing bound so the
+    user knows which axis of the events sort key the query does not constrain.
     """
 
     def __init__(
@@ -111,10 +104,7 @@ class EventsScanHeuristic(MetadataHeuristic):
                 end=finding.end,
                 fix=finding_fix(finding),
             )
-            if finding.reason == EventsScanReason.NO_EVENT_FILTER:
-                result.notices.append(notice)
-            else:
-                result.warnings.append(notice)
+            result.warnings.append(notice)
         return result
 
 

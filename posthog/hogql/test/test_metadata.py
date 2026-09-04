@@ -1269,8 +1269,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         all_events = self._select(
             "SELECT event, count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event"
         )
-        self.assertEqual(all_events.warnings, [])
-        self.assertEqual([notice.message for notice in all_events.notices].count(EVENT_FILTER_ADVICE), 1)
+        self.assertEqual([warning.message for warning in all_events.warnings].count(EVENT_FILTER_ADVICE), 1)
+        self.assertNotIn(EVENT_FILTER_ADVICE, [notice.message for notice in all_events.notices])
 
     def test_metadata_does_not_warn_about_a_limited_peek_at_events(self):
         # The editor's own table preview is this query; warning on it would be wrong and would greet

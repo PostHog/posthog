@@ -1497,6 +1497,7 @@ export type EventsScanWarningReasonApi = (typeof EventsScanWarningReasonApi)[key
 
 export const EventsScanWarningReasonApi = {
     PropertyFilterWithoutEvent: 'property_filter_without_event',
+    NoEventFilter: 'no_event_filter',
     NoTimeBound: 'no_time_bound',
 } as const
 
