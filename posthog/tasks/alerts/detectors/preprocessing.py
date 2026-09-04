@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 
 
-def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarray:
+def preprocess_data(data: np.ndarray, config: dict[str, Any] | None, preserve_scale: bool = False) -> np.ndarray:
     """
     Apply preprocessing transformations to time series data.
 
@@ -13,6 +13,11 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
             - diffs_n: int - Number of differencing passes (0 = raw, 1 = first-order)
             - lags_n: int - Number of lag features (0-10) for multivariate models
             - smooth_n: int - Smoothing strength (0 or None = no smoothing)
+        preserve_scale: Keep the rectangular smoothing kernel even when differencing.
+            The exponential kernel below roughly doubles the smoothed magnitude of a
+            step. A normalized detector divides that gain out, but a detector that
+            compares the result against absolute bounds does not, so it must keep the
+            old kernel or a saved bound would silently change meaning.
 
     Returns:
         Preprocessed data as numpy array
@@ -26,7 +31,7 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
     smoothing_n = config.get("smooth_n", 0) or 0
     differencing = bool(config.get("diffs_n", 0))
     if smoothing_n > 0:
-        if differencing:
+        if differencing and not preserve_scale:
             # A rectangular window and a first difference collapse into a lagged
             # difference: smoothed[i] - smoothed[i - 1] equals
             # (data[i] - data[i - smooth_n]) / smooth_n. Each step change thus enters the

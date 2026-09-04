@@ -19,6 +19,9 @@ class ThresholdDetector(BaseDetector):
         lower_bound: float | None - Values below this are anomalies
     """
 
+    # Bounds are absolute, so preprocessing must keep the rectangular kernel.
+    COMPARES_ABSOLUTE_VALUES = True
+
     def detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the latest point breaches thresholds."""
         if not self._validate_data(data, min_length=1):
