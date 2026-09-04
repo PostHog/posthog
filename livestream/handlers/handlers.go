@@ -47,6 +47,13 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 			ActiveRecordings int `json:"active_recordings"`
 		}
 
+		// Each local store holds only this instance's share of one stream, so the
+		// fallback omits a count instead of sending an unproven zero.
+		type localResp struct {
+			UsersOnProduct   *int `json:"users_on_product,omitempty"`
+			ActiveRecordings *int `json:"active_recordings,omitempty"`
+		}
+
 		type errResp struct {
 			Error string `json:"error"`
 		}
@@ -80,9 +87,15 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 			return c.JSON(http.StatusOK, errResp{Error: "no stats"})
 		}
 
-		siteStats := resp{ActiveRecordings: sessionCount}
+		siteStats := localResp{}
 		if userStore != nil {
-			siteStats.UsersOnProduct = userStore.Len()
+			userCount := userStore.Len()
+			siteStats.UsersOnProduct = &userCount
+		}
+		// A token leaves the session counts when its last session expires, so zero
+		// here is an absent token, not a proven zero.
+		if sessionCount != 0 {
+			siteStats.ActiveRecordings = &sessionCount
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}

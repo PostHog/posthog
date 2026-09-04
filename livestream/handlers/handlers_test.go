@@ -286,6 +286,68 @@ func TestStatsHandler_FallsBackToLocal(t *testing.T) {
 	assert.Empty(t, resp.Error)
 }
 
+func TestStatsHandler_LocalFallbackOmitsUnprovenCounts(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-stats")
+	apiToken := "phx_test_token"
+
+	tests := []struct {
+		name       string
+		seed       func(*events.Stats, *events.SessionStats)
+		presentKey string
+		presentVal float64
+		absentKey  string
+	}{
+		{
+			name: "only the session store holds the token",
+			seed: func(_ *events.Stats, sessionStats *events.SessionStats) {
+				sessionStats.Add(apiToken, "sess1")
+			},
+			presentKey: "active_recordings",
+			presentVal: 1,
+			absentKey:  "users_on_product",
+		},
+		{
+			name: "only the user store holds the token",
+			seed: func(stats *events.Stats, _ *events.SessionStats) {
+				stats.GetStoreForToken(apiToken).Add("user1", events.NoSpaceType{})
+			},
+			presentKey: "users_on_product",
+			presentVal: 1,
+			absentKey:  "active_recordings",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := events.NewStatsKeeper()
+			sessionStats := events.NewSessionStatsKeeper(0, 0)
+			tt.seed(stats, sessionStats)
+
+			handler := StatsHandler(stats, sessionStats, nil)
+
+			token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+				"team_id":   1,
+				"api_token": apiToken,
+			})
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			require.NoError(t, handler(c))
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.presentVal, resp[tt.presentKey])
+			assert.NotContains(t, resp, tt.absentKey)
+			assert.NotContains(t, resp, "error")
+		})
+	}
+}
+
 func TestFilterNotificationForUser(t *testing.T) {
 	const userID = 42
 
