@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
-use crate::config::{Config, LedgerMode};
+use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
@@ -54,10 +54,10 @@ struct Delivery {
 }
 
 /// What a batch saw delivered from one partition, folded in one map entry
-/// per message. The span feeds the commit; the stamped charges feed the
-/// shadow ledger.
+/// per message. The span bounds what the batch delivered; the stamped
+/// charges feed the ledger.
 struct PartitionDeliveries {
-    /// The offsets the commit path commits, as `last + 1`.
+    /// The offsets the batch delivered, first to last.
     span: OffsetSpan,
     /// Ledger generation the charges are stamped with.
     generation: u64,
@@ -88,8 +88,8 @@ impl PartitionDeliveries {
     /// `generations_version` moved since the last stamp. A moved generation
     /// means the partition was revoked and regained inside this batch: the
     /// offsets buffered so far belong to the old assignment and Kafka
-    /// redelivers them, so the ledger slice restarts. The commit span keeps
-    /// them, as the commit path does today.
+    /// redelivers them, so the ledger slice restarts. The span keeps them,
+    /// so the commit sentinel still sees the whole delivered range.
     fn record(
         &mut self,
         generations_version: u64,
@@ -200,8 +200,6 @@ pub struct IngestionConsumerOptions {
     pub deferred_flush_timeout: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
-    /// Whether the offset ledger observes or owns the commit path.
-    pub ledger_mode: LedgerMode,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
@@ -226,8 +224,6 @@ pub struct IngestionConsumer {
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     ledger_shadow: LedgerShadow,
-    /// Selects whether commits come from the batch spans or the ledger.
-    ledger_mode: LedgerMode,
 }
 
 impl IngestionConsumer {
@@ -245,9 +241,6 @@ impl IngestionConsumer {
     ) -> Self {
         // Share the context's commit sentinel and ledger so rebalance
         // callbacks reset the same baselines the commit path checks against.
-        // The shadow runs whenever the context carries a ledger: `new` builds
-        // one unless the mode is off, and a detached context always carries
-        // one.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let (batcher, outputs) = Batcher::new(
@@ -260,7 +253,6 @@ impl IngestionConsumer {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
             ledger_shadow: LedgerShadow::new(topic_offset_ledger),
-            ledger_mode: options.ledger_mode,
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -306,14 +298,11 @@ impl IngestionConsumer {
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = batcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
-        // Off, the consumer has no ledger at all: the rebalance callbacks
-        // have nothing to forget and the shadow nothing to charge.
-        let topic_offset_ledger = (config.consumer_offset_ledger_mode != LedgerMode::Off)
-            .then(|| Arc::new(TopicOffsetLedger::new()));
+        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
         let mut context = SentinelContext::new(
             Arc::clone(&commit_sentinel),
             key_sentinel,
-            topic_offset_ledger.clone(),
+            Some(Arc::clone(&topic_offset_ledger)),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
@@ -333,8 +322,7 @@ impl IngestionConsumer {
             consumer: Arc::new(consumer),
             commit_sentinel,
             debug_recorder,
-            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
-            ledger_mode: config.consumer_offset_ledger_mode,
+            ledger_shadow: LedgerShadow::new(Some(topic_offset_ledger)),
             batcher,
             outputs: Some(outputs),
             transport,
@@ -697,8 +685,9 @@ impl IngestionConsumer {
         })
     }
 
-    /// Commit either the existing per-batch max offset or the verified ledger
-    /// frontier for each topic-partition.
+    /// Settle the batch against the ledger and commit each partition's
+    /// frontier. A partition without a frontier is not committed and stays on
+    /// its last committed offset.
     fn commit_offsets(
         &self,
         partitions: &HashMap<TopicPartition, PartitionDeliveries>,
@@ -711,39 +700,6 @@ impl IngestionConsumer {
             return Ok(());
         }
 
-        match self.ledger_mode {
-            LedgerMode::Off | LedgerMode::Shadow => self.commit_offset_spans(partitions),
-            LedgerMode::Commit => self.commit_frontiers(partitions),
-        }
-    }
-
-    /// Off and shadow modes: commit the per-batch max offsets unchanged, then
-    /// settle the ledger against them for comparison only. Off has no ledger,
-    /// so the settlement is a no-op there.
-    fn commit_offset_spans(
-        &self,
-        partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-    ) -> anyhow::Result<()> {
-        self.submit_commit(
-            partitions
-                .iter()
-                .map(|(topic_partition, partition)| (topic_partition, &partition.span)),
-        )?;
-        for (topic_partition, partition) in partitions {
-            if self.settle(topic_partition, partition).is_some() {
-                self.ledger_shadow.drain(topic_partition);
-            }
-        }
-        Ok(())
-    }
-
-    /// Commit mode: settle the batch against the ledger and commit each
-    /// partition's frontier. A partition without a frontier is not committed
-    /// and stays on its last committed offset.
-    fn commit_frontiers(
-        &self,
-        partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-    ) -> anyhow::Result<()> {
         let mut settled = Vec::with_capacity(partitions.len());
         let mut frontier_spans = Vec::with_capacity(partitions.len());
         for (topic_partition, partition) in partitions {

@@ -27,15 +27,14 @@ It measures the invariant at its end point: the worker's grouping stage processe
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
 Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
 
-## Shadow offset ledger
+## Offset ledger
 
-`ledger_shadow.rs` runs the per-partition offset ledger from `common/kafka-consumer` next to the current commit path without changing what is committed.
-Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the ledger's frontier is then compared with the offset the batch commits.
-`ingestion_consumer_ledger_mismatch_total{topic,partition,direction}` counts every disagreement, and a warning logs when a partition's disagreement starts and when it ends.
+`ledger_shadow.rs` drives the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
+Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
+A partition that settles without a frontier is not committed and stays on its last commit.
 `ingestion_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `ingestion_consumer_ledger_uncommitted_events` and `ingestion_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 `ingestion_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
 `ingestion_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger, and the consumer keeps running.
-`CONSUMER_OFFSET_LEDGER_MODE` selects the source of offset commits: `off` commits the per-batch max offset and builds no ledger at all, so nothing is charged, settled, forgotten on rebalance, or reported; `shadow` (default) commits the same offset and compares the ledger frontier with it; `commit` commits the ledger frontier after that comparison, and a partition that settles without a frontier stays on its last commit.
 
 ## Debug API
 
