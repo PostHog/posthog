@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::{json, Map, Value};
 use tokio_postgres::types::{ToSql, Type};
-use tokio_postgres::NoTls;
 
 /// Serialised-response ceiling for raw SQL. Row count is bounded by LIMIT; this bounds
 /// bytes so a wide or `repeat()`-style query can't exhaust the pod's memory.
@@ -19,10 +18,29 @@ pub struct Db {
 
 impl Db {
     pub async fn connect(url: &str) -> Result<Self> {
-        let cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
+        let mut cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
+        cfg.ssl_mode(tokio_postgres::config::SslMode::Require);
+        let mut roots = rustls::RootCertStore::empty();
+        let native = rustls_native_certs::load_native_certs();
+        for err in &native.errors {
+            tracing::warn!(error = %err, "failed to load a native certificate");
+        }
+        for cert in native.certs {
+            if let Err(e) = roots.add(cert) {
+                tracing::warn!(error = %e, "failed to add a native certificate to root store");
+            }
+        }
+        if roots.is_empty() {
+            tracing::info!("no native certs found, falling back to webpki-roots");
+            roots.roots = webpki_roots::TLS_SERVER_ROOTS.to_vec();
+        }
+        let tls_cfg = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg);
         let mgr = Manager::from_config(
             cfg,
-            NoTls,
+            tls,
             ManagerConfig {
                 recycling_method: RecyclingMethod::Fast,
             },

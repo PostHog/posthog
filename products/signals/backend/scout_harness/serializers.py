@@ -380,6 +380,38 @@ class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
     )
 
 
+class ScoutRunTokenCostSerializer(serializers.Serializer):
+    """What one scout run spent on model calls."""
+
+    run_id = serializers.CharField(help_text="UUID of the `SignalScoutRun` this cost belongs to.")
+    token_cost_usd = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. "
+            "Null when no generation is attributed to the run — it failed before its first model call, "
+            "or its events haven't landed yet. A run still in progress reports what it has spent so far."
+        ),
+    )
+
+
+class ScoutRunTokenCostsSerializer(serializers.Serializer):
+    """Model spend for a batch of scout runs."""
+
+    costs = ScoutRunTokenCostSerializer(
+        many=True,
+        help_text=(
+            "One entry per requested run that exists on this project. Runs from another project, and "
+            "ids that match no run, are absent."
+        ),
+    )
+    available = serializers.BooleanField(
+        help_text=(
+            "False when this deployment has no internal AI observability project to read the "
+            "generations from, so `costs` is empty and every cost is unknown rather than zero."
+        ),
+    )
+
+
 class RecentEmissionsQuerySerializer(serializers.Serializer):
     """Query parameters for `recent-emissions` — recent findings across every run on the team.
 
@@ -754,6 +786,24 @@ class _BestEffortDateTimeField(serializers.DateTimeField):
             return None
 
 
+class _BestEffortUUIDField(serializers.UUIDField):
+    """A `UUIDField` that never fails the request on an unparseable value.
+
+    The scout reads its `run_id` out of the run prompt and retypes it into the write, so a share of
+    writes carry a truncated or mistyped identifier. Lineage is optional metadata; the content is
+    the memory worth keeping. Coerce an unparseable value to `None` (lineage left unstamped)
+    instead of rejecting the whole write — the same best-effort stance `expires_at` takes on this
+    serializer, and the stance the view already takes on a `run_id` that names no run on this
+    project.
+    """
+
+    def run_validation(self, data: Any = empty) -> UUID | None:
+        try:
+            return super().run_validation(data)
+        except serializers.ValidationError:
+            return None
+
+
 class RememberRequestSerializer(serializers.Serializer):
     """Request body for `remember`."""
 
@@ -770,13 +820,15 @@ class RememberRequestSerializer(serializers.Serializer):
         max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
         help_text="Prose to write. Read verbatim into future prompts.",
     )
-    run_id = serializers.UUIDField(
+    run_id = _BestEffortUUIDField(
         required=False,
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
-            "null), not rejected, so the memory write is never lost."
+            "Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is "
+            "dropped rather than rejected, so the memory write is never lost. Omit it and the "
+            "lineage still lands: a write from a scout sandbox is attributed to that sandbox's own "
+            "run."
         ),
     )
     expires_at = _BestEffortDateTimeField(
@@ -853,7 +905,10 @@ class ScoutNoteSerializer(serializers.Serializer):
             "fleet-level steering. `report_discussion` for the question someone asked when they "
             "opened a discussion on a report: context to weigh, neither a verdict on the report nor "
             "a directive. `report_feedback` for the note someone left when rating a report useful or "
-            "not: one reader's rating of the named report, context to weigh rather than a directive."
+            "not: one reader's rating of the named report, context to weigh rather than a directive. "
+            "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
+            "report: evidence about who owns that surface, and a prompt to revisit the routing "
+            "memory it corrects, rather than a directive."
         ),
     )
 
