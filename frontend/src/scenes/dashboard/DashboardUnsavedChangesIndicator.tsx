@@ -64,7 +64,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                         Discard
                     </LemonButton>
                     <span className="h-4 border-l border-warning" />
-                    {showApplyFiltersBanner && !layoutEditMode && (
+                    {showApplyFiltersBanner && (
                         <>
                             <LemonButton
                                 data-attr="dashboard-apply-filters"
@@ -100,7 +100,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                         disabledReason: dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined,
                         onClick: discardDashboardChanges,
                     },
-                    ...(showApplyFiltersBanner && !layoutEditMode
+                    ...(showApplyFiltersBanner
                         ? [
                               {
                                   label: loadingPreview ? 'Previewing' : 'Preview',
