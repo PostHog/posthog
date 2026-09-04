@@ -194,7 +194,7 @@ Use one local dashboard with at least two working insight tiles and three SQL va
 
 ## Storybook coverage
 
-- Keep dashboard stories under `products/dashboard`, not `scenes`.
+- Keep dashboard stories under `products/dashboards/frontend`, not `scenes`.
 - Keep the existing filter variants focused on the visible change list.
 - Show up to five different filter changes, including breakdown and date range.
 - Do not add variants for URL overrides or layout editing with unsaved filters.
