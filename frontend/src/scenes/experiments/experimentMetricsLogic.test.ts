@@ -1108,6 +1108,35 @@ describe('experimentMetricsLogic', () => {
         })
     })
 
+    describe('feature flags unresolved on mount', () => {
+        it('defers the latest fetch until flags arrive, then replays it', async () => {
+            // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). Reading the flag as
+            // off here would clear loading and skip the fetch, hiding the recalculation results.
+            initKeaTests()
+            await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
+            const latestMock = jest.fn(() => [200, completedRecalculation])
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
+            })
+            mountLogic()
+
+            // afterMount fires loadLatestRecalculation, but it defers: no fetch while flags are unresolved.
+            await expectLogic(logic)
+                .toDispatchActions(['loadLatestRecalculation'])
+                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
+            expect(latestMock).not.toHaveBeenCalled()
+
+            // Once flags arrive with the recalculation flag on, the deferred fetch replays.
+            await expectLogic(logic, () => {
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+            expect(latestMock).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('queuedRerun reducer', () => {
         beforeEach(() => {
             mountLogic()
