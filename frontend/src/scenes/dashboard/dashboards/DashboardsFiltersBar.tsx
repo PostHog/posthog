@@ -28,6 +28,10 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
         }
         setFilters({ tags: Array.from(selected) })
     }
+    const selectedTags = new Set(filters.tags || [])
+    const sortedTagResults = [...tagResults].sort(
+        (firstTag, secondTag) => Number(selectedTags.has(secondTag)) - Number(selectedTags.has(firstTag))
+    )
 
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
@@ -53,27 +57,27 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                         onClickOutside={() => setShowTagPopover(false)}
                         overlay={
                             <div className="max-w-100 deprecated-space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <LemonInput
-                                        type="search"
-                                        placeholder="Search tags"
-                                        autoFocus
-                                        value={tagSearch}
-                                        onChange={setTagSearch}
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search tags"
+                                    autoFocus
+                                    value={tagSearch}
+                                    onChange={setTagSearch}
+                                    fullWidth
+                                    className="max-w-full"
+                                />
+                                {selectedTags.size > 0 && (
+                                    <LemonButton
+                                        data-attr="dashboard-tags-clear-selection"
                                         fullWidth
-                                        className="max-w-full"
-                                    />
-                                    {(filters.tags?.length || 0) > 0 && (
-                                        <LemonButton
-                                            data-attr="dashboard-tags-clear-selection"
-                                            size="small"
-                                            onClick={() => setFilters({ tags: [] })}
-                                            type="tertiary"
-                                        >
-                                            Clear
-                                        </LemonButton>
-                                    )}
-                                </div>
+                                        role="menuitem"
+                                        size="small"
+                                        onClick={() => setFilters({ tags: [] })}
+                                        type="tertiary"
+                                    >
+                                        Clear selection
+                                    </LemonButton>
+                                )}
                                 <div
                                     ref={tagListScrollRef}
                                     className="max-h-80 overflow-y-auto"
@@ -82,7 +86,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                     aria-label="Tags"
                                 >
                                     <ul className="deprecated-space-y-px">
-                                        {tagResults.map((tag: string) => (
+                                        {sortedTagResults.map((tag: string) => (
                                             <li key={tag}>
                                                 <LemonButton
                                                     fullWidth

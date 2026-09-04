@@ -81,13 +81,16 @@ describe('DashboardsFiltersBar', () => {
             filters: { createdBy: 'All users', search: '', tags: ['growth', 'analytics'] },
             currentTab: DashboardsTab.All,
             tagPageLoading: false,
-            tagResults: ['growth', 'analytics'],
+            tagResults: ['other', 'growth', 'analytics'],
             tagSearch: '',
             showTagPopover: true,
         })
 
         render(<DashboardsFiltersBar />)
-        fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+        const tagOptions = screen.getAllByRole('menuitem').map((option) => option.textContent)
+        expect(tagOptions).toEqual(['Clear selection', 'growth', 'analytics', 'other'])
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Clear selection' }))
 
         expect(setFilters).toHaveBeenCalledWith({ tags: [] })
     })
