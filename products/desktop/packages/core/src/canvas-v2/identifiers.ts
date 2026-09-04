@@ -13,10 +13,12 @@ export const CANVAS_V2_BOARDS_SERVICE = Symbol.for(
 );
 
 export interface ICanvasV2BoardsService {
-  list(): Promise<CanvasV2BoardSummary[]>;
+  list(channelId: string): Promise<CanvasV2BoardSummary[]>;
+  listAll(): Promise<CanvasV2BoardSummary[]>;
   get(id: string): Promise<CanvasV2Board>;
-  create(name: string): Promise<CanvasV2Board>;
+  create(channelId: string, name: string): Promise<CanvasV2Board>;
   rename(id: string, name: string): Promise<CanvasV2Board>;
+  setChannel(id: string, channelId: string): Promise<CanvasV2Board>;
   remove(id: string): Promise<void>;
   opsSince(id: string, since: number, limit?: number): Promise<CanvasV2OpsPage>;
   appendOps(

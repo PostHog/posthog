@@ -63,8 +63,6 @@ export function EditFragmentDialog({
   }, [open, fragment]);
 
   const trimmedCode = code.trim();
-  // The board frame refuses this code as well. Saying so here saves the author
-  // a save, a mount and an error block.
   const blocked =
     trimmedCode.length > 0 ? checkFragmentCode(trimmedCode).violations : [];
   const canSubmit =

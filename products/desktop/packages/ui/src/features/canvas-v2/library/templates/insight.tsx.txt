@@ -1,29 +1,42 @@
-// A saved PostHog insight, loaded by its short id. The short id is in shared
-// state under STORAGE_KEY, so all collaborators see the same insight. For a
-// second insight fragment on the same board, change STORAGE_KEY.
-import { ph, useSharedState } from "@posthog/canvas-sdk";
+// A saved PostHog insight, drawn from its short id. The short id is shared, so
+// all collaborators see the same insight. A trend insight is drawn as a line,
+// and an insight with one number is drawn as that number.
+import { ph, useFragmentSettings, useSharedState } from "@posthog/canvas-sdk";
 import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Heading,
+  Field,
+  FieldLabel,
   Input,
-  Label,
-  SkeletonText,
+  Skeleton,
 } from "@posthog/quill";
+import { SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 
-const STORAGE_KEY = "insight:shortId";
 const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
 
-// Trends results are series objects. SQL results are rows of cells.
+// A trends series carries a day-by-day array. Everything else carries one cell.
+function readSeries(result) {
+  const first = result && result.results ? result.results[0] : null;
+  if (first && typeof first === "object" && Array.isArray(first.data)) {
+    const days = first.labels ?? first.days ?? [];
+    return {
+      label: first.label ?? "",
+      points: first.data.map((value, index) => ({
+        day: String(days[index] ?? index),
+        value: Number(value ?? 0),
+      })),
+      total: first.data.reduce((sum, value) => sum + Number(value ?? 0), 0),
+    };
+  }
+  return null;
+}
+
 function readTotal(result) {
-  const first = result?.results?.[0];
+  const first = result && result.results ? result.results[0] : null;
   if (first && typeof first === "object" && !Array.isArray(first)) {
     const total = first.aggregated_value ?? first.count;
-    return total == null ? null : Number(total);
+    return total === null || total === undefined ? null : Number(total);
   }
   if (Array.isArray(first)) {
     return Number(first[0] ?? 0);
@@ -31,18 +44,22 @@ function readTotal(result) {
   return null;
 }
 
-export default function SavedInsight({ storageKey = STORAGE_KEY }) {
-  const [stored, setStored] = useSharedState(storageKey, "");
-  const shortId = typeof stored === "string" ? stored.trim() : "";
+export default function SavedInsight({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, {
+    shortId: "",
+  });
+  const shortId = String(settings.shortId ?? "").trim();
   const [range] = useSharedState("dateRange", DEFAULT_RANGE);
+  const [open, setOpen] = useState(!shortId);
   const [draft, setDraft] = useState(shortId);
   const [state, setState] = useState({
     loading: false,
     error: null,
+    series: null,
     total: null,
   });
-  const dateFrom = range?.date_from ?? DEFAULT_RANGE.date_from;
-  const dateTo = range?.date_to ?? null;
+  const dateFrom = range && range.date_from ? range.date_from : "-7d";
+  const dateTo = range && range.date_to ? range.date_to : null;
 
   useEffect(() => {
     setDraft(shortId);
@@ -50,25 +67,30 @@ export default function SavedInsight({ storageKey = STORAGE_KEY }) {
 
   useEffect(() => {
     if (!shortId) {
-      setState({ loading: false, error: null, total: null });
+      setState({ loading: false, error: null, series: null, total: null });
       return;
     }
     let cancelled = false;
-    setState({ loading: true, error: null, total: null });
-    ph.loadInsight(shortId, { dateRange: { date_from: dateFrom, date_to: dateTo } })
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        setState({ loading: false, error: null, total: readTotal(result) });
+    setState({ loading: true, error: null, series: null, total: null });
+    ph
+      .loadInsight(shortId, {
+        dateRange: { date_from: dateFrom, date_to: dateTo },
       })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
+      .then((result) => {
+        if (cancelled) return;
         setState({
           loading: false,
-          error: String(error?.message ?? error),
+          error: null,
+          series: readSeries(result),
+          total: readTotal(result),
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setState({
+          loading: false,
+          error: String((error && error.message) ?? error),
+          series: null,
           total: null,
         });
       });
@@ -77,49 +99,134 @@ export default function SavedInsight({ storageKey = STORAGE_KEY }) {
     };
   }, [shortId, dateFrom, dateTo]);
 
-  const hasNumber = !state.loading && !state.error && state.total != null;
-
   return (
-    <Card size="sm" className="h-full">
-      <CardHeader>
-        <CardTitle>Saved insight</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <Label>Insight short id</Label>
+    <div className="group/insight flex h-full flex-col p-4">
+      <div className="flex items-baseline justify-between gap-3 pb-3">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {state.series && state.series.label ? state.series.label : "Saved insight"}
+        </p>
+        <button
+          type="button"
+          aria-label="Settings"
+          className={
+            open
+              ? "shrink-0 rounded p-1 text-foreground"
+              : "shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/insight:opacity-100"
+          }
+          onClick={() => setOpen((isOpen) => !isOpen)}
+        >
+          <SlidersHorizontal size={13} />
+        </button>
+      </div>
+
+      {open ? (
+        <div className="flex flex-col gap-2">
+          <Field>
+            <FieldLabel>Insight short id</FieldLabel>
             <div className="flex items-center gap-2">
               <Input
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                className="h-7 text-[13px]"
                 placeholder="For example aB3dEf9"
+                onChange={(change) => setDraft(change.target.value)}
               />
-              <Button variant="outline" onClick={() => setStored(draft.trim())}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSettings({ shortId: draft.trim() });
+                  if (draft.trim()) setOpen(false);
+                }}
+              >
                 Load
               </Button>
             </div>
-          </div>
-          {!shortId ? (
-            <p className="text-sm text-muted-foreground">
-              Enter the short id of a saved insight to show its number.
-            </p>
-          ) : null}
-          {state.loading ? <SkeletonText lines={1} className="text-3xl" /> : null}
+          </Field>
+          <p className="text-[11px] text-muted-foreground">
+            The short id is the last part of the address of a saved insight.
+          </p>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          {state.loading ? <Skeleton className="h-full w-full" /> : null}
           {state.error ? (
-            <p className="text-sm text-destructive-foreground">
+            <p className="text-xs text-destructive">
               This insight did not load. {state.error}
             </p>
           ) : null}
-          {hasNumber ? (
-            <Heading size="2xl">{Number(state.total).toLocaleString()}</Heading>
+          {!state.loading && !state.error && state.series ? (
+            <div className="flex h-full flex-col">
+              <span className="font-semibold text-2xl leading-none tracking-tight tabular-nums">
+                {Number(state.series.total).toLocaleString()}
+              </span>
+              <div className="min-h-0 flex-1 pt-2">
+                <ResponsiveContainer height="100%" width="100%">
+                  <AreaChart
+                    data={state.series.points}
+                    margin={{ top: 4, right: 0, bottom: 0, left: 0 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id={"insight-fill-" + fragmentId}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="var(--primary)"
+                          stopOpacity={0.28}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="var(--primary)"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="day"
+                      axisLine={false}
+                      tickLine={false}
+                      minTickGap={28}
+                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    />
+                    <Tooltip
+                      cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
+                      contentStyle={{
+                        borderRadius: 6,
+                        border: "1px solid var(--border)",
+                        background: "var(--popover)",
+                        fontSize: 12,
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="var(--primary)"
+                      strokeWidth={2}
+                      fill={"url(#insight-fill-" + fragmentId + ")"}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           ) : null}
-          {!state.loading && !state.error && shortId && state.total == null ? (
-            <p className="text-sm text-muted-foreground">
-              This insight has no single number to show.
+          {!state.loading && !state.error && !state.series && state.total !== null ? (
+            <span className="font-semibold text-4xl leading-none tracking-tight tabular-nums">
+              {Number(state.total).toLocaleString()}
+            </span>
+          ) : null}
+          {!state.loading && !state.error && !state.series && state.total === null ? (
+            <p className="text-[13px] text-muted-foreground">
+              {shortId
+                ? "This insight has nothing to draw."
+                : "Select the settings button to name a saved insight."}
             </p>
           ) : null}
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }

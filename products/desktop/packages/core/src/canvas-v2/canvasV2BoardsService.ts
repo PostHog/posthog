@@ -38,6 +38,7 @@ interface ApiLogEntry {
 interface ApiBoard {
   id: string;
   name: string;
+  channel: string;
   created_at: string;
   updated_at: string;
   created_by: ApiActor | null;
@@ -50,10 +51,12 @@ interface ApiBoard {
 interface ApiBoardSummary {
   id: string;
   name: string;
+  channel: string;
   created_at: string;
   updated_at: string;
   head_seq: number;
   fragment_count: number;
+  preview?: { x: number; y: number; w: number; h: number }[];
 }
 
 interface ApiOpsPage {
@@ -89,6 +92,7 @@ function boardInput(api: ApiBoard): unknown {
   return {
     id: api.id,
     name: api.name,
+    channelId: api.channel,
     createdAt: api.created_at,
     updatedAt: api.updated_at,
     createdBy: api.created_by ? actorInput(api.created_by) : undefined,
@@ -115,9 +119,19 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
     private readonly api: ProjectApiClient,
   ) {}
 
-  async list(): Promise<CanvasV2BoardSummary[]> {
+  async list(channelId: string): Promise<CanvasV2BoardSummary[]> {
+    return this.listBoards(
+      `canvas_boards/?channel=${encodeURIComponent(channelId)}`,
+    );
+  }
+
+  async listAll(): Promise<CanvasV2BoardSummary[]> {
+    return this.listBoards("canvas_boards/");
+  }
+
+  private async listBoards(path: string): Promise<CanvasV2BoardSummary[]> {
     const rows = await this.api.listPaginated<ApiBoardSummary>(
-      "canvas_boards/",
+      path,
       "list canvas boards",
       { limit: 200 },
     );
@@ -125,10 +139,12 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
       canvasV2BoardSummarySchema.parse({
         id: row.id,
         name: row.name,
+        channelId: row.channel,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         headSeq: row.head_seq,
         fragmentCount: row.fragment_count,
+        preview: row.preview ?? [],
       }),
     );
   }
@@ -141,14 +157,27 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
     return canvasV2BoardSchema.parse(boardInput(api));
   }
 
-  async create(name: string): Promise<CanvasV2Board> {
+  async create(channelId: string, name: string): Promise<CanvasV2Board> {
     const api = await this.api.json<ApiBoard>(
       "canvas_boards/",
       "create canvas board",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, channel_id: channelId }),
+      },
+    );
+    return canvasV2BoardSchema.parse(boardInput(api));
+  }
+
+  async setChannel(id: string, channelId: string): Promise<CanvasV2Board> {
+    const api = await this.api.json<ApiBoard>(
+      boardPath(id),
+      "file canvas board",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_id: channelId }),
       },
     );
     return canvasV2BoardSchema.parse(boardInput(api));

@@ -125,6 +125,15 @@ protocol.registerSchemesAsPrivileged([
     },
   },
   {
+    scheme: "posthog-canvas",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+  {
     scheme: "posthog-cache",
     privileges: {
       standard: true,

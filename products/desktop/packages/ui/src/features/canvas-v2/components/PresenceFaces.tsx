@@ -20,14 +20,14 @@ export function PresenceFaces({
   const hidden = peers.slice(MAX_FACES);
 
   return (
-    <ul aria-label={PRESENCE_FACES_LABEL} className="flex items-center gap-0.5">
+    <ul aria-label={PRESENCE_FACES_LABEL} className="flex items-center gap-1">
       {shown.map((peer) => (
         <li key={peer.clientId}>
           <Tooltip>
             <TooltipTrigger
               render={
                 <div
-                  className="flex size-5 items-center justify-center rounded-full font-medium text-[9px] text-white"
+                  className="flex size-5 items-center justify-center rounded-full font-medium text-[9px] text-white ring-(--gray-2) ring-2"
                   style={{ backgroundColor: peer.color }}
                 >
                   {peer.initials}
@@ -43,7 +43,7 @@ export function PresenceFaces({
           <Tooltip>
             <TooltipTrigger
               render={
-                <div className="flex size-5 items-center justify-center rounded-full bg-(--gray-5)">
+                <div className="flex size-5 items-center justify-center rounded-full bg-(--gray-5) ring-(--gray-2) ring-2">
                   <Text size="xs" variant="muted">
                     {presenceOverflowLabel(hidden.length)}
                   </Text>

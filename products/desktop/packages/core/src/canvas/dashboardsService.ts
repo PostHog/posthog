@@ -97,6 +97,7 @@ function toRecord(api: ApiCanvas): DashboardRecord {
   return {
     id: api.id,
     channelId: api.channel,
+    canvasVersion: 1,
     name: api.name,
     kind: api.kind ?? "freeform",
     description: api.description ?? "",

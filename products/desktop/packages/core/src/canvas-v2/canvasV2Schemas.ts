@@ -14,8 +14,18 @@ export const canvasV2SendPresenceInput = z.object({
   presence: canvasV2PresenceInputSchema,
 });
 
+export const canvasV2ChannelInput = z.object({
+  channelId: z.string().min(1),
+});
+
 export const createCanvasV2BoardInput = z.object({
+  channelId: z.string().min(1),
   name: z.string().min(1).max(120),
+});
+
+export const fileCanvasV2BoardInput = z.object({
+  id: z.string().min(1),
+  channelId: z.string().min(1),
 });
 
 export const renameCanvasV2BoardInput = z.object({

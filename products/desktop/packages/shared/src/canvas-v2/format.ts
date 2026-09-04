@@ -1,13 +1,15 @@
 import type { CanvasV2Fragment, CanvasV2Snapshot } from "./schemas";
+import { sealBoardText } from "./untrustedText";
 
 export function firstCodeLine(code: string): string {
   const line = code.split("\n").find((l) => l.trim().length > 0) ?? "";
   const trimmed = line.trim();
-  return trimmed.length > 100 ? `${trimmed.slice(0, 97)}...` : trimmed;
+  const shown = trimmed.length > 100 ? `${trimmed.slice(0, 97)}...` : trimmed;
+  return sealBoardText(shown);
 }
 
 export function formatFragmentLine(fragment: CanvasV2Fragment): string {
-  const title = fragment.title ?? "(no title)";
+  const title = sealBoardText(fragment.title ?? "(no title)");
   const size = `${Math.round(fragment.w)}×${Math.round(fragment.h)}`;
   const position = `${Math.round(fragment.x)},${Math.round(fragment.y)}`;
   return `${fragment.id} · ${title} · ${position} · ${size} · ${firstCodeLine(fragment.code)}`;
@@ -34,7 +36,7 @@ export function formatBoardForAgent(
     lines.push("  (none)");
   }
   for (const key of keys) {
-    lines.push(`  ${key} = ${previewJson(snapshot.state[key])}`);
+    lines.push(`  ${sealBoardText(key)} = ${previewJson(snapshot.state[key])}`);
   }
   lines.push(`headSeq: ${headSeq}`);
   return lines.join("\n");
@@ -47,5 +49,6 @@ function previewJson(value: unknown): string {
   } catch {
     text = "(unserializable)";
   }
-  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  const shown = text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  return sealBoardText(shown);
 }

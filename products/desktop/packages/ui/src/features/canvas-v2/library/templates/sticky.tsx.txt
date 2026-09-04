@@ -1,15 +1,49 @@
-// Sticky note. The text is a shared field under STORAGE_KEY, so two people can
-// type in it at the same time and no character is lost. For a second sticky on
-// the same board, change STORAGE_KEY to a different value, such as
-// "sticky:risks".
-import { SharedTextArea } from "@posthog/canvas-sdk";
+// Sticky note. The text is a shared field, so two people can type in it at the
+// same time and no character is lost. Every note keeps its own text, because
+// the key holds the id of the fragment.
+import { SharedTextArea, useFragmentSettings } from "@posthog/canvas-sdk";
 
-const STORAGE_KEY = "sticky:note";
+const COLORS = [
+  { name: "yellow", paper: "#fde68a", ink: "#42320a" },
+  { name: "green", paper: "#bbf7d0", ink: "#0e3b23" },
+  { name: "blue", paper: "#bfdbfe", ink: "#12304f" },
+  { name: "pink", paper: "#fbcfe8", ink: "#4a1436" },
+];
 
-export default function StickyNote({ storageKey = STORAGE_KEY }) {
+export default function StickyNote({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, {
+    color: "yellow",
+  });
+  const color = COLORS.find((item) => item.name === settings.color) ?? COLORS[0];
+
   return (
-    <div className="h-full bg-warning p-3">
-      <SharedTextArea keyName={storageKey} placeholder="Write a note" />
+    <div
+      className="group/sticky relative h-full rounded-[3px] p-3.5"
+      style={{
+        background: color.paper,
+        color: color.ink,
+        boxShadow:
+          "0 1px 1px rgba(66, 50, 10, 0.16), 0 10px 20px -8px rgba(66, 50, 10, 0.34)",
+      }}
+    >
+      <SharedTextArea
+        keyName={"sticky:" + fragmentId}
+        placeholder="Write a note"
+        className="h-full resize-none border-0 bg-transparent p-0 text-[13px] leading-[1.55] shadow-none placeholder:text-current placeholder:opacity-45 focus-visible:ring-0"
+      />
+      <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/sticky:opacity-100">
+        {COLORS.map((item) => (
+          <button
+            key={item.name}
+            type="button"
+            aria-label={item.name + " note"}
+            aria-pressed={item.name === color.name}
+            className="size-3.5 rounded-full border border-black/15"
+            style={{ background: item.paper }}
+            onClick={() => setSettings({ color: item.name })}
+          />
+        ))}
+      </div>
     </div>
   );
 }

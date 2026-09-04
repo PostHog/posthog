@@ -41,10 +41,6 @@ interface BoardToolbarProps {
   onToggleChat: () => void;
   onToggleHistory: () => void;
   onToggleInspector: () => void;
-  /** The sync chip, owned by the caller because it reads the sync state. */
-  syncChip?: ReactNode;
-  /** The faces of the other people on the board. */
-  presenceFaces?: ReactNode;
 }
 
 export function BoardToolbar({
@@ -61,24 +57,27 @@ export function BoardToolbar({
   onToggleChat,
   onToggleHistory,
   onToggleInspector,
-  syncChip,
-  presenceFaces,
 }: BoardToolbarProps): ReactElement {
   return (
     <TooltipProvider delay={400}>
-      <div className="flex items-center gap-1 border-(--gray-4) border-b px-2 py-1">
+      <div className="-translate-x-1/2 absolute bottom-4 left-1/2 z-30 flex items-center gap-0.5 rounded-full border border-(--gray-a5) bg-(--gray-1)/85 p-1 shadow-lg backdrop-blur-md">
         <IconAction label={TOOLBAR_ZOOM_OUT} onClick={onZoomOut}>
           <MagnifyingGlassMinusIcon />
         </IconAction>
         <Tooltip>
           <TooltipTrigger
             render={
-              <Button variant="default" size="xs" onClick={onZoomReset}>
+              <Button
+                variant="default"
+                size="xs"
+                className="min-w-11 rounded-full border-0 bg-transparent font-medium tabular-nums shadow-none hover:bg-(--gray-a3)"
+                onClick={onZoomReset}
+              >
                 {`${Math.round(zoom * 100)}%`}
               </Button>
             }
           />
-          <TooltipContent side="bottom">{TOOLBAR_ZOOM_RESET}</TooltipContent>
+          <TooltipContent side="top">{TOOLBAR_ZOOM_RESET}</TooltipContent>
         </Tooltip>
         <IconAction label={TOOLBAR_ZOOM_IN} onClick={onZoomIn}>
           <MagnifyingGlassPlusIcon />
@@ -87,7 +86,7 @@ export function BoardToolbar({
           <ArrowsOutIcon />
         </IconAction>
 
-        <div className="mx-1 h-5 w-px bg-(--gray-4)" />
+        <div className="mx-1 h-5 w-px bg-(--gray-a5)" />
 
         <IconToggle
           label={TOOLBAR_LIBRARY}
@@ -117,11 +116,6 @@ export function BoardToolbar({
         >
           <BracketsCurlyIcon />
         </IconToggle>
-
-        <div className="ml-auto flex items-center gap-2">
-          {presenceFaces}
-          {syncChip}
-        </div>
       </div>
     </TooltipProvider>
   );
@@ -143,6 +137,7 @@ function IconAction({
           <Button
             variant="default"
             size="icon-sm"
+            className="rounded-full border-0 bg-transparent shadow-none hover:bg-(--gray-a3)"
             aria-label={label}
             onClick={onClick}
           />
@@ -150,7 +145,7 @@ function IconAction({
       >
         {children}
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
   );
 }
@@ -172,6 +167,7 @@ function IconToggle({
         render={
           <Toggle
             size="sm"
+            className="rounded-full border-0 bg-transparent shadow-none hover:bg-(--gray-a3) data-pressed:bg-(--gray-a5)"
             aria-label={label}
             pressed={pressed}
             onPressedChange={onPressedChange}
@@ -180,7 +176,7 @@ function IconToggle({
       >
         {children}
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
   );
 }

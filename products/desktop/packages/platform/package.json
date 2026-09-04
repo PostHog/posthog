@@ -103,6 +103,10 @@
     "./disk-cache": {
       "types": "./dist/disk-cache.d.ts",
       "import": "./dist/disk-cache.js"
+    },
+    "./canvas-board-frame": {
+      "types": "./dist/canvas-board-frame.d.ts",
+      "import": "./dist/canvas-board-frame.js"
     }
   },
   "scripts": {

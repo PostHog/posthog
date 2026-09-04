@@ -22,8 +22,7 @@ const FREEFORM_SUGGESTIONS = [
 const FREEFORM_TEMPLATE: CanvasTemplateSummary = {
   id: FREEFORM_TEMPLATE_ID,
   name: "Freeform (React)",
-  description:
-    "Describe anything. The agent writes a React app that runs in a sandbox and can be shared.",
+  description: "Describe an app and the agent writes it.",
   builtIn: true,
   suggestions: FREEFORM_SUGGESTIONS,
 };

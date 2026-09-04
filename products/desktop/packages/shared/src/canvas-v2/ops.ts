@@ -109,6 +109,27 @@ export function maxZ(snapshot: CanvasV2Snapshot): number {
   return top;
 }
 
+/** A readable id built from a library name, unique on this board. */
+export function nextFragmentId(
+  base: string,
+  fragments: readonly CanvasV2Fragment[],
+): string {
+  const taken = new Set(fragments.map((f) => f.id));
+  if (!taken.has(base)) return base;
+  for (let index = 2; index < 1000; index++) {
+    const candidate = `${base}-${index}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}-${Date.now()}`;
+}
+
+/** A frame goes under everything, so the fragments inside it stay clickable. */
+export function minZ(snapshot: CanvasV2Snapshot): number {
+  let bottom = 0;
+  for (const f of snapshot.fragments) if (f.z < bottom) bottom = f.z;
+  return bottom;
+}
+
 export function diffSnapshots(
   from: CanvasV2Snapshot,
   to: CanvasV2Snapshot,
@@ -153,7 +174,9 @@ function fragmentsEqual(a: CanvasV2Fragment, b: CanvasV2Fragment): boolean {
     a.h === b.h &&
     a.z === b.z &&
     a.code === b.code &&
-    a.codeVersion === b.codeVersion
+    a.codeVersion === b.codeVersion &&
+    a.surface === b.surface &&
+    a.hidden === b.hidden
   );
 }
 
@@ -171,6 +194,8 @@ function fragmentPatch(
   if (before.code !== after.code) patch.code = after.code;
   if (before.codeVersion !== after.codeVersion)
     patch.codeVersion = after.codeVersion;
+  if (before.surface !== after.surface) patch.surface = after.surface;
+  if (before.hidden !== after.hidden) patch.hidden = after.hidden;
   return patch;
 }
 

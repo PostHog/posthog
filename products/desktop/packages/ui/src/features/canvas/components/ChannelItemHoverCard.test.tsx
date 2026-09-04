@@ -41,6 +41,7 @@ function item(title: string, overrides: Partial<ChannelItemModel> = {}) {
     ts: Date.parse("2026-07-17T12:00:00.000Z"),
     createdAt: Date.parse("2026-07-16T12:00:00.000Z"),
     pinned: false,
+    canvasVersion: 1,
     rawStatus: "completed",
     environment: "cloud",
     source: null,

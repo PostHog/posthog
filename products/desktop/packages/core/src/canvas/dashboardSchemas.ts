@@ -24,6 +24,7 @@ export const dashboardRecordSchema = z.object({
   // For components: the head version's placement contract (size, configSchema).
   componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
+  canvasVersion: z.union([z.literal(1), z.literal(2)]).default(1),
   // The live author-written context (markdown) passed to the agent.
   context: z.string().default(""),
   // Id of the task currently generating this canvas (freeform gen runs as a

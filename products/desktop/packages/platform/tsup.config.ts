@@ -2,6 +2,7 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: [
+    "src/canvas-board-frame.ts",
     "src/host-capabilities.ts",
     "src/url-launcher.ts",
     "src/storage-paths.ts",

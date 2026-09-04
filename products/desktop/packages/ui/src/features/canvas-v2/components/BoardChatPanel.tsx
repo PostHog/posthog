@@ -1,28 +1,33 @@
-import { SpinnerGapIcon } from "@phosphor-icons/react";
-import { buildBoardSessionPrompt } from "@posthog/core/canvas-v2/boardPrompt";
-import { linkTaskToBoard } from "@posthog/core/canvas-v2/boardTaskLinks";
 import {
-  TASK_SERVICE,
-  type TaskService,
-} from "@posthog/core/task-detail/taskService";
-import { useService } from "@posthog/di/react";
-import { Button, Text, Textarea } from "@posthog/quill";
+  ArrowUpIcon,
+  ChatCircleIcon,
+  SpinnerGapIcon,
+} from "@phosphor-icons/react";
+import {
+  Button,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupTextarea,
+} from "@posthog/quill";
 import type { CanvasV2Snapshot } from "@posthog/shared";
-import { toastError } from "@posthog/ui/features/notifications/errorDetails";
+import { BoardPanel } from "@posthog/ui/features/canvas-v2/components/BoardPanel";
+import { useStartBoardSession } from "@posthog/ui/features/canvas-v2/hooks/useStartBoardSession";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
+  CHAT_COMPOSER_PLACEHOLDER,
+  CHAT_EXAMPLES,
   CHAT_NEW_SESSION_ACTION,
   CHAT_PANEL_CLOSE,
   CHAT_PANEL_TITLE,
   CHAT_PLACEHOLDER,
   CHAT_START_ACTION,
-  CHAT_START_ERROR,
+  CHAT_STARTER_TITLE,
 } from "../canvasV2Copy";
 import { setTaskForBoard } from "../hooks/useBoardViewportStore";
-import { CANVAS_V2_LIBRARY } from "../library/registry";
 
 export interface BoardChatPanelProps {
   boardId: string;
@@ -43,24 +48,22 @@ export function BoardChatPanel({
   onClose,
 }: BoardChatPanelProps) {
   return (
-    <div className="@container flex h-full min-h-0 w-full flex-col overflow-x-hidden border-l">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
-        <Text weight="medium">{CHAT_PANEL_TITLE}</Text>
-        <div className="flex items-center gap-1">
-          {taskId ? (
-            <Button
-              variant="link-muted"
-              size="sm"
-              onClick={() => setTaskForBoard(boardId, undefined)}
-            >
-              {CHAT_NEW_SESSION_ACTION}
-            </Button>
-          ) : null}
-          <Button variant="link-muted" size="sm" onClick={onClose}>
-            {CHAT_PANEL_CLOSE}
+    <BoardPanel
+      title={CHAT_PANEL_TITLE}
+      closeLabel={CHAT_PANEL_CLOSE}
+      onClose={onClose}
+      actions={
+        taskId ? (
+          <Button
+            variant="link-muted"
+            size="sm"
+            onClick={() => setTaskForBoard(boardId, undefined)}
+          >
+            {CHAT_NEW_SESSION_ACTION}
           </Button>
-        </div>
-      </div>
+        ) : null
+      }
+    >
       {taskId ? (
         <BoardChatSession taskId={taskId} />
       ) : (
@@ -71,7 +74,7 @@ export function BoardChatPanel({
           headSeq={headSeq}
         />
       )}
-    </div>
+    </BoardPanel>
   );
 }
 
@@ -104,66 +107,71 @@ function BoardChatStarter({
   snapshot: CanvasV2Snapshot;
   headSeq: number;
 }) {
-  const taskService = useService<TaskService>(TASK_SERVICE);
   const [prompt, setPrompt] = useState("");
-  const [pending, setPending] = useState(false);
-
-  const start = async (): Promise<void> => {
-    const text = prompt.trim();
-    if (text.length === 0 || pending) return;
-    setPending(true);
-    try {
-      const result = await taskService.createTask(
-        {
-          content: buildBoardSessionPrompt({
-            boardName,
-            snapshot,
-            headSeq,
-            userPrompt: text,
-            library: CANVAS_V2_LIBRARY.map((entry) => ({
-              name: entry.name,
-              label: entry.label,
-              description: entry.description,
-              code: entry.code,
-            })),
-          }),
-          taskDescription: `Canvas: ${boardName}`,
-          workspaceMode: "local",
-          allowNoRepo: true,
-          runtime: "acp",
-          adapter: "claude",
-          executionMode: "bypassPermissions",
-        },
-        (output) => {
-          linkTaskToBoard(output.task.id, boardId);
-          setTaskForBoard(boardId, output.task.id);
-        },
-      );
-      if (!result.success) {
-        toastError(CHAT_START_ERROR, result.error);
-      }
-    } catch (error) {
-      toastError(CHAT_START_ERROR, error);
-    } finally {
-      setPending(false);
-    }
-  };
+  const { start, pending } = useStartBoardSession({
+    boardId,
+    boardName,
+    snapshot,
+    headSeq,
+  });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-      <Textarea
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        placeholder={CHAT_PLACEHOLDER}
-        className="min-h-24 flex-1"
-      />
-      <Button
-        onClick={() => void start()}
-        disabled={pending || prompt.trim().length === 0}
-        loading={pending}
-      >
-        {CHAT_START_ACTION}
-      </Button>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+        <span className="flex size-10 items-center justify-center rounded-full bg-(--accent-a3) text-(--accent-11)">
+          <ChatCircleIcon size={19} />
+        </span>
+        <div className="flex flex-col gap-1">
+          <p className="font-semibold text-[13px]">{CHAT_STARTER_TITLE}</p>
+          <p className="text-(--gray-11) text-[12px] leading-relaxed">
+            {CHAT_PLACEHOLDER}
+          </p>
+        </div>
+        <div className="flex w-full flex-col gap-1.5">
+          {CHAT_EXAMPLES.map((example) => (
+            <button
+              key={example}
+              type="button"
+              className="rounded-(--radius-2) border border-(--gray-4) px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-(--gray-3)"
+              onClick={() => setPrompt(example)}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="shrink-0 border-(--gray-4) border-t p-3">
+        <InputGroup>
+          <InputGroupTextarea
+            value={prompt}
+            placeholder={CHAT_COMPOSER_PLACEHOLDER}
+            className="min-h-[52px] resize-none text-[13px]"
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                void start(prompt);
+              }
+            }}
+          />
+          <InputGroupAddon align="block-end">
+            <InputGroupButton
+              className="ml-auto"
+              size="icon-sm"
+              variant="primary"
+              aria-label={CHAT_START_ACTION}
+              disabled={pending || prompt.trim().length === 0}
+              onClick={() => void start(prompt)}
+            >
+              {pending ? (
+                <SpinnerGapIcon size={14} className="animate-spin" />
+              ) : (
+                <ArrowUpIcon size={14} />
+              )}
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+      </div>
     </div>
   );
 }

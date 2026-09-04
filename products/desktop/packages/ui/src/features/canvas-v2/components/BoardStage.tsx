@@ -1,9 +1,11 @@
+import { ArrowsInIcon } from "@phosphor-icons/react";
 import {
   type BoardPaneRect,
   type BoardPoint,
   screenToWorld,
 } from "@posthog/core/canvas-v2/boardGeometry";
 import type { PresencePeer } from "@posthog/core/canvas-v2/boardPresence";
+import { Button, Kbd } from "@posthog/quill";
 import {
   type CanvasV2Fragment,
   type CanvasV2FrameCaret,
@@ -14,7 +16,12 @@ import {
   type CanvasV2Viewport,
   maxZ,
 } from "@posthog/shared";
-import { BOARD_FRAME_TITLE } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
+import { EXIT_FULL_SCREEN_ACTION } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
+import {
+  BoardFrame,
+  type BoardFrameHealth,
+} from "@posthog/ui/features/canvas-v2/components/BoardFrame";
+import { BoardHealthNotice } from "@posthog/ui/features/canvas-v2/components/BoardHealthNotice";
 import { DropCaptureLayer } from "@posthog/ui/features/canvas-v2/components/DropCaptureLayer";
 import type { FragmentLastEdit } from "@posthog/ui/features/canvas-v2/components/FragmentOverlay";
 import { OverlayLayer } from "@posthog/ui/features/canvas-v2/components/OverlayLayer";
@@ -25,10 +32,12 @@ import {
   useBoardViewStore,
 } from "@posthog/ui/features/canvas-v2/interaction/boardViewStore";
 import { useBoardPointer } from "@posthog/ui/features/canvas-v2/interaction/useBoardPointer";
+import type { BoardFrameElement } from "@posthog/ui/features/canvas-v2/runtime/boardFrameElement";
 import {
   type BoardFrameHandle,
   useBoardFrame,
 } from "@posthog/ui/features/canvas-v2/runtime/useBoardFrame";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   type ReactElement,
@@ -88,7 +97,12 @@ export function BoardStage({
   onCursor,
   onCaret,
 }: BoardStageProps): ReactElement {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [frameElement, setFrameElement] = useState<BoardFrameElement | null>(
+    null,
+  );
+  const { vendoredCanvasModules } = useHostCapabilities();
+  const [frameHealth, setFrameHealth] = useState<BoardFrameHealth>("running");
+  const [stopped, setStopped] = useState(false);
   const [paneRect, setPaneRect] = useState<BoardPaneRect>({
     left: 0,
     top: 0,
@@ -98,6 +112,8 @@ export function BoardStage({
 
   const selectedIds = useBoardSelectedIds();
   const highlightedIds = useBoardHighlightedIds();
+  const focusedId = useBoardViewStore((state) => state.focusedId);
+  const setFocusedId = useBoardViewStore((state) => state.setFocusedId);
   const setSelection = useBoardViewStore((state) => state.setSelection);
   const toggleSelection = useBoardViewStore((state) => state.toggleSelection);
   const clearSelection = useBoardViewStore((state) => state.clearSelection);
@@ -133,6 +149,16 @@ export function BoardStage({
   // must stay live or the release never arrives.
   const gestureActive = pointer.gesture.kind !== "none";
 
+  const focusedRef = useRef(focusedId);
+  focusedRef.current = focusedId;
+  const whenOnBoard = useCallback(
+    <T extends unknown[]>(handler: (...args: T) => void) =>
+      (...args: T): void => {
+        if (focusedRef.current === null) handler(...args);
+      },
+    [],
+  );
+
   const paneRectRef = useRef(paneRect);
   paneRectRef.current = paneRect;
   // Frame points are relative to the iframe, which fills the pane.
@@ -154,7 +180,7 @@ export function BoardStage({
   const frameRef = useRef<BoardFrameHandle | null>(null);
   const frame = useBoardFrame({
     boardId,
-    iframeRef,
+    frameElement,
     theme,
     queryClient,
     getSnapshot,
@@ -164,21 +190,22 @@ export function BoardStage({
       onReady: () => {
         syncedSnapshot.current = snapshotRef.current;
         frameRef.current?.sendInit(viewportRef.current);
+        frameRef.current?.setFocus(focusedRef.current);
       },
       onFragmentRendered: (id) => onFragmentError(id, null),
       onFragmentError: (id, message) => onFragmentError(id, message),
       onStateChanged: (key, value) =>
         applyLocal([{ type: "set_state", key, value }]),
-      onWheel: pointer.onFrameWheel,
-      onBackgroundPointer: pointer.onFrameBackgroundPointer,
-      onFragmentPointerDown: pointer.onFrameFragmentPointerDown,
+      onWheel: whenOnBoard(pointer.onFrameWheel),
+      onBackgroundPointer: whenOnBoard(pointer.onFrameBackgroundPointer),
+      onFragmentPointerDown: whenOnBoard(pointer.onFrameFragmentPointerDown),
       onPointerMove: reportFrameCursor,
       onPointerLeave: () => onCursor(null),
     },
   });
   frameRef.current = frame;
 
-  const { ready, srcDoc, syncSnapshot } = frame;
+  const { documentReady, ready, srcDoc, syncSnapshot } = frame;
   const setFrameViewport = frame.setViewport;
   const setFrameSelection = frame.setSelection;
 
@@ -195,6 +222,32 @@ export function BoardStage({
   useEffect(() => {
     setFrameSelection(selectedIds);
   }, [setFrameSelection, selectedIds]);
+
+  useEffect(() => {
+    if (focusedId === null) return;
+    if (!snapshot.fragments.some((fragment) => fragment.id === focusedId)) {
+      setFocusedId(null);
+    }
+  }, [focusedId, setFocusedId, snapshot.fragments]);
+
+  const setFrameFocus = frame.setFocus;
+  useEffect(() => {
+    setFrameFocus(focusedId);
+  }, [setFrameFocus, focusedId]);
+
+  const setFrameBusy = frame.setBusy;
+  useEffect(() => {
+    setFrameBusy(gestureActive);
+  }, [setFrameBusy, gestureActive]);
+
+  useEffect(() => {
+    if (focusedId === null) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setFocusedId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusedId, setFocusedId]);
 
   const setFrameCarets = frame.setCarets;
   const frameCarets = useMemo<CanvasV2FrameCaret[]>(
@@ -221,6 +274,12 @@ export function BoardStage({
     if (!pane) return;
     const measure = (): void => {
       const rect = pane.getBoundingClientRect();
+      const previous = paneRectRef.current;
+      const shift = rect.left - previous.left;
+      if (previous.width > 0 && shift !== 0 && focusedRef.current === null) {
+        const current = viewportRef.current;
+        setViewport({ ...current, x: current.x - shift });
+      }
       setPaneRect({
         left: rect.left,
         top: rect.top,
@@ -236,7 +295,7 @@ export function BoardStage({
       observer.disconnect();
       window.removeEventListener("scroll", measure, true);
     };
-  }, [paneRef]);
+  }, [paneRef, setViewport]);
 
   // A menu action on a selected fragment acts on the whole selection.
   const targetsOf = useCallback((id: string): string[] => {
@@ -323,8 +382,12 @@ export function BoardStage({
   return (
     <div
       ref={paneRef}
-      className="relative h-full w-full overflow-hidden"
-      onWheel={pointer.onOverlayWheel}
+      className={
+        focusedId === null
+          ? "relative h-full w-full overflow-hidden"
+          : "fixed inset-0 z-[80] overflow-hidden bg-(--gray-1)"
+      }
+      onWheel={whenOnBoard(pointer.onOverlayWheel)}
       onPointerMove={(event) =>
         onCursor(
           screenToWorld(
@@ -336,33 +399,58 @@ export function BoardStage({
       }
       onPointerLeave={() => onCursor(null)}
     >
-      <iframe
-        ref={iframeRef}
-        title={BOARD_FRAME_TITLE}
-        sandbox="allow-scripts"
+      <BoardFrame
+        onElement={setFrameElement}
+        stopped={stopped}
+        onHealth={setFrameHealth}
         srcDoc={srcDoc}
-        className={`absolute inset-0 h-full w-full border-0 ${
-          gestureActive ? "pointer-events-none" : ""
-        }`}
+        vendored={vendoredCanvasModules}
+        documentReady={documentReady}
+        inert={gestureActive}
       />
-      <OverlayLayer
-        fragments={ordered}
-        viewport={viewport}
-        paneRect={paneRect}
-        selectedIds={selectedIds}
-        highlightedIds={highlightedIds}
-        fragmentErrors={fragmentErrors}
-        lastEdits={lastEdits}
-        onStartMove={pointer.startMove}
-        onStartResize={pointer.startResize}
-        onEdit={onEditFragment}
-        onDuplicate={duplicateFragment}
-        onBringToFront={bringToFront}
-        onDelete={removeFragment}
+      <BoardHealthNotice
+        health={frameHealth}
+        stopped={stopped}
+        onStop={() => {
+          setStopped(true);
+          setFrameHealth("running");
+        }}
+        onStart={() => setStopped(false)}
       />
-      {pointer.marquee ? (
+      {focusedId === null ? (
+        <OverlayLayer
+          fragments={ordered}
+          viewport={viewport}
+          paneRect={paneRect}
+          selectedIds={selectedIds}
+          highlightedIds={highlightedIds}
+          fragmentErrors={fragmentErrors}
+          lastEdits={lastEdits}
+          onStartMove={pointer.startMove}
+          onStartResize={pointer.startResize}
+          onEdit={onEditFragment}
+          onDuplicate={duplicateFragment}
+          onBringToFront={bringToFront}
+          onDelete={removeFragment}
+          onFocus={setFocusedId}
+        />
+      ) : (
+        <div className="absolute bottom-4 left-4 z-[60] opacity-70 transition-opacity hover:opacity-100">
+          <Button
+            variant="default"
+            size="sm"
+            className="gap-2 rounded-full border border-(--gray-a6) bg-(--gray-1)/90 shadow-lg backdrop-blur-md"
+            onClick={() => setFocusedId(null)}
+          >
+            <ArrowsInIcon />
+            {EXIT_FULL_SCREEN_ACTION}
+            <Kbd>Esc</Kbd>
+          </Button>
+        </div>
+      )}
+      {pointer.marquee && focusedId === null ? (
         <div
-          className="pointer-events-none absolute z-20 rounded-(--radius-1) border border-(--accent-9) bg-(--accent-a3)"
+          className="pointer-events-none absolute z-20 rounded-(--radius-1) border border-(--accent-a9) bg-(--accent-a2)"
           style={{
             left: pointer.marquee.left,
             top: pointer.marquee.top,
@@ -371,12 +459,14 @@ export function BoardStage({
           }}
         />
       ) : null}
-      <PresenceLayer
-        peers={peers}
-        fragments={ordered}
-        viewport={viewport}
-        paneRect={paneRect}
-      />
+      {focusedId === null ? (
+        <PresenceLayer
+          peers={peers}
+          fragments={ordered}
+          viewport={viewport}
+          paneRect={paneRect}
+        />
+      ) : null}
       <DropCaptureLayer
         active={dragActive}
         toWorld={toWorld}

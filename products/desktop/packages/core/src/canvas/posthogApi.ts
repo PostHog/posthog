@@ -51,7 +51,8 @@ export async function runQuery(
   );
 
   if (!response.ok) {
-    throw new Error(`Query failed (${response.status})`);
+    const detail = (await response.text().catch(() => "")).slice(0, 400);
+    throw new Error(`Query failed (${response.status}) ${detail}`);
   }
   const body = (await response.json()) as HogQLResponse;
   if (body.error) throw new Error(body.error);

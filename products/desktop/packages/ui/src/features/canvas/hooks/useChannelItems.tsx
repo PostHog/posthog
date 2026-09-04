@@ -19,12 +19,14 @@ import {
   useDashboardMutations,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useSpaceBoardsAsCanvases } from "@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { toast } from "@posthog/ui/primitives/toast";
+import { navigateToCanvasesV2 } from "@posthog/ui/router/navigationBridge";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
@@ -84,7 +86,13 @@ export function useChannelItems(channelId: string): {
   const identityKnown = channel !== undefined;
   const isPersonal = channel?.channelType === "personal";
 
-  const { dashboards, isLoading: dashboardsLoading } = useDashboards(channelId);
+  const { dashboards: canvases, isLoading: dashboardsLoading } =
+    useDashboards(channelId);
+  const boards = useSpaceBoardsAsCanvases(channelId);
+  const dashboards = useMemo(
+    () => (boards.length === 0 ? canvases : [...canvases, ...boards]),
+    [boards, canvases],
+  );
   const { tasks: feedTasks, isLoading: feedLoading } =
     useChannelFeed(channelId);
   const { tasks: filedTaskRecords, isLoading: filedTasksLoading } =
@@ -158,6 +166,10 @@ export function useChannelItems(channelId: string): {
     () => ({
       open: (item) => {
         if (item.kind === "canvas") {
+          if (item.canvasVersion === 2) {
+            navigateToCanvasesV2(item.id);
+            return;
+          }
           void navigate({
             to: "/spaces/$channelId/dashboards/$dashboardId",
             params: { channelId, dashboardId: item.id },

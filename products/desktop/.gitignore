@@ -66,6 +66,7 @@ junit.xml
 
 # Downloaded binaries
 apps/code/resources/codex-acp/
+apps/code/resources/canvas-modules/
 
 # Licensed fonts (downloaded from S3 during CI)
 apps/code/assets/fonts/BerkeleyMono/

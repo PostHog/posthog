@@ -1,50 +1,46 @@
-// Date range control for the board. It writes the shared "dateRange" key, and
-// every data fragment on the board reads that key and queries again.
-import { useSharedState } from "@posthog/canvas-sdk";
-import {
-  Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@posthog/quill";
-
-const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
+// Date range control for the board. Every data fragment reads it and queries
+// again. A data fragment that sits inside a date frame follows that frame in
+// place of this control.
+import { useDateRange } from "@posthog/canvas-sdk";
 
 const PRESETS = [
-  { value: "-24h", label: "Last 24 hours" },
-  { value: "-7d", label: "Last 7 days" },
-  { value: "-30d", label: "Last 30 days" },
-  { value: "-90d", label: "Last 90 days" },
+  { value: "-24h", short: "24h", label: "Last 24 hours" },
+  { value: "-7d", short: "7d", label: "Last 7 days" },
+  { value: "-30d", short: "30d", label: "Last 30 days" },
+  { value: "-90d", short: "90d", label: "Last 90 days" },
+  { value: "-12m", short: "12m", label: "Last 12 months" },
 ];
 
 export default function DateRangePicker() {
-  const [range, setRange] = useSharedState("dateRange", DEFAULT_RANGE);
-  const known = PRESETS.some((preset) => preset.value === range?.date_from);
-  const current = known ? range.date_from : DEFAULT_RANGE.date_from;
+  const { range, setRange } = useDateRange();
+  const known = PRESETS.some((preset) => preset.value === range.date_from);
+  const current = known ? range.date_from : "-7d";
 
   return (
-    <div className="flex h-full flex-col justify-center gap-2 p-4">
-      <Label>Date range</Label>
-      <Select
-        items={PRESETS}
-        value={current}
-        onValueChange={(value) =>
-          setRange({ date_from: String(value), date_to: null })
-        }
-      >
-        <SelectTrigger>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {PRESETS.map((preset) => (
-            <SelectItem key={preset.value} value={preset.value}>
-              {preset.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="flex h-full w-full items-center">
+      <div className="flex w-full items-center gap-1 rounded-full border border-border bg-card p-1 shadow-sm">
+        {PRESETS.map((preset) => {
+          const selected = preset.value === current;
+          return (
+            <button
+              key={preset.value}
+              type="button"
+              aria-label={preset.label}
+              aria-pressed={selected}
+              className={
+                selected
+                  ? "flex-1 rounded-full bg-primary px-2 py-1.5 font-medium text-[12px] text-primary-foreground"
+                  : "flex-1 rounded-full px-2 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              }
+              onClick={() =>
+                setRange({ date_from: preset.value, date_to: null })
+              }
+            >
+              {preset.short}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

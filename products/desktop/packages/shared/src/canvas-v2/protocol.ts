@@ -3,6 +3,13 @@ import { canvasV2FragmentSchema } from "./schemas";
 
 export const CANVAS_V2_CHANNEL = "posthog-canvas-v2";
 
+export const CANVAS_V2_FRAME_NAME = "posthog-canvas-board";
+export const CANVAS_V2_BOARD_PARTITION = "canvas-board";
+export const CANVAS_V2_BOARD_URL = "posthog-canvas://board/";
+export const CANVAS_V2_FRAME_TO_HOST_CHANNEL = "posthog-canvas-frame";
+export const CANVAS_V2_HOST_TO_FRAME_CHANNEL = "posthog-canvas-host";
+export const CANVAS_V2_FROM_HOST_FLAG = "__phFromHost";
+
 export const canvasV2ThemeSchema = z.enum(["light", "dark"]);
 export type CanvasV2Theme = z.infer<typeof canvasV2ThemeSchema>;
 
@@ -25,6 +32,8 @@ export const CANVAS_V2_DATA_METHODS = [
   "stateEditList",
   "actionInvoke",
   "agentRequest",
+  "arrangeFragments",
+  "addFragment",
 ] as const;
 export type CanvasV2DataMethod = (typeof CANVAS_V2_DATA_METHODS)[number];
 
@@ -79,6 +88,14 @@ export const hostToBoardFrameMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("set-selection"),
     ids: z.array(z.string()),
   }),
+  z.object({
+    channel,
+    type: z.literal("set-focus"),
+    id: z.string().nullable(),
+  }),
+  // True while a person drags or resizes on the board. A container fragment
+  // holds its layout until the gesture ends, so it does not fight the pointer.
+  z.object({ channel, type: z.literal("set-busy"), busy: z.boolean() }),
   z.object({
     channel,
     type: z.literal("set-carets"),
@@ -157,6 +174,12 @@ export const boardFrameToHostMessageSchema = z.discriminatedUnion("type", [
     metaKey: z.boolean(),
     ctrlKey: z.boolean(),
     altKey: z.boolean(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("policy-violation"),
+    directive: z.string().max(64),
+    blocked: z.string().max(512),
   }),
   z.object({
     channel,

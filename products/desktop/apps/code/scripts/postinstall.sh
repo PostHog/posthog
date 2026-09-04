@@ -48,4 +48,7 @@ bash "$SCRIPTS_DIR/patch-electron-name.sh"
 echo "Downloading binaries..."
 node "$SCRIPTS_DIR/download-binaries.mjs"
 
+echo "Vendoring board fragment modules..."
+node "$SCRIPTS_DIR/../../../scripts/fetch-canvas-modules.mjs"
+
 echo "Postinstall complete."

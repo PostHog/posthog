@@ -1,7 +1,13 @@
+import { resolveService } from "@posthog/di/container";
+import {
+  HOST_TRPC_CLIENT,
+  type HostTrpcClient,
+} from "@posthog/host-router/client";
 import {
   type BoardFrameToHostMessage,
   boardFrameToHostMessageSchema,
   CANVAS_V2_CHANNEL,
+  CANVAS_V2_STATE_KEY_MAX_CHARS,
   type CanvasV2Fragment,
   type CanvasV2FrameCaret,
   type CanvasV2Op,
@@ -11,11 +17,15 @@ import {
   type CanvasV2Viewport,
   type HostToBoardFrameMessage,
   isField,
+  isReservedStateKey,
   isSafePostHogUrl,
 } from "@posthog/shared";
+import { BOARD_TOO_MANY_READS_AT_ONCE } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
+import { spendBoardWrite } from "@posthog/ui/features/canvas-v2/runtime/canvasV2DataBridge";
 import { fieldMessageValue } from "@posthog/ui/features/canvas-v2/runtime/canvasV2FieldMessages";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   useCallback,
@@ -25,7 +35,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { buildBoardFrameDocument } from "./boardFrameDocument";
+import {
+  boardFramePolicy,
+  buildBoardFrameDocument,
+} from "./boardFrameDocument";
+import {
+  type BoardFrameElement,
+  listenToBoardFrame,
+  sendToBoardFrame,
+} from "./boardFrameElement";
 import {
   type CanvasV2DataBridgeContext,
   handleCanvasV2DataRequest,
@@ -35,7 +53,7 @@ const log = logger.scope("canvas-v2-frame");
 
 // Fragment code is untrusted, so a runaway loop must not pile up requests,
 // ship oversized payloads, or hold a slot forever.
-const MAX_CONCURRENT_DATA_REQUESTS = 8;
+const MAX_PENDING_DATA_REQUESTS = 200;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
@@ -59,7 +77,7 @@ export interface BoardFrameEvents {
 
 export interface UseBoardFrameOptions {
   boardId: string;
-  iframeRef: React.RefObject<HTMLIFrameElement | null>;
+  frameElement: BoardFrameElement | null;
   theme: CanvasV2Theme;
   queryClient: QueryClient;
   getSnapshot: () => CanvasV2Snapshot;
@@ -71,12 +89,15 @@ export interface UseBoardFrameOptions {
 
 export interface BoardFrameHandle {
   srcDoc: string;
+  documentReady: boolean;
   ready: boolean;
   post: (message: HostToBoardFrameMessage) => void;
   sendInit: (viewport: CanvasV2Viewport) => void;
   syncSnapshot: (prev: CanvasV2Snapshot | null, next: CanvasV2Snapshot) => void;
   setViewport: (viewport: CanvasV2Viewport) => void;
   setSelection: (ids: string[]) => void;
+  setFocus: (id: string | null) => void;
+  setBusy: (busy: boolean) => void;
   setCarets: (carets: CanvasV2FrameCaret[]) => void;
 }
 
@@ -84,8 +105,32 @@ export interface BoardFrameHandle {
 // frame's life, the data bridge with its runtime limits, and the minimal
 // messages that keep the frame's fragments and state in step with the board.
 export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
-  const { iframeRef } = options;
-  const srcDoc = useMemo(() => buildBoardFrameDocument(), []);
+  const { frameElement } = options;
+  const { vendoredCanvasModules: vendoredModules } = useHostCapabilities();
+  const srcDoc = useMemo(
+    () => buildBoardFrameDocument({ vendoredModules }),
+    [vendoredModules],
+  );
+  const [documentReady, setDocumentReady] = useState(!vendoredModules);
+
+  useEffect(() => {
+    if (!vendoredModules) return;
+    let cancelled = false;
+    void resolveService<HostTrpcClient>(HOST_TRPC_CLIENT)
+      .canvasV2Frame.registerDocument.mutate({
+        html: srcDoc,
+        csp: boardFramePolicy(true),
+      })
+      .then(() => {
+        if (!cancelled) setDocumentReady(true);
+      })
+      .catch((error: unknown) => {
+        log.error("Could not register the board frame document", { error });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [srcDoc, vendoredModules]);
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
 
@@ -97,10 +142,9 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
 
   const postRaw = useCallback(
     (message: HostToBoardFrameMessage): void => {
-      // Null origin: the frame is identified by its window, not by origin.
-      iframeRef.current?.contentWindow?.postMessage(message, "*");
+      sendToBoardFrame(frameElement, message);
     },
-    [iframeRef],
+    [frameElement],
   );
 
   const post = useCallback(
@@ -194,6 +238,20 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
     [post],
   );
 
+  const setFocus = useCallback(
+    (id: string | null): void => {
+      post({ channel: CANVAS_V2_CHANNEL, type: "set-focus", id });
+    },
+    [post],
+  );
+
+  const setBusy = useCallback(
+    (busy: boolean): void => {
+      post({ channel: CANVAS_V2_CHANNEL, type: "set-busy", busy });
+    },
+    [post],
+  );
+
   // Bound during commit, before the browser runs the iframe's load task, so the
   // frame's one-shot "ready" cannot arrive before the listener exists.
   useLayoutEffect(() => {
@@ -220,15 +278,10 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
       message: Extract<BoardFrameToHostMessage, { type: "data-request" }>,
     ): Promise<void> => {
       if (
-        activeRequests >= MAX_CONCURRENT_DATA_REQUESTS ||
+        activeRequests >= MAX_PENDING_DATA_REQUESTS ||
         !isBoundedPayload(message.payload)
       ) {
-        reply(
-          message.id,
-          false,
-          undefined,
-          "Data request exceeds runtime limits",
-        );
+        reply(message.id, false, undefined, BOARD_TOO_MANY_READS_AT_ONCE);
         return;
       }
       activeRequests += 1;
@@ -279,10 +332,27 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
           events.onFragmentError(message.id, message.message, message.stack);
           break;
         case "state-changed":
+          if (
+            isReservedStateKey(message.key) ||
+            message.key.length > CANVAS_V2_STATE_KEY_MAX_CHARS
+          ) {
+            log.warn("Refused a fragment state key");
+            break;
+          }
+          if (!spendBoardWrite(options.boardId)) {
+            log.warn("Paused a fragment that writes shared state too fast");
+            break;
+          }
           // A mergeable field changes only through the field bridge.
           if (isField(latest.current.getSnapshot().state[message.key])) break;
           fromFrame.current.set(message.key, stableJson(message.value ?? null));
           events.onStateChanged(message.key, message.value);
+          break;
+        case "policy-violation":
+          log.warn("A fragment tried a channel the board closes", {
+            directive: message.directive,
+            blocked: message.blocked,
+          });
           break;
         case "data-request":
           void runDataRequest(message);
@@ -319,16 +389,13 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
       }
     };
 
-    const onMessage = (event: MessageEvent): void => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      const parsed = boardFrameToHostMessageSchema.safeParse(event.data);
+    if (!frameElement) return;
+    return listenToBoardFrame(frameElement, (data) => {
+      const parsed = boardFrameToHostMessageSchema.safeParse(data);
       if (!parsed.success) return;
       route(parsed.data);
-    };
-
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [iframeRef, postRaw]);
+    });
+  }, [frameElement, postRaw, options.boardId]);
 
   // Re-theme in place: a fragment remount would reset its component state.
   useEffect(() => {
@@ -341,12 +408,15 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
 
   return {
     srcDoc,
+    documentReady,
     ready,
     post,
     sendInit,
     syncSnapshot,
     setViewport,
     setSelection,
+    setFocus,
+    setBusy,
     setCarets,
   };
 }

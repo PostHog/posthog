@@ -96,7 +96,7 @@ export function PresenceLayer({
           }}
         >
           <span
-            className="-top-4 absolute left-0 rounded-t-(--radius-1) px-1 text-[10px] text-white leading-4"
+            className="-top-[18px] absolute left-0 rounded-(--radius-1) px-1.5 font-medium text-[10px] text-white leading-4 shadow-xs"
             style={{ backgroundColor: ring.color }}
           >
             {ring.name}
@@ -127,7 +127,7 @@ export function PresenceLayer({
             />
           </svg>
           <span
-            className="mt-3 whitespace-nowrap rounded-(--radius-1) px-1 text-[10px] text-white leading-4"
+            className="-ml-1 mt-3.5 whitespace-nowrap rounded-full px-1.5 py-px font-medium text-[10px] text-white leading-4 shadow-sm"
             style={{ backgroundColor: peer.color }}
           >
             {peer.name}

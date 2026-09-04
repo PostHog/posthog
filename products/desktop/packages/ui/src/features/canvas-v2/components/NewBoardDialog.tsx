@@ -1,6 +1,7 @@
 import {
   Button,
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -13,6 +14,7 @@ import {
 import {
   BOARD_NAME_LABEL,
   BOARD_NAME_PLACEHOLDER,
+  DEFAULT_BOARD_NAME,
   DIALOG_CANCEL,
   NEW_BOARD_DIALOG_DESCRIPTION,
   NEW_BOARD_DIALOG_TITLE,
@@ -66,8 +68,9 @@ export function NewBoardDialog({
   const canSubmit = trimmed.length > 0 && !isPending;
 
   useEffect(() => {
-    if (open) setName(initialName);
-  }, [open, initialName]);
+    if (!open) return;
+    setName(initialName || (mode === "create" ? DEFAULT_BOARD_NAME : ""));
+  }, [open, initialName, mode]);
 
   const submit = () => {
     if (!canSubmit) return;
@@ -87,21 +90,24 @@ export function NewBoardDialog({
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
-        <Field>
-          <FieldLabel htmlFor="canvas-v2-board-name">
-            {BOARD_NAME_LABEL}
-          </FieldLabel>
-          <Input
-            id="canvas-v2-board-name"
-            autoFocus
-            value={name}
-            placeholder={BOARD_NAME_PLACEHOLDER}
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") submit();
-            }}
-          />
-        </Field>
+        <DialogBody>
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="canvas-v2-board-name">
+              {BOARD_NAME_LABEL}
+            </FieldLabel>
+            <Input
+              id="canvas-v2-board-name"
+              autoFocus
+              value={name}
+              placeholder={BOARD_NAME_PLACEHOLDER}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") submit();
+              }}
+            />
+          </Field>
+        </DialogBody>
         <DialogFooter>
           <Button
             variant="outline"

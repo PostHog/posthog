@@ -1,13 +1,23 @@
 import {
+  CANVAS_V2_MAX_READS_IN_FLIGHT,
+  CANVAS_V2_MAX_READS_WAITING,
+  CANVAS_V2_READ_LIMIT,
+  CANVAS_V2_WRITE_LIMIT,
+  TokenBucket,
+} from "@posthog/core/canvas-v2/frameBudget";
+import {
   applyOp,
   CANVAS_V2_FIELD_MARK,
   CANVAS_V2_FIELD_MAX_ENTRIES,
   CANVAS_V2_FIELD_MAX_OP_ENTRIES,
   CANVAS_V2_FIELD_MAX_REMOVED,
   CANVAS_V2_MAX_STATE_VALUE_BYTES,
+  CANVAS_V2_STATE_KEY_MAX_CHARS,
   type CanvasV2DataMethod,
   type CanvasV2Field,
   type CanvasV2FieldKind,
+  type CanvasV2Fragment,
+  type CanvasV2FragmentPatch,
   type CanvasV2Op,
   type CanvasV2PresenceCaret,
   type CanvasV2Snapshot,
@@ -16,18 +26,26 @@ import {
   emptyField,
   estimateJsonBytes,
   fieldOrder,
+  findFreeSpot,
   isField,
+  isReservedStateKey,
   keyBetween,
   materializeList,
   materializeText,
+  maxZ,
   newEntryId,
+  nextFragmentId,
 } from "@posthog/shared";
 import { handleFreeformDataRequest } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import {
+  BOARD_TOO_MANY_READS_AT_ONCE,
+  boardReadsPausedMessage,
+  boardWritesPausedMessage,
   SHARED_FIELD_READ_ONLY_STATE,
   SHARED_TEXT_CHANGES_FULL,
   SHARED_TEXT_FULL,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
+import { libraryEntry } from "@posthog/ui/features/canvas-v2/library/registry";
 import { fieldPlainValue } from "@posthog/ui/features/canvas-v2/runtime/canvasV2FieldMessages";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -53,6 +71,13 @@ interface CanvasV2ListEditPayload {
   update?: unknown;
 }
 
+interface BoardBudget {
+  reads: TokenBucket;
+  writes: TokenBucket;
+  readsInFlight: number;
+  waiting: (() => void)[];
+}
+
 interface BoardFieldMemory {
   /** Never restarts, so one client never writes an entry id twice. */
   counter: number;
@@ -63,6 +88,7 @@ interface BoardFieldMemory {
 // keystroke behind. The last field this bridge built is merged into it, which
 // is safe because the entries commute.
 const boards = new Map<string, BoardFieldMemory>();
+const budgets = new Map<string, BoardBudget>();
 
 const BRIDGE_CLIENT_ID = globalThis.crypto.randomUUID().replace(/-/g, "");
 
@@ -83,7 +109,9 @@ export async function handleCanvasV2DataRequest(
     case "query":
     case "loadInsight":
       // Neither case reads the dashboard context, so none is passed.
-      return handleFreeformDataRequest(method, payload, ctx.queryClient);
+      return read(ctx, () =>
+        handleFreeformDataRequest(method, payload, ctx.queryClient),
+      );
     case "stateGet": {
       const key = readKey(payload, "ph.state.get(key) requires a key");
       return fieldPlainValue(ctx.getSnapshot().state[key] ?? null);
@@ -100,6 +128,7 @@ export async function handleCanvasV2DataRequest(
           `ph.state.set(key, value) is limited to ${Math.floor(CANVAS_V2_MAX_STATE_VALUE_BYTES / 1024)} KB per value`,
         );
       }
+      spendWrite(ctx);
       ctx.applyLocal([{ type: "set_state", key, value }]);
       return { ok: true };
     }
@@ -112,15 +141,136 @@ export async function handleCanvasV2DataRequest(
       return editText(payload, ctx);
     case "stateEditList":
       return editList(payload, ctx);
+    case "arrangeFragments":
+      return arrangeFragments(payload, ctx);
+    case "addFragment":
+      return addFragment(payload, ctx);
     default:
       throw new Error(`ph.${method} is not available on Canvases v2 yet`);
   }
+}
+
+const ARRANGE_MAX_ITEMS = 200;
+const FRAGMENT_MIN_WIDTH = 80;
+const FRAGMENT_MIN_HEIGHT = 60;
+const FRAGMENT_MAX_SIZE = 4000;
+
+interface ArrangeItem {
+  id?: unknown;
+  x?: unknown;
+  y?: unknown;
+  w?: unknown;
+  h?: unknown;
+  hidden?: unknown;
+}
+
+/**
+ * A container fragment places the fragments that sit inside it. Only geometry
+ * moves, and only for fragments the board already holds, so a container can
+ * never make, delete, or rewrite one.
+ */
+function arrangeFragments(
+  payload: unknown,
+  ctx: CanvasV2DataBridgeContext,
+): { moved: number } {
+  const raw = (payload as { items?: unknown } | null)?.items;
+  if (!Array.isArray(raw)) {
+    throw new Error("ph.board.arrange(items) requires a list of fragments");
+  }
+  const known = new Map(
+    ctx.getSnapshot().fragments.map((fragment) => [fragment.id, fragment]),
+  );
+  const ops: CanvasV2Op[] = [];
+  for (const entry of raw.slice(0, ARRANGE_MAX_ITEMS)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const item = entry as ArrangeItem;
+    const id = typeof item.id === "string" ? item.id : "";
+    const current = known.get(id);
+    if (!current) continue;
+    const wasHidden = current.hidden === true;
+    const hidden = typeof item.hidden === "boolean" ? item.hidden : wasHidden;
+    const patch: CanvasV2FragmentPatch = {
+      x: round(item.x, current.x),
+      y: round(item.y, current.y),
+      w: clamp(item.w, current.w, FRAGMENT_MIN_WIDTH),
+      h: clamp(item.h, current.h, FRAGMENT_MIN_HEIGHT),
+    };
+    if (
+      patch.x === current.x &&
+      patch.y === current.y &&
+      patch.w === current.w &&
+      patch.h === current.h &&
+      hidden === wasHidden
+    ) {
+      continue;
+    }
+    if (hidden !== wasHidden) patch.hidden = hidden;
+    ops.push({ type: "update_fragment", id, patch });
+  }
+  if (ops.length === 0) return { moved: 0 };
+  spendWrite(ctx);
+  ctx.applyLocal(ops);
+  return { moved: ops.length };
+}
+
+/**
+ * A container fragment adds a fragment inside itself. The code always comes
+ * from the library, never from the caller, so a fragment cannot write code
+ * onto the board.
+ */
+function addFragment(
+  payload: unknown,
+  ctx: CanvasV2DataBridgeContext,
+): { id: string } {
+  const input = (payload ?? {}) as {
+    name?: unknown;
+    title?: unknown;
+    x?: unknown;
+    y?: unknown;
+    w?: unknown;
+    h?: unknown;
+  };
+  const entry =
+    typeof input.name === "string" ? libraryEntry(input.name) : undefined;
+  if (!entry) {
+    throw new Error("ph.board.add(options) needs the name of a library entry");
+  }
+  const snapshot = ctx.getSnapshot();
+  const size = entry.defaultSize;
+  const spot = findFreeSpot(snapshot, size.w, size.h);
+  const fragment: CanvasV2Fragment = {
+    id: nextFragmentId(entry.name, snapshot.fragments),
+    title: typeof input.title === "string" ? input.title : entry.label,
+    x: round(input.x, spot.x),
+    y: round(input.y, spot.y),
+    w: clamp(input.w, size.w, FRAGMENT_MIN_WIDTH),
+    h: clamp(input.h, size.h, FRAGMENT_MIN_HEIGHT),
+    z: maxZ(snapshot) + 1,
+    code: entry.code,
+    codeVersion: 1,
+    ...(entry.surface ? { surface: entry.surface } : {}),
+  };
+  spendWrite(ctx);
+  ctx.applyLocal([{ type: "add_fragment", fragment }]);
+  return { id: fragment.id };
+}
+
+function round(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : Math.round(fallback);
+}
+
+function clamp(value: unknown, fallback: number, min: number): number {
+  const next = round(value, fallback);
+  return Math.min(FRAGMENT_MAX_SIZE, Math.max(min, next));
 }
 
 function editText(
   payload: unknown,
   ctx: CanvasV2DataBridgeContext,
 ): { text: string; ids: string[] } {
+  spendWrite(ctx);
   const key = readKey(payload, "ph.state.editText(key, edit) requires a key");
   const input = (payload ?? {}) as CanvasV2TextEditPayload;
   const memory = memoryOf(ctx.boardId);
@@ -153,6 +303,7 @@ function editList(
   payload: unknown,
   ctx: CanvasV2DataBridgeContext,
 ): { items: { id: string; value: unknown }[] } {
+  spendWrite(ctx);
   const key = readKey(payload, "ph.state.editList(key, edit) requires a key");
   const input = (payload ?? {}) as CanvasV2ListEditPayload;
   const field = readyField(ctx, key, "list");
@@ -381,8 +532,78 @@ function readRecords(
   );
 }
 
+function budgetOf(boardId: string): BoardBudget {
+  const existing = budgets.get(boardId);
+  if (existing) return existing;
+  const now = Date.now();
+  const fresh: BoardBudget = {
+    reads: new TokenBucket(CANVAS_V2_READ_LIMIT, now),
+    writes: new TokenBucket(CANVAS_V2_WRITE_LIMIT, now),
+    readsInFlight: 0,
+    waiting: [],
+  };
+  budgets.set(boardId, fresh);
+  return fresh;
+}
+
+async function read<T>(
+  ctx: CanvasV2DataBridgeContext,
+  run: () => Promise<T>,
+): Promise<T> {
+  const budget = budgetOf(ctx.boardId);
+  const now = Date.now();
+  if (!budget.reads.take(now)) {
+    throw new Error(boardReadsPausedMessage(budget.reads.waitSeconds(now)));
+  }
+  if (budget.waiting.length >= CANVAS_V2_MAX_READS_WAITING) {
+    throw new Error(BOARD_TOO_MANY_READS_AT_ONCE);
+  }
+  await acquireReadSlot(budget);
+  try {
+    return await run();
+  } finally {
+    releaseReadSlot(budget);
+  }
+}
+
+function acquireReadSlot(budget: BoardBudget): Promise<void> {
+  if (budget.readsInFlight < CANVAS_V2_MAX_READS_IN_FLIGHT) {
+    budget.readsInFlight += 1;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => budget.waiting.push(resolve));
+}
+
+function releaseReadSlot(budget: BoardBudget): void {
+  const next = budget.waiting.shift();
+  if (next) {
+    next();
+    return;
+  }
+  budget.readsInFlight -= 1;
+}
+
+function spendWrite(ctx: CanvasV2DataBridgeContext): void {
+  const budget = budgetOf(ctx.boardId);
+  const now = Date.now();
+  if (budget.writes.take(now)) return;
+  throw new Error(boardWritesPausedMessage(budget.writes.waitSeconds(now)));
+}
+
+export function spendBoardWrite(boardId: string): boolean {
+  return budgetOf(boardId).writes.take(Date.now());
+}
+
 function readKey(payload: unknown, message: string): string {
   const key = (payload as { key?: unknown } | null)?.key;
   if (typeof key !== "string" || key.length === 0) throw new Error(message);
+  if (key.length > CANVAS_V2_STATE_KEY_MAX_CHARS) {
+    throw new Error(
+      `A state key holds at most ${CANVAS_V2_STATE_KEY_MAX_CHARS} characters`,
+    );
+  }
+  if (isReservedStateKey(key)) {
+    throw new Error(`"${key}" is reserved and cannot be a state key`);
+  }
   return key;
 }

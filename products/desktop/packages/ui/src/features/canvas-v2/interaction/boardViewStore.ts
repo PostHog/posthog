@@ -13,6 +13,7 @@ interface BoardViewState {
   inspectorOpen: boolean;
   /** Fragments a history group touched. Drawn with a ring, never moved into view. */
   highlightedIds: string[];
+  focusedId: string | null;
   setSelection: (ids: string[]) => void;
   toggleSelection: (id: string) => void;
   addToSelection: (id: string) => void;
@@ -22,6 +23,7 @@ interface BoardViewState {
   setHistoryOpen: (open: boolean) => void;
   setInspectorOpen: (open: boolean) => void;
   setHighlightedIds: (ids: string[]) => void;
+  setFocusedId: (id: string | null) => void;
   togglePalette: () => void;
   toggleChat: () => void;
   toggleHistory: () => void;
@@ -36,6 +38,7 @@ const INITIAL = {
   historyOpen: false,
   inspectorOpen: false,
   highlightedIds: [] as string[],
+  focusedId: null as string | null,
 };
 
 export const useBoardViewStore = create<BoardViewState>()((set) => ({
@@ -59,6 +62,7 @@ export const useBoardViewStore = create<BoardViewState>()((set) => ({
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setHighlightedIds: (highlightedIds) => set({ highlightedIds }),
+  setFocusedId: (focusedId) => set({ focusedId }),
   togglePalette: () => set((state) => ({ paletteOpen: !state.paletteOpen })),
   toggleChat: () => set((state) => ({ chatOpen: !state.chatOpen })),
   toggleHistory: () => set((state) => ({ historyOpen: !state.historyOpen })),

@@ -1,0 +1,111 @@
+// A frame that holds other fragments. Drag a fragment onto the frame and the
+// frame gives it a place in the grid. The frame stays under the fragments, so
+// every fragment on it keeps working. Move the frame and the contents follow.
+import {
+  gridRects,
+  useContainer,
+  useFragmentSettings,
+  useSharedText,
+} from "@posthog/canvas-sdk";
+import { useCallback } from "react";
+
+// A plain select opens through the browser, so it lands in the right place
+// even when the board is panned or zoomed.
+const SELECT_CLASS =
+  "shrink-0 rounded-(--radius-2) border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground outline-none";
+
+const DEFAULTS = { mode: "grid", columns: 2, gap: 12 };
+const PADDING = 14;
+const HEADER = 38;
+
+const MODES = [
+  { value: "grid", label: "Grid" },
+  { value: "rows", label: "One per row" },
+  { value: "columns", label: "Side by side" },
+  { value: "free", label: "Keep together" },
+];
+
+const COLUMN_CHOICES = ["2", "3", "4"];
+
+function columnsFor(mode, columns, count) {
+  if (mode === "rows") return 1;
+  if (mode === "columns") return Math.max(1, count);
+  return Number(columns) || 2;
+}
+
+export default function LayoutFrame({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, DEFAULTS);
+  const title = useSharedText("frame:" + fragmentId + ":title");
+  const mode = String(settings.mode);
+  const gap = Number(settings.gap) || 12;
+  const columns = settings.columns;
+
+  const place = useCallback(
+    (contents, box) =>
+      gridRects(contents, box, {
+        gap,
+        columns: columnsFor(mode, columns, contents.length),
+      }),
+    [gap, mode, columns],
+  );
+
+  const { children } = useContainer(fragmentId, {
+    padding: PADDING,
+    header: HEADER,
+    layout: mode === "free" ? null : place,
+    follow: mode === "free",
+  });
+
+  return (
+    <div className="flex h-full w-full flex-col rounded-xl border border-border border-dashed bg-muted/20">
+      <div
+        className="flex shrink-0 items-center gap-1.5 px-2.5"
+        style={{ height: HEADER }}
+      >
+        <input
+          value={title.text}
+          placeholder="Frame"
+          aria-label="Frame name"
+          spellCheck={false}
+          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-medium text-[13px] outline-none placeholder:text-foreground/30"
+          onChange={(event) => title.setText(event.target.value, null)}
+        />
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {children.length === 1 ? "1 fragment" : children.length + " fragments"}
+        </span>
+        <select
+          aria-label="Arrangement"
+          value={mode}
+          onChange={(change) => setSettings({ mode: change.target.value })}
+          className={SELECT_CLASS}
+        >
+          {MODES.map((choice) => (
+            <option key={choice.value} value={choice.value}>
+              {choice.label}
+            </option>
+          ))}
+        </select>
+        {mode === "grid" ? (
+          <select
+            aria-label="Columns"
+            value={String(columns)}
+            onChange={(change) => setSettings({ columns: Number(change.target.value) })}
+            className={SELECT_CLASS}
+          >
+            {COLUMN_CHOICES.map((choice) => (
+              <option key={choice} value={choice}>
+                {choice} columns
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+
+      {children.length === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
+          Drag fragments onto this frame and it arranges them.
+        </div>
+      ) : null}
+    </div>
+  );
+}

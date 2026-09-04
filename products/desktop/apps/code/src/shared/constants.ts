@@ -56,6 +56,7 @@ export interface QuickAskLayoutPayload {
   maxHeight: number;
 }
 export const ARTIFACT_PREVIEW_ARG = "--posthog-artifact-preview";
+export const CANVAS_BOARD_ARG = "--posthog-canvas-board";
 export const ARTIFACT_OPEN_EXTERNAL_CHANNEL = "posthog-artifact-open-external";
 export const ARTIFACT_HOST_TO_PREVIEW_CHANNEL = "posthog-artifact-host-message";
 export const ARTIFACT_PREVIEW_TO_HOST_CHANNEL = "posthog-artifact-message";

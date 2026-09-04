@@ -1,4 +1,5 @@
 import {
+  CANVAS_TASK_ORIGIN,
   formatShortDayLabel,
   getLocalDayKey,
   type WorkspaceMode,
@@ -27,6 +28,7 @@ export interface ChannelItemModel {
   /** When it was first made, for the created-first sort. */
   createdAt: number;
   pinned: boolean;
+  canvasVersion: 1 | 2;
   rawStatus: TaskRunStatus | null;
   /**
    * The three session facts the filters ask about. A canvas has no run, so it
@@ -169,6 +171,7 @@ export function buildChannelItems({
     ts: d.updatedAt,
     createdAt: d.createdAt,
     pinned: d.pinnedAt != null,
+    canvasVersion: d.canvasVersion,
     rawStatus: null,
     environment: null,
     source: null,
@@ -199,6 +202,7 @@ export function buildChannelItems({
         ts: taskActivityTimestamp(task, "updated") || 0,
         createdAt: Date.parse(task.created_at) || 0,
         pinned: pinnedTaskIds.has(task.id),
+        canvasVersion: 1,
         rawStatus: task.latest_run?.status ?? null,
         environment: environmentOf(task, workspace?.mode),
         source: sourceOf(task),
@@ -346,7 +350,12 @@ export function filterChannelItems(
     ) {
       return false;
     }
-    if (filters.source !== ANY_SOURCE && item.source !== filters.source) {
+    if (filters.source === ANY_SOURCE) {
+      // A board lists its own sessions, so "any source" means any source a
+      // person started. Naming the canvas source brings them back.
+      return item.source !== CANVAS_TASK_ORIGIN;
+    }
+    if (item.source !== filters.source) {
       return false;
     }
     return true;

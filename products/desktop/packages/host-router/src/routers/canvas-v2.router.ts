@@ -2,9 +2,11 @@ import {
   canvasV2AppendOpsInputSchema,
   canvasV2AppendOpsResultSchema,
   canvasV2BoardIdInput,
+  canvasV2ChannelInput,
   canvasV2OpsPageSchema,
   canvasV2OpsSinceInput,
   createCanvasV2BoardInput,
+  fileCanvasV2BoardInput,
   renameCanvasV2BoardInput,
 } from "@posthog/core/canvas-v2/canvasV2Schemas";
 import {
@@ -20,11 +22,19 @@ import { z } from "zod";
 
 export const canvasV2Router = router({
   list: publicProcedure
+    .input(canvasV2ChannelInput)
+    .output(z.array(canvasV2BoardSummarySchema))
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<ICanvasV2BoardsService>(CANVAS_V2_BOARDS_SERVICE)
+        .list(input.channelId),
+    ),
+  listAll: publicProcedure
     .output(z.array(canvasV2BoardSummarySchema))
     .query(({ ctx }) =>
       ctx.container
         .get<ICanvasV2BoardsService>(CANVAS_V2_BOARDS_SERVICE)
-        .list(),
+        .listAll(),
     ),
   get: publicProcedure
     .input(canvasV2BoardIdInput)
@@ -40,7 +50,7 @@ export const canvasV2Router = router({
     .mutation(({ ctx, input }) =>
       ctx.container
         .get<ICanvasV2BoardsService>(CANVAS_V2_BOARDS_SERVICE)
-        .create(input.name),
+        .create(input.channelId, input.name),
     ),
   rename: publicProcedure
     .input(renameCanvasV2BoardInput)
@@ -49,6 +59,14 @@ export const canvasV2Router = router({
       ctx.container
         .get<ICanvasV2BoardsService>(CANVAS_V2_BOARDS_SERVICE)
         .rename(input.id, input.name),
+    ),
+  setChannel: publicProcedure
+    .input(fileCanvasV2BoardInput)
+    .output(canvasV2BoardSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<ICanvasV2BoardsService>(CANVAS_V2_BOARDS_SERVICE)
+        .setChannel(input.id, input.channelId),
     ),
   remove: publicProcedure
     .input(canvasV2BoardIdInput)

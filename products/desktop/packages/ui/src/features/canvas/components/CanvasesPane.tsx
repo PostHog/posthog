@@ -26,12 +26,16 @@ import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { CanvasFilterMenu } from "@posthog/ui/features/canvas/components/CanvasFilterMenu";
 import { buildCanvasSpaceOptions } from "@posthog/ui/features/canvas/components/canvasSpaceOptions";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
+import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { CanvasVersionTag } from "@posthog/ui/features/canvas-v2/components/CanvasVersionTag";
+import { useAllBoardsAsCanvases } from "@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases";
+import { navigateToCanvasesV2 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -47,7 +51,12 @@ export function CanvasesPane({
 }: {
   className?: string;
 }): ReactElement {
-  const { dashboards, isLoading } = useAllCanvases();
+  const { dashboards: canvases, isLoading } = useAllCanvases();
+  const boards = useAllBoardsAsCanvases();
+  const dashboards = useMemo(
+    () => (boards.length === 0 ? canvases : [...canvases, ...boards]),
+    [boards, canvases],
+  );
   const { channels } = useChannels();
   const { data: currentUser } = useMeQuery();
   const canvasListService = useService<CanvasListService>(CANVAS_LIST_SERVICE);
@@ -122,6 +131,10 @@ export function CanvasesPane({
     setSettings(update.settings);
   };
   const open = (canvas: DashboardRecord): void => {
+    if (canvas.canvasVersion === 2) {
+      navigateToCanvasesV2(canvas.id);
+      return;
+    }
     track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
       action_type: "open",
       surface: "canvases_pane",
@@ -155,13 +168,16 @@ export function CanvasesPane({
           searchLabel="Search canvases"
           onClear={() => setQuery("")}
           actions={
-            <CanvasFilterMenu
-              spaceOptions={spaceOptions}
-              creatorOptions={viewModel.creatorOptions}
-              createdByDisabled={viewModel.personalSpaceSelected}
-              settings={viewModel.settings}
-              onChange={changeSettings}
-            />
+            <>
+              <NewCanvasMenu channelId={undefined} compact />
+              <CanvasFilterMenu
+                spaceOptions={spaceOptions}
+                creatorOptions={viewModel.creatorOptions}
+                createdByDisabled={viewModel.personalSpaceSelected}
+                settings={viewModel.settings}
+                onChange={changeSettings}
+              />
+            </>
           }
         />
         <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto">
@@ -210,8 +226,11 @@ export function CanvasesPane({
                       >
                         {iconForTemplate(canvas.templateId, { size: 14 })}
                         <span className="min-w-0">
-                          <span className="block truncate text-[13px]">
-                            {canvas.name}
+                          <span className="flex min-w-0 items-center gap-1.5 text-[13px]">
+                            <span className="truncate">{canvas.name}</span>
+                            {canvas.canvasVersion === 2 ? (
+                              <CanvasVersionTag />
+                            ) : null}
                           </span>
                           <span
                             className="block truncate text-muted-foreground text-xxs"

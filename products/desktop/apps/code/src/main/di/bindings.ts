@@ -116,6 +116,10 @@ import type { APP_LIFECYCLE_SERVICE } from "@posthog/platform/app-lifecycle";
 import type { APP_META_SERVICE } from "@posthog/platform/app-meta";
 import type { APP_METRICS_SERVICE } from "@posthog/platform/app-metrics";
 import type { BUNDLED_RESOURCES_SERVICE } from "@posthog/platform/bundled-resources";
+import type {
+  CANVAS_BOARD_FRAME_HOST,
+  CanvasBoardFrameHost,
+} from "@posthog/platform/canvas-board-frame";
 import type { CLIPBOARD_SERVICE } from "@posthog/platform/clipboard";
 import type { CONTEXT_MENU_SERVICE } from "@posthog/platform/context-menu";
 import type { CRYPTO_SERVICE } from "@posthog/platform/crypto";
@@ -324,6 +328,7 @@ import type {
 
 export interface MainBindings {
   // Platform adapters
+  [CANVAS_BOARD_FRAME_HOST]: CanvasBoardFrameHost;
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;
   [APP_META_SERVICE]: ElectronAppMeta;

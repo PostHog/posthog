@@ -59,6 +59,7 @@ const config: Configuration = {
   extraResources: [
     { from: "build/app-icon.png", to: "app-icon.png" },
     { from: "build/Assets.car", to: "Assets.car" },
+    { from: "resources/canvas-modules", to: "canvas-modules" },
   ],
 
   protocols: [

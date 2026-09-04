@@ -13,7 +13,6 @@ export type NavRailPane =
   | "spaces"
   | "activity"
   | "canvases"
-  | "canvases-v2"
   | "inbox"
   | "command-center"
   | "loops"
@@ -32,7 +31,6 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   spaces: "/spaces",
   activity: "/activity",
   canvases: "/canvases",
-  "canvases-v2": "/canvases-v2",
   inbox: "/inbox",
   "command-center": "/command-center",
   loops: "/loops",
@@ -46,7 +44,6 @@ const CLAIMED: readonly NavRailPane[] = [
   "home",
   "activity",
   "canvases",
-  "canvases-v2",
   "inbox",
   "command-center",
   "loops",
@@ -54,7 +51,15 @@ const CLAIMED: readonly NavRailPane[] = [
   "feeds",
 ];
 
+const CANVASES_V2_ROOT = "/canvases-v2";
+
 export function railPaneForPath(fullPath: string): NavRailPane {
+  if (
+    fullPath === CANVASES_V2_ROOT ||
+    fullPath.startsWith(`${CANVASES_V2_ROOT}/`)
+  ) {
+    return "canvases";
+  }
   for (const pane of CLAIMED) {
     const root = RAIL_PANE_ROOT[pane];
     if (fullPath === root) return pane;

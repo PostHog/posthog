@@ -1,95 +1,198 @@
-// One number, counted with HogQL over the shared date range. Change LABEL and
-// EVENT for a different metric.
-import { ph, useSharedState } from "@posthog/canvas-sdk";
+// One number over the shared date range. The settings button opens the event,
+// the count, and the label, so a person changes what this number shows without
+// a code change. The settings are shared with everybody on the board.
+import {
+  hogqlString,
+  useDateRange,
+  useEventNames,
+  useFragmentSettings,
+  useHogQL,
+} from "@posthog/canvas-sdk";
 import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Heading,
+  Field,
+  FieldLabel,
+  Input,
   SkeletonText,
+  Switch,
 } from "@posthog/quill";
-import { useEffect, useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
 
-const LABEL = "Pageviews";
-const EVENT = "$pageview";
-const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
-const UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+const DEFAULTS = {
+  label: "Pageviews",
+  event: "$pageview",
+  measure: "events",
+  compare: true,
+};
 
-// Turns a PostHog relative date such as "-7d" into a HogQL time bound.
-function sinceClause(range) {
-  const match = /^-(\d+)([hdwm])$/.exec(range?.date_from ?? "-7d");
-  if (!match) {
-    return "now() - INTERVAL 7 DAY";
-  }
-  return `now() - INTERVAL ${Number(match[1])} ${UNITS[match[2]] ?? "DAY"}`;
+// A plain select opens through the browser, so it lands in the right place
+// even when the board is panned or zoomed.
+const SELECT_CLASS =
+  "w-full rounded-(--radius-2) border border-border bg-card px-2 py-1 text-[12px] text-foreground outline-none";
+
+const MEASURES = [
+  { value: "events", label: "Events" },
+  { value: "users", label: "Unique users" },
+];
+
+function countExpression(measure) {
+  return measure === "users" ? "count(DISTINCT distinct_id)" : "count()";
 }
 
-export default function Kpi({ label = LABEL, event = EVENT }) {
-  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
-  const [state, setState] = useState({
-    loading: true,
-    error: null,
-    value: null,
-  });
-  const [nonce, setNonce] = useState(0);
-  const since = sinceClause(range);
+function firstNumber(rows) {
+  const cell = rows[0] ? rows[0][0] : null;
+  return cell === null || cell === undefined ? null : Number(cell);
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ loading: true, error: null, value: null });
-    ph.query(
-      `SELECT count() FROM events WHERE event = '${event}' AND timestamp >= ${since} AND timestamp < now()`,
-    )
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        const rows = result?.results ?? [];
-        const cell = rows[0]?.[0];
-        setState({ loading: false, error: null, value: Number(cell ?? 0) });
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        setState({
-          loading: false,
-          error: String(error?.message ?? error),
-          value: null,
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [event, since, nonce]);
+export default function Kpi({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, DEFAULTS);
+  const [open, setOpen] = useState(false);
+  const range = useDateRange(fragmentId);
+  const events = useEventNames();
+  const count = countExpression(settings.measure);
+  const eventLiteral = hogqlString(settings.event);
+  const current = useHogQL(
+    "SELECT " +
+      count +
+      " FROM events WHERE event = " +
+      eventLiteral +
+      " AND timestamp >= " +
+      range.since +
+      " AND timestamp < now()",
+  );
+  const previous = useHogQL(
+    settings.compare
+      ? "SELECT " +
+          count +
+          " FROM events WHERE event = " +
+          eventLiteral +
+          " AND timestamp >= " +
+          range.previousSince +
+          " AND timestamp < " +
+          range.since
+      : null,
+  );
+  const value = firstNumber(current.rows);
+  const before = firstNumber(previous.rows);
+  const change =
+    settings.compare && value !== null && before !== null && before > 0
+      ? ((value - before) / before) * 100
+      : null;
 
   return (
-    <Card size="sm" className="h-full">
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {state.loading ? <SkeletonText lines={1} className="text-3xl" /> : null}
-        {state.error ? (
-          <div className="flex flex-col items-start gap-2">
-            <p className="text-sm text-destructive-foreground">
-              This number did not load. {state.error}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setNonce((value) => value + 1)}
+    <div className="group/kpi flex h-full flex-col justify-between gap-2 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {settings.label}
+        </p>
+        <button
+          type="button"
+          aria-label="Settings"
+          className={
+            open
+              ? "shrink-0 rounded p-1 text-foreground"
+              : "shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/kpi:opacity-100"
+          }
+          onClick={() => setOpen((isOpen) => !isOpen)}
+        >
+          <SlidersHorizontal size={13} />
+        </button>
+      </div>
+
+      {open ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
+          <Field>
+            <FieldLabel>Event</FieldLabel>
+            <select
+              aria-label="Event"
+              value={settings.event}
+              onChange={(change) => setSettings({ event: change.target.value })}
+              className={SELECT_CLASS}
             >
-              Try again
-            </Button>
-          </div>
-        ) : null}
-        {!state.loading && !state.error ? (
-          <Heading size="2xl">{Number(state.value).toLocaleString()}</Heading>
-        ) : null}
-      </CardContent>
-    </Card>
+              {events.names.indexOf(settings.event) === -1 ? (
+                <option value={settings.event}>{settings.event}</option>
+              ) : null}
+              {events.names.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field>
+            <FieldLabel>Count</FieldLabel>
+            <select
+              aria-label="Count"
+              value={settings.measure}
+              onChange={(change) =>
+                setSettings({ measure: change.target.value })
+              }
+              className={SELECT_CLASS}
+            >
+              {MEASURES.map((measure) => (
+                <option key={measure.value} value={measure.value}>
+                  {measure.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field>
+            <FieldLabel>Label</FieldLabel>
+            <Input
+              value={settings.label}
+              className="h-7 text-[13px]"
+              onChange={(change) => setSettings({ label: change.target.value })}
+            />
+          </Field>
+          <label className="flex items-center justify-between gap-2 text-[13px]">
+            Compare with the range before
+            <Switch
+              checked={Boolean(settings.compare)}
+              onCheckedChange={(next) => setSettings({ compare: Boolean(next) })}
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col justify-center gap-1">
+          {current.error ? (
+            <div className="flex flex-col items-start gap-2">
+              <p className="line-clamp-2 text-xs text-destructive">
+                This number did not load.
+              </p>
+              <Button variant="outline" size="sm" onClick={current.retry}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
+          {!current.error && current.loading ? (
+            <SkeletonText lines={1} className="w-2/3 text-4xl" />
+          ) : null}
+          {!current.error && !current.loading ? (
+            <div className="flex items-baseline gap-2">
+              <span className="truncate font-semibold text-4xl leading-none tracking-tight tabular-nums">
+                {Number(value ?? 0).toLocaleString()}
+              </span>
+              {change === null ? null : (
+                <span
+                  className={
+                    change >= 0
+                      ? "shrink-0 font-medium text-[12px] text-success-foreground tabular-nums"
+                      : "shrink-0 font-medium text-[12px] text-destructive tabular-nums"
+                  }
+                >
+                  {change >= 0 ? "+" : ""}
+                  {change.toFixed(0)}%
+                </span>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <p className="truncate text-[11px] text-muted-foreground">
+        {range.label}
+      </p>
+    </div>
   );
 }

@@ -1,15 +1,24 @@
-// Bar chart of the top pages, from a HogQL group by over the shared date
-// range. Change EVENT, DIMENSION, and LIMIT for a different breakdown.
-import { ph, useSharedState } from "@posthog/canvas-sdk";
+// The top values of one property over the shared date range. The settings
+// button opens the event, the property, and how many bars to draw, so a person
+// changes what this chart shows without a code change. The settings are shared
+// with everybody on the board.
+import {
+  formatCompact,
+  hogqlString,
+  useDateRange,
+  useEventNames,
+  useFragmentSettings,
+  useHogQL,
+} from "@posthog/canvas-sdk";
 import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
+  Field,
+  FieldLabel,
+  Input,
   Skeleton,
 } from "@posthog/quill";
-import { useEffect, useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -20,117 +29,237 @@ import {
   YAxis,
 } from "recharts";
 
-const LABEL = "Top pages";
-const EVENT = "$pageview";
-const DIMENSION = "properties.$pathname";
-const LIMIT = 10;
-const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
-const UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+const DEFAULTS = {
+  label: "Top pages",
+  event: "$pageview",
+  property: "$pathname",
+  limit: 8,
+};
 
-// Turns a PostHog relative date such as "-7d" into a HogQL time bound.
-function sinceClause(range) {
-  const match = /^-(\d+)([hdwm])$/.exec(range?.date_from ?? "-7d");
-  if (!match) {
-    return "now() - INTERVAL 7 DAY";
+// The properties people break down by most. Any other property name can be
+// typed into the field below the list.
+const COMMON_PROPERTIES = [
+  "$pathname",
+  "$current_url",
+  "$browser",
+  "$os",
+  "$device_type",
+  "$referring_domain",
+  "$geoip_country_name",
+];
+
+// A plain select opens through the browser, so it lands in the right place
+// even when the board is panned or zoomed.
+const SELECT_CLASS =
+  "w-full rounded-(--radius-2) border border-border bg-card px-2 py-1 text-[12px] text-foreground outline-none";
+
+const LIMITS = [5, 8, 10, 20];
+
+// Long values must stay readable at the width the axis gets. The tooltip still
+// carries the full value.
+function shorten(name) {
+  if (name.length <= 17) {
+    return name;
   }
-  return `now() - INTERVAL ${Number(match[1])} ${UNITS[match[2]] ?? "DAY"}`;
+  return name.slice(0, 16) + "…";
 }
 
-export default function BreakdownBarChart({ label = LABEL }) {
-  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
-  const [state, setState] = useState({ loading: true, error: null, rows: [] });
-  const [nonce, setNonce] = useState(0);
-  const since = sinceClause(range);
+// The tooltip is drawn here, so it reads as one label and one number.
+function ChartTooltip({ active, payload, label, unit }) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+  return (
+    <div className="rounded-(--radius-2) border border-border bg-popover px-2.5 py-1.5 shadow-md">
+      <p className="max-w-56 truncate text-[11px] text-muted-foreground">
+        {label}
+      </p>
+      <p className="font-medium text-[13px] tabular-nums">
+        {Number(payload[0].value).toLocaleString()} {unit}
+      </p>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ loading: true, error: null, rows: [] });
-    ph.query(
-      `SELECT ${DIMENSION} AS name, count() AS value
-       FROM events
-       WHERE event = '${EVENT}' AND timestamp >= ${since} AND timestamp < now()
-       GROUP BY name
-       ORDER BY value DESC
-       LIMIT ${LIMIT}`,
-    )
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        const rows = (result?.results ?? []).map((row) => ({
-          name: String(row?.[0] ?? "unknown"),
-          value: Number(row?.[1] ?? 0),
-        }));
-        setState({ loading: false, error: null, rows });
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        setState({
-          loading: false,
-          error: String(error?.message ?? error),
-          rows: [],
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [since, nonce]);
-
-  const empty = !state.loading && !state.error && state.rows.length === 0;
+export default function BreakdownBarChart({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, DEFAULTS);
+  const [open, setOpen] = useState(false);
+  const range = useDateRange(fragmentId);
+  const events = useEventNames();
+  const limit = Number(settings.limit) || DEFAULTS.limit;
+  const result = useHogQL(
+    "SELECT properties[" +
+      hogqlString(settings.property) +
+      "] AS name, count() AS value FROM events WHERE event = " +
+      hogqlString(settings.event) +
+      " AND timestamp >= " +
+      range.since +
+      " AND timestamp < now() GROUP BY name ORDER BY value DESC LIMIT " +
+      limit,
+  );
+  const rows = result.rows.map((row) => ({
+    name: String(row[0] ?? "") || "(not set)",
+    value: Number(row[1] ?? 0),
+  }));
+  const empty = !result.loading && !result.error && rows.length === 0;
 
   return (
-    <Card size="sm" className="flex h-full flex-col">
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="min-h-0 flex-1">
-        {state.loading ? <Skeleton className="h-full w-full" /> : null}
-        {state.error ? (
-          <div className="flex flex-col items-start gap-2">
-            <p className="text-sm text-destructive-foreground">
-              This chart did not load. {state.error}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setNonce((value) => value + 1)}
+    <div className="group/bars flex h-full flex-col p-4">
+      <div className="flex items-baseline justify-between gap-3 pb-3">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {settings.label}
+        </p>
+        <button
+          type="button"
+          aria-label="Settings"
+          className={
+            open
+              ? "shrink-0 rounded p-1 text-foreground"
+              : "shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/bars:opacity-100"
+          }
+          onClick={() => setOpen((isOpen) => !isOpen)}
+        >
+          <SlidersHorizontal size={13} />
+        </button>
+      </div>
+
+      {open ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
+          <Field>
+            <FieldLabel>Event</FieldLabel>
+            <select
+              aria-label="Event"
+              value={settings.event}
+              onChange={(change) => setSettings({ event: change.target.value })}
+              className={SELECT_CLASS}
             >
-              Try again
-            </Button>
+              {events.names.indexOf(settings.event) === -1 ? (
+                <option value={settings.event}>
+                  {settings.event}
+                </option>
+              ) : null}
+              {events.names.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex gap-2">
+            <Field className="min-w-0 flex-1">
+              <FieldLabel>Break down by</FieldLabel>
+              <Input
+                value={settings.property}
+                className="h-7 text-[13px]"
+                onChange={(change) =>
+                  setSettings({ property: change.target.value })
+                }
+              />
+            </Field>
+            <Field className="w-24 shrink-0">
+              <FieldLabel>Bars</FieldLabel>
+              <select
+                aria-label="Bars"
+                value={String(limit)}
+                onChange={(change) => setSettings({ limit: Number(change.target.value) })}
+                className={SELECT_CLASS}
+              >
+                {LIMITS.map((item) => (
+                  <option key={item} value={String(item)}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
-        ) : null}
-        {empty ? (
-          <p className="text-sm text-muted-foreground">
-            No events in this date range.
-          </p>
-        ) : null}
-        {!state.loading && !state.error && state.rows.length > 0 ? (
-          <div className="h-full w-full">
-            <ResponsiveContainer>
-              <BarChart data={state.rows}>
-                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+          <div className="flex flex-wrap gap-1">
+            {COMMON_PROPERTIES.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className={
+                  name === settings.property
+                    ? "rounded-full bg-primary px-2 py-0.5 text-[11px] text-primary-foreground"
+                    : "rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                }
+                onClick={() => setSettings({ property: name })}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <Field>
+            <FieldLabel>Label</FieldLabel>
+            <Input
+              value={settings.label}
+              className="h-7 text-[13px]"
+              onChange={(change) => setSettings({ label: change.target.value })}
+            />
+          </Field>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          {result.loading ? <Skeleton className="h-full w-full" /> : null}
+          {result.error ? (
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-xs text-destructive">This chart did not load.</p>
+              <Button variant="outline" size="sm" onClick={result.retry}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
+          {empty ? (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-[13px] text-muted-foreground">
+                No events in this date range.
+              </p>
+            </div>
+          ) : null}
+          {!result.loading && !result.error && rows.length > 0 ? (
+            <ResponsiveContainer height="100%" width="100%">
+              <BarChart
+                data={rows}
+                layout="vertical"
+                barCategoryGap="28%"
+                margin={{ top: 0, right: 12, bottom: 0, left: 0 }}
+              >
+                <CartesianGrid
+                  horizontal={false}
+                  stroke="var(--border)"
+                  strokeDasharray="2 4"
+                />
                 <XAxis
-                  dataKey="name"
-                  stroke="var(--muted-foreground)"
-                  tick={{ fontSize: 11 }}
-                  interval={0}
-                  angle={-30}
-                  textAnchor="end"
-                  height={60}
+                  type="number"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  tickFormatter={formatCompact}
                 />
                 <YAxis
-                  stroke="var(--muted-foreground)"
-                  tick={{ fontSize: 11 }}
+                  type="category"
+                  dataKey="name"
+                  width={112}
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={8}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  tickFormatter={shorten}
                 />
-                <Tooltip />
-                <Bar dataKey="value" fill="var(--primary)" />
+                <Tooltip
+                  cursor={{ fill: "var(--muted)", opacity: 0.4 }}
+                  content={<ChartTooltip unit="events" />}
+                />
+                <Bar
+                  dataKey="value"
+                  fill="var(--primary)"
+                  radius={[0, 4, 4, 0]}
+                  maxBarSize={18}
+                />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+          ) : null}
+        </div>
+      )}
+    </div>
   );
 }

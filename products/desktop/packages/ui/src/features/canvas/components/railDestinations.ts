@@ -7,7 +7,6 @@ import {
   Lightning,
   ListMagnifyingGlassIcon,
   ShapesIcon,
-  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
@@ -32,7 +31,6 @@ import {
   getCurrentMatches,
   navigateToActivity,
   navigateToCanvases,
-  navigateToCanvasesV2,
   navigateToChannel,
   navigateToCommandCenter,
   navigateToFeeds,
@@ -74,7 +72,6 @@ export interface RailDestination {
 
 export interface RailFlags {
   home: boolean;
-  canvasesV2: boolean;
   inbox: boolean;
   loops: boolean;
   context: boolean;
@@ -195,15 +192,6 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: ShapesIcon,
     href: "/canvases",
     onPick: () => navigateToCanvases(),
-  },
-  {
-    pane: "canvases-v2",
-    label: "Canvases v2",
-    analyticsId: "canvases_v2",
-    Icon: SquaresFourIcon,
-    href: "/canvases-v2",
-    onPick: () => navigateToCanvasesV2(),
-    enabled: (flags) => flags.canvasesV2,
   },
   {
     pane: "inbox",

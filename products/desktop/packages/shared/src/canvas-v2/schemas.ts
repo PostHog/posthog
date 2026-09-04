@@ -29,13 +29,32 @@ export const canvasV2FragmentSchema = z.object({
   z: z.number().int().default(0),
   code: z.string().min(1).max(200_000),
   codeVersion: z.number().int().default(1),
+  surface: z.enum(["card", "plain"]).optional(),
+  /** A frame that shows one fragment at a time hides the rest. */
+  hidden: z.boolean().optional(),
 });
 export type CanvasV2Fragment = z.infer<typeof canvasV2FragmentSchema>;
+
+const RESERVED_STATE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+export const CANVAS_V2_STATE_KEY_MAX_CHARS = 128;
+
+export const canvasV2StateKeySchema = z
+  .string()
+  .min(1)
+  .max(CANVAS_V2_STATE_KEY_MAX_CHARS)
+  .refine((key) => !RESERVED_STATE_KEYS.has(key), {
+    message: "That state key is reserved",
+  });
+
+export function isReservedStateKey(key: string): boolean {
+  return RESERVED_STATE_KEYS.has(key);
+}
 
 export const canvasV2SnapshotSchema = z.object({
   schemaVersion: z.literal(1),
   fragments: z.array(canvasV2FragmentSchema).default([]),
-  state: z.record(z.string().max(128), z.unknown()).default({}),
+  state: z.record(canvasV2StateKeySchema, z.unknown()).default({}),
 });
 export type CanvasV2Snapshot = z.infer<typeof canvasV2SnapshotSchema>;
 
@@ -58,12 +77,12 @@ export const canvasV2OpSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bring_to_front"), id: z.string() }),
   z.object({
     type: z.literal("set_state"),
-    key: z.string().max(128),
+    key: canvasV2StateKeySchema,
     value: z.unknown(),
   }),
   z.object({
     type: z.literal("edit_field"),
-    key: z.string().max(128),
+    key: canvasV2StateKeySchema,
     kind: canvasV2FieldKindSchema,
     insert: z
       .array(
@@ -122,6 +141,7 @@ export type CanvasV2LogEntry = z.infer<typeof canvasV2LogEntrySchema>;
 export const canvasV2BoardSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(120),
+  channelId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
   createdBy: canvasV2ActorSchema.optional(),
@@ -135,10 +155,21 @@ export type CanvasV2Board = z.infer<typeof canvasV2BoardSchema>;
 export const canvasV2BoardSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  channelId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
   fragmentCount: z.number().int(),
   headSeq: z.number().int(),
+  preview: z
+    .array(
+      z.object({
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number(),
+      }),
+    )
+    .default([]),
 });
 export type CanvasV2BoardSummary = z.infer<typeof canvasV2BoardSummarySchema>;
 

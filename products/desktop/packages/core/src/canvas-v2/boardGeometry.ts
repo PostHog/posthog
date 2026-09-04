@@ -1,11 +1,5 @@
 import type { CanvasV2Fragment, CanvasV2Viewport } from "@posthog/shared";
 
-/**
- * Board math. World units are CSS px at zoom 1, origin top left. Screen points
- * are client coordinates, the space pointer events report in, so the pane rect
- * from `getBoundingClientRect()` converts between the two.
- */
-
 export type ResizeHandle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
 export const RESIZE_HANDLES: readonly ResizeHandle[] = [
@@ -186,6 +180,51 @@ export function contentBounds(
     maxY = Math.max(maxY, fragment.y + fragment.h);
   }
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+export const BOARD_MARGIN = 800;
+export const BOARD_MIN_EXTENT = 2400;
+
+export function boardBounds(fragments: readonly BoardBox[]): BoardRect {
+  const content = contentBounds(fragments);
+  if (!content) {
+    const half = BOARD_MIN_EXTENT / 2;
+    return { x: -half, y: -half, w: BOARD_MIN_EXTENT, h: BOARD_MIN_EXTENT };
+  }
+  const w = Math.max(content.w + BOARD_MARGIN * 2, BOARD_MIN_EXTENT);
+  const h = Math.max(content.h + BOARD_MARGIN * 2, BOARD_MIN_EXTENT);
+  return {
+    x: content.x + content.w / 2 - w / 2,
+    y: content.y + content.h / 2 - h / 2,
+    w,
+    h,
+  };
+}
+
+export function clampViewport(
+  viewport: CanvasV2Viewport,
+  pane: BoardSize,
+  bounds: BoardRect,
+): CanvasV2Viewport {
+  const zoom = clampZoom(viewport.zoom);
+  return {
+    zoom,
+    x: clampAxis(viewport.x, pane.w, bounds.x, bounds.w, zoom),
+    y: clampAxis(viewport.y, pane.h, bounds.y, bounds.h, zoom),
+  };
+}
+
+function clampAxis(
+  offset: number,
+  paneExtent: number,
+  boundsStart: number,
+  boundsExtent: number,
+  zoom: number,
+): number {
+  const drawn = boundsExtent * zoom;
+  const start = -boundsStart * zoom;
+  if (drawn <= paneExtent) return start - (drawn - paneExtent) / 2;
+  return Math.min(start, Math.max(start - (drawn - paneExtent), offset));
 }
 
 /** Moves the edges the handle owns and keeps the opposite edges fixed. */

@@ -22,6 +22,7 @@ import {
   type ChannelPageKey,
   channelPageLabel,
 } from "@posthog/ui/features/canvas/components/channelPages";
+import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
@@ -237,7 +238,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             actions={actions}
             activeKey={activeKey}
             surface="space"
-            headerLeft={<ChannelTabs tab={tab} onTabChange={setTab} />}
+            headerLeft={
+              <div className="flex w-full items-center justify-between gap-1">
+                <ChannelTabs tab={tab} onTabChange={setTab} />
+                {tab === "canvas" ? (
+                  <NewCanvasMenu channelId={channelId} compact />
+                ) : null}
+              </div>
+            }
             hasMultipleAuthors={!isPersonalChannel}
             hasRuns={tab === "task"}
             cap={RECENTS_CAP}

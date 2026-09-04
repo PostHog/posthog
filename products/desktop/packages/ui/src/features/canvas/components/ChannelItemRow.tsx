@@ -32,6 +32,7 @@ import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useCha
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { CanvasVersionTag } from "@posthog/ui/features/canvas-v2/components/CanvasVersionTag";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
@@ -297,7 +298,12 @@ export function ChannelItemRowView({
       depth={0}
       icon={<ChannelItemDot item={item} status={status} />}
       // A non-string label opts out of SidebarItem's truncation tooltip.
-      label={<span>{item.title}</span>}
+      label={
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{item.title}</span>
+          {item.canvasVersion === 2 ? <CanvasVersionTag /> : null}
+        </span>
+      }
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}

@@ -1,135 +1,289 @@
-// Line chart of one event per day, from a HogQL group by day over the shared
-// date range. Change EVENT and LABEL for a different series.
-import { ph, useSharedState } from "@posthog/canvas-sdk";
+// A line of one event over the shared date range. The settings button opens the
+// event, the count, and the step, so a person changes what this chart shows
+// without a code change. The settings are shared with everybody on the board.
+import {
+  formatCompact,
+  hogqlString,
+  useDateRange,
+  useEventNames,
+  useFragmentSettings,
+  useHogQL,
+} from "@posthog/canvas-sdk";
 import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
+  Field,
+  FieldLabel,
+  Input,
   Skeleton,
 } from "@posthog/quill";
-import { useEffect, useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
-const LABEL = "Pageviews per day";
-const EVENT = "$pageview";
-const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
-const UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+const DEFAULTS = {
+  label: "Pageviews per day",
+  event: "$pageview",
+  measure: "events",
+  step: "day",
+};
 
-// Turns a PostHog relative date such as "-7d" into a HogQL time bound.
-function sinceClause(range) {
-  const match = /^-(\d+)([hdwm])$/.exec(range?.date_from ?? "-7d");
-  if (!match) {
-    return "now() - INTERVAL 7 DAY";
+// A plain select opens through the browser, so it lands in the right place
+// even when the board is panned or zoomed.
+const SELECT_CLASS =
+  "w-full rounded-(--radius-2) border border-border bg-card px-2 py-1 text-[12px] text-foreground outline-none";
+
+const MEASURES = [
+  { value: "events", label: "Events" },
+  { value: "users", label: "Unique users" },
+];
+
+const STEPS = [
+  { value: "day", label: "By day", bucket: "toStartOfDay" },
+  { value: "week", label: "By week", bucket: "toStartOfWeek" },
+];
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+// "2026-07-31" reads as "31 Jul" on an axis that has little room.
+function dayLabel(day) {
+  const parts = String(day).split("-");
+  if (parts.length !== 3) {
+    return String(day);
   }
-  return `now() - INTERVAL ${Number(match[1])} ${UNITS[match[2]] ?? "DAY"}`;
+  return (Number(parts[2]) + " " + (MONTHS[Number(parts[1]) - 1] ?? "")).trim();
 }
 
-export default function TrendChart({ label = LABEL, event = EVENT }) {
-  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
-  const [state, setState] = useState({ loading: true, error: null, rows: [] });
-  const [nonce, setNonce] = useState(0);
-  const since = sinceClause(range);
+// The tooltip is drawn here, so it reads as one label and one number.
+function ChartTooltip({ active, payload, label, unit }) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+  return (
+    <div className="rounded-(--radius-2) border border-border bg-popover px-2.5 py-1.5 shadow-md">
+      <p className="max-w-56 truncate text-[11px] text-muted-foreground">
+        {dayLabel(label)}
+      </p>
+      <p className="font-medium text-[13px] tabular-nums">
+        {Number(payload[0].value).toLocaleString()} {unit}
+      </p>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ loading: true, error: null, rows: [] });
-    ph.query(
-      `SELECT toStartOfDay(timestamp) AS day, count() AS value
-       FROM events
-       WHERE event = '${event}' AND timestamp >= ${since} AND timestamp < now()
-       GROUP BY day
-       ORDER BY day`,
-    )
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        const rows = (result?.results ?? []).map((row) => ({
-          day: String(row?.[0] ?? "").slice(0, 10),
-          value: Number(row?.[1] ?? 0),
-        }));
-        setState({ loading: false, error: null, rows });
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        setState({
-          loading: false,
-          error: String(error?.message ?? error),
-          rows: [],
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [event, since, nonce]);
-
-  const empty = !state.loading && !state.error && state.rows.length === 0;
+export default function TrendChart({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, DEFAULTS);
+  const [open, setOpen] = useState(false);
+  const range = useDateRange(fragmentId);
+  const events = useEventNames();
+  const step = STEPS.find((item) => item.value === settings.step) ?? STEPS[0];
+  const count =
+    settings.measure === "users" ? "count(DISTINCT distinct_id)" : "count()";
+  const result = useHogQL(
+    "SELECT " +
+      step.bucket +
+      "(timestamp) AS day, " +
+      count +
+      " AS value FROM events WHERE event = " +
+      hogqlString(settings.event) +
+      " AND timestamp >= " +
+      range.since +
+      " AND timestamp < now() GROUP BY day ORDER BY day",
+  );
+  const rows = result.rows.map((row) => ({
+    day: String(row[0] ?? "").slice(0, 10),
+    value: Number(row[1] ?? 0),
+  }));
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  const unit = settings.measure === "users" ? "people" : "events";
+  const empty = !result.loading && !result.error && rows.length === 0;
 
   return (
-    <Card size="sm" className="flex h-full flex-col">
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="min-h-0 flex-1">
-        {state.loading ? <Skeleton className="h-full w-full" /> : null}
-        {state.error ? (
-          <div className="flex flex-col items-start gap-2">
-            <p className="text-sm text-destructive-foreground">
-              This chart did not load. {state.error}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setNonce((value) => value + 1)}
+    <div className="group/trend flex h-full flex-col p-4">
+      <div className="flex items-baseline justify-between gap-3 pb-3">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {settings.label}
+        </p>
+        <div className="flex shrink-0 items-center gap-2">
+          {!open && !result.loading && !result.error && rows.length > 0 ? (
+            <span className="font-medium text-[13px] tabular-nums">
+              {total.toLocaleString()}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Settings"
+            className={
+              open
+                ? "rounded p-1 text-foreground"
+                : "rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/trend:opacity-100"
+            }
+            onClick={() => setOpen((isOpen) => !isOpen)}
+          >
+            <SlidersHorizontal size={13} />
+          </button>
+        </div>
+      </div>
+
+      {open ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
+          <Field>
+            <FieldLabel>Event</FieldLabel>
+            <select
+              aria-label="Event"
+              value={settings.event}
+              onChange={(change) => setSettings({ event: change.target.value })}
+              className={SELECT_CLASS}
             >
-              Try again
-            </Button>
+              {events.names.indexOf(settings.event) === -1 ? (
+                <option value={settings.event}>
+                  {settings.event}
+                </option>
+              ) : null}
+              {events.names.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex gap-2">
+            <Field className="flex-1">
+              <FieldLabel>Count</FieldLabel>
+              <select
+                aria-label="Count"
+                value={settings.measure}
+                onChange={(change) => setSettings({ measure: change.target.value })}
+                className={SELECT_CLASS}
+              >
+                {MEASURES.map((measure) => (
+                  <option key={measure.value} value={measure.value}>
+                    {measure.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field className="flex-1">
+              <FieldLabel>Step</FieldLabel>
+              <select
+                aria-label="Step"
+                value={settings.step}
+                onChange={(change) => setSettings({ step: change.target.value })}
+                className={SELECT_CLASS}
+              >
+                {STEPS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
-        ) : null}
-        {empty ? (
-          <p className="text-sm text-muted-foreground">
-            No events in this date range.
-          </p>
-        ) : null}
-        {!state.loading && !state.error && state.rows.length > 0 ? (
-          <div className="h-full w-full">
-            <ResponsiveContainer>
-              <LineChart data={state.rows}>
-                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+          <Field>
+            <FieldLabel>Label</FieldLabel>
+            <Input
+              value={settings.label}
+              className="h-7 text-[13px]"
+              onChange={(change) => setSettings({ label: change.target.value })}
+            />
+          </Field>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          {result.loading ? <Skeleton className="h-full w-full" /> : null}
+          {result.error ? (
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-xs text-destructive">This chart did not load.</p>
+              <Button variant="outline" size="sm" onClick={result.retry}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
+          {empty ? (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-[13px] text-muted-foreground">
+                No events in this date range.
+              </p>
+            </div>
+          ) : null}
+          {!result.loading && !result.error && rows.length > 0 ? (
+            <ResponsiveContainer height="100%" width="100%">
+              <AreaChart
+                data={rows}
+                margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+              >
+                <defs>
+                  <linearGradient id={"trend-fill-" + fragmentId} x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      stopColor="var(--primary)"
+                      stopOpacity={0.28}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor="var(--primary)"
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  vertical={false}
+                  stroke="var(--border)"
+                  strokeDasharray="2 4"
+                />
                 <XAxis
                   dataKey="day"
-                  stroke="var(--muted-foreground)"
-                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={28}
+                  tickMargin={8}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  tickFormatter={dayLabel}
                 />
                 <YAxis
-                  stroke="var(--muted-foreground)"
-                  tick={{ fontSize: 11 }}
+                  width={36}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  tickFormatter={formatCompact}
                 />
-                <Tooltip />
-                <Line
+                <Tooltip
+                  cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
+                  content={<ChartTooltip unit={unit} />}
+                />
+                <Area
                   type="monotone"
                   dataKey="value"
                   stroke="var(--primary)"
                   strokeWidth={2}
-                  dot={false}
+                  fill={"url(#trend-fill-" + fragmentId + ")"}
+                  activeDot={{ r: 3, strokeWidth: 0 }}
                 />
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+          ) : null}
+        </div>
+      )}
+    </div>
   );
 }

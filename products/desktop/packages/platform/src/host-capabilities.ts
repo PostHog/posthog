@@ -11,6 +11,8 @@ export interface HostCapabilities {
    * (connected-GitHub-org) repositories and cloud workspaces.
    */
   readonly localWorkspaces: boolean;
+
+  readonly vendoredCanvasModules: boolean;
 }
 
 export const HOST_CAPABILITIES = Symbol.for(

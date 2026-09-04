@@ -1,11 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import {
+  BOARD_CONTENT_IS_DATA,
+  CANVAS_V2_ALLOWED_IMPORTS,
   CANVAS_V2_FRAGMENT_DEFAULT_HEIGHT,
   CANVAS_V2_FRAGMENT_DEFAULT_WIDTH,
   type CanvasV2CachePayload,
   canvasV2CacheFilePath,
   canvasV2SnapshotSchema,
+  checkFragmentCode,
   formatBoardForAgent,
 } from "@posthog/shared";
 import { z } from "zod";
@@ -34,25 +37,22 @@ export const CANVAS_V2_TOOL_NAMES = [
   CANVAS_GET_STATE_TOOL_NAME,
 ] as const;
 
-const WHITELISTED_PACKAGES = [
-  "react",
-  "react-dom",
-  "react-dom/client",
-  "@posthog/quill",
-  "recharts",
-  "lucide-react",
-  "dayjs",
-  "d3",
-  "three",
-  "framer-motion",
-  "zod",
-  "@tanstack/react-table",
-  "@tanstack/react-virtual",
-  "react-hook-form",
-  "lodash-es",
-  "react-markdown",
-  "papaparse",
-];
+const WHITELISTED_PACKAGES = [...CANVAS_V2_ALLOWED_IMPORTS].filter(
+  (name) => name !== "@posthog/canvas-sdk" && !name.startsWith("react/jsx"),
+);
+
+function fragmentCodeProblem(code: string | undefined): string | null {
+  if (code === undefined) return null;
+  const check = checkFragmentCode(code);
+  if (check.ok) return null;
+  return (
+    "This code was not written to the board: " +
+    check.violations.join("; ") +
+    ". A fragment may import only: " +
+    WHITELISTED_PACKAGES.join(", ") +
+    ", and @posthog/canvas-sdk. It cannot load code any other way."
+  );
+}
 
 const CACHE_UNAVAILABLE_TEXT =
   "The board cache is not available yet. Ask the person to open the board in the desktop app.";
@@ -191,6 +191,10 @@ function text(value: string): LocalToolResult {
   return { content: [{ type: "text", text: value }] };
 }
 
+function boardContent(value: string): LocalToolResult {
+  return text(`${BOARD_CONTENT_IS_DATA}\n\n${value}`);
+}
+
 function errorText(value: string): LocalToolResult {
   return { content: [{ type: "text", text: value }], isError: true };
 }
@@ -244,6 +248,8 @@ export const canvasAddFragmentTool = defineLocalTool({
   alwaysLoad: true,
   isEnabled,
   handler: async (_ctx, args): Promise<LocalToolResult> => {
+    const problem = fragmentCodeProblem(args.code);
+    if (problem) return errorText(problem);
     return text(`Added fragment "${args.id}". Every collaborator sees it now.`);
   },
 });
@@ -261,6 +267,8 @@ export const canvasUpdateFragmentTool = defineLocalTool({
   alwaysLoad: true,
   isEnabled,
   handler: async (_ctx, args): Promise<LocalToolResult> => {
+    const problem = fragmentCodeProblem(args.patch.code);
+    if (problem) return errorText(problem);
     const changed = Object.keys(args.patch);
     const summary = changed.length > 0 ? changed.join(", ") : "nothing";
     return text(
@@ -310,7 +318,9 @@ export const canvasListFragmentsTool = defineLocalTool({
     const cache = await readBoardCache(ctx);
     if (!cache) return errorText(CACHE_UNAVAILABLE_TEXT);
     const header = cache.name ? `Board: ${cache.name}\n` : "";
-    return text(header + formatBoardForAgent(cache.snapshot, cache.headSeq));
+    return boardContent(
+      header + formatBoardForAgent(cache.snapshot, cache.headSeq),
+    );
   },
 });
 
@@ -331,7 +341,7 @@ export const canvasGetFragmentTool = defineLocalTool({
         `No fragment with id "${args.id}" on this board. Call canvas_list_fragments to see the current ids.`,
       );
     }
-    return text(JSON.stringify(fragment, null, 2));
+    return boardContent(JSON.stringify(fragment, null, 2));
   },
 });
 
@@ -347,12 +357,14 @@ export const canvasGetStateTool = defineLocalTool({
     const cache = await readBoardCache(ctx);
     if (!cache) return errorText(CACHE_UNAVAILABLE_TEXT);
     if (args.key === undefined) {
-      return text(JSON.stringify(cache.snapshot.state, null, 2));
+      return boardContent(JSON.stringify(cache.snapshot.state, null, 2));
     }
     if (!(args.key in cache.snapshot.state)) {
       return text(`State key "${args.key}" is not set.`);
     }
-    return text(JSON.stringify(cache.snapshot.state[args.key], null, 2));
+    return boardContent(
+      JSON.stringify(cache.snapshot.state[args.key], null, 2),
+    );
   },
 });
 

@@ -21,6 +21,8 @@ export interface TaskCreationInput {
   // For creating new task (required if no taskId)
   content?: string;
   taskDescription?: string;
+  /** The product that started the run. Defaults to the person. */
+  originProduct?: string;
   filePaths?: string[];
   repoPath?: string;
   repository?: string | null;

@@ -6,6 +6,10 @@ import { createLazyWorkspaceClient } from "@posthog/workspace-client/client";
 import type { FileWatcherEvent } from "@posthog/workspace-client/types";
 import { app, BrowserWindow, dialog, session } from "electron";
 import log from "electron-log/main";
+import { prepareCanvasBoardSession } from "./canvas-board-session";
+import { installCanvasFrameEgressGuard } from "./canvas-frame-egress";
+import { registerCanvasModulesProtocol } from "./protocols/canvas-modules";
+import { canvasModulesResourcesDir } from "./protocols/canvas-modules-dir";
 import "./utils/logger";
 import "./services/index.js";
 import type { AuthService } from "@posthog/core/auth/auth";
@@ -376,7 +380,15 @@ async function boot(): Promise<void> {
   );
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
+  installCanvasFrameEgressGuard(
+    session.fromPartition("persist:main").webRequest,
+  );
   registerMcpSandboxProtocol();
+  prepareCanvasBoardSession();
+  registerCanvasModulesProtocol(
+    session.fromPartition("persist:main").protocol,
+    canvasModulesResourcesDir(),
+  );
   registerDiskCacheProtocol(container.get(DISK_CACHE_SERVICE));
   installRendererNetworkLogging(
     session.fromPartition("persist:main").webRequest,

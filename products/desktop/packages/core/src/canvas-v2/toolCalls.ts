@@ -4,6 +4,7 @@ import {
   type CanvasV2FragmentPatch,
   type CanvasV2Op,
   type CanvasV2Snapshot,
+  checkFragmentCode,
   findFreeSpot,
   maxZ,
   readMcpToolDescriptor,
@@ -59,9 +60,17 @@ const geometryShape = {
   h: z.number().finite().min(60).max(4000).optional(),
 };
 
+const fragmentCodeSchema = z
+  .string()
+  .min(1)
+  .max(200_000)
+  .refine((code) => checkFragmentCode(code).ok, {
+    message: "Fragment code may import only the pinned modules",
+  });
+
 const addFragmentInputSchema = z.object({
   id: z.string().min(1).max(64),
-  code: z.string().min(1).max(200_000),
+  code: fragmentCodeSchema,
   title: z.string().max(120).optional(),
   ...geometryShape,
 });
@@ -69,7 +78,7 @@ const addFragmentInputSchema = z.object({
 const updateFragmentInputSchema = z.object({
   id: z.string().min(1).max(64),
   patch: z.object({
-    code: z.string().min(1).max(200_000).optional(),
+    code: fragmentCodeSchema.optional(),
     title: z.string().max(120).optional(),
     ...geometryShape,
   }),

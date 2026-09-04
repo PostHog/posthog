@@ -30,6 +30,10 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
 }));
 
+vi.mock("@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases", () => ({
+  useAllBoardsAsCanvases: () => [],
+  useSpaceBoardsAsCanvases: () => [],
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => mocks.channels,
 }));
@@ -120,6 +124,7 @@ function taskItem(id: string): ChannelItemModel {
     ts: 0,
     createdAt: 0,
     pinned: false,
+    canvasVersion: 1,
     rawStatus: null,
     environment: null,
     source: null,

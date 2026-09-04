@@ -1,4 +1,9 @@
 import { exposeElectronTRPC } from "@posthog/electron-trpc/main";
+import {
+  CANVAS_V2_FRAME_TO_HOST_CHANNEL,
+  CANVAS_V2_FROM_HOST_FLAG,
+  CANVAS_V2_HOST_TO_FRAME_CHANNEL,
+} from "@posthog/shared";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { sanitizeArtifactBridgeMessage } from "../shared/artifact-preview-message";
 import {
@@ -6,6 +11,7 @@ import {
   ARTIFACT_HOST_TO_PREVIEW_CHANNEL,
   ARTIFACT_OPEN_EXTERNAL_CHANNEL,
   ARTIFACT_PREVIEW_TO_HOST_CHANNEL,
+  CANVAS_BOARD_ARG,
   QUICK_ASK_ANNOTATE_DONE_CHANNEL,
   QUICK_ASK_ANNOTATE_SHOT_CHANNEL,
   QUICK_ASK_ANNOTATE_WINDOW_ARG,
@@ -61,6 +67,26 @@ function setupArtifactPreviewPreload(): void {
 
   ipcRenderer.on(ARTIFACT_HOST_TO_PREVIEW_CHANNEL, (_event, data: unknown) => {
     window.postMessage(data, "*");
+  });
+}
+
+function setupCanvasBoardPreload(): void {
+  window.addEventListener("message", (event) => {
+    const data = event.data as Record<string, unknown> | null;
+    if (!data || typeof data !== "object") return;
+    if (data[CANVAS_V2_FROM_HOST_FLAG] === true) return;
+    ipcRenderer.sendToHost(CANVAS_V2_FRAME_TO_HOST_CHANNEL, data);
+  });
+
+  ipcRenderer.on(CANVAS_V2_HOST_TO_FRAME_CHANNEL, (_event, data: unknown) => {
+    if (!data || typeof data !== "object") return;
+    window.postMessage(
+      {
+        ...(data as Record<string, unknown>),
+        [CANVAS_V2_FROM_HOST_FLAG]: true,
+      },
+      "*",
+    );
   });
 }
 
@@ -175,6 +201,8 @@ export function setupPreload(argv: string[]): void {
     });
   } else if (argv.includes(APP_WINDOW_ARG)) {
     setupApplicationPreload(argv);
+  } else if (argv.includes(CANVAS_BOARD_ARG)) {
+    setupCanvasBoardPreload();
   } else {
     setupArtifactPreviewPreload();
   }

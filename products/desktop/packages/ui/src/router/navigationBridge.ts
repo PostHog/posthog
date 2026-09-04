@@ -226,17 +226,13 @@ export function navigateToLoopDetail(
   });
 }
 
-export function navigateToCanvasesV2(boardId?: string): void {
+export function navigateToCanvasesV2(boardId: string): void {
   const router = getRouterOrNull();
   if (!router) return;
-  if (boardId) {
-    void router.navigate({
-      to: "/canvases-v2/$boardId",
-      params: { boardId },
-    });
-    return;
-  }
-  void router.navigate({ to: "/canvases-v2" });
+  void router.navigate({
+    to: "/canvases-v2/$boardId",
+    params: { boardId },
+  });
 }
 
 export function navigateToAgents(): void {

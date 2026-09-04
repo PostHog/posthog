@@ -1,6 +1,8 @@
-import { SquaresFourIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, SquaresFourIcon } from "@phosphor-icons/react";
 import {
   BOARD_FIT_MAX_ZOOM,
+  boardBounds,
+  clampViewport,
   clampZoom,
   fitToContent,
   zoomAroundCenter,
@@ -14,7 +16,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   Skeleton,
-  Text,
 } from "@posthog/quill";
 import type { CanvasV2Fragment, CanvasV2Op } from "@posthog/shared";
 import {
@@ -22,16 +23,18 @@ import {
   CANVAS_V2_FRAGMENT_DEFAULT_WIDTH,
   findFreeSpot,
   maxZ,
+  minZ,
+  nextFragmentId,
 } from "@posthog/shared";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
-  BACK_TO_BOARDS_ACTION,
-  BOARD_EMPTY_HINT,
+  BACK_TO_CANVASES_ACTION,
   BOARD_LOAD_ERROR_DESCRIPTION,
   BOARD_LOAD_ERROR_TITLE,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { useApplyBoardToolCalls } from "@posthog/ui/features/canvas-v2/hooks/useApplyBoardToolCalls";
 import { useBoardApi } from "@posthog/ui/features/canvas-v2/hooks/useBoardApi";
+import { useBoardCache } from "@posthog/ui/features/canvas-v2/hooks/useBoardCache";
 import { useBoardKeyboard } from "@posthog/ui/features/canvas-v2/hooks/useBoardKeyboard";
 import {
   useBoardTaskId,
@@ -47,14 +50,7 @@ import { useBoardPeers } from "@posthog/ui/features/canvas-v2/presence/useBoardP
 import { useBoardStream } from "@posthog/ui/features/canvas-v2/presence/useBoardStream";
 import { usePresenceSender } from "@posthog/ui/features/canvas-v2/presence/usePresenceSender";
 import { useBoardSync } from "@posthog/ui/features/canvas-v2/sync/useBoardSync";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderHeading,
-  PageHeaderTitle,
-  PageHeaderTitleRow,
-} from "@posthog/ui/primitives/PageHeader";
-import { navigateToCanvasesV2 } from "@posthog/ui/router/navigationBridge";
+import { navigateToCanvases } from "@posthog/ui/router/navigationBridge";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -68,6 +64,8 @@ import {
 import { readPaneRect } from "../interaction/useBoardPointer";
 import { buildLastEdits } from "../lastEdits";
 import { BoardChatPanel } from "./BoardChatPanel";
+import { BoardEmptyHero } from "./BoardEmptyHero";
+import { BoardMinimap } from "./BoardMinimap";
 import { BoardStage } from "./BoardStage";
 import { BoardToolbar } from "./BoardToolbar";
 import { EditFragmentDialog } from "./EditFragmentDialog";
@@ -77,6 +75,8 @@ import { LibraryPalette } from "./LibraryPalette";
 import { PresenceFaces } from "./PresenceFaces";
 import { StateInspector } from "./StateInspector";
 import { SyncChip } from "./SyncChip";
+
+const EMPTY_PANE = { left: 0, top: 0, width: 0, height: 0 };
 
 /** One board: the stage, its chrome, and the side panels. */
 export function BoardView({ boardId }: { boardId: string }): ReactElement {
@@ -97,6 +97,8 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
   );
   const { state, client } = useBoardSync(boardId, api, actorUser);
 
+  useBoardCache(boardId, state);
+
   const presence = usePresenceSender(boardId);
   const { peers, ingest } = useBoardPeers(presence.clientId);
   useBoardStream(boardId, {
@@ -108,9 +110,22 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
 
   const viewport = useBoardViewport(boardId);
   const setViewportForBoard = useBoardViewportStore((s) => s.setViewport);
+  const fragments = state.snapshot.fragments;
   const setViewport = useCallback(
-    (next: typeof viewport) => setViewportForBoard(boardId, next),
-    [boardId, setViewportForBoard],
+    (next: typeof viewport) => {
+      const rect = readPaneRect(paneRef.current);
+      setViewportForBoard(
+        boardId,
+        rect
+          ? clampViewport(
+              next,
+              { w: rect.width, h: rect.height },
+              boardBounds(fragments),
+            )
+          : next,
+      );
+    },
+    [boardId, fragments, setViewportForBoard],
   );
   const taskId = useBoardTaskId(boardId);
 
@@ -156,9 +171,10 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
         y: Math.round(spot.y),
         w: size.w,
         h: size.h,
-        z: maxZ(snapshot) + 1,
+        z: entry.layer === "back" ? minZ(snapshot) - 1 : maxZ(snapshot) + 1,
         code: entry.code,
         codeVersion: 1,
+        ...(entry.surface ? { surface: entry.surface } : {}),
       };
       client.applyLocal([{ type: "add_fragment", fragment }]);
       view.setSelection([fragment.id]);
@@ -169,7 +185,7 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
   useApplyBoardToolCalls(client, taskId, selectBoardFragment);
 
   useBoardKeyboard({
-    enabled: editingId === null,
+    enabled: editingId === null && view.focusedId === null,
     paneRef,
     fragments: state.snapshot.fragments,
     viewport,
@@ -254,40 +270,45 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitleRow>
-            <PageHeaderTitle>{state.name || " "}</PageHeaderTitle>
-            <PageHeaderActions>
-              <Button variant="outline" onClick={() => navigateToCanvasesV2()}>
-                {BACK_TO_BOARDS_ACTION}
-              </Button>
-            </PageHeaderActions>
-          </PageHeaderTitleRow>
-        </PageHeaderHeading>
-      </PageHeader>
+      <header className="flex h-12 shrink-0 items-center gap-2.5 border-(--gray-4) border-b px-3">
+        <Button
+          variant="default"
+          size="icon-sm"
+          aria-label={BACK_TO_CANVASES_ACTION}
+          onClick={() => navigateToCanvases()}
+        >
+          <ArrowLeftIcon />
+        </Button>
+        <h1 className="min-w-0 truncate font-semibold text-[15px] tracking-tight">
+          {state.name || " "}
+        </h1>
+        <div className="ml-auto flex shrink-0 items-center gap-2.5">
+          <PresenceFaces peers={peers} />
+          <SyncChip status={state.status} />
+        </div>
+      </header>
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <BoardToolbar
-            zoom={viewport.zoom}
-            paletteOpen={view.paletteOpen}
-            chatOpen={view.chatOpen}
-            historyOpen={view.historyOpen}
-            inspectorOpen={view.inspectorOpen}
-            onZoomIn={() => zoomStep(1.2)}
-            onZoomOut={() => zoomStep(1 / 1.2)}
-            onZoomReset={resetZoom}
-            onFitToContent={fitBoard}
-            onTogglePalette={() => togglePanel("palette", view.paletteOpen)}
-            onToggleChat={() => togglePanel("chat", view.chatOpen)}
-            onToggleHistory={() => togglePanel("history", view.historyOpen)}
-            onToggleInspector={() =>
-              togglePanel("inspector", view.inspectorOpen)
-            }
-            presenceFaces={<PresenceFaces peers={peers} />}
-            syncChip={<SyncChip status={state.status} />}
-          />
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {view.focusedId ? null : (
+            <BoardToolbar
+              zoom={viewport.zoom}
+              paletteOpen={view.paletteOpen}
+              chatOpen={view.chatOpen}
+              historyOpen={view.historyOpen}
+              inspectorOpen={view.inspectorOpen}
+              onZoomIn={() => zoomStep(1.2)}
+              onZoomOut={() => zoomStep(1 / 1.2)}
+              onZoomReset={resetZoom}
+              onFitToContent={fitBoard}
+              onTogglePalette={() => togglePanel("palette", view.paletteOpen)}
+              onToggleChat={() => togglePanel("chat", view.chatOpen)}
+              onToggleHistory={() => togglePanel("history", view.historyOpen)}
+              onToggleInspector={() =>
+                togglePanel("inspector", view.inspectorOpen)
+              }
+            />
+          )}
           <div className="relative min-h-0 flex-1">
             <BoardStage
               boardId={boardId}
@@ -310,12 +331,31 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
               onCursor={presence.reportCursor}
               onCaret={presence.reportCaret}
             />
-            {state.snapshot.fragments.length === 0 ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <Text size="sm" variant="muted">
-                  {BOARD_EMPTY_HINT}
-                </Text>
-              </div>
+            <BoardMinimap
+              fragments={view.focusedId ? [] : state.snapshot.fragments}
+              viewport={viewport}
+              paneRect={readPaneRect(paneRef.current) ?? EMPTY_PANE}
+              selectedIds={view.selectedIds}
+              onJump={(world) => {
+                const rect = readPaneRect(paneRef.current);
+                if (!rect) return;
+                setViewport({
+                  zoom: viewport.zoom,
+                  x: rect.width / 2 - world.x * viewport.zoom,
+                  y: rect.height / 2 - world.y * viewport.zoom,
+                });
+              }}
+            />
+            {state.snapshot.fragments.length === 0 && !view.focusedId ? (
+              <BoardEmptyHero
+                boardId={boardId}
+                boardName={state.name}
+                snapshot={state.snapshot}
+                headSeq={state.headSeq}
+                onStarted={() => openOnly("chat")}
+                onAddFragment={(name) => addFromLibrary(name)}
+                onOpenLibrary={() => openOnly("palette")}
+              />
             ) : null}
           </div>
         </div>
@@ -342,6 +382,7 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
             {view.inspectorOpen ? (
               <StateInspector
                 state={state.snapshot.state}
+                fragments={state.snapshot.fragments}
                 onClose={() => openOnly(null)}
               />
             ) : null}
@@ -368,17 +409,4 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
       />
     </div>
   );
-}
-
-function nextFragmentId(
-  base: string,
-  fragments: readonly CanvasV2Fragment[],
-): string {
-  const taken = new Set(fragments.map((f) => f.id));
-  if (!taken.has(base)) return base;
-  for (let index = 2; index < 1000; index++) {
-    const candidate = `${base}-${index}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-  return `${base}-${Date.now()}`;
 }

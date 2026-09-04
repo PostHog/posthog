@@ -267,8 +267,13 @@ export class BoardSyncClient {
       this.loadFailed = false;
     } catch (error) {
       this.lastError = errorMessage(error);
-      this.retryAttempt += 1;
-      this.scheduleRetry();
+      if (isRefusedByServer(error)) {
+        this.discard(batch);
+        void this.load();
+      } else {
+        this.retryAttempt += 1;
+        this.scheduleRetry();
+      }
     } finally {
       this.inFlight = false;
       this.inFlightOpIds = new Set();
@@ -510,6 +515,12 @@ export class BoardSyncClient {
     this.refreshLogComplete();
   }
 
+  private discard(batch: readonly { opId: string }[]): void {
+    const dropped = new Set(batch.map((entry) => entry.opId));
+    this.pending = this.pending.filter((entry) => !dropped.has(entry.opId));
+    this.retryAttempt = 0;
+  }
+
   private async catchUp(): Promise<void> {
     for (let page = 0; page < CATCH_UP_PAGE_BUDGET; page++) {
       const since = this.contiguousHead();
@@ -698,12 +709,12 @@ export function describeOp(
       return `brought ${fragmentLabel(before, op.id)} to front`;
     case "set_state":
       return op.value === null || op.value === undefined
-        ? `cleared state ${op.key}`
-        : `set state ${op.key}`;
+        ? `cleared ${op.key}`
+        : `changed ${op.key}`;
     case "edit_field":
       return `edited ${op.key}`;
     case "restore":
-      return `restored the board to seq ${op.toSeq}`;
+      return "restored the board";
   }
 }
 
@@ -848,6 +859,13 @@ function isGeometryUpdate(op: CanvasV2Op): boolean {
   if (op.type !== "update_fragment") return false;
   const keys = Object.keys(op.patch);
   return keys.length > 0 && keys.every((key) => GEOMETRY_KEYS.includes(key));
+}
+
+function isRefusedByServer(error: unknown): boolean {
+  const data = (
+    error as { data?: { code?: unknown; httpStatus?: unknown } } | null
+  )?.data;
+  return data?.code === "BAD_REQUEST" || data?.httpStatus === 400;
 }
 
 /** The longest run at the head of the queue that one appendOps call can carry. */

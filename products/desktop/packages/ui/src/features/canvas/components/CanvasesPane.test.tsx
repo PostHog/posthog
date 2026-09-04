@@ -22,11 +22,18 @@ vi.mock("@posthog/di/react", async () => {
   );
   return { useService: () => new CanvasListService() };
 });
+vi.mock("@posthog/ui/features/canvas/components/NewCanvasMenu", () => ({
+  NewCanvasMenu: () => null,
+}));
 vi.mock("@posthog/ui/features/canvas/components/CanvasFilterMenu", () => ({
   CanvasFilterMenu: () => <button type="button">Filter canvases</button>,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [], isLoading: false }),
+}));
+vi.mock("@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases", () => ({
+  useAllBoardsAsCanvases: () => [],
+  useSpaceBoardsAsCanvases: () => [],
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useAllCanvases: () => ({ dashboards: mocks.dashboards, isLoading: false }),
@@ -63,6 +70,7 @@ function canvas(id: string, name: string, updatedAt: number): DashboardRecord {
     name,
     kind: "freeform",
     description: "",
+    canvasVersion: 1,
     templateId: "freeform",
     context: "",
     createdAt: updatedAt,

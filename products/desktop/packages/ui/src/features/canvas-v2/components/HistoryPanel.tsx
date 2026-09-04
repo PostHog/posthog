@@ -1,4 +1,3 @@
-import { XIcon } from "@phosphor-icons/react";
 import {
   type BoardSyncState,
   groupLogEntries,
@@ -12,13 +11,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
-  Heading,
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemTitle,
   Spinner,
   Text,
 } from "@posthog/quill";
@@ -37,6 +29,7 @@ import {
   HISTORY_RESTORE_TITLE,
   TOOLBAR_HISTORY,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
+import { BoardPanel } from "@posthog/ui/features/canvas-v2/components/BoardPanel";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 
 export interface HistoryPanelProps {
@@ -104,21 +97,11 @@ export function HistoryPanel({
   const showEmpty = groups.length === 0 && state.logComplete;
 
   return (
-    <div className="@container flex h-full min-h-0 w-full flex-col overflow-hidden border-border border-l">
-      <div className="flex items-center justify-between gap-2 border-border border-b px-3 py-2">
-        <Heading size="sm">{TOOLBAR_HISTORY}</Heading>
-        {onClose ? (
-          <Button
-            variant="outline"
-            size="icon-xs"
-            aria-label={HISTORY_PANEL_CLOSE}
-            onClick={onClose}
-          >
-            <XIcon size={12} />
-          </Button>
-        ) : null}
-      </div>
-
+    <BoardPanel
+      title={TOOLBAR_HISTORY}
+      closeLabel={HISTORY_PANEL_CLOSE}
+      onClose={onClose}
+    >
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2">
         {state.logComplete ? null : (
           <div className="flex items-center gap-2 pb-2">
@@ -135,18 +118,19 @@ export function HistoryPanel({
           </Text>
         ) : null}
 
-        <ItemGroup>
+        <div className="flex flex-col">
           {groups.map((group) => (
             <HistoryRow
               key={group.key}
               group={group}
               isSelected={group.key === selectedKey}
               isOwn={isOwnGroup(group.actor, currentUserId)}
+              isLast={group.key === groups[groups.length - 1]?.key}
               onSelect={() => select(group)}
               onRestore={() => setGroupToRestore(group)}
             />
           ))}
-        </ItemGroup>
+        </div>
       </div>
 
       <AlertDialog
@@ -181,7 +165,7 @@ export function HistoryPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </BoardPanel>
   );
 }
 
@@ -189,39 +173,59 @@ function HistoryRow({
   group,
   isSelected,
   isOwn,
+  isLast,
   onSelect,
   onRestore,
 }: {
   group: HistoryGroup;
   isSelected: boolean;
   isOwn: boolean;
+  isLast: boolean;
   onSelect: () => void;
   onRestore: () => void;
 }): ReactElement {
   return (
-    <Item
-      variant="pressable"
-      size="sm"
-      className={isSelected ? "ring-1 ring-border" : undefined}
-      onClick={onSelect}
+    <div
+      className={`group/row relative flex gap-2.5 rounded-(--radius-2) py-1.5 pr-1.5 pl-1 transition-colors hover:bg-(--gray-3) ${
+        isSelected ? "bg-(--gray-3)" : ""
+      }`}
     >
-      <ItemContent className="min-w-0">
-        <ItemTitle className="flex min-w-0 flex-wrap items-center gap-x-2">
-          <span className="truncate">{actorName(group.actor)}</span>
+      <button
+        type="button"
+        className="absolute inset-0 rounded-(--radius-2)"
+        onClick={onSelect}
+      >
+        <span className="sr-only">{group.descriptions[0] ?? ""}</span>
+      </button>
+      <span className="relative flex w-3 shrink-0 justify-center pt-1.5">
+        {isLast ? null : (
+          <span className="absolute top-4 bottom-[-10px] w-px bg-(--gray-a5)" />
+        )}
+        <span
+          className={`z-10 size-2 rounded-full ${
+            isOwn ? "bg-(--accent-9)" : "bg-(--gray-8)"
+          }`}
+        />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-0.5">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate font-medium text-[12px]">
+            {actorName(group.actor)}
+          </span>
           {isOwn ? (
-            <Text size="xxs" variant="muted">
+            <span className="shrink-0 text-(--gray-10) text-[11px]">
               {HISTORY_ACTOR_YOU}
-            </Text>
+            </span>
           ) : null}
-          <Text size="xs" variant="muted">
+          <span className="ml-auto shrink-0 text-(--gray-10) text-[11px] tabular-nums">
             {formatMinute(group.minuteIso)}
-          </Text>
-        </ItemTitle>
-        <ItemDescription className="break-words">
-          {group.descriptions.join(", ")}
-        </ItemDescription>
-      </ItemContent>
-      <ItemActions className="shrink-0">
+          </span>
+        </span>
+        <span className="line-clamp-2 text-(--gray-11) text-[12px] leading-snug">
+          {summarize(group.descriptions)}
+        </span>
+      </span>
+      <span className="-translate-y-1/2 absolute top-1/2 right-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100">
         <Button
           variant="outline"
           size="xs"
@@ -232,9 +236,17 @@ function HistoryRow({
         >
           {HISTORY_RESTORE_ACTION}
         </Button>
-      </ItemActions>
-    </Item>
+      </span>
+    </div>
   );
+}
+
+function summarize(descriptions: readonly string[]): string {
+  const first = descriptions[0];
+  if (!first) return "";
+  const lead = first.charAt(0).toUpperCase() + first.slice(1);
+  if (descriptions.length === 1) return lead;
+  return `${lead}, and ${descriptions.length - 1} more`;
 }
 
 function actorName(actor: CanvasV2Actor): string {

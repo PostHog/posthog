@@ -1,6 +1,9 @@
-import { Button, Card, ScrollArea, Text } from "@posthog/quill";
-import * as icons from "lucide-react";
+import { ScrollArea, Text } from "@posthog/quill";
+import { libraryEntryIcon } from "@posthog/ui/features/canvas-v2/library/entryIcon";
 import {
+  LIBRARY_GROUP_DATA,
+  LIBRARY_GROUP_FRAMES,
+  LIBRARY_GROUP_NOTES,
   LIBRARY_PANEL_CLOSE,
   LIBRARY_PANEL_HINT,
   LIBRARY_PANEL_TITLE,
@@ -8,8 +11,16 @@ import {
 import {
   CANVAS_V2_LIBRARY,
   type CanvasV2LibraryEntry,
+  type CanvasV2LibraryGroup,
 } from "../library/registry";
+import { BoardPanel } from "./BoardPanel";
 import { CANVAS_V2_DRAG_MIME } from "./DropCaptureLayer";
+
+const GROUPS: { group: CanvasV2LibraryGroup; title: string }[] = [
+  { group: "notes", title: LIBRARY_GROUP_NOTES },
+  { group: "data", title: LIBRARY_GROUP_DATA },
+  { group: "frames", title: LIBRARY_GROUP_FRAMES },
+];
 
 export interface LibraryPaletteProps {
   onAdd: (entry: CanvasV2LibraryEntry) => void;
@@ -24,33 +35,42 @@ export function LibraryPalette({
   onClose,
 }: LibraryPaletteProps) {
   return (
-    <div className="@container flex h-full min-h-0 w-full flex-col overflow-x-hidden border-l">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
-        <Text weight="medium">{LIBRARY_PANEL_TITLE}</Text>
-        <Button variant="link-muted" size="sm" onClick={onClose}>
-          {LIBRARY_PANEL_CLOSE}
-        </Button>
-      </div>
-      <Text size="xs" variant="muted" className="shrink-0 px-3 py-2">
-        {LIBRARY_PANEL_HINT}
-      </Text>
+    <BoardPanel
+      title={LIBRARY_PANEL_TITLE}
+      closeLabel={LIBRARY_PANEL_CLOSE}
+      onClose={onClose}
+    >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-2 p-3">
-          {CANVAS_V2_LIBRARY.map((entry) => (
-            <LibraryCard
-              key={entry.name}
-              entry={entry}
-              onAdd={onAdd}
-              onDragStateChange={onDragStateChange}
-            />
-          ))}
-        </div>
+        <Text size="xs" variant="muted" className="block px-3 pt-3 pb-1">
+          {LIBRARY_PANEL_HINT}
+        </Text>
+        {GROUPS.map(({ group, title }) => (
+          <div className="flex flex-col gap-px p-2 pt-1" key={group}>
+            <Text
+              size="xs"
+              variant="muted"
+              className="block px-2 pt-2 pb-1 font-medium"
+            >
+              {title}
+            </Text>
+            {CANVAS_V2_LIBRARY.filter((entry) => entry.group === group).map(
+              (entry) => (
+                <LibraryRow
+                  key={entry.name}
+                  entry={entry}
+                  onAdd={onAdd}
+                  onDragStateChange={onDragStateChange}
+                />
+              ),
+            )}
+          </div>
+        ))}
       </ScrollArea>
-    </div>
+    </BoardPanel>
   );
 }
 
-function LibraryCard({
+function LibraryRow({
   entry,
   onAdd,
   onDragStateChange,
@@ -59,12 +79,14 @@ function LibraryCard({
   onAdd: (entry: CanvasV2LibraryEntry) => void;
   onDragStateChange: (dragging: boolean) => void;
 }) {
-  const Icon = resolveIcon(entry.icon);
+  const Icon = libraryEntryIcon(entry.name);
 
   return (
-    <Card
-      className="cursor-grab p-2"
+    <button
+      type="button"
+      title={entry.description}
       draggable
+      className="flex w-full cursor-grab items-start gap-2.5 rounded-(--radius-2) px-2 py-2 text-left transition-colors hover:bg-(--gray-3) active:cursor-grabbing"
       onDragStart={(event) => {
         event.dataTransfer.setData(CANVAS_V2_DRAG_MIME, entry.name);
         event.dataTransfer.effectAllowed = "copy";
@@ -73,27 +95,17 @@ function LibraryCard({
       onDragEnd={() => onDragStateChange(false)}
       onClick={() => onAdd(entry)}
     >
-      <div className="flex items-start gap-2">
-        {Icon ? <Icon size={16} className="mt-0.5 shrink-0" /> : null}
-        <div className="flex min-w-0 flex-col">
-          <Text size="sm" weight="medium">
-            {entry.label}
-          </Text>
-          <Text size="xs" variant="muted">
-            {entry.description}
-          </Text>
-        </div>
-      </div>
-    </Card>
+      <span className="mt-px flex size-7 shrink-0 items-center justify-center rounded-(--radius-2) bg-(--accent-a3) text-(--accent-11)">
+        <Icon size={15} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate font-medium text-[13px] leading-tight">
+          {entry.label}
+        </span>
+        <span className="line-clamp-2 text-(--gray-11) text-[11px] leading-[1.35]">
+          {entry.description}
+        </span>
+      </span>
+    </button>
   );
-}
-
-type IconComponent = (props: {
-  size?: number;
-  className?: string;
-}) => JSX.Element;
-
-function resolveIcon(name: string): IconComponent | null {
-  const candidate = (icons as unknown as Record<string, unknown>)[name];
-  return typeof candidate === "function" ? (candidate as IconComponent) : null;
 }

@@ -81,6 +81,7 @@ function item(
     ts: Date.parse("2026-07-17T12:00:00.000Z"),
     createdAt: Date.parse("2026-07-16T12:00:00.000Z"),
     pinned: false,
+    canvasVersion: 1,
     rawStatus: latestRun.status,
     environment: "cloud",
     source: null,

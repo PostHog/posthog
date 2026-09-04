@@ -1,0 +1,86 @@
+// Free text on the board, with nothing drawn behind it. Put it over a group of
+// fragments, or beside a chart. The text is shared, so two people can write in
+// it at the same time. The buttons in the corner set the size and the position
+// of the text.
+import { SharedTextArea, useFragmentSettings } from "@posthog/canvas-sdk";
+
+const SIZES = [
+  { name: "s", label: "S", className: "text-[13px] leading-[1.5]" },
+  { name: "m", label: "M", className: "text-lg leading-[1.4]" },
+  { name: "l", label: "L", className: "text-3xl leading-[1.25]" },
+];
+
+const ALIGNMENTS = [
+  { name: "left", label: "Left", className: "text-left" },
+  { name: "center", label: "Center", className: "text-center" },
+];
+
+export default function BoardText({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, {
+    size: "m",
+    align: "left",
+    strong: false,
+  });
+  const size = SIZES.find((item) => item.name === settings.size) ?? SIZES[1];
+  const align =
+    ALIGNMENTS.find((item) => item.name === settings.align) ?? ALIGNMENTS[0];
+
+  return (
+    <div className="group/text relative h-full">
+      <SharedTextArea
+        keyName={"text:" + fragmentId}
+        placeholder="Write here"
+        className={
+          "h-full resize-none border-0 bg-transparent p-0 placeholder:text-foreground/25 focus-visible:ring-0 " +
+          size.className +
+          " " +
+          align.className +
+          (settings.strong ? " font-semibold" : "")
+        }
+      />
+      <div className="absolute -top-7 right-0 flex items-center gap-0.5 rounded-(--radius-2) border border-border bg-popover p-0.5 opacity-0 shadow-sm transition-opacity focus-within:opacity-100 group-hover/text:opacity-100">
+        {SIZES.map((item) => (
+          <TextButton
+            key={item.name}
+            label={item.label}
+            selected={item.name === size.name}
+            onClick={() => setSettings({ size: item.name })}
+          />
+        ))}
+        <span className="mx-0.5 h-4 w-px bg-border" />
+        {ALIGNMENTS.map((item) => (
+          <TextButton
+            key={item.name}
+            label={item.label}
+            selected={item.name === align.name}
+            onClick={() => setSettings({ align: item.name })}
+          />
+        ))}
+        <span className="mx-0.5 h-4 w-px bg-border" />
+        <TextButton
+          label="Bold"
+          selected={Boolean(settings.strong)}
+          onClick={() => setSettings({ strong: !settings.strong })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TextButton({ label, selected, onClick }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={selected}
+      className={
+        selected
+          ? "rounded-(--radius-1) bg-muted px-1.5 py-0.5 text-[11px] text-foreground"
+          : "rounded-(--radius-1) px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+      }
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}

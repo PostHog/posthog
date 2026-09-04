@@ -11,6 +11,7 @@ import {
   screen,
 } from "electron";
 import { APP_WINDOW_ARG } from "../shared/constants";
+import { guardCanvasFrameNavigation } from "./canvas-frame-egress";
 import { container } from "./di/container";
 import { MISSION_CONTROL_SERVICE } from "./di/tokens";
 import { setupExternalLinkHandlers } from "./external-links";
@@ -389,6 +390,7 @@ export function createWindow(): void {
 
   setupExternalLinkHandlers(mainWindow, appHome);
   setupArtifactPreviewWebviews(mainWindow);
+  guardCanvasFrameNavigation(mainWindow.webContents);
   setupEditableContextMenu(mainWindow);
   setupCrashLogging(mainWindow);
   buildApplicationMenu();

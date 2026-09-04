@@ -1,4 +1,4 @@
-import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
+import { CANVAS_PLATFORM_MANIFEST, CANVAS_V2_ESM_HOST } from "@posthog/shared";
 
 // The package whitelist for freeform-React canvases (Q16: curated, PostHog-
 // anchored). Every entry is a package the agent may import; anything else is
@@ -19,7 +19,7 @@ interface WhitelistEntry {
   esm: string;
 }
 
-const ESM = "https://esm.sh";
+const ESM = CANVAS_V2_ESM_HOST;
 
 // One source of truth for the Quill version — used by both the import-map entry
 // (the JS module) and the stylesheet URLs the iframe links (see below).

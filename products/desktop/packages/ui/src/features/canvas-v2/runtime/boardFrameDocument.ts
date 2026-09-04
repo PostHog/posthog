@@ -6,9 +6,13 @@ import {
 } from "@posthog/core/canvas/freeformWhitelist";
 import {
   CANVAS_SDK_SPECIFIER,
+  CANVAS_V2_ALLOWED_IMPORTS,
   CANVAS_V2_CHANNEL,
   CANVAS_V2_FIELD_MAX_ENTRIES,
   CANVAS_V2_MAX_STATE_VALUE_BYTES,
+  CANVAS_V2_MODULE_SCHEME,
+  CANVAS_V2_TAILWIND_PREFIX,
+  vendoredModuleUrl,
 } from "@posthog/shared";
 import {
   decodeJsxUnicodeEscapes,
@@ -24,8 +28,9 @@ import {
 // host page never interpolates fragment code into this document; fragments
 // arrive over postMessage and run from Blob module URLs.
 
-const TAILWIND_V4 = `<script type="module" src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1"></script>
-<style type="text/tailwindcss">
+const TAILWIND_URL = `${CANVAS_V2_TAILWIND_PREFIX}browser@4.3.1`;
+
+const TAILWIND_STYLE = `<style type="text/tailwindcss">
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 @theme inline {
@@ -57,8 +62,6 @@ const TAILWIND_V4 = `<script type="module" src="https://cdn.jsdelivr.net/npm/@ta
   --radius-sm: calc(var(--radius) - 4px);
 }
 </style>`;
-
-const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/";
 
 // The "@posthog/canvas-sdk" module served to fragments from a Blob URL. It adds
 // useSharedState on top of the ph bridge the bootstrap installs on globalThis.
@@ -355,7 +358,8 @@ export function SharedTextArea({ keyName, placeholder, className, rows }) {
       onSelect: reportCaret,
       onBlur: (event) => field.setText(event.target.value, null),
       className:
-        "h-full w-full resize-none rounded-(--radius-sm) border border-border bg-transparent p-2 text-sm leading-relaxed outline-none",
+        "h-full w-full resize-none rounded-(--radius-sm) border border-border bg-transparent p-2 text-sm leading-relaxed outline-none " +
+        (className || ""),
     }),
     createElement(
       "div",
@@ -363,7 +367,8 @@ export function SharedTextArea({ keyName, placeholder, className, rows }) {
         ref: mirrorRef,
         "aria-hidden": "true",
         className:
-          "pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-2 text-sm leading-relaxed opacity-0",
+          "pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-2 text-sm leading-relaxed opacity-0 " +
+          (className || ""),
       },
       text + "\\u200b",
     ),
@@ -432,14 +437,587 @@ export function useSharedState(key, initial) {
   );
   return [value, set];
 }
+
+const RANGE_UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+const RANGE_NAMES = { h: "hours", d: "days", w: "weeks", m: "months" };
+const DEFAULT_DATE_RANGE = { date_from: "-7d", date_to: null };
+const RANGE_PATTERN = /^-(\\d+)([hdwm])$/;
+
+// The settings of one fragment, kept in board state under the fragment id. A
+// person changes what a fragment shows without opening its code, and every
+// collaborator sees the same settings.
+export function useFragmentSettings(fragmentId, defaults) {
+  const key = "settings:" + String(fragmentId || "fragment");
+  const [stored, setStored] = useSharedState(key, null);
+  const settings = Object.assign(
+    {},
+    defaults,
+    stored && typeof stored === "object" ? stored : null,
+  );
+  const update = useCallback(
+    (patch) =>
+      setStored((current) =>
+        Object.assign(
+          {},
+          defaults,
+          current && typeof current === "object" ? current : null,
+          patch,
+        ),
+      ),
+    [setStored],
+  );
+  return [settings, update];
+}
+
+const BOARD_DATE_RANGE_KEY = "dateRange";
+const scopedRangeKey = (id) => "dateRange:" + String(id);
+
+// The HogQL time bounds and the words that go with one range.
+export function describeRange(range) {
+  const from = range && range.date_from ? String(range.date_from) : "-7d";
+  const match = RANGE_PATTERN.exec(from);
+  const amount = match ? Number(match[1]) : 7;
+  const unit = match ? match[2] : "d";
+  const clickhouseUnit = RANGE_UNITS[unit] || "DAY";
+  return {
+    since: "now() - INTERVAL " + amount + " " + clickhouseUnit,
+    previousSince: "now() - INTERVAL " + amount * 2 + " " + clickhouseUnit,
+    label: "Last " + amount + " " + (RANGE_NAMES[unit] || "days"),
+  };
+}
+
+// The date range a data fragment follows. Pass the fragment id and the
+// fragment obeys the nearest date frame that holds it. With no id, and with no
+// date frame around it, it follows the range of the whole board.
+export function useDateRange(fragmentId) {
+  const all = useBoardFragments();
+  const keys = useMemo(() => {
+    const list = fragmentId
+      ? holdersOf(fragmentId, all).map((holder) => scopedRangeKey(holder.id))
+      : [];
+    list.push(BOARD_DATE_RANGE_KEY);
+    return list;
+  }, [all, fragmentId]);
+  const signature = keys.join("|");
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+
+  const [found, setFound] = useState({
+    key: BOARD_DATE_RANGE_KEY,
+    range: DEFAULT_DATE_RANGE,
+  });
+
+  useEffect(() => {
+    const read = () => {
+      for (const candidate of keysRef.current) {
+        const value = globalThis.ph.state.peek(candidate);
+        if (value && typeof value === "object") {
+          setFound({ key: candidate, range: value });
+          return;
+        }
+      }
+      setFound({ key: BOARD_DATE_RANGE_KEY, range: DEFAULT_DATE_RANGE });
+    };
+    read();
+    const offs = keysRef.current.map((candidate) =>
+      globalThis.ph.state.subscribe(candidate, read),
+    );
+    return () => {
+      for (const off of offs) off();
+    };
+  }, [signature]);
+
+  const setRange = useCallback(
+    (next) =>
+      globalThis.ph.state.set(
+        found.key,
+        typeof next === "function" ? next(found.range) : next,
+      ),
+    [found.key, found.range],
+  );
+
+  const parts = describeRange(found.range);
+  return {
+    range: found.range || DEFAULT_DATE_RANGE,
+    setRange,
+    scoped: found.key !== BOARD_DATE_RANGE_KEY,
+    since: parts.since,
+    previousSince: parts.previousSince,
+    label: parts.label,
+  };
+}
+
+// A date frame owns the range that everything inside it follows.
+export function useOwnedDateRange(fragmentId) {
+  const [range, setRange] = useSharedState(
+    scopedRangeKey(fragmentId),
+    DEFAULT_DATE_RANGE,
+  );
+  const parts = describeRange(range);
+  return {
+    range: range || DEFAULT_DATE_RANGE,
+    setRange,
+    since: parts.since,
+    previousSince: parts.previousSince,
+    label: parts.label,
+  };
+}
+
+// A value that is safe inside a HogQL string literal.
+export function hogqlString(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return "'" + text.split("\\\\").join("\\\\\\\\").split("'").join("\\\\'") + "'";
+}
+
+// Runs a HogQL query and keeps loading, error, and rows apart. Pass null as the
+// query to hold the fragment at rest.
+export function useHogQL(sql) {
+  const [state, setState] = useState({
+    loading: Boolean(sql),
+    error: null,
+    columns: [],
+    rows: [],
+  });
+  const [nonce, setNonce] = useState(0);
+  const retry = useCallback(() => setNonce((value) => value + 1), []);
+
+  useEffect(() => {
+    if (!sql) {
+      setState({ loading: false, error: null, columns: [], rows: [] });
+      return;
+    }
+    let cancelled = false;
+    setState({ loading: true, error: null, columns: [], rows: [] });
+    globalThis.ph
+      .query(sql)
+      .then((result) => {
+        if (cancelled) return;
+        setState({
+          loading: false,
+          error: null,
+          columns: (result && result.columns) || [],
+          rows: (result && result.results) || [],
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setState({
+          loading: false,
+          error: messageOf(error),
+          columns: [],
+          rows: [],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sql, nonce]);
+
+  return {
+    loading: state.loading,
+    error: state.error,
+    columns: state.columns,
+    rows: state.rows,
+    retry,
+  };
+}
+
+// The event names this project sends, most used first, for a picker.
+export function useEventNames() {
+  const result = useHogQL(
+    "SELECT event, count() AS uses FROM events WHERE timestamp >= now() - INTERVAL 30 DAY GROUP BY event ORDER BY uses DESC LIMIT 100",
+  );
+  const names = useMemo(
+    () =>
+      result.rows
+        .map((row) => (row && row[0] ? String(row[0]) : ""))
+        .filter(Boolean),
+    [result.rows],
+  );
+  return { names, loading: result.loading, error: result.error };
+}
+
+// 12345 reads as 12.3k where an axis or a tile has little room.
+export function formatCompact(value) {
+  const number = Number(value || 0);
+  if (Math.abs(number) >= 1000000) {
+    return (number / 1000000).toFixed(1).replace(/\\.0$/, "") + "M";
+  }
+  if (Math.abs(number) >= 1000) {
+    return (number / 1000).toFixed(1).replace(/\\.0$/, "") + "k";
+  }
+  return String(number);
+}
+
+// --- containers: a fragment that holds the fragments dropped on top of it ---
+
+const areaOf = (box) => Math.max(1, box.w * box.h);
+const holds = (box, item) => {
+  const cx = item.x + item.w / 2;
+  const cy = item.y + item.h / 2;
+  return cx > box.x && cx < box.x + box.w && cy > box.y && cy < box.y + box.h;
+};
+
+// The fragments that hold this one, the smallest first. A fragment is inside
+// another when its center is, so a fragment dragged half way in still counts.
+export function holdersOf(fragmentId, all) {
+  const self = all.find((item) => item.id === fragmentId);
+  if (!self) return [];
+  return all
+    .filter(
+      (other) =>
+        other.id !== fragmentId &&
+        areaOf(other) > areaOf(self) &&
+        holds(other, self),
+    )
+    .sort((a, b) => areaOf(a) - areaOf(b));
+}
+
+// Every fragment on the board with its box, kept in step with the host.
+export function useBoardFragments() {
+  const [list, setList] = useState(() => globalThis.ph.board.list());
+  useEffect(() => {
+    const read = () => setList(globalThis.ph.board.list());
+    read();
+    return globalThis.ph.board.subscribe(read);
+  }, []);
+  return list;
+}
+
+// The fragments this person has selected on the board.
+export function useBoardSelection() {
+  const [ids, setIds] = useState(() => globalThis.ph.board.selection());
+  useEffect(() => {
+    setIds(globalThis.ph.board.selection());
+    return globalThis.ph.board.subscribeSelection(setIds);
+  }, []);
+  return ids;
+}
+
+// True while somebody drags or resizes on the board. A container waits for the
+// gesture to end, so it never pulls a fragment out of the pointer.
+export function useBoardBusy() {
+  const [busy, setBusy] = useState(() => globalThis.ph.board.isBusy());
+  useEffect(() => {
+    setBusy(globalThis.ph.board.isBusy());
+    return globalThis.ph.board.subscribeBusy(setBusy);
+  }, []);
+  return busy;
+}
+
+// Puts the items in a grid inside a box, left to right and top to bottom.
+export function gridRects(items, box, options) {
+  const opts = options || {};
+  const gap = typeof opts.gap === "number" ? opts.gap : 12;
+  const columns = Math.max(1, Math.min(8, Math.round(opts.columns || 2)));
+  if (items.length === 0) return [];
+  const rows = Math.ceil(items.length / columns);
+  const cellWidth = (box.w - gap * (columns - 1)) / columns;
+  const cellHeight = (box.h - gap * (rows - 1)) / rows;
+  return items.map((item, index) => ({
+    id: item.id,
+    x: box.x + (index % columns) * (cellWidth + gap),
+    y: box.y + Math.floor(index / columns) * (cellHeight + gap),
+    w: Math.max(80, cellWidth),
+    h: Math.max(60, cellHeight),
+  }));
+}
+
+/**
+ * Makes a fragment a container: it knows the fragments that sit on it and can
+ * place them.
+ *
+ * padding  the space kept clear at the edge of the container
+ * header   the space kept clear at the top, for a title bar
+ * layout   given the children and the free box, gives back the boxes to use
+ * follow   with no layout, the children move when the container moves
+ */
+export function useContainer(fragmentId, options) {
+  const opts = options || {};
+  const padding = typeof opts.padding === "number" ? opts.padding : 16;
+  const header = typeof opts.header === "number" ? opts.header : 0;
+  const layout = typeof opts.layout === "function" ? opts.layout : null;
+  const follow = opts.follow === true;
+
+  const all = useBoardFragments();
+  const busy = useBoardBusy();
+  const self = useMemo(
+    () => all.find((item) => item.id === fragmentId) || null,
+    [all, fragmentId],
+  );
+
+  const children = useMemo(() => {
+    if (!self) return [];
+    const inside = all.filter(
+      (item) => item.id !== fragmentId && holds(self, item),
+    );
+    // The smallest fragment that holds a child owns it, so a container inside
+    // a container keeps its own contents.
+    const mine = inside.filter((child) =>
+      inside.every(
+        (other) =>
+          other.id === child.id ||
+          areaOf(other) <= areaOf(child) ||
+          !holds(other, child),
+      ),
+    );
+    return mine.sort((a, b) => a.y - b.y || a.x - b.x);
+  }, [all, fragmentId, self]);
+
+  const inner = useMemo(() => {
+    if (!self) return { x: 0, y: 0, w: 0, h: 0 };
+    return {
+      x: self.x + padding,
+      y: self.y + padding + header,
+      w: Math.max(1, self.w - padding * 2),
+      h: Math.max(1, self.h - padding * 2 - header),
+    };
+  }, [self, padding, header]);
+
+  const lastBox = useRef(null);
+  useEffect(() => {
+    if (!self || busy) return;
+    const previous = lastBox.current;
+    lastBox.current = { x: self.x, y: self.y, w: self.w, h: self.h };
+    if (children.length === 0) return;
+
+    let wanted = null;
+    if (layout) {
+      wanted = layout(children, inner);
+    } else if (follow && previous) {
+      const dx = self.x - previous.x;
+      const dy = self.y - previous.y;
+      if (dx === 0 && dy === 0) return;
+      wanted = children.map((child) => ({
+        id: child.id,
+        x: child.x + dx,
+        y: child.y + dy,
+      }));
+    }
+    if (!Array.isArray(wanted) || wanted.length === 0) return;
+
+    // Only the boxes that really change are sent, or the board and the
+    // container would write to each other without end.
+    const known = new Map(children.map((child) => [child.id, child]));
+    const moves = [];
+    for (const want of wanted) {
+      const child = want ? known.get(want.id) : null;
+      if (!child) continue;
+      const next = {
+        id: child.id,
+        x: Math.round(typeof want.x === "number" ? want.x : child.x),
+        y: Math.round(typeof want.y === "number" ? want.y : child.y),
+        w: Math.round(typeof want.w === "number" ? want.w : child.w),
+        h: Math.round(typeof want.h === "number" ? want.h : child.h),
+        hidden: want.hidden === true,
+      };
+      if (
+        next.x === child.x &&
+        next.y === child.y &&
+        next.w === child.w &&
+        next.h === child.h &&
+        next.hidden === (child.hidden === true)
+      ) {
+        continue;
+      }
+      moves.push(next);
+    }
+    if (moves.length === 0) return;
+    globalThis.ph.board.arrange(moves).catch(() => {});
+  }, [self, children, inner, busy, layout, follow]);
+
+  return { self, children, inner, busy };
+}
+
+/**
+ * A frame that shows the fragments inside it one at a time. Every slide fills
+ * the frame, the rest are hidden, and the slide number is shared, so everybody
+ * on the board looks at the same slide. A slide that leaves the frame becomes
+ * visible again.
+ */
+export function useSlideshow(fragmentId, options) {
+  const opts = options || {};
+  const [stored, setStored] = useSharedState("slide:" + fragmentId, 0);
+  const index = Number(stored) || 0;
+
+  const layout = useCallback(
+    (contents, box) => {
+      const count = contents.length;
+      const at = count === 0 ? 0 : ((index % count) + count) % count;
+      return contents.map((child, position) => ({
+        id: child.id,
+        x: box.x,
+        y: box.y,
+        w: box.w,
+        h: box.h,
+        hidden: position !== at,
+      }));
+    },
+    [index],
+  );
+
+  const { children, inner, busy } = useContainer(fragmentId, {
+    padding: opts.padding,
+    header: opts.header,
+    layout,
+  });
+  const count = children.length;
+  const at = count === 0 ? 0 : ((index % count) + count) % count;
+
+  // Every fragment this frame hid, so one that leaves comes back into view.
+  const held = useRef([]);
+  const release = (ids) => {
+    if (ids.length === 0) return;
+    globalThis.ph.board
+      .arrange(ids.map((id) => ({ id, hidden: false })))
+      .catch(() => {});
+  };
+  useEffect(() => {
+    const ids = children.map((child) => child.id);
+    const gone = held.current.filter((id) => ids.indexOf(id) === -1);
+    held.current = ids;
+    release(gone);
+  }, [children]);
+  useEffect(() => () => release(held.current), []);
+
+  const show = useCallback(
+    (next) => setStored(count === 0 ? 0 : ((next % count) + count) % count),
+    [setStored, count],
+  );
+
+  // A new slide is made from a library entry and lands in the frame, so the
+  // frame takes it in. The board answers with its id, and the frame moves to
+  // that slide as soon as it arrives.
+  const waiting = useRef(null);
+  const addSlide = useCallback(
+    (name) =>
+      globalThis.ph.board
+        .add({
+          name: name || "notes",
+          title: "Slide " + (count + 1),
+          x: inner.x,
+          y: inner.y,
+          w: inner.w,
+          h: inner.h,
+        })
+        .then((made) => {
+          waiting.current = made && made.id ? made.id : null;
+        })
+        .catch(() => {}),
+    [inner.x, inner.y, inner.w, inner.h, count],
+  );
+
+  useEffect(() => {
+    if (!waiting.current) return;
+    const position = children.findIndex(
+      (child) => child.id === waiting.current,
+    );
+    if (position === -1) return;
+    waiting.current = null;
+    setStored(position);
+  }, [children, setStored]);
+
+  // The arrow keys move through the slides while the frame or one of its
+  // slides is selected, and never while somebody writes in a field.
+  const selection = useBoardSelection();
+  const selected =
+    selection.indexOf(fragmentId) !== -1 ||
+    children.some((child) => selection.indexOf(child.id) !== -1);
+  const step = useRef(null);
+  step.current = show;
+  useEffect(() => {
+    if (!selected || count === 0) return;
+    const onKey = (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const active = document.activeElement;
+      const tag = active && active.tagName ? active.tagName.toLowerCase() : "";
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      if (active && active.isContentEditable) return;
+      const forward = event.key === "ArrowRight" || event.key === "PageDown";
+      const back = event.key === "ArrowLeft" || event.key === "PageUp";
+      if (!forward && !back) return;
+      event.preventDefault();
+      step.current(forward ? at + 1 : at - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, count, at]);
+
+  return {
+    children,
+    inner,
+    busy,
+    count,
+    index: at,
+    selected,
+    current: count === 0 ? null : children[at],
+    show,
+    addSlide,
+    next: () => show(at + 1),
+    previous: () => show(at - 1),
+  };
+}
 `;
 
-export function buildBoardFrameDocument(): string {
-  const importMap = JSON.stringify(buildImportMap());
-  const csp = contentSecurityPolicy();
+export interface BoardFrameOptions {
+  vendoredModules: boolean;
+}
+
+export function boardFramePolicy(vendoredModules: boolean): string {
+  return contentSecurityPolicy(vendoredModules);
+}
+
+export function buildBoardFrameDocument(options: BoardFrameOptions): string {
+  const moduleUrl = (url: string): string =>
+    options.vendoredModules ? vendoredModuleUrl(url) : url;
+  const map = buildImportMap();
+  const importMap = JSON.stringify({
+    imports: Object.fromEntries(
+      Object.entries(map.imports).map(([name, url]) => [name, moduleUrl(url)]),
+    ),
+  });
+  const csp = contentSecurityPolicy(options.vendoredModules);
 
   const bootstrap = /* js */ `
-    import * as Babel from "${FREEFORM_BABEL_URL}";
+    import * as Babel from "${moduleUrl(FREEFORM_BABEL_URL)}";
+    try {
+      delete Navigator.prototype.sendBeacon;
+    } catch (error) {
+      Navigator.prototype.sendBeacon = undefined;
+    }
+
+    document.addEventListener("securitypolicyviolation", (event) => {
+      post({
+        type: "policy-violation",
+        directive: String(event.effectiveDirective || "").slice(0, 64),
+        blocked: String(event.blockedURI || "").slice(0, 512),
+      });
+    });
+
+    const linkGuard = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeName === "LINK") node.remove();
+        }
+      }
+    });
+    linkGuard.observe(document.documentElement, { childList: true, subtree: true });
+
+    for (const name of [
+      "RTCPeerConnection",
+      "webkitRTCPeerConnection",
+      "mozRTCPeerConnection",
+      "RTCDataChannel",
+      "RTCSessionDescription",
+      "RTCIceCandidate",
+    ]) {
+      try {
+        delete globalThis[name];
+      } catch (error) {
+        globalThis[name] = undefined;
+      }
+    }
+
     const CHANNEL = ${JSON.stringify(CANVAS_V2_CHANNEL)};
     const MAX_STATE_VALUE_BYTES = ${CANVAS_V2_MAX_STATE_VALUE_BYTES};
     const post = (msg) => parent.postMessage({ channel: CHANNEL, ...msg }, "*");
@@ -622,6 +1200,56 @@ export function buildBoardFrameDocument(): string {
       },
     };
 
+    // --- board geometry: what a container fragment sees around itself ---
+    let boardBusy = false;
+    let selectedIds = [];
+    const boardSubs = new Set();
+    const selectionSubs = new Set();
+    const busySubs = new Set();
+    let boardNotifyQueued = false;
+    const notifyBoard = () => {
+      if (boardNotifyQueued) return;
+      boardNotifyQueued = true;
+      queueMicrotask(() => {
+        boardNotifyQueued = false;
+        for (const cb of Array.from(boardSubs)) {
+          try {
+            cb();
+          } catch {}
+        }
+      });
+    };
+    const setBusy = (next) => {
+      const value = next === true;
+      if (value === boardBusy) return;
+      boardBusy = value;
+      for (const cb of Array.from(busySubs)) {
+        try {
+          cb(value);
+        } catch {}
+      }
+    };
+    // A copy, so fragment code cannot write the frame's own record.
+    const boardRects = () => {
+      const list = [];
+      for (const [fragmentId, entry] of fragments) {
+        const f = entry.fragment;
+        if (!f) continue;
+        list.push({
+          id: fragmentId,
+          title: typeof f.title === "string" ? f.title : "",
+          x: f.x,
+          y: f.y,
+          w: f.w,
+          h: f.h,
+          z: f.z ?? 0,
+          surface: f.surface === "plain" ? "plain" : "card",
+          hidden: f.hidden === true,
+        });
+      }
+      return list;
+    };
+
     window.ph = {
       run: unavailable("run"),
       loadInsight: (shortId, opts) =>
@@ -641,6 +1269,25 @@ export function buildBoardFrameDocument(): string {
       capture: unavailable("capture"),
       state,
       fields,
+      board: {
+        list: boardRects,
+        subscribe: (cb) => {
+          boardSubs.add(cb);
+          return () => boardSubs.delete(cb);
+        },
+        isBusy: () => boardBusy,
+        subscribeBusy: (cb) => {
+          busySubs.add(cb);
+          return () => busySubs.delete(cb);
+        },
+        selection: () => selectedIds.slice(),
+        subscribeSelection: (cb) => {
+          selectionSubs.add(cb);
+          return () => selectionSubs.delete(cb);
+        },
+        arrange: (items) => call("arrangeFragments", { items }),
+        add: (options) => call("addFragment", options || {}),
+      },
       actions: { invoke: unavailable("actions.invoke") },
       agent: { request: unavailable("agent.request") },
       openExternal: (url) => post({ type: "open-external", url }),
@@ -666,17 +1313,71 @@ export function buildBoardFrameDocument(): string {
       true,
     );
 
+    // A popup is placed once, in page pixels, so it cannot follow the board.
+    // When the board or a fragment moves, the popup is shut.
+    const closeFloating = () => {
+      let floating = false;
+      for (const node of document.body.children) {
+        if (node !== world && node.childElementCount > 0) floating = true;
+      }
+      if (!floating) return;
+      const target =
+        document.activeElement instanceof Element
+          ? document.activeElement
+          : document.body;
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    };
+
     const applyTheme = (theme) =>
       document.documentElement.classList.toggle("dark", theme === "dark");
+    const GRID_STEP = 24;
+    let lastViewport = null;
     const applyViewport = (viewport) => {
       if (!viewport) return;
+      if (
+        !lastViewport ||
+        lastViewport.x !== viewport.x ||
+        lastViewport.y !== viewport.y ||
+        lastViewport.zoom !== viewport.zoom
+      ) {
+        closeFloating();
+      }
+      lastViewport = viewport;
       world.style.transform =
         "translate(" + viewport.x + "px, " + viewport.y + "px) scale(" + viewport.zoom + ")";
+      const step = GRID_STEP * viewport.zoom;
+      const style = document.body.style;
+      if (focusedId !== null) {
+        style.backgroundImage = "none";
+        return;
+      }
+      if (step < 9) {
+        style.backgroundImage = "none";
+        return;
+      }
+      style.backgroundImage = "radial-gradient(var(--ph-grid-dot) 1px, transparent 1px)";
+      style.backgroundSize = step + "px " + step + "px";
+      style.backgroundPosition = viewport.x + "px " + viewport.y + "px";
     };
 
     // --- pointer and wheel relay: the host owns pan, zoom, and selection ---
     const fragmentElementOf = (target) =>
       target instanceof Element ? target.closest(".fragment") : null;
+    // A menu or a popup that a fragment opens is put in the body, outside the
+    // world. It belongs to the fragment, so the board must not take its
+    // pointer stream, or the person cannot pick anything in it.
+    const onBoardSurface = (target) =>
+      !(target instanceof Element) ||
+      target === document.body ||
+      target === document.documentElement ||
+      world.contains(target);
     let relayingPointer = false;
     const modifiersOf = (e) => ({
       shiftKey: e.shiftKey === true,
@@ -704,6 +1405,7 @@ export function buildBoardFrameDocument(): string {
           });
           return;
         }
+        if (!onBoardSurface(e.target)) return;
         e.preventDefault();
         relayingPointer = true;
         post(pointerPayload("down", e));
@@ -750,6 +1452,7 @@ export function buildBoardFrameDocument(): string {
       "wheel",
       (e) => {
         const zooming = e.ctrlKey || e.metaKey;
+        if (!onBoardSurface(e.target)) return;
         if (!zooming && fragmentScrolls(e.target, e.deltaX, e.deltaY)) return;
         e.preventDefault();
         post({
@@ -786,6 +1489,28 @@ export function buildBoardFrameDocument(): string {
       },
     });
 
+    const ALLOWED_IMPORTS = new Set(${JSON.stringify([...CANVAS_V2_ALLOWED_IMPORTS])});
+    const guardSource = (path) => {
+      const source = path.node.source;
+      if (!source) return;
+      if (ALLOWED_IMPORTS.has(source.value)) return;
+      throw path.buildCodeFrameError(
+        '"' + source.value + '" is not a module a fragment can import.',
+      );
+    };
+    const importGuardPlugin = () => ({
+      visitor: {
+        ImportDeclaration: guardSource,
+        ExportNamedDeclaration: guardSource,
+        ExportAllDeclaration: guardSource,
+        Import(path) {
+          throw path.buildCodeFrameError(
+            "import() is not allowed in a fragment. Import the module at the top of the file.",
+          );
+        },
+      },
+    });
+
     let runtimePromise = null;
     const loadRuntime = () => {
       if (runtimePromise) return runtimePromise;
@@ -795,8 +1520,9 @@ export function buildBoardFrameDocument(): string {
             React.createElement(
               "div",
               { className: "fragment-error" },
-              React.createElement("div", { className: "fragment-error-title" }, "This fragment failed to render"),
+              React.createElement("div", { className: "fragment-error-title" }, "This fragment did not run"),
               React.createElement("pre", null, message),
+              React.createElement("div", { className: "fragment-error-hint" }, "Select Edit code in the fragment menu to fix it."),
             );
           class Boundary extends React.Component {
             constructor(props) {
@@ -828,7 +1554,7 @@ export function buildBoardFrameDocument(): string {
     const describeError = (err) => {
       const message = String((err && err.message) || err || "Unknown error");
       if (message.indexOf("Failed to fetch dynamically imported module") !== -1) {
-        return "Could not load the fragment libraries from esm.sh. The board needs network access to https://esm.sh.";
+        return "The fragment libraries did not load. Reopen the board, and tell us if it happens again.";
       }
       return message;
     };
@@ -847,6 +1573,7 @@ export function buildBoardFrameDocument(): string {
       el.style.width = f.w + "px";
       el.style.height = f.h + "px";
       el.style.zIndex = String(f.z ?? 0);
+      el.style.display = f.hidden === true ? "none" : "";
     };
     const renderErrorBlock = async (entry, seq, message) => {
       try {
@@ -861,10 +1588,13 @@ export function buildBoardFrameDocument(): string {
         block.className = "fragment-error";
         const title = document.createElement("div");
         title.className = "fragment-error-title";
-        title.textContent = "This fragment failed to render";
+        title.textContent = "This fragment did not run";
         const pre = document.createElement("pre");
         pre.textContent = message;
-        block.append(title, pre);
+        const hint = document.createElement("div");
+        hint.className = "fragment-error-hint";
+        hint.textContent = "Select Edit code in the fragment menu to fix it.";
+        block.append(title, pre, hint);
         entry.el.append(block);
       }
     };
@@ -874,7 +1604,7 @@ export function buildBoardFrameDocument(): string {
       try {
         const out = Babel.transform(fragment.code, {
           filename: id + ".tsx",
-          plugins: [jsxUnicodeEscapesPlugin],
+          plugins: [importGuardPlugin, jsxUnicodeEscapesPlugin],
           presets: [
             ["react", { runtime: "automatic" }],
             ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],
@@ -912,7 +1642,7 @@ export function buildBoardFrameDocument(): string {
                 reportFragmentError(id, error);
               },
             },
-            React.createElement(Comp),
+            React.createElement(Comp, { fragmentId: id }),
           ),
         );
         requestAnimationFrame(() => {
@@ -932,14 +1662,40 @@ export function buildBoardFrameDocument(): string {
       if (!entry) {
         const el = document.createElement("div");
         el.className = "fragment";
+        if (fragment.surface === "plain") el.classList.add("fragment-plain");
         el.dataset.id = fragment.id;
         world.appendChild(el);
-        entry = { el, root: null, codeVersion: null, moduleUrl: null, mountSeq: 0, errored: false };
+        entry = { el, root: null, codeVersion: null, code: null, moduleUrl: null, mountSeq: 0, errored: false, fragment: null };
         fragments.set(fragment.id, entry);
       }
+      const before = entry.fragment;
+      if (
+        before &&
+        (before.x !== fragment.x ||
+          before.y !== fragment.y ||
+          before.w !== fragment.w ||
+          before.h !== fragment.h)
+      ) {
+        closeFloating();
+      }
+      entry.fragment = {
+        id: fragment.id,
+        title: fragment.title,
+        x: fragment.x,
+        y: fragment.y,
+        w: fragment.w,
+        h: fragment.h,
+        z: fragment.z,
+        surface: fragment.surface,
+        hidden: fragment.hidden === true,
+      };
+      notifyBoard();
       applyGeometry(entry.el, fragment);
-      if (entry.codeVersion === fragment.codeVersion) return;
+      entry.el.classList.toggle("fragment-plain", fragment.surface === "plain");
+      entry.el.classList.toggle("focused", fragment.id === focusedId);
+      if (entry.codeVersion === fragment.codeVersion && entry.code === fragment.code) return;
       entry.codeVersion = fragment.codeVersion;
+      entry.code = fragment.code;
       void mount(entry, fragment);
     };
     const remove = (id) => {
@@ -950,6 +1706,7 @@ export function buildBoardFrameDocument(): string {
       if (entry.root) entry.root.unmount();
       if (entry.moduleUrl) URL.revokeObjectURL(entry.moduleUrl);
       entry.el.remove();
+      notifyBoard();
     };
     const syncFragments = (list) => {
       const keep = new Set();
@@ -961,10 +1718,29 @@ export function buildBoardFrameDocument(): string {
       }
       for (const fragment of list) upsert(fragment);
     };
+    let focusedId = null;
+    const applyFocus = () => {
+      document.body.classList.toggle("ph-focus", focusedId !== null);
+      if (focusedId !== null) document.body.style.backgroundImage = "none";
+      else applyViewport(lastViewport);
+      for (const [fragmentId, entry] of fragments) {
+        entry.el.classList.toggle("focused", fragmentId === focusedId);
+      }
+    };
+    const setFocus = (id) => {
+      focusedId = typeof id === "string" ? id : null;
+      applyFocus();
+    };
     const setSelection = (ids) => {
-      const selected = new Set(Array.isArray(ids) ? ids : []);
+      selectedIds = Array.isArray(ids) ? ids.slice() : [];
+      const selected = new Set(selectedIds);
       for (const [fragmentId, entry] of fragments) {
         entry.el.classList.toggle("selected", selected.has(fragmentId));
+      }
+      for (const cb of Array.from(selectionSubs)) {
+        try {
+          cb(selectedIds);
+        } catch {}
       }
     };
 
@@ -982,6 +1758,9 @@ export function buildBoardFrameDocument(): string {
         case "set-viewport":
           applyViewport(d.viewport);
           break;
+        case "set-focus":
+          setFocus(d.id);
+          break;
         case "upsert-fragment":
           upsert(d.fragment);
           break;
@@ -996,6 +1775,9 @@ export function buildBoardFrameDocument(): string {
           break;
         case "set-selection":
           setSelection(d.ids);
+          break;
+        case "set-busy":
+          setBusy(d.busy);
           break;
         case "set-carets":
           applyCarets(Array.isArray(d.carets) ? d.carets : []);
@@ -1017,6 +1799,7 @@ export function buildBoardFrameDocument(): string {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="x-dns-prefetch-control" content="off" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <script>
   var canvasImportMap = ${importMap};
@@ -1027,23 +1810,33 @@ export function buildBoardFrameDocument(): string {
   canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);
   document.head.appendChild(canvasImportMapTag);
 </script>
-${TAILWIND_V4}
+<script type="module" src="${moduleUrl(TAILWIND_URL)}"></script>
+${TAILWIND_STYLE}
 ${FREEFORM_QUILL_CSS_URLS.map(
-  (href) => `<link rel="stylesheet" href="${href}" />`,
+  (href) => `<link rel="stylesheet" href="${moduleUrl(href)}" />`,
 ).join("\n")}
 <style>
-  *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   html.dark { color-scheme: dark; }
-  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: var(--foreground, inherit); background: var(--background, transparent); touch-action: none; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: var(--foreground, inherit); background-color: var(--background, transparent); background-image: radial-gradient(var(--ph-grid-dot) 1px, transparent 1px); background-repeat: repeat; touch-action: none; }
+  :root { --ph-plain-hover: rgba(17, 17, 17, 0.035); --ph-grid-dot: rgba(17, 17, 17, 0.10); --ph-card-shadow: 0 1px 2px rgba(16, 18, 22, 0.05), 0 4px 12px -2px rgba(16, 18, 22, 0.08); --ph-card-shadow-hover: 0 1px 2px rgba(16, 18, 22, 0.06), 0 10px 24px -6px rgba(16, 18, 22, 0.14); }
+  html.dark { --ph-plain-hover: rgba(255, 255, 255, 0.05); --ph-grid-dot: rgba(255, 255, 255, 0.09); --ph-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px -2px rgba(0, 0, 0, 0.45); --ph-card-shadow-hover: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 24px -6px rgba(0, 0, 0, 0.6); }
   #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
-  .fragment { position: absolute; overflow: auto; background: var(--card, var(--background, #fff)); color: var(--card-foreground, inherit); border: 1px solid var(--border, rgba(128, 128, 128, 0.35)); border-radius: 8px; }
-  .fragment.selected { border-color: var(--ring, var(--primary, #1d4ed8)); }
-  .fragment-error { padding: 12px; font-size: 12px; color: var(--destructive, #b91c1c); }
+  .fragment { position: absolute; overflow: auto; background: var(--card, var(--background, #fff)); color: var(--card-foreground, inherit); border: 1px solid var(--border, rgba(128, 128, 128, 0.35)); border-radius: 10px; box-shadow: var(--ph-card-shadow); transition: box-shadow 160ms ease, filter 160ms ease; }
+  .fragment:hover { box-shadow: var(--ph-card-shadow-hover); }
+  .fragment-plain, .fragment-plain.selected { background: transparent; border-color: transparent; box-shadow: none; }
+  .fragment-plain:hover { background: var(--ph-plain-hover); border-color: transparent; box-shadow: none; }
+  body.ph-focus { background-image: none; }
+  body.ph-focus #world { transform: none !important; will-change: auto !important; }
+  body.ph-focus .fragment { display: none; }
+  body.ph-focus .fragment.focused { display: block; position: fixed !important; left: 0 !important; top: 0 !important; right: 0 !important; bottom: 0 !important; width: auto !important; height: auto !important; border: 0; border-radius: 0; background: var(--card, var(--background, #fff)); box-shadow: none; overflow: auto; }
+  .fragment.selected { box-shadow: var(--ph-card-shadow-hover); }
+  .fragment-error { display: flex; height: 100%; flex-direction: column; gap: 8px; overflow: auto; padding: 16px; font-size: 12px; }
   .ph-caret-name { animation: ph-caret-fade 300ms 2500ms forwards; }
   @keyframes ph-caret-fade { to { opacity: 0; } }
-  .fragment-error-title { margin-bottom: 4px; font-weight: 600; }
-  .fragment-error pre { margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-word; opacity: 0.85; }
+  .fragment-error-title { font-weight: 600; color: var(--destructive, #b91c1c); }
+  .fragment-error-hint { color: var(--muted-foreground, #6b7280); font-size: 11px; }
+  .fragment-error pre { margin: 0; max-height: 60%; overflow: auto; border-radius: 6px; background: var(--muted, rgba(128, 128, 128, 0.12)); padding: 8px; color: var(--muted-foreground, #6b7280); font-size: 11px; white-space: pre-wrap; word-break: break-word; }
 </style>
 </head>
 <body>
@@ -1053,17 +1846,25 @@ ${FREEFORM_QUILL_CSS_URLS.map(
 </html>`;
 }
 
-// Same policy as the freeform sandbox minus the analytics hosts: fragment data
-// goes over postMessage, so connect-src only needs the module CDNs.
-function contentSecurityPolicy(): string {
-  const esm = FREEFORM_ESM_HOST;
+function contentSecurityPolicy(vendoredModules: boolean): string {
+  const modules = vendoredModules
+    ? `${CANVAS_V2_MODULE_SCHEME}:`
+    : `${CANVAS_V2_TAILWIND_PREFIX} ${FREEFORM_ESM_HOST}`;
   return [
     "default-src 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval' blob: ${TAILWIND_CDN} ${esm}`,
-    `style-src 'unsafe-inline' ${esm}`,
-    `font-src data: ${esm}`,
-    "img-src data: blob: https:",
+    `script-src 'unsafe-inline' blob: ${modules}`,
+    `style-src 'unsafe-inline' ${modules}`,
+    `font-src data: ${modules}`,
+    "img-src data: blob:",
+    "media-src data: blob:",
     "worker-src blob:",
-    `connect-src ${esm} ${TAILWIND_CDN}`,
+    "connect-src 'none'",
+    "prefetch-src 'none'",
+    "webrtc 'block'",
+    "form-action 'none'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "manifest-src 'none'",
   ].join("; ");
 }

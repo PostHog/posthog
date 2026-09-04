@@ -868,9 +868,9 @@ export class TaskCreationSaga extends Saga<
             input.cloudRunSource !== "signal_report"
               ? input.githubUserIntegrationId
               : undefined,
-          origin_product: input.signalReportId
-            ? "signal_report"
-            : "user_created",
+          origin_product:
+            input.originProduct ??
+            (input.signalReportId ? "signal_report" : "user_created"),
           // Labels the task↔report association so the server routes it to the
           // right per-report cap; unlabelled defaults to implementation, which
           // burns the report's one-live-PR gate.

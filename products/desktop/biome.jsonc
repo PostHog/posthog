@@ -78,6 +78,7 @@
         "!apps/code/src/main/bootstrap.ts",
         "!apps/code/src/main/index.ts",
         "!apps/code/src/main/window.ts",
+        "!apps/code/src/main/canvas-board-session.ts",
         "!apps/code/src/main/quick-ask.ts",
         "!apps/code/src/main/quick-ask-capture.ts",
         "!apps/code/src/main/external-links.ts",

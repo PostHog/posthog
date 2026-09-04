@@ -4,11 +4,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /** Create, rename and delete a board. Each one refreshes the board list. */
 export function useCanvasV2BoardMutations(): {
-  createBoard: (name: string) => Promise<CanvasV2Board>;
+  createBoard: (channelId: string, name: string) => Promise<CanvasV2Board>;
   renameBoard: (id: string, name: string) => Promise<CanvasV2Board>;
+  fileBoard: (id: string, channelId: string) => Promise<CanvasV2Board>;
   removeBoard: (id: string) => Promise<void>;
   isCreating: boolean;
   isRenaming: boolean;
+  isFiling: boolean;
   isRemoving: boolean;
 } {
   const trpc = useHostTRPC();
@@ -16,6 +18,7 @@ export function useCanvasV2BoardMutations(): {
 
   const invalidate = () => {
     void queryClient.invalidateQueries(trpc.canvasV2.list.pathFilter());
+    void queryClient.invalidateQueries(trpc.canvasV2.listAll.pathFilter());
   };
 
   const create = useMutation(
@@ -24,18 +27,25 @@ export function useCanvasV2BoardMutations(): {
   const rename = useMutation(
     trpc.canvasV2.rename.mutationOptions({ onSuccess: invalidate }),
   );
+  const file = useMutation(
+    trpc.canvasV2.setChannel.mutationOptions({ onSuccess: invalidate }),
+  );
   const remove = useMutation(
     trpc.canvasV2.remove.mutationOptions({ onSuccess: invalidate }),
   );
 
   return {
-    createBoard: (name: string) => create.mutateAsync({ name }),
+    createBoard: (channelId: string, name: string) =>
+      create.mutateAsync({ channelId, name }),
     renameBoard: (id: string, name: string) => rename.mutateAsync({ id, name }),
+    fileBoard: (id: string, channelId: string) =>
+      file.mutateAsync({ id, channelId }),
     removeBoard: async (id: string) => {
       await remove.mutateAsync({ id });
     },
     isCreating: create.isPending,
     isRenaming: rename.isPending,
+    isFiling: file.isPending,
     isRemoving: remove.isPending,
   };
 }

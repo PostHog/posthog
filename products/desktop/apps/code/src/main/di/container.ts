@@ -3,6 +3,7 @@ import "reflect-metadata";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
+import { setCanvasBoardDocument } from "@main/protocols/canvas-modules";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import {
   getGatewayUsageUrl,
@@ -104,6 +105,7 @@ import { APP_LIFECYCLE_SERVICE } from "@posthog/platform/app-lifecycle";
 import { APP_META_SERVICE } from "@posthog/platform/app-meta";
 import { APP_METRICS_SERVICE } from "@posthog/platform/app-metrics";
 import { BUNDLED_RESOURCES_SERVICE } from "@posthog/platform/bundled-resources";
+import { CANVAS_BOARD_FRAME_HOST } from "@posthog/platform/canvas-board-frame";
 import { CLIPBOARD_SERVICE } from "@posthog/platform/clipboard";
 import { CONTEXT_MENU_SERVICE } from "@posthog/platform/context-menu";
 import { CRYPTO_SERVICE } from "@posthog/platform/crypto";
@@ -350,6 +352,9 @@ export const container = new TypedContainer<MainBindings>({
   defaultScope: "Singleton",
 });
 
+container.bind(CANVAS_BOARD_FRAME_HOST).toConstantValue({
+  registerDocument: setCanvasBoardDocument,
+});
 container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
