@@ -141,15 +141,15 @@ Frames, which are fragments that hold other fragments:
 - \`layout(children, inner)\` gives back \`[{ id, x, y, w, h }]\` and the frame
   moves the contents there. \`gridRects(children, box, { columns, gap })\` builds
   that list. With no layout, \`follow: true\` moves the contents with the frame.
-- A rect in that list can also carry \`hidden: true\`, which is how a slideshow
-  frame shows one fragment at a time. \`useSlideshow(fragmentId, opts)\` gives
-  back \`{ children, count, index, current, empty, show, next, previous,
-  addSlide, removeSlide }\` and does that work.
+- A rect in that list can also carry \`hidden: true\`, which is how the
+  slideshow frame shows one fragment at a time while it is full page. The SDK
+  holds primitives only; a frame of its own kind builds its behavior on them,
+  as the slideshow template does.
 - A frame only moves, resizes, and hides the fragments on it, and it waits
   until the person stops dragging. It cannot make, delete, or rewrite one.
-- \`useBoardSelection()\` gives the ids the person has selected and
-  \`useBoardFocus()\` the fragment shown full page, for a frame that answers
-  the keyboard.
+- \`useBoardSelection()\` gives the ids the person has selected,
+  \`useBoardFocus()\` the fragment shown full page, and \`useBoardBusy()\` is
+  true while somebody drags.
 - A frame needs \`surface: "plain"\`, a low \`z\`, and its own dashed border, or
   it hides the fragments that sit on it.
 

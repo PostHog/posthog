@@ -648,6 +648,12 @@ export class BoardSyncClient {
     return "synced";
   }
 
+  setName(name: string): void {
+    if (this.name === name) return;
+    this.name = name;
+    this.emit();
+  }
+
   private buildState(): BoardSyncState {
     return {
       boardId: this.boardId,

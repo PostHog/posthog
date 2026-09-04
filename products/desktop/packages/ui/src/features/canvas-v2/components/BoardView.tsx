@@ -31,6 +31,8 @@ import {
   BACK_TO_CANVASES_ACTION,
   BOARD_LOAD_ERROR_DESCRIPTION,
   BOARD_LOAD_ERROR_TITLE,
+  DEFAULT_BOARD_NAME,
+  RENAME_BOARD_ACTION,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { useApplyBoardToolCalls } from "@posthog/ui/features/canvas-v2/hooks/useApplyBoardToolCalls";
 import { useBoardApi } from "@posthog/ui/features/canvas-v2/hooks/useBoardApi";
@@ -41,6 +43,7 @@ import {
   useBoardViewport,
   useBoardViewportStore,
 } from "@posthog/ui/features/canvas-v2/hooks/useBoardViewportStore";
+import { useCanvasV2BoardMutations } from "@posthog/ui/features/canvas-v2/hooks/useCanvasV2BoardMutations";
 import {
   selectBoardFragment,
   useBoardViewStore,
@@ -50,6 +53,7 @@ import { useBoardPeers } from "@posthog/ui/features/canvas-v2/presence/useBoardP
 import { useBoardStream } from "@posthog/ui/features/canvas-v2/presence/useBoardStream";
 import { usePresenceSender } from "@posthog/ui/features/canvas-v2/presence/usePresenceSender";
 import { useBoardSync } from "@posthog/ui/features/canvas-v2/sync/useBoardSync";
+import { HeaderTitleEditor } from "@posthog/ui/features/task-detail/HeaderTitleEditor";
 import { navigateToCanvases } from "@posthog/ui/router/navigationBridge";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useQueryClient } from "@tanstack/react-query";
@@ -145,6 +149,8 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
       openOnly(open ? null : panel),
     [openOnly],
   );
+  const [renaming, setRenaming] = useState(false);
+  const { renameBoard } = useCanvasV2BoardMutations();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
@@ -279,8 +285,28 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
         >
           <ArrowLeftIcon />
         </Button>
-        <h1 className="min-w-0 truncate font-semibold text-[15px] tracking-tight">
-          {state.name || " "}
+        <h1 className="flex min-w-0 flex-1">
+          {renaming ? (
+            <HeaderTitleEditor
+              initialTitle={state.name}
+              onSubmit={(next) => {
+                setRenaming(false);
+                client?.setName(next);
+                void renameBoard(boardId, next);
+              }}
+              onCancel={() => setRenaming(false)}
+              className="h-7 min-w-0 flex-1 px-1.5 font-semibold text-[15px] tracking-tight"
+            />
+          ) : (
+            <button
+              type="button"
+              title={RENAME_BOARD_ACTION}
+              className="min-w-0 truncate rounded-(--radius-2) px-1.5 py-0.5 text-left font-semibold text-[15px] tracking-tight transition-colors hover:bg-(--gray-3)"
+              onClick={() => setRenaming(true)}
+            >
+              {state.name || DEFAULT_BOARD_NAME}
+            </button>
+          )}
         </h1>
         <div className="ml-auto flex shrink-0 items-center gap-2.5">
           <PresenceFaces peers={peers} />
