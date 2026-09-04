@@ -105,6 +105,14 @@ class PostgresPrinter(BasePrinter):
                 f"{self._dialect_error_suffix()}, because {self.DIALECT_LABEL} ignores the window frame "
                 f"for {native_name}. Remove the window frame."
             )
+        # An ordered window with no explicit frame resolves to a ClickHouse frame that ends at the current
+        # row, so a lookahead reads no row there while the native lead reads the next one.
+        if native_name == "lead" and window_expr is not None and window_expr.order_by:
+            raise QueryError(
+                f"{cloned_node.name} over an ordered window is not supported "
+                f"{self._dialect_error_suffix()}. The window frame ends at the current row, so there is "
+                f"no row ahead to read. Use {native_name} to read the next row."
+            )
         return native_name
 
     def _window_expression(self, node: ast.WindowFunction) -> ast.WindowExpr | None:

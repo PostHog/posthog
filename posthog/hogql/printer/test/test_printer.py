@@ -7299,7 +7299,6 @@ class TestPostgresPrinter(BaseTest):
             ["lag", "lag"],
             ["lead", "lead"],
             ["lagInFrame", "lag"],
-            ["leadInFrame", "lead"],
         ]
     )
     def test_window_functions_keep_postgres_shape(self, authored_name: str, native_name: str):
@@ -7309,11 +7308,8 @@ class TestPostgresPrinter(BaseTest):
         self.assertNotIn("InFrame", printed)
         self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
 
-    @parameterized.expand([["lagInFrame"], ["leadInFrame"]])
-    def test_in_frame_window_function_over_unframed_named_window_translates(self, authored_name: str):
-        printed = self._select(
-            f"SELECT {authored_name}(timestamp) OVER win FROM events WINDOW win AS (ORDER BY timestamp)"
-        )
+    def test_lag_in_frame_over_unframed_named_window_translates(self):
+        printed = self._select("SELECT lagInFrame(timestamp) OVER win FROM events WINDOW win AS (ORDER BY timestamp)")
 
         self.assertNotIn("InFrame", printed)
 
@@ -7334,6 +7330,21 @@ class TestPostgresPrinter(BaseTest):
             self._select(query)
 
         self.assertIn("explicit window frame is not supported", str(error.exception))
+
+    @parameterized.expand(
+        [
+            ["inline_window", "SELECT leadInFrame(timestamp) OVER (ORDER BY timestamp) FROM events"],
+            [
+                "named_window",
+                "SELECT leadInFrame(timestamp) OVER win FROM events WINDOW win AS (ORDER BY timestamp)",
+            ],
+        ]
+    )
+    def test_lead_in_frame_rejects_ordered_window_that_reads_no_row_ahead(self, _name: str, query: str):
+        with self.assertRaises(QueryError) as error:
+            self._select(query)
+
+        self.assertIn("no row ahead to read", str(error.exception))
 
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
     def test_percentile_within_group_renders_in_postgres(self, function_name: str):
