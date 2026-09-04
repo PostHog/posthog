@@ -682,6 +682,16 @@ export interface ObservationSearchResponseApi {
     truncated: boolean
 }
 
+export interface SearchSuggestionsResponseApi {
+    /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+    queries: string[]
+}
+
+export interface SearchSuggestionsQueryApi {
+    /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
+    scanner_id?: string
+}
+
 export interface VisionQuotaApi {
     /**
      * Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.
@@ -1431,24 +1441,6 @@ export interface ScorerStatsApi {
     histogram: ScorerHistogramApi | null
 }
 
-export interface FacetCountApi {
-    /** The facet value as emitted by the summarizer (lowercased). */
-    term: string
-    /** Number of succeeded observations that emitted this value. */
-    count: number
-}
-
-export interface SummarizerStatsApi {
-    /** Top friction points by emission count. */
-    friction_ranked: FacetCountApi[]
-    /** Top keywords by emission count. */
-    keyword_ranked: FacetCountApi[]
-    /** Succeeded observations that emitted at least one friction point or keyword. */
-    total_with_facets: number
-    /** Succeeded observations that reported at least one friction point. */
-    total_with_friction: number
-}
-
 export interface ObservationStatsApi {
     /** Counts of observations by terminal status. */
     status_counts: ObservationStatusCountsApi
@@ -1464,8 +1456,6 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
-    /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
-    summarizer: SummarizerStatsApi | null
 }
 
 /**
@@ -2355,6 +2345,16 @@ export type VisionObservationsRetrieveParams = {
 
 export type VisionObservationsSearchRetrieveParams = {
     /**
+     * Only observations analyzed at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Only observations analyzed at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
      * Maximum number of results (default 20, at most 50).
      * @minimum 1
      * @maximum 50
@@ -2388,6 +2388,13 @@ export type VisionObservationsSearchRetrieveParams = {
      * @minLength 1
      */
     verdict?: string
+}
+
+export type VisionObservationsSearchSuggestionsRetrieveParams = {
+    /**
+     * Scope to a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
 }
 
 export type VisionScannersListParams = {

@@ -6,16 +6,26 @@ a single ClickHouse query here. Callers resolve scanner scope and access control
 readable scanner ids in.
 """
 
+import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from django.core.cache import cache
+from django.db.models import F
+
+from asgiref.sync import sync_to_async
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.embedding_worker import generate_embedding
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import (
@@ -38,9 +48,18 @@ MAX_SEARCH_LIMIT = 50
 # exactly `limit` ids can come back short. Callers rank this many times their limit and slice the
 # hydrated rows back down, so drops only shorten the response once they exceed the margin.
 RANK_OVERFETCH_FACTOR = 3
-# Cut inside the candidate subquery so full facet paragraphs are neither carried through the sort nor
-# sent over the wire.
-_MATCHED_CONTENT_MAX_CHARS = 300
+# Cosine distance above which a row is not a match, so a query about nothing returns nothing rather than
+# the closest 50 unrelated observations. For text-embedding-3-large, related prose lands well under this
+# and unrelated prose well over it.
+MAX_MATCH_DISTANCE = 0.7
+# Cut inside the candidate subquery so the sort never carries an unbounded document. Wide enough to hold a
+# whole summary, so the client can window its snippet around the matched term.
+_MATCHED_CONTENT_MAX_CHARS = 1500
+# Query vectors are pure functions of (model, text), so repeated and deep-linked searches skip the embedding
+# worker round trip.
+_QUERY_VECTOR_CACHE_TTL_S = 3600
+# Bound the synchronous embedding call: it pins a request thread, and a searcher will not wait longer.
+_EMBEDDING_TIMEOUT_S = 10.0
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
 # predictable without an HNSW index (which our mandatory tenant/scanner metadata filters wouldn't engage anyway).
@@ -73,6 +92,8 @@ class ObservationSearchFilters:
     tags: list[str] | None = None
     min_score: float | None = None
     max_score: float | None = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
 
     @classmethod
     def from_raw(
@@ -81,12 +102,23 @@ class ObservationSearchFilters:
         tags: list[str] | None,
         min_score: float | None,
         max_score: float | None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        timezone_info: ZoneInfo | None = None,
     ) -> "ObservationSearchFilters":
         """Normalize caller-supplied values: tags slugified to match the stored side, verdicts lowercased so
-        a casing slip doesn't silently match nothing. Both are order-preserving deduped."""
+        a casing slip doesn't silently match nothing. Both are order-preserving deduped. Date bounds parse
+        like the observation list's, in the project's timezone."""
         normalized_tags = list(dict.fromkeys(s for t in (tags or []) if (s := slugify_tag(t)))) or None
         normalized_verdict = list(dict.fromkeys(v.strip().lower() for v in (verdict or []) if v.strip())) or None
-        return cls(verdict=normalized_verdict, tags=normalized_tags, min_score=min_score, max_score=max_score)
+        return cls(
+            verdict=normalized_verdict,
+            tags=normalized_tags,
+            min_score=min_score,
+            max_score=max_score,
+            date_from=parse_date_bound(date_from, timezone_info, end_of_range=False) if date_from else None,
+            date_to=parse_date_bound(date_to, timezone_info, end_of_range=True) if date_to else None,
+        )
 
     def where_clauses(self, placeholders: dict[str, "ast.Expr"]) -> list[str]:
         """HogQL predicates over `metadata`, registering their values into `placeholders`. The metadata key is
@@ -118,6 +150,11 @@ class ObservationSearchFilters:
                 self.max_score,
                 "JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') <= {max_score}",
             )
+        # `timestamp` is when the observation was embedded, which tracks when it was created.
+        if self.date_from is not None:
+            self._append_filter(clauses, placeholders, "date_from", self.date_from, "timestamp >= {date_from}")
+        if self.date_to is not None:
+            self._append_filter(clauses, placeholders, "date_to", self.date_to, "timestamp <= {date_to}")
         return clauses
 
     @staticmethod
@@ -147,8 +184,11 @@ def rank_observations(
     """Closest observations by cosine distance, restricted to the given scanners and to the structured
     outcome filters via the embedding metadata, so filter and rank happen in a single query.
 
-    `min(...)` collapses an observation's multiple renderings (the summarizer's per-facet rows) to its
-    single best-matching distance, so each observation appears once.
+    Rows farther than `MAX_MATCH_DISTANCE` are dropped before aggregation, so an off-topic query returns nothing.
+
+    `min(...)` collapses an observation's multiple renderings to its single best-matching distance, so each
+    observation appears once. Only rows written before summarizers embedded one document per observation
+    have several renderings; once those age past the candidate cap the GROUP BY can go.
 
     The distance scan is exact (brute-force), so we bound it: the inner query takes the most recent
     `_MAX_CANDIDATE_ROWS` matching embedding rows before ranking. Below that volume (all teams at launch
@@ -165,10 +205,12 @@ def rank_observations(
         "candidate_cap": ast.Constant(value=_MAX_CANDIDATE_ROWS),
         "limit": ast.Constant(value=limit),
         "snippet_chars": ast.Constant(value=_MATCHED_CONTENT_MAX_CHARS),
+        "max_distance": ast.Constant(value=MAX_MATCH_DISTANCE),
     }
     filter_clause = "".join(f"\n                  AND {clause}" for clause in filters.where_clauses(placeholders))
     # The distance layer wraps the capped candidate subquery so the 3072-dim dot product runs once per
-    # candidate row (min and argMin share the alias) and never on rows the cap already discarded.
+    # candidate row (min and argMin share the alias) and never on rows the cap already discarded. The ceiling
+    # sits on that layer too, so the aggregate only ever sees rows that are matches.
     hogql_query = f"""
         SELECT
             document_id,
@@ -187,6 +229,7 @@ def rank_observations(
                 ORDER BY timestamp DESC
                 LIMIT {{candidate_cap}}
             )
+            WHERE cosineDistance(embedding, {{embedding}}) <= {{max_distance}}
         )
         GROUP BY document_id
         ORDER BY distance ASC
@@ -218,6 +261,88 @@ def fetch_ranked_observations(
         status=ObservationStatus.SUCCEEDED,
         id__in=ordered_ids,
     )
-    rows = hydrate_for_serialization(accessible_observations(access, team_id, rows))
+    # `scanner_name` feeds the Max tool's line format without joining the scanner row's config blobs.
+    rows = hydrate_for_serialization(accessible_observations(access, team_id, rows)).annotate(
+        scanner_name=F("scanner__name")
+    )
     observations = {str(obs.id): obs for obs in rows}
     return [obs for observation_id in ordered_ids if (obs := observations.get(observation_id)) is not None]
+
+
+def parse_date_bound(value: str, timezone_info: ZoneInfo | None, *, end_of_range: bool) -> datetime:
+    """Parse a caller-supplied date bound: ISO 8601 or relative (`-7d`), naive values in the project's
+    timezone. A date-only upper bound covers its whole day. Shared by the observation list and search.
+    Raises `ValueError` on text that is neither, rather than silently treating it as now."""
+    parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(value, timezone_info or ZoneInfo("UTC"))
+    # The relative branch hands back an empty mapping when nothing in the text matched a period.
+    if delta_mapping == {}:
+        raise ValueError(f"Unrecognized date: {value!r}. Use ISO 8601 or a relative date like -7d.")
+    if end_of_range and not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return parsed
+
+
+@dataclass(frozen=True)
+class ObservationSearchResult:
+    """One hydrated hit, in rank order."""
+
+    observation: ReplayObservation
+    distance: float
+    matched_content: str
+
+
+@dataclass(frozen=True)
+class ObservationSearchResponse:
+    results: list[ObservationSearchResult]
+    # More matches exist past `results`: either hydration returned more readable rows than the limit, or
+    # ClickHouse filled its over-fetched limit with rows under the distance ceiling.
+    truncated: bool
+
+
+def search_observations(
+    team: Team,
+    user: User,
+    access: UserAccessControl,
+    scanner_ids: list[str],
+    query_vector: list[float],
+    limit: int,
+    filters: ObservationSearchFilters,
+) -> ObservationSearchResponse:
+    """Rank, hydrate, and slice: the one path both the HTTP endpoint and the Max tool call once they have
+    resolved their scanner scope and query vector."""
+    rank_limit = limit * RANK_OVERFETCH_FACTOR
+    matches = rank_observations(team, user, scanner_ids, query_vector, rank_limit, filters)
+    match_by_id = {match.observation_id: match for match in matches}
+    observations = fetch_ranked_observations(team.id, scanner_ids, list(match_by_id), access)
+    results = [
+        ObservationSearchResult(
+            observation=obs,
+            distance=match_by_id[str(obs.id)].distance,
+            matched_content=match_by_id[str(obs.id)].matched_content,
+        )
+        for obs in observations[:limit]
+    ]
+    truncated = len(observations) > limit or len(matches) >= rank_limit
+    return ObservationSearchResponse(results=results, truncated=truncated)
+
+
+def _query_vector_cache_key(text: str) -> str:
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return f"replay_vision:query_vector:{OBSERVATION_EMBEDDING_MODEL.value}:{digest}"
+
+
+def query_vector_for(team: Team, text: str) -> list[float]:
+    """Embed search text, serving repeats from cache. Raises the embedding client's transport errors."""
+    key = _query_vector_cache_key(text)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    vector = generate_embedding(
+        team, text, model=OBSERVATION_EMBEDDING_MODEL.value, timeout=_EMBEDDING_TIMEOUT_S
+    ).embedding
+    cache.set(key, vector, timeout=_QUERY_VECTOR_CACHE_TTL_S)
+    return vector
+
+
+# The Max tool awaits this so the event loop stays free during the embedding round trip.
+async_query_vector_for = sync_to_async(query_vector_for, thread_sensitive=False)
