@@ -300,9 +300,18 @@ class ClickhouseCluster:
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         get_cluster_hosts_fn = lambda client: client.execute(
             f"""
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(name)s, system.clusters)
-            WHERE name = %(name)s and is_local
+            SELECT
+                host_name,
+                port,
+                shard_num,
+                replica_num,
+                host_cluster_type,
+                host_cluster_role
+            FROM (
+                SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                FROM clusterAllReplicas(%(name)s, system.clusters)
+                WHERE name = %(name)s and is_local
+            )
             ORDER BY shard_num, replica_num
             """,
             {"name": cluster},
@@ -322,9 +331,18 @@ class ClickhouseCluster:
     ):
         get_hosts_fn = lambda client: client.execute(
             """
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(satellite_name)s, system.clusters)
-            WHERE is_local AND cluster = %(migrations_cluster)s
+            SELECT
+                host_name,
+                port,
+                shard_num,
+                replica_num,
+                host_cluster_type,
+                host_cluster_role
+            FROM (
+                SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                FROM clusterAllReplicas(%(satellite_name)s, system.clusters)
+                WHERE is_local AND cluster = %(migrations_cluster)s
+            )
             ORDER BY shard_num, replica_num
             """,
             {"satellite_name": satellite_cluster, "migrations_cluster": migrations_cluster},

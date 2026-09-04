@@ -438,6 +438,51 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         )
 
 
+def test_cluster_discovery_orders_hosts_outside_distributed_query() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute.return_value = [("host1", "9000", "1", "1", "online", "data")]
+
+    ClickhouseCluster(bootstrap_client_mock, cluster="posthog_migrations")
+
+    query, params = bootstrap_client_mock.execute.call_args.args
+    assert " ".join(query.split()) == (
+        "SELECT host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role "
+        "FROM ( SELECT host_name, port, shard_num, replica_num, "
+        "getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role "
+        "FROM clusterAllReplicas(%(name)s, system.clusters) WHERE name = %(name)s and is_local ) "
+        "ORDER BY shard_num, replica_num"
+    )
+    assert params == {"name": "posthog_migrations"}
+
+
+def test_satellite_cluster_discovery_orders_hosts_outside_distributed_query() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute.side_effect = [
+        [("host1", "9000", "1", "1", "online", "data")],
+        [("aux-host1", "9000", "1", "1", "online", "aux")],
+    ]
+
+    ClickhouseCluster(
+        bootstrap_client_mock,
+        cluster="posthog_migrations",
+        satellite_clusters=["posthog_aux"],
+    )
+
+    assert bootstrap_client_mock.execute.call_count == 2
+    query, params = bootstrap_client_mock.execute.call_args_list[1].args
+    assert " ".join(query.split()) == (
+        "SELECT host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role "
+        "FROM ( SELECT host_name, port, shard_num, replica_num, "
+        "getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role "
+        "FROM clusterAllReplicas(%(satellite_name)s, system.clusters) "
+        "WHERE is_local AND cluster = %(migrations_cluster)s ) ORDER BY shard_num, replica_num"
+    )
+    assert params == {
+        "satellite_name": "posthog_aux",
+        "migrations_cluster": "posthog_migrations",
+    }
+
+
 def test_map_hosts_by_role() -> None:
     bootstrap_client_mock = Mock()
     bootstrap_client_mock.execute = Mock()
