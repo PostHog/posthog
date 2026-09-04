@@ -255,7 +255,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_failed: {
         name: 'Failed',
         description:
-            'Total number of emails that were not attempted to be sent. This typically indicates the PostHog email service determined the email contained a virus.',
+            'Total number of emails that could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.',
         color: METRIC_COLORS['Failed'],
         metricNames: ['email_failed'],
     },

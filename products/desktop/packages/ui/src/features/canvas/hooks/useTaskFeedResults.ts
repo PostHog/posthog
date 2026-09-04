@@ -5,7 +5,7 @@ import {
   parseFeedQuery,
   planFeedQuery,
 } from "@posthog/core/tasks/feedQuery";
-import type { Task } from "@posthog/shared/domain-types";
+import type { SignalReport, Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -19,6 +19,7 @@ import {
 
 const TASK_FEED_POLL_INTERVAL_MS = 15_000;
 const TASK_FEED_MAX_PAGES = 5;
+const REPORT_FEED_PAGE_SIZE = 100;
 export const taskFeedResultsQueryRoot = ["task-feed-results"] as const;
 
 function isPersonToken(token: FeedQueryToken): boolean {
@@ -90,6 +91,7 @@ export function useFeedQueryPlan(query: string | undefined): {
       members,
       spaces: channels.map((c) => ({ id: c.id, name: c.name })),
       me: me ?? null,
+      reportsEnabled: false,
     });
   }, [
     normalized,
@@ -128,7 +130,10 @@ export function useTaskFeedResults(query: string | undefined): {
   isFetching: boolean;
   isLoading: boolean;
   issues: FeedQueryIssue[];
+  /** What the feed carries: tasks (the default) or reports (`type:report`). */
+  mode: "tasks" | "reports";
   refetch: () => void;
+  reports: SignalReport[];
   tasks: Task[];
 } {
   const normalized = query?.trim() ?? "";
@@ -142,9 +147,27 @@ export function useTaskFeedResults(query: string | undefined): {
   } = useFeedQueryPlan(normalized);
 
   const requests = plan?.requests ?? [];
-  const result = useAuthenticatedQuery<{ tasks: Task[]; isComplete: boolean }>(
+  const reportsMode = plan?.mode === "reports";
+  const reportChannelId = plan?.reportChannelId;
+  const result = useAuthenticatedQuery<{
+    tasks: Task[];
+    reports: SignalReport[];
+    isComplete: boolean;
+  }>(
     taskFeedResultsQueryKey(normalized),
     async (client) => {
+      if (reportsMode) {
+        const response = await client.getSignalReports({
+          ordering: "-created_at",
+          limit: REPORT_FEED_PAGE_SIZE,
+          ...(reportChannelId ? { channel_id: reportChannelId } : {}),
+        });
+        return {
+          tasks: [],
+          reports: response.results,
+          isComplete: response.results.length >= response.count,
+        };
+      }
       const pages = await Promise.all(
         requests.map((request) =>
           client.getTasksWithStatus(request, {
@@ -162,6 +185,7 @@ export function useTaskFeedResults(query: string | undefined): {
         tasks: [...byId.values()].sort((a, b) =>
           b.created_at.localeCompare(a.created_at),
         ),
+        reports: [],
         isComplete: pages.every((page) => page.isComplete),
       };
     },
@@ -179,16 +203,26 @@ export function useTaskFeedResults(query: string | undefined): {
     return fetched.filter((task) => plan.matches(task));
   }, [result.data, plan]);
 
+  const reports = useMemo(() => {
+    const fetched = result.data?.reports ?? [];
+    const matchesReport = plan?.matchesReport;
+    if (!matchesReport) return fetched;
+    return fetched.filter((report) => matchesReport(report));
+  }, [result.data, plan]);
+
   return {
     canRetry: planError ? planCanRetry : result.error !== null,
     error: planError ?? result.error ?? null,
     errorMessage:
       planErrorMessage ??
-      (result.error ? "Couldn't load matching tasks. Try again." : null),
+      (result.error
+        ? `Couldn't load matching ${reportsMode ? "reports" : "tasks"}. Try again.`
+        : null),
     isComplete: result.data?.isComplete ?? false,
     isFetching: result.isFetching,
     isLoading: planLoading || result.isLoading,
     issues: plan?.issues ?? [],
+    mode: plan?.mode ?? "tasks",
     refetch: () => {
       if (planError) {
         refetchPlan();
@@ -196,6 +230,7 @@ export function useTaskFeedResults(query: string | undefined): {
       }
       void result.refetch();
     },
+    reports,
     tasks,
   };
 }

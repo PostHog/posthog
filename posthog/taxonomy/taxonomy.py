@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterator
 from typing import Literal, NotRequired, TypedDict
 
 STALE_EVENT_DAYS = 30
@@ -18,6 +19,18 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+
+
+def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
+    """Whether an LLM prompt must leave this entry out."""
+    return bool(definition.get("system") or definition.get("ignored_in_assistant"))
+
+
+def visible_definitions(group: str) -> Iterator[tuple[str, CoreFilterDefinition]]:
+    """The entries of a taxonomy group that an LLM prompt may show."""
+    for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items():
+        if not is_hidden_from_assistant(definition):
+            yield name, definition
 
 
 """
@@ -234,7 +247,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
-            "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the input, output, and output_choices columns of the posthog.ai_events table in HogQL. That content is only available within its retention window.",
             "primary_property": "$ai_model",
         },
         "$ai_evaluation": {
@@ -456,6 +469,30 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Error tracking issue spiking",
             "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
         },
+        "$error_tracking_issue_resolved": {
+            "label": "Error tracking issue resolved",
+            "description": "Fires when an error tracking issue is marked as resolved.",
+        },
+        "$error_tracking_issue_suppressed": {
+            "label": "Error tracking issue suppressed",
+            "description": "Fires when an error tracking issue is marked as suppressed.",
+        },
+        "$error_tracking_issue_assigned": {
+            "label": "Error tracking issue assigned",
+            "description": "Fires when an error tracking issue is assigned to a user or role.",
+        },
+        "$error_tracking_issue_unassigned": {
+            "label": "Error tracking issue unassigned",
+            "description": "Fires when an error tracking issue's assignee is removed.",
+        },
+        "$error_tracking_issue_merged": {
+            "label": "Error tracking issue merged",
+            "description": "Fires when error tracking issues are merged into another issue.",
+        },
+        "$error_tracking_issue_split": {
+            "label": "Error tracking issue split",
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
+        },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
@@ -487,6 +524,45 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$slack_message_received": {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+        },
+        # Descriptions here must stay in step with the matching workflow email metric definitions in
+        # products/workflows/frontend/Workflows/workflowMetricsSummaryLogic.ts, since the two surfaces
+        # count the same thing.
+        "$workflows_email_sent": {
+            "label": "Workflow email sent",
+            "description": "Fires when a workflow sends an email to a recipient.",
+        },
+        "$workflows_email_delivered": {
+            "label": "Workflow email delivered",
+            "description": "Fires when a workflow email reaches the recipient's inbox, confirmed by their mail server accepting it.",
+        },
+        "$workflows_email_failed": {
+            "label": "Workflow email failed",
+            "description": "Fires when a workflow email could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.",
+        },
+        "$workflows_email_opened": {
+            "label": "Workflow email opened",
+            "description": "Fires when a recipient opens a workflow email. Emails sent without open tracking can never record an open, so they are missing from this count.",
+        },
+        "$workflows_email_link_clicked": {
+            "label": "Workflow email link clicked",
+            "description": "Fires when a recipient clicks a link in a workflow email. Emails sent without click tracking can never record a click, so they are missing from this count.",
+        },
+        "$workflows_email_bounced": {
+            "label": "Workflow email bounced",
+            "description": "Fires when a workflow email bounces.",
+        },
+        "$workflows_email_blocked": {
+            "label": "Workflow email marked as spam",
+            "description": 'Fires when a recipient reports a workflow email as spam. Despite the event name, this does not count blocked mail: it counts spam complaints that mailbox providers pass back through their feedback loops. Gmail does not send those reports, so a Gmail user marking an email as spam is not counted here. Workflow metrics show the same count as "Marked as spam".',
+        },
+        "$workflows_email_unsubscribed": {
+            "label": "Workflow email unsubscribed",
+            "description": "Fires when a recipient unsubscribes from workflow emails, through the one-click unsubscribe link or the preferences page. The `category` property holds the message category they left, or `$all` when they opted out of everything.",
+        },
+        "$workflows_email_tracking_consent_updated": {
+            "label": "Workflow email tracking consent updated",
+            "description": "Fires when a recipient changes whether workflow emails can track their opens and clicks, on the email preferences page.",
         },
     },
     "elements": {
@@ -694,16 +770,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
-        "$transformations_skipped": {
-            "label": "Transformations skipped",
-            "description": "Array of transformations skipped during ingestion.",
-            "used_for_debug": True,
-        },
-        "$transformations_succeeded": {
-            "label": "Transformations succeeded",
-            "description": "Array of transformations that succeeded during ingestion.",
-            "used_for_debug": True,
-        },
         "$config_defaults": {
             "label": "Config defaults",
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
@@ -790,12 +856,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$pageview_id": {
@@ -2300,6 +2366,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Where the cost data for this model was sourced from.",
             "examples": ["openrouter", "manual", "custom", "passthrough"],
         },
+        "$ai_cost_passthrough": {
+            "label": "AI cost passthrough (LLM)",
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [True],
+        },
         "$ai_cost_model_provider": {
             "label": "AI cost model provider (LLM)",
             "description": "The provider used to look up the cost for this model.",
@@ -2568,7 +2639,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent"],
+            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
@@ -2724,6 +2795,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "Fetch the trace referenced by an AI observability URL.",
             ],
         },
+        "$mcp_skill_name": {
+            "label": "MCP skill name",
+            "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
+            "examples": ["prove-the-change", "pr-shepherd"],
+        },
+        "$mcp_skill_body_offset": {
+            "label": "MCP skill body offset",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset — absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
+            "examples": ["0", "5000"],
+        },
         "$mcp_resource_name": {
             "label": "MCP resource name",
             "description": "The name of the MCP resource, prompt, or tool the event refers to.",
@@ -2807,6 +2888,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
             "examples": ["claude-code/2.1.141 (cli)", "Anthropic/ClaudeAI"],
         },
+        "$mcp_vendor_client": {
+            "label": "MCP vendor client",
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -2886,6 +2972,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP region",
             "description": "The PostHog cloud region the MCP server routed the request to.",
             "examples": ["us", "eu"],
+        },
+        "$mcp_scope_preset": {
+            "label": "MCP scope preset",
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": ["scout", "research", "implementation", "sandbox", "user"],
         },
         "$mcp_oauth_client_name": {
             "label": "MCP OAuth client name",
@@ -2980,41 +3071,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Is error (unprefixed)",
             "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
         },
-        "source": {
-            "label": "Source",
-            "description": (
-                "Which PostHog surface the work came from. The surface values are 'web' (the app in a "
-                "browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog "
-                "mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and "
-                "'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so "
-                "'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server "
-                "instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop "
-                "request can still show as 'mcp' on those. "
-                "'posthog_code' covers the headless coding agents: the cloud agent and the local agent. "
-                "'self_driving' is Signals: scouts, report implementations, and scout chat. "
-                "'wizard' is the setup agent and 'terraform' is the Terraform provider. "
-                "Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and "
-                "'subscription'. "
-                "Two unrelated properties share this name, so filter to a specific event before breaking "
-                "down by it. The app also uses 'source' for which control fired an event, with values "
-                "like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for "
-                "something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' "
-                "on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' "
-                "or 'custom' on 'mcp_store server installed'. Two "
-                "surface values also collide with older control names: on 'switched site mode', "
-                "'desktop' means the device-mode control rather than the app, and on the AI report "
-                "events, 'slack' means the delivery channel."
-            ),
-            "examples": ["web", "posthog_ai", "mcp", "desktop", "api"],
-        },
         "mcp_runtime": {
             "label": "MCP runtime",
             "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
             "examples": ["hono"],
         },
         "mcp_vendor_client": {
-            "label": "MCP vendor client",
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "label": "MCP vendor client (legacy)",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "mcp_session_client_name": {
@@ -3116,7 +3180,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_is_bot": {
             "label": "Is bot",
-            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent or from operator-published bot IP ranges.",
+            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent, from operator-published bot IP ranges, or from a bot the project defined itself in settings.",
             "type": "Boolean",
             "virtual": True,
         },
@@ -3129,7 +3193,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_traffic_category": {
             "label": "Traffic category",
-            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc. Bots the project defined itself report the category picked in settings.",
             "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
             "type": "String",
             "virtual": True,
@@ -3360,6 +3424,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The description of the error tracking issue this exception belongs to.",
             "type": "String",
         },
+        "$issue_severity": {
+            "label": "Issue severity",
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": ["low", "medium", "high", "critical"],
+            "type": "String",
+        },
         "$exception_release": {
             "label": "Exception release",
             "description": "The release associated with this exception event.",
@@ -3432,12 +3502,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The revenue associated with an event, in your account's base currency.",
             "examples": [9.99],
             "type": "Numeric",
-        },
-        "$transformations_failed": {
-            "label": "Transformations failed",
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "type": "String",
-            "ignored_in_assistant": True,
         },
         "$override_feature_flag_payloads": {
             "label": "Override feature flag payloads",
@@ -3519,6 +3583,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$product_tours_activated": {
             "label": "Product tours activated",
             "description": "The product tours that have been activated for this user.",
+            "type": "String",
+        },
+        "$fbc": {
+            "label": "Facebook click ID (fbc)",
+            "description": "The Facebook click ID in the format Meta's Conversions API expects, built when PostHog saw the fbclid so it carries the time of the ad click. Equivalent to the `_fbc` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
             "type": "String",
         },
     },
@@ -3965,10 +4035,13 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
 
+# Event properties that only carry person property updates for ingestion to apply. Querying them
+# is deprecated, so every place that offers properties to pick from — the taxonomic filter, the
+# property definitions API, HogQL and Hog autocomplete, the AI taxonomy — leaves them out.
+QUERY_DEPRECATED_EVENT_PROPERTIES: set[str] = {"$set", "$set_once"}
+
 IGNORED_EVENT_NAMES: list[str] = [
-    name
-    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
-    if defn.get("system") or defn.get("ignored_in_assistant")
+    name for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items() if is_hidden_from_assistant(defn)
 ]
 
 # Core PostHog events, derived from the taxonomy. Used to determine which events

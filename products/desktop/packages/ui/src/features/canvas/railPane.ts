@@ -12,48 +12,96 @@ export type NavRailPane =
   | "home"
   | "spaces"
   | "activity"
+  | "canvases"
   | "inbox"
   | "command-center"
-  | "loops";
+  | "loops"
+  | "context"
+  | "feeds";
 
 /**
- * Route id prefixes each destination claims. Matched against the deepest route
- * in the match chain, so a destination claims its whole subtree (/code/inbox
- * covers /code/inbox/pulls/$reportId) without claiming a lookalike elsewhere
- * (/code/loops never covers /website/$channelId/loops).
+ * The root path of each destination.
+ *
+ * Matched against the deepest match's `fullPath` — the route's own pattern, not
+ * the resolved URL — so a destination claims its whole subtree (`/inbox` covers
+ * `/inbox/pulls/$reportId`) and no space id can ever impersonate one.
  */
-const PANE_BY_ROUTE_PREFIX: readonly (readonly [string, NavRailPane])[] = [
-  ["/website/home", "home"],
-  ["/website/activity", "activity"],
-  ["/website/command-center", "command-center"],
-  ["/command-center", "command-center"],
-  ["/code/inbox", "inbox"],
-  ["/code/loops", "loops"],
+export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
+  home: "/",
+  spaces: "/spaces",
+  activity: "/activity",
+  canvases: "/canvases",
+  inbox: "/inbox",
+  "command-center": "/command-center",
+  loops: "/loops",
+  context: "/spaces/context",
+  feeds: "/feeds",
+};
+
+// Spaces is absent: it takes everything nothing else claims, so listing it
+// would only shadow that fallback with the same answer.
+const CLAIMED: readonly NavRailPane[] = [
+  "home",
+  "activity",
+  "canvases",
+  "inbox",
+  "command-center",
+  "loops",
+  "context",
+  "feeds",
 ];
 
-/** Unclaimed routes belong to Spaces — the app's resting destination. */
-export function railPaneForRouteId(routeId: string): NavRailPane {
-  for (const [prefix, pane] of PANE_BY_ROUTE_PREFIX) {
-    if (routeId === prefix || routeId.startsWith(`${prefix}/`)) return pane;
+export function railPaneForPath(fullPath: string): NavRailPane {
+  for (const pane of CLAIMED) {
+    const root = RAIL_PANE_ROOT[pane];
+    if (fullPath === root) return pane;
+    // Home is exact-only: every path starts with "/", so a prefix test would
+    // hand it every route in the app.
+    if (root !== "/" && fullPath.startsWith(`${root}/`)) return pane;
   }
+  // Unclaimed routes belong to Spaces — the app's resting destination.
   return "spaces";
 }
 
 export function railPaneForMatches(
-  matches: readonly { routeId: string }[],
+  matches: readonly { fullPath: string }[],
 ): NavRailPane {
-  return railPaneForRouteId(matches[matches.length - 1]?.routeId ?? "");
+  return railPaneForPath(matches[matches.length - 1]?.fullPath ?? "");
 }
 
 /** Read the destination outside React (event handlers, imperative picks). */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
 }
 
-// Home, Inbox, Command Center and Loops are whole-screen destinations: no
-// route under them may put a second nav on the screen. Spaces owns the space
-// tree, Activity owns the feed.
-const PANES_WITH_SIDEBAR = new Set<NavRailPane>(["spaces", "activity"]);
+const NON_RESTORABLE_ROOTS = [
+  "/settings",
+  "/folders",
+  "/skills",
+  "/mcp-servers",
+  "/usage",
+  "/inbox/agents",
+];
+
+export function isRestorableVisitHref(
+  pane: NavRailPane,
+  href: string,
+): boolean {
+  const path = href.replace(/[?#].*$/, "");
+  const blocked = NON_RESTORABLE_ROOTS.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+  if (blocked) return false;
+  return railPaneForPath(path) === pane;
+}
+
+const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
+  "spaces",
+  "activity",
+  "canvases",
+  "feeds",
+]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {
   return PANES_WITH_SIDEBAR.has(pane);

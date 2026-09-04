@@ -1,5 +1,11 @@
 # Dockerfile for the base sandbox image.
 
+FROM golang:1.23 AS agent-shadow-builder
+
+WORKDIR /src
+COPY products/desktop/packages/agent-shadow/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /agent-shadow .
+
 FROM ubuntu:24.04
 
 # Set environment variables to prevent interactive prompts
@@ -181,6 +187,7 @@ COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
 RUN chmod +x /opt/posthog/bin/gh
 COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
 RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user

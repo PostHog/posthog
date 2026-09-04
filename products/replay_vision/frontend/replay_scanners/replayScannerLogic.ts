@@ -73,6 +73,7 @@ import {
     reconcileVariantKey,
 } from './experimentTargeting'
 import { consumeGoalDraftIntent } from './goalDraftIntent'
+import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
@@ -87,6 +88,8 @@ import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     MAX_CREDIT_LIMIT,
+    OBSERVATION_LIST_URL_PARAM_KEYS,
+    SamplingMode,
     ScannerConfig,
     defaultScannerName,
     ScannerFormValues,
@@ -111,6 +114,8 @@ const OBSERVATION_TRIGGERED_BY_VALUES: readonly ObservationTriggeredByValue[] = 
 const OBSERVATION_VERDICT_VALUES: readonly ObservationVerdictValue[] = ['yes', 'no', 'inconclusive']
 
 export const OBSERVATIONS_PAGE_SIZE = 50
+/** Newest first: the sort the table falls back to, and the one the URL leaves out. */
+const DEFAULT_OBSERVATIONS_SORT: ObservationsSorting = { columnKey: 'created_at', order: -1 }
 // Past this many rows the clipboard is the wrong tool.
 const COPY_ALL_OBSERVATIONS_LIMIT = 500
 
@@ -242,6 +247,25 @@ function observationFilterParams(
     return params
 }
 
+/**
+ * The observations table's filter + sort + page as URL query params. The scanner page's URL sync and
+ * the observation detail links both build from this, so the view a reader returns to via "back" is by
+ * construction the same one the list URL writes.
+ */
+export function observationListUrlParams(
+    values: ObservationFilterValues & { observationsSort: ObservationsSorting | null; observationsPage: number }
+): Record<string, string | number> {
+    const params: Record<string, string | number> = { ...observationFilterParams(values) }
+    const sort = serializeSortParam(values.observationsSort, DEFAULT_OBSERVATIONS_SORT)
+    if (sort) {
+        params.sort = sort
+    }
+    if (values.observationsPage > 1) {
+        params.page = values.observationsPage
+    }
+    return params
+}
+
 /** Translate kea filter + sort state into the query params accepted by the list and stats endpoints. */
 export function buildObservationListParams(
     values: ObservationFilterValues & {
@@ -297,6 +321,7 @@ export interface replayScannerLogicValues {
     durationValidationError: string | null
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
+    goalBudgetInput: number | null
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
@@ -363,6 +388,9 @@ export interface replayScannerLogicActions {
     appendClassifierTags: (tags: string[]) => {
         tags: string[]
     }
+    clearClassifierTags: () => {
+        value: true
+    }
     clearObservationFilters: () => {
         value: true
     }
@@ -381,8 +409,12 @@ export interface replayScannerLogicActions {
     dismissTagSuggestions: () => {
         value: true
     }
-    draftScannerFromGoal: (goal: string) => {
+    draftScannerFromGoal: (
+        goal: string,
+        monthlyCreditBudget?: number
+    ) => {
         goal: string
+        monthlyCreditBudget: number | undefined
     }
     draftScannerFromGoalFailure: (
         error: string,
@@ -395,11 +427,13 @@ export interface replayScannerLogicActions {
         goalDraft: DraftScannerResponseApi | null,
         payload?: {
             goal: string
+            monthlyCreditBudget: number | undefined
         }
     ) => {
         goalDraft: DraftScannerResponseApi | null
         payload?: {
             goal: string
+            monthlyCreditBudget: number | undefined
         }
     }
     loadObservationStats: () => {
@@ -549,6 +583,9 @@ export interface replayScannerLogicActions {
     setExperimentVariant: (variantKey: string | null) => {
         variantKey: string | null
     }
+    setGoalBudgetInput: (budget: number | null) => {
+        budget: number | null
+    }
     setGoalDraftInput: (goal: string) => {
         goal: string
     }
@@ -676,6 +713,7 @@ export interface replayScannerLogicMeta {
             observationBackfillFilter: string | null
         ) => boolean
         observationDetailLinkParams: (
+            observationsPage: number,
             observationStatusFilter: ObservationStatusEnumApi[],
             observationTriggeredByFilter: ObservationTriggerEnumApi[],
             observationVerdictFilter: ObservationVerdictValue[],
@@ -727,11 +765,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ScannerFormValues) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
+        clearClassifierTags: true,
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
-        draftScannerFromGoal: (goal: string) => ({ goal }),
+        draftScannerFromGoal: (goal: string, monthlyCreditBudget?: number) => ({ goal, monthlyCreditBudget }),
         setGoalDraftInput: (goal: string) => ({ goal }),
+        setGoalBudgetInput: (budget: number | null) => ({ budget }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -841,7 +881,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // A non-final step only ever offers "Next", so any submit there advances rather than persisting.
                 // Enter would otherwise save an existing scanner and leave the wizard from the middle of it.
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
-                const nextStep = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                // The overview step sits outside the manual wizard's step list (indexOf -1), so its
+                // submit must persist rather than resolve to the list's first step and navigate there.
+                const currentStepIndex = SCANNER_EDITOR_STEPS.indexOf(currentStep)
+                const nextStep = currentStepIndex === -1 ? undefined : SCANNER_EDITOR_STEPS[currentStepIndex + 1]
                 if (nextStep) {
                     router.actions.push(scannerStepUrlWithParams(nextStep, props.id, router.values.searchParams))
                     return
@@ -932,12 +975,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 // Errors surface through draftScannerFromGoalFailure; kea-loaders dispatches it for us.
-                draftScannerFromGoal: async ({ goal }) => {
+                draftScannerFromGoal: async ({ goal, monthlyCreditBudget }) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId || !goal.trim()) {
                         return values.goalDraft
                     }
-                    return await visionScannersDraftCreate(String(teamId), { goal: goal.trim() })
+                    return await visionScannersDraftCreate(String(teamId), {
+                        goal: goal.trim(),
+                        ...(typeof monthlyCreditBudget === 'number' && monthlyCreditBudget > 0
+                            ? { monthly_credit_budget: monthlyCreditBudget }
+                            : {}),
+                    })
                 },
             },
         ],
@@ -984,6 +1032,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // Cleared once a draft or a template pick consumed it, so a stale goal doesn't linger.
                 draftScannerFromGoalSuccess: () => '',
                 startFromTemplate: () => '',
+            },
+        ],
+        // The monthly credit budget input on the goal-based creation flow. Default 5,000 credits
+        // (~$50): the round anchor the budget question shows, and enough for a real first scanner.
+        goalBudgetInput: [
+            5000 as number | null,
+            {
+                setGoalBudgetInput: (_, { budget }) => budget,
             },
         ],
         // A template pick replaces the drafted form, so its rationale no longer describes the config.
@@ -1324,9 +1380,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 dateTo !== null ||
                 backfillFilter !== null,
         ],
-        // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
+        // Carried into observation detail links so server-computed prev/next neighbors honor the table's
+        // filters + sort, and so the observation page can send the reader back to this exact view.
         observationDetailLinkParams: [
             (s) => [
+                s.observationsPage,
                 s.observationStatusFilter,
                 s.observationTriggeredByFilter,
                 s.observationVerdictFilter,
@@ -1341,6 +1399,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.scanner,
             ],
             (
+                observationsPage: number,
                 observationStatusFilter: ObservationStatusValue[],
                 observationTriggeredByFilter: ObservationTriggeredByValue[],
                 observationVerdictFilter: ObservationVerdictValue[],
@@ -1353,8 +1412,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationBackfillFilter: string | null,
                 observationsSort: ObservationsSorting | null,
                 scanner: ReplayScanner | null
-            ): Record<string, string | number> =>
-                buildObservationListParams({
+            ): Record<string, string | number> => {
+                const listValues = {
                     observationStatusFilter,
                     observationTriggeredByFilter,
                     observationVerdictFilter,
@@ -1366,8 +1425,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     observationDateTo,
                     observationBackfillFilter,
                     observationsSort,
+                    observationsPage,
                     scanner,
-                }) as Record<string, string | number>,
+                }
+                // The same filter + sort + page the list URL carries, so "back" restores this exact view.
+                const params: Record<string, string | number> = {
+                    ...observationListUrlParams(listValues),
+                    tab: ReplayScannerTab.Observations,
+                }
+                // Prev/next reads `order_by` (an API key) to fetch neighbors in the table's order. It
+                // rides alongside `sort` because the observation page can't map `sort` to `order_by`
+                // itself: resolveOrderByKey needs the scanner type, unknown until the observation loads.
+                const orderBy = buildObservationListParams(listValues).order_by
+                if (orderBy) {
+                    params.order_by = orderBy
+                }
+                return params
+            },
         ],
         // Tag options for the observations-list Tag filter pill. Wrapped in an inline arrow with an
         // explicit return type so kea-typegen can infer it (it can't from bare function references).
@@ -1679,13 +1753,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // Fires on request rather than result, so failed drafts still count as entering the AI path.
-            draftScannerFromGoal: ({ goal }) => {
+            draftScannerFromGoal: ({ goal, monthlyCreditBudget }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     template_key: null,
                     // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
                 })
+                // Goal flow: land on the overview immediately, in its skeleton state, so the wait
+                // reads as progress rather than a stuck button. A budget marks the goal flow; the
+                // legacy AI box passes none and keeps opening the details step on success.
+                if (monthlyCreditBudget != null) {
+                    router.actions.push(urls.replayVisionScannerOverview('new'))
+                }
             },
 
             // A successful AI draft seeds the wizard form, then the configure step opens for review.
@@ -1695,10 +1775,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 // The model call can take a while; if the user picked a template or navigated away
                 // meanwhile, their newer state wins and the stale draft is dropped. The box lives on
-                // the template step and the zero-scanner empty state, so both count as still there.
+                // the template step and the zero-scanner empty state; the goal flow has already moved
+                // to the overview skeleton, so all three count as still there.
                 const pathname = router.values.location.pathname
                 if (
                     !pathname.endsWith(urls.replayVisionScannerTemplate('new')) &&
+                    !pathname.endsWith(urls.replayVisionScannerOverview('new')) &&
                     !pathname.endsWith(urls.replayVision())
                 ) {
                     return
@@ -1714,12 +1796,35 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // The drafted session filter (when the goal mapped to real screens or events); the
                     // triggers step shows it for review like any hand-picked filter.
                     ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
+                    // A goal-flow draft also solves the budget dials; legacy drafts keep the wizard defaults.
+                    ...(goalDraft.sampling_mode ? { sampling_mode: goalDraft.sampling_mode as SamplingMode } : {}),
+                    ...(goalDraft.sampling_rate != null ? { sampling_rate: goalDraft.sampling_rate } : {}),
+                    // The model the draft chose for the goal, and the credit cap set to the stated
+                    // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
+                    ...(goalDraft.model ? { model: goalDraft.model } : {}),
+                    ...(goalDraft.credit_limit != null
+                        ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
+                        : {}),
                 })
-                router.actions.push(urls.replayVisionScannerDetails('new'))
+                // Solved dials mark a goal-flow draft, which reviews on the overview; legacy drafts
+                // open the details step. The goal flow is already on the overview (pushed on request),
+                // so this only navigates the legacy path.
+                const isGoalFlowDraft = goalDraft.sampling_mode != null || goalDraft.sampling_rate != null
+                if (isGoalFlowDraft) {
+                    // The form now carries the drafted filter, so count what it will actually watch.
+                    actions.loadScannerEstimate()
+                } else {
+                    router.actions.push(urls.replayVisionScannerDetails('new'))
+                }
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {
                 lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
+                // The goal flow moved to the overview skeleton on request; with no draft to show,
+                // send the user back to the questions to try again.
+                if (router.values.location.pathname.endsWith(urls.replayVisionScannerOverview('new'))) {
+                    router.actions.push(urls.replayVisionScannerTemplate('new'))
+                }
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
@@ -1741,6 +1846,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 if (merged.length !== existing.length) {
                     actions.setScannerValue(['scanner_config', 'tags'], merged)
+                }
+            },
+
+            clearClassifierTags: () => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                if ((scanner.scanner_config.tags ?? []).length > 0) {
+                    actions.setScannerValue(['scanner_config', 'tags'], [])
                 }
             },
 
@@ -1862,6 +1977,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
                     refreshVisionQuota()
+                    lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'
@@ -2037,27 +2153,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     actionToUrl(({ values }) => {
-        const buildSearchParams = (): Record<string, string | undefined> => {
-            const next = { ...router.values.searchParams } as Record<string, string | undefined>
-            for (const key of TABLE_URL_PARAM_KEYS) {
+        const buildSearchParams = (): Record<string, string | number | undefined> => {
+            const next = { ...router.values.searchParams } as Record<string, string | number | undefined>
+            // Clear the table's keys, then re-add only the ones the current state sets, so a cleared
+            // filter or a return to page 1 drops its param rather than lingering.
+            for (const key of OBSERVATION_LIST_URL_PARAM_KEYS) {
                 delete next[key]
             }
-            if (values.observationsPage > 1) {
-                next.page = String(values.observationsPage)
-            }
-            const sort = values.observationsSort
-            next.sort = serializeSortParam(sort, { columnKey: 'created_at', order: -1 })
-            Object.assign(next, observationFilterParams(values))
+            Object.assign(next, observationListUrlParams(values))
             return next
         }
-        const writeUrl = (): [string, Record<string, string | undefined>] => [
+        const writeUrl = (): [string, Record<string, string | number | undefined>] => [
             router.values.location.pathname,
             buildSearchParams(),
         ]
         // Replace (not push) so typing in the subject search doesn't spam browser history.
         const writeUrlReplace = (): [
             string,
-            Record<string, string | undefined>,
+            Record<string, string | number | undefined>,
             Record<string, string>,
             { replace: boolean },
         ] => [router.values.location.pathname, buildSearchParams(), {}, { replace: true }]
@@ -2081,7 +2194,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         [urls.replayVision(props.id)]: (_, searchParams) => {
             const pageRaw = Number(searchParams.page ?? 1)
             const page = Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1
-            const sort = parseSortParam(searchParams.sort) ?? { columnKey: 'created_at', order: -1 }
+            const sort = parseSortParam(searchParams.sort) ?? DEFAULT_OBSERVATIONS_SORT
             const status = parseCsvParam<ObservationStatusValue>(searchParams.status, OBSERVATION_STATUS_VALUES)
             const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(
                 searchParams.triggered_by,
@@ -2176,28 +2289,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 ])
 
-const TABLE_URL_PARAM_KEYS = [
-    'page',
-    'sort',
-    'status',
-    'triggered_by',
-    'verdict',
-    'tags',
-    'min_score',
-    'max_score',
-    'recording_subject',
-    'date_from',
-    'date_to',
-    'backfill_id',
-] as const
-
-/** Observation-filter params the scanner page reads from the URL; links into the Observations tab build from these keys. */
-export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)[number], string>>
-
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
         ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
+        // The goal flow's overview step is editor territory too, though it sits outside the manual stepper.
+        scannerStepUrl('overview', scannerId),
         // Retired step: the redirect off it must not trip the unsaved-changes guard.
         urls.replayVisionScannerSelfDriving(scannerId),
     ]

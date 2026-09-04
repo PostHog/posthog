@@ -16,6 +16,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
     ClearCDPStagingInputs,
     CreateDataModelingJobInputs,
+    DuckgresShadowEligibilityInputs,
     DuckgresShadowInputs,
     DuckgresShadowResult,
     FailMaterializationInputs,
@@ -28,6 +29,7 @@ from posthog.temporal.data_modeling.activities import (
     StageQueryableFilesResult,
     SucceedMaterializationInputs,
     SucceedMaterializationResult,
+    check_duckgres_shadow_eligibility_activity,
     check_duckgres_shadow_enabled_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
@@ -58,7 +60,10 @@ from posthog.temporal.data_modeling.metrics import (
 from posthog.temporal.data_modeling.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
-from products.customer_analytics.backend.facade.temporal_contracts import DispatchAccountPropertySyncInput
+from products.customer_analytics.backend.facade.temporal_contracts import (
+    DispatchAccountPropertySyncInput,
+    StageAccountPropertySyncInput,
+)
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
@@ -78,10 +83,14 @@ from products.warehouse_sources.backend.facade.hooks import (
 # warn-mode suite child.
 QUALITY_AUDIT_PATCH = "data-quality-audit-2026-08"
 ACCOUNT_PROPERTY_S3_SYNC_PATCH = "account-property-s3-sync-2026-08"
+ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH = "account-property-staging-workflow-2026-08"
 
 # Covers the CDP producer child and the staging-cleanup activity. Both are new commands, so a
 # history recorded before this deploy has to keep taking the branch that issues neither.
 CDP_VIEW_TRIGGER_PATCH = "cdp-data-warehouse-view-trigger-2026-08"
+
+# Histories recorded before this marker must keep passing only the team ID to the activity.
+DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH = "duckgres-shadow-translation-gate-2026-09"
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
@@ -180,15 +189,28 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         job_id = None
         duckgres_job_id = None
 
-        # check whether duckgres shadow is enabled before creating the job
-        duckgres_enabled = await temporalio.workflow.execute_activity(
-            check_duckgres_shadow_enabled_activity,
-            inputs.team_id,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
-            ),
-        )
+        if temporalio.workflow.patched(DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH):
+            duckgres_enabled = await temporalio.workflow.execute_activity(
+                check_duckgres_shadow_eligibility_activity,
+                DuckgresShadowEligibilityInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    node_id=inputs.node_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
+        else:
+            duckgres_enabled = await temporalio.workflow.execute_activity(
+                check_duckgres_shadow_enabled_activity,
+                inputs.team_id,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
 
         duckgres_shadow_handle = None
         if duckgres_enabled or inputs.duckgres_only:
@@ -381,8 +403,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # that reads it. Fire-and-forget on the metadata queue, like enrichment above.
                 await self._maybe_sync_person_properties(inputs, materialize_result, job_id)
 
-                if temporalio.workflow.patched(ACCOUNT_PROPERTY_S3_SYNC_PATCH):
-                    await self._maybe_sync_account_properties(inputs, materialize_result, job_id)
+                # New executions start the isolated staging child. A history that recorded the old
+                # inline dispatch under ACCOUNT_PROPERTY_S3_SYNC_PATCH must keep emitting that
+                # command on replay, so keep the old path in the else branch.
+                if temporalio.workflow.patched(ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH):
+                    await self._maybe_stage_account_properties(inputs, materialize_result, job_id)
+                elif temporalio.workflow.patched(ACCOUNT_PROPERTY_S3_SYNC_PATCH):
+                    await self._replay_account_property_dispatch(inputs, materialize_result, job_id)
 
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if duckgres_shadow_handle is not None:
@@ -627,7 +654,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 extra={"job_id": job_id, "error": str(e)},
             )
 
-    async def _maybe_sync_account_properties(
+    async def _replay_account_property_dispatch(
         self,
         inputs: MaterializeViewWorkflowInputs,
         materialize_result: MaterializeViewResult,
@@ -646,6 +673,42 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=5),
         )
+
+    async def _maybe_stage_account_properties(
+        self,
+        inputs: MaterializeViewWorkflowInputs,
+        materialize_result: MaterializeViewResult,
+        job_id: str,
+    ) -> None:
+        if not materialize_result.account_property_sync_enabled or materialize_result.delta_version is None:
+            return
+        try:
+            await temporalio.workflow.start_child_workflow(
+                "stage-warehouse-account-properties",
+                StageAccountPropertySyncInput(
+                    team_id=inputs.team_id,
+                    saved_query_id=materialize_result.saved_query_id,
+                    job_id=job_id,
+                    table_uri=materialize_result.table_uri,
+                    delta_version=materialize_result.delta_version,
+                ),
+                id=f"stage-warehouse-account-properties-{job_id}",
+                id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=dt.timedelta(hours=24),
+            )
+        except WorkflowAlreadyStartedError:
+            temporalio.workflow.logger.info(
+                "Account-property staging already running for this job, skipping",
+                extra={"job_id": job_id},
+            )
+        except Exception as error:
+            capture_exception(error)
+            temporalio.workflow.logger.warning(
+                "Failed to start account-property staging",
+                extra={"job_id": job_id, "error": str(error)},
+            )
 
     async def _maybe_produce_cdp_rows(
         self,

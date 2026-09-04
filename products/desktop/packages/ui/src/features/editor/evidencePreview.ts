@@ -1,4 +1,7 @@
-import type { EvidenceDetailSection } from "@posthog/api-client/evidence-previews";
+import type {
+  EvidenceDetailSection,
+  ExperimentResultsPresentation,
+} from "@posthog/api-client/evidence-previews";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   type ChartHeadlineStat,
@@ -18,6 +21,13 @@ import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 export interface EvidenceCardData {
   title: string;
   detail?: string;
+  /**
+   * The object's own description, shown on the full page's subtitle. Kept
+   * separate from `detail`, which for a multi-series chart holds joined
+   * series labels for the hover card and is wrong on the page. Only insights
+   * set it today.
+   */
+  description?: string;
   /** Lifecycle state as a badge label + tone, kept out of `detail`. */
   status?: {
     label: string;
@@ -31,6 +41,7 @@ export interface EvidenceCardData {
   headline?: ChartHeadlineStat | null;
   /** Mini chart of the primary series; `labels` carries bucket dates. */
   spark?: { points: number[]; labels?: string[]; render: "line" | "bar" };
+  chartData?: ReportChartData;
   /** A titled multi-series time chart, drawn with hover values on full pages. */
   chart?: {
     title: string;
@@ -39,6 +50,7 @@ export interface EvidenceCardData {
     render: "line" | "bar";
   };
   sections?: EvidenceDetailSection[];
+  experimentResults?: ExperimentResultsPresentation;
   /** A dashboard's tiles, each resolvable to a live insight chart. */
   tiles?: Array<{ shortId: string; name: string | null }>;
   /** Canonical id when it differs from the cited one (a flag cited by key). */
@@ -46,6 +58,12 @@ export interface EvidenceCardData {
 }
 
 const MAX_SPARK_POINTS = 60;
+
+export const EVIDENCE_PREVIEW_STALE_TIME = 5 * 60 * 1000;
+
+export function evidencePreviewQueryKey(target: EvidenceLinkTarget) {
+  return ["evidence-preview", target.kind, target.id] as const;
+}
 
 /** Reduce a shaped chart result to the card's headline + sparkline. */
 function fromChartData(
@@ -71,9 +89,15 @@ function fromChartData(
     };
   }
   if (data.type === "table") {
+    // Column titles are raw SQL for HogQL sources, not labels; show counts.
     return {
       title: `${data.rows.length.toLocaleString("en-US")} ${data.rows.length === 1 ? "row" : "rows"}`,
-      detail: data.columns.join(", ") || undefined,
+      facts:
+        data.columns.length > 0
+          ? [
+              `${data.columns.length} ${data.columns.length === 1 ? "column" : "columns"}`,
+            ]
+          : undefined,
     };
   }
   return { title: fallbackTitle };
@@ -94,10 +118,11 @@ async function hogqlPreview(
   if (data.type === "series" && preview.spark) {
     return {
       ...preview,
+      chartData: data,
       facts: [`${data.labels.length} rows · ${data.series.length + 1} columns`],
     };
   }
-  return preview;
+  return { ...preview, chartData: data };
 }
 
 async function insightPreview(
@@ -109,12 +134,20 @@ async function insightPreview(
   const base: EvidenceCardData = {
     title: insight.name || shortId,
     detail: insight.description || undefined,
+    description: insight.description || undefined,
   };
   const plan = planReportChart(insight.query);
   if (plan.kind !== "run") return base;
   const response = insight.response ?? (await client.runQuery(plan.source));
-  const chart = fromChartData(shapeReportChartData(response, plan), base.title);
-  return { ...chart, title: base.title, detail: chart.detail ?? base.detail };
+  const data = shapeReportChartData(response, plan);
+  const chart = fromChartData(data, base.title);
+  return {
+    ...chart,
+    chartData: data,
+    title: base.title,
+    detail: chart.detail ?? base.detail,
+    description: insight.description || undefined,
+  };
 }
 
 /**

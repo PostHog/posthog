@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -235,6 +235,35 @@ class PgCDCStreamReader:
                 logger.warning("slot_read_dropped_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
                 time.sleep(0.5 * 2**attempt)
                 self._conn = conn = self._open_streaming_connection()
+
+    def current_position(self) -> str | None:
+        """Read the source's flushed end-of-WAL LSN.
+
+        The caller takes this before it peeks, so a run that decodes nothing can still release the
+        WAL it examined. It must be the flush pointer, not pg_current_wal_lsn(): logical decoding
+        reads only flushed WAL, so the write pointer can name records a later peek never examines.
+        With synchronous_commit=off a commit can sit in that gap, and advancing the slot past it
+        would drop the change. The flush pointer read here is always at or below every later peek's
+        end of WAL, which makes the caller's "everything below this was examined" claim exact.
+
+        Returns None when the position cannot be read, which includes a source in recovery, where
+        pg_current_wal_flush_lsn() is not callable. The caller then leaves the slot where it is, so
+        a failure here costs retention rather than data.
+        """
+        if self._conn is None:
+            return None
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute("SELECT pg_current_wal_flush_lsn()::text")
+                row = cur.fetchone()
+            self._conn.commit()
+        except Exception:
+            # The rollback reaches the same connection that just failed, so it can fail too.
+            with suppress(Exception):
+                self._conn.rollback()
+            logger.warning("current_wal_lsn_read_failed", slot_name=self._params.slot_name, exc_info=True)
+            return None
+        return row[0] if row else None
 
     def confirm_position(self, position: str) -> None:
         """Advance the replication slot to the given LSN.

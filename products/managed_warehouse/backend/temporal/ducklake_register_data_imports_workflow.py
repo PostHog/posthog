@@ -76,7 +76,17 @@ _DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
 _DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
 _DUCKGRES_CANCEL_RETRY_SECONDS = 0.5
 _DUCKGRES_CANCEL_TIMEOUT_SECONDS = 5.0
-_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
+# Registration materializes a whole import generation through
+# `CREATE TABLE ... AS SELECT * FROM read_parquet(<glob>)`, so peak memory
+# tracks the generation's parquet size, not the batch size. A duckgres worker
+# is also reused across the sequential sessions one registration run opens, and
+# DuckDB does not release buffer-pool pages back to the OS between them, so the
+# pod's RSS ratchets toward its DuckDB memory_limit plus the allocations that
+# limit does not govern (Arrow batches, libpq buffers, the Go runtime). At 16Gi
+# that left too little margin and the worker was OOM-killed mid-registration,
+# which surfaces to the client as a lost connection. Keep CPU low -- this is an
+# IO-bound scan -- but leave memory room to absorb a large generation.
+_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi"
 # Duckgres cancel fires one minute before this deadline. One attempt: a
 # StartToClose timeout has an unknown catalog outcome, so a retry could race
 # the original CALL.
@@ -810,11 +820,27 @@ def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, tab
     # Best-effort: this runs in the register `finally`, so raising here would mask
     # the in-flight exception. A table left behind is picked up by the workflow's
     # cleanup finalizer activity, which retries with a fresh connection.
+    #
+    # A dead connection cannot recover, so retrying the drop or reporting the
+    # failure adds no value: the register activity already failed on the transport,
+    # and the finalizer retries the drop with a fresh connection.
+    if conn.closed:
+        LOGGER.warning(
+            "Skipped DuckLake registration cleanup on a closed connection; the workflow cleanup finalizer will retry",
+            schema_name=schema_name,
+        )
+        return
     for table_name in table_names:
         for attempt in range(1, _CLEANUP_DROP_ATTEMPTS + 1):
             try:
                 _drop_registration_table(conn, schema_name, table_name)
                 break
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                LOGGER.warning(
+                    "Aborted DuckLake registration cleanup on a broken connection; the workflow cleanup finalizer will retry",
+                    table_name=f"{schema_name}.{table_name}",
+                )
+                return
             except Exception as error:
                 if attempt == _CLEANUP_DROP_ATTEMPTS:
                     LOGGER.error(

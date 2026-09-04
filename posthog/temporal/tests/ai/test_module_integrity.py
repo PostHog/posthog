@@ -101,9 +101,10 @@ class TestSignalsProductModuleIntegrity:
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
             "SignalsScoutCoordinatorWorkflow",
+            "RunScoutSuggestionsWorkflow",
+            "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
-            "SignalReportCanvasWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -143,10 +144,9 @@ class TestSignalsProductModuleIntegrity:
             "mark_report_in_progress_activity",
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
-            "fail_report_canvas_generation_activity",
-            "report_canvases_enabled_activity",
-            "start_report_canvas_generation_activity",
-            "poll_report_canvas_generation_activity",
+            "maybe_autostart_implementation_activity",
+            "implementation_buffer_seconds_activity",
+            "report_is_candidate_activity",
             "publish_report_completed_activity",
             "report_has_assigned_signals_activity",
             "revert_report_to_candidate_activity",
@@ -168,6 +168,9 @@ class TestSignalsProductModuleIntegrity:
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
             "run_signals_scout_activity",
+            "plan_scout_suggestion_runs_activity",
+            "run_scout_suggestions_activity",
+            "stamp_requested_scout_suggestions_activity",
             "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
@@ -237,6 +240,7 @@ class TestAIObservabilityModuleIntegrity:
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
             "fetch_evaluation_activity",
+            "run_local_evaluation_activity",
             "disable_evaluation_activity",
             "send_evaluation_disabled_email_activity",
             "update_key_state_activity",

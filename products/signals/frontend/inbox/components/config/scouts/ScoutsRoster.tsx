@@ -1,36 +1,58 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { captureScoutFleetViewed } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { CardSkeleton } from '../../cards/CardSkeleton'
 import { ScoutAlphaBanner } from './ScoutAlphaBanner'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutsEmptyState } from './ScoutsEmptyState'
-import { ScoutsRosterHeader } from './ScoutsRosterHeader'
-import { ScoutsRosterTable } from './ScoutsRosterTable'
+import { ScoutsRosterFilters } from './ScoutsRosterFilters'
+import { ScoutsRosterList } from './ScoutsRosterList'
+import { ScoutsRosterStats } from './ScoutsRosterStats'
+
+// The same centered column as the Reports tab, so the two tabs line up when switching between them.
+const ROSTER_COLUMN_CLASS = '@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3'
 
 /**
- * The scout roster: one alphabetical table over the whole troop, with lifecycle as a sortable
- * Status column. Replaces the card list that used to live in the Scout troop modal — the fleet
- * outgrew a 760px portal, and a modal can't host the scout pages it links to.
+ * The scout roster: a toolbar (search, filters, sort on the left; the troop's headline numbers on
+ * the right) over one column of scout cards, in the same layout as the report list. Creating a scout
+ * stays in the scene header, so it is reachable even when the filters narrow the roster to nothing.
  */
 export function ScoutsRoster(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
-    const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const {
+        scoutConfigs,
+        scoutConfigsLoading,
+        scoutFleetSynced,
+        scoutFleetSyncOutcome,
+        enabledCount,
+        customScoutCount,
+    } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs, materializeScoutFleet, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
 
     useEffect(() => {
         startRunsPolling()
         return () => stopRunsPolling()
     }, [startRunsPolling, stopRunsPolling])
 
+    // Opening the roster is what materializes the fleet, so a project the coordinator never reached
+    // still gets its scouts. The logic decides whether a sync is actually owed.
+    useEffect(() => {
+        materializeScoutFleet()
+    }, [materializeScoutFleet])
+
     // Roster shape once per opening, the first time the fleet resolves. A failed load stays `null`
-    // and reports nothing — an unreachable scout API isn't an empty troop.
+    // and reports nothing — an unreachable scout API isn't an empty troop. The report waits for the
+    // materialization either way: an empty troop that is about to arrive is never counted as no
+    // troop, and `sync_outcome` only means something once the sync has settled.
     const fleetViewedFiredRef = useRef(false)
     useEffect(() => {
-        if (scoutConfigs === null || fleetViewedFiredRef.current) {
+        if (scoutConfigs === null || !scoutFleetSynced || fleetViewedFiredRef.current) {
             return
         }
         fleetViewedFiredRef.current = true
@@ -39,15 +61,14 @@ export function ScoutsRoster(): JSX.Element {
             enabledCount,
             customCount: customScoutCount,
             dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
+            syncOutcome: scoutFleetSyncOutcome,
         })
-    }, [scoutConfigs, enabledCount, customScoutCount])
+    }, [scoutConfigs, scoutFleetSynced, scoutFleetSyncOutcome, enabledCount, customScoutCount])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return (
-            <div className="flex flex-col gap-2 p-6">
-                <LemonSkeleton className="h-8 w-full rounded" />
-                <LemonSkeleton className="h-8 w-full rounded" />
-                <LemonSkeleton className="h-8 w-full rounded" />
+            <div className={ROSTER_COLUMN_CLASS}>
+                <CardSkeleton count={3} variant="cards" dashed={false} />
             </div>
         )
     }
@@ -56,33 +77,48 @@ export function ScoutsRoster(): JSX.Element {
     // regional rollout gap would otherwise be indistinguishable from "no scouts yet".
     if (scoutConfigs === null) {
         return (
-            <div className="m-6 flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
-                <span className="flex-1 text-xs text-danger">
-                    Couldn't load the scout roster. The scout API may be unavailable or this project may not be enrolled
-                    yet.
-                </span>
-                <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutConfigs()}>
-                    Retry
-                </LemonButton>
+            <div className={ROSTER_COLUMN_CLASS}>
+                <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
+                    <span className="flex-1 text-xs text-danger">
+                        Couldn't load the scout roster. The scout API may be unavailable or this project may not be
+                        enrolled yet.
+                    </span>
+                    <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutConfigs()}>
+                        Retry
+                    </LemonButton>
+                </div>
             </div>
         )
     }
 
+    // An empty fleet before the first sync settles is a troop still being assembled, not an empty
+    // one — showing the empty state here would tell people to create a scout moments before their
+    // canonical fleet lands.
     if (scoutConfigs.length === 0) {
-        return <ScoutsEmptyState />
+        return (
+            <div className={ROSTER_COLUMN_CLASS}>
+                {scoutFleetSynced ? <ScoutsEmptyState /> : <CardSkeleton count={3} variant="cards" dashed={false} />}
+            </div>
+        )
     }
 
     return (
-        <div className="flex flex-col">
+        <div className={ROSTER_COLUMN_CLASS}>
             <ScoutAlphaBanner />
-            <ScoutsRosterHeader />
-            <ScoutsRosterTable />
-            <div className="flex flex-col gap-1 px-6 py-4">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <ScoutsRosterFilters />
+                <ScoutsRosterStats />
+            </div>
+            <ScoutsRosterList />
+            <div className="flex flex-col gap-1 pt-1">
                 <span className="text-xs text-muted">
                     The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
                     {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay comparable. New scouts are
                     created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
-                    project.
+                    project.{' '}
+                    <Link to={urls.inboxRuns()} data-attr="inbox-open-runs">
+                        See every recent run
+                    </Link>
                 </span>
                 <ScoutHelperSkillLinks />
             </div>

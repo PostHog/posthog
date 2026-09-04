@@ -1408,7 +1408,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 (editableTitle ? nodeAttributes.title : null) || titlePlaceholder,
         ],
         // TODO: Fix the typing of nodeAttributes
-        children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
+        children: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): NotebookNodeResource[] =>
+                Array.isArray(nodeAttributes.children) ? nodeAttributes.children : [],
+        ],
 
         exportedGlobals: [
             (s) => [s.nodeAttributes],

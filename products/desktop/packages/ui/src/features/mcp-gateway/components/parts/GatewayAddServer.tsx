@@ -1,5 +1,4 @@
 import { ArrowLeft, CaretRight, Check } from "@phosphor-icons/react";
-import type { McpServiceAccount } from "@posthog/api-client/posthog-client";
 import {
   buildGatewayInstallRequest,
   canSubmitGatewayServer,
@@ -7,7 +6,7 @@ import {
   type GatewayAddServerValues,
 } from "@posthog/core/mcp-gateway/gatewayAddServer";
 import { isValidMcpUrl } from "@posthog/core/mcp-servers/customServerForm";
-import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
+import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
 import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute";
 import { useRegisterGatewayServer } from "@posthog/ui/features/mcp-gateway/hooks/useRegisterGatewayServer";
 import {
@@ -26,7 +25,6 @@ import { type FormEvent, useState } from "react";
 interface GatewayAddServerProps {
   isAdmin: boolean;
   canManageAgentAccess: boolean;
-  accounts: McpServiceAccount[];
   onNavigate: (route: GatewayRoute) => void;
 }
 
@@ -34,7 +32,6 @@ interface GatewayAddServerProps {
 export function GatewayAddServer({
   isAdmin,
   canManageAgentAccess,
-  accounts,
   onNavigate,
 }: GatewayAddServerProps) {
   const [values, setValues] = useState<GatewayAddServerValues>(
@@ -168,7 +165,7 @@ export function GatewayAddServer({
                 value={values.apiKey}
                 onChange={(e) => set("apiKey", e.target.value)}
                 type={showKey ? "text" : "password"}
-                placeholder="sk-…"
+                placeholder="Enter API key"
                 spellCheck={false}
                 className="font-mono"
               >
@@ -235,17 +232,17 @@ export function GatewayAddServer({
           <>
             <SectionHeader label="Sharing" />
             <Text color="gray" className="text-[13px]">
-              Once the server authenticates, you'll be able to configure tool
-              approvals for each agent.
+              Once the server authenticates, you can configure tool approvals
+              for each agent on the server page.
             </Text>
             <Flex direction="column" gap="3">
               {isAdmin && (
                 <ToggleRow
-                  title="Available to team members"
-                  sub={
+                  title="Enabled for your organization"
+                  description={
                     values.teamEnabled
-                      ? "Members can find this server and connect their own account"
-                      : "Only admins will see it until you enable it in Team settings."
+                      ? "Anyone in your organization can find and use this server. Each person connects with their own account."
+                      : "This server is turned off for everyone in your organization."
                   }
                   checked={values.teamEnabled}
                   onChange={(checked) => set("teamEnabled", checked)}
@@ -253,60 +250,22 @@ export function GatewayAddServer({
               )}
 
               {canManageAgentAccess && (
-                <Flex direction="column" gap="2">
-                  <Text className="font-medium text-base">
-                    Share with agents
-                  </Text>
-                  <div className="overflow-hidden rounded border border-gray-5 bg-gray-2">
-                    {accounts.map((account) => {
-                      const on = values.agentIds.includes(account.id);
-                      return (
-                        <Flex
-                          key={account.id}
-                          align="center"
-                          gap="3"
-                          className="border-gray-5 border-b px-3 py-2 last:border-b-0"
-                        >
-                          <RobotAvatar />
-                          <Flex direction="column" className="min-w-0 flex-1">
-                            <Text truncate className="font-medium text-sm">
-                              {account.name}
-                            </Text>
-                            <Text
-                              color="gray"
-                              truncate
-                              className="font-mono text-xs"
-                            >
-                              {account.handle}
-                            </Text>
-                          </Flex>
-                          <Switch
-                            size="1"
-                            checked={on}
-                            onCheckedChange={(checked) =>
-                              set(
-                                "agentIds",
-                                checked
-                                  ? [...values.agentIds, account.id]
-                                  : values.agentIds.filter(
-                                      (id) => id !== account.id,
-                                    ),
-                              )
-                            }
-                          />
-                        </Flex>
-                      );
-                    })}
-                    {accounts.length === 0 && (
-                      <Text
-                        color="gray"
-                        className="block px-3 py-3 text-[13px] italic"
-                      >
-                        No agents yet — create one under Team &amp; agents.
-                      </Text>
-                    )}
+                <div className="flex items-center justify-between gap-3 rounded-md border border-gray-5 bg-gray-2 p-3">
+                  <div>
+                    <div className="font-medium text-sm">
+                      Who can use this connection?
+                    </div>
+                    <div className="text-[13px] text-gray-11">
+                      {values.agentScope === "team"
+                        ? "Anyone in this project can use this connection"
+                        : "Only you can use this connection"}
+                    </div>
                   </div>
-                </Flex>
+                  <AgentScopeToggle
+                    value={values.agentScope}
+                    onChange={(agentScope) => set("agentScope", agentScope)}
+                  />
+                </div>
               )}
             </Flex>
           </>
@@ -365,12 +324,12 @@ function Field({
 
 function ToggleRow({
   title,
-  sub,
+  description,
   checked,
   onChange,
 }: {
   title: string;
-  sub: string;
+  description?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
@@ -385,9 +344,11 @@ function ToggleRow({
         <Text as="div" className="font-medium text-sm">
           {title}
         </Text>
-        <Text as="div" color="gray" className="text-[13px]">
-          {sub}
-        </Text>
+        {description && (
+          <Text as="div" color="gray" className="text-[13px]">
+            {description}
+          </Text>
+        )}
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
     </Flex>

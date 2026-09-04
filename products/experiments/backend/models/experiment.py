@@ -524,8 +524,14 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         COLD_RUN = "cold_run", "Cold Run"
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
-        CONFIG_CHANGE = "config_change", "Config Change"
+        # Experiment-scoped change (start/end date, excluded variants, exposure criteria): advances the
+        # window to now, so every metric recomputes.
+        EXPERIMENT_CONFIG_CHANGE = "experiment_config_change", "Experiment Config Change"
+        # Metric-scoped change (add metric, breakdown add/remove/attribution/limit): reuses the latest
+        # completed window, so unchanged metrics load from cache and only new or changed metrics recompute.
+        METRIC_CONFIG_CHANGE = "metric_config_change", "Metric Config Change"
         # Deprecated: never emitted, retained for old rows.
+        CONFIG_CHANGE = "config_change", "Config Change"
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"

@@ -41,6 +41,7 @@ from .evaluation_errors import (
     terminal_user_error_result_from_application_error,
 )
 from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS
+from .evaluation_workflow_activities import LocalEvaluationOutcome
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -50,6 +51,7 @@ from .run_evaluation import (
     ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
+    RunLocalEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
     WorkflowResult,
     disable_evaluation_activity,
@@ -60,6 +62,7 @@ from .run_evaluation import (
     extract_event_tools,
     fetch_evaluation_activity,
     run_hog_eval,
+    run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
 )
 
@@ -184,10 +187,28 @@ class TestRunEvaluationWorkflow:
         async def mock_emit_internal_telemetry(_: EmitInternalTelemetryInputs) -> None:
             return
 
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            return LocalEvaluationOutcome(
+                evaluation={
+                    "id": inputs.evaluation_id,
+                    "name": "Boolean evaluation",
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Is the answer grounded?"},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "team_id": 1,
+                },
+                result=None,
+                emitted=False,
+            )
+
         original_patched = run_evaluation_module.temporalio.workflow.patched
 
+        # The legacy run predates both patches, so its history records the separate
+        # fetch/execute/emit activities and the per-evaluation signal child workflow.
         def legacy_patched(patch_id: str) -> bool:
-            if patch_id == "remove-per-evaluation-signal-2026-08":
+            if patch_id in ("remove-per-evaluation-signal-2026-08", "merge-local-eval-activities-2026-09"):
                 return False
             return original_patched(patch_id)
 
@@ -202,6 +223,7 @@ class TestRunEvaluationWorkflow:
                     mock_execute_llm_judge,
                     mock_emit_evaluation_event,
                     mock_emit_internal_telemetry,
+                    mock_run_local_evaluation,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
@@ -687,34 +709,31 @@ class TestRunEvaluationWorkflow:
     async def test_terminal_user_error_disables_emails_without_emitting_evaluation_event(self):
         calls: list[str] = []
 
-        @activity.defn(name="fetch_evaluation_activity")
-        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
-            calls.append("fetch")
-            return {
-                "id": inputs.evaluation_id,
-                "name": "Hog eval",
-                "evaluation_type": "hog",
-                "evaluation_config": {},
-                "output_type": "boolean",
-                "output_config": {},
-                "team_id": 1,
-            }
-
-        @activity.defn(name="execute_hog_eval_activity")
-        async def mock_execute_hog_eval(
-            evaluation: dict[str, Any], event_data: dict[str, Any]
-        ) -> EvaluationActivityResult:
-            calls.append("execute_hog")
-            return {
-                "result_type": "boolean",
-                "verdict": False,
-                "reasoning": "Must return boolean, got int: 42",
-                "allows_na": False,
-                "skipped": True,
-                "skip_reason": "hog_error",
-                "terminal_user_error": True,
-                "status_reason": "hog_error",
-            }
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            calls.append("local_eval")
+            return LocalEvaluationOutcome(
+                evaluation={
+                    "id": inputs.evaluation_id,
+                    "name": "Hog eval",
+                    "evaluation_type": "hog",
+                    "evaluation_config": {},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "team_id": 1,
+                },
+                result={
+                    "result_type": "boolean",
+                    "verdict": False,
+                    "reasoning": "Must return boolean, got int: 42",
+                    "allows_na": False,
+                    "skipped": True,
+                    "skip_reason": "hog_error",
+                    "terminal_user_error": True,
+                    "status_reason": "hog_error",
+                },
+                emitted=False,
+            )
 
         @activity.defn(name="disable_evaluation_activity")
         async def mock_disable_evaluation(
@@ -740,8 +759,7 @@ class TestRunEvaluationWorkflow:
                 task_queue=task_queue,
                 workflows=[RunEvaluationWorkflow],
                 activities=[
-                    mock_fetch_evaluation,
-                    mock_execute_hog_eval,
+                    mock_run_local_evaluation,
                     mock_disable_evaluation,
                     mock_send_evaluation_disabled_email,
                     mock_emit_evaluation_event,
@@ -759,8 +777,7 @@ class TestRunEvaluationWorkflow:
                 )
 
         assert calls == [
-            "fetch",
-            "execute_hog",
+            "local_eval",
             f"disable:{evaluation_id}:1:hog_error:Must return boolean, got int: 42",
             (
                 f"email:{evaluation_id}:hog_error:"
@@ -774,12 +791,77 @@ class TestRunEvaluationWorkflow:
         assert result["message"] == "Must return boolean, got int: 42"
 
     @pytest.mark.asyncio
-    async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):
-        calls: list[str] = []
+    async def test_telemetry_failure_does_not_fail_an_emitted_judge_run(self):
+        # The emit already happened; failing the workflow here would re-run it on a manual
+        # retry and emit the evaluation a second time.
+        emits: list[str] = []
 
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            return LocalEvaluationOutcome(
+                evaluation={
+                    "id": inputs.evaluation_id,
+                    "name": "Boolean evaluation",
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Is the answer grounded?"},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "team_id": 1,
+                },
+                result=None,
+                emitted=False,
+            )
+
+        @activity.defn(name="execute_llm_judge_activity")
+        async def mock_execute_llm_judge(_: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+            return {
+                "result_type": "boolean",
+                "verdict": True,
+                "reasoning": "ok",
+                "allows_na": False,
+                "model": "gpt-4.1-mini",
+                "provider": "openai",
+            }
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(_: EmitEvaluationEventInputs) -> None:
+            emits.append("emit")
+
+        @activity.defn(name="emit_internal_telemetry_activity")
+        async def mock_emit_internal_telemetry(_: EmitInternalTelemetryInputs) -> None:
+            raise ApplicationError("telemetry down", non_retryable=True)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[
+                    mock_run_local_evaluation,
+                    mock_execute_llm_judge,
+                    mock_emit_evaluation_event,
+                    mock_emit_internal_telemetry,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=str(uuid.uuid4()),
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert result["verdict"] is True
+        assert emits == ["emit"]
+
+    @pytest.mark.asyncio
+    async def test_pre_patch_hog_history_replays_against_new_code(self, monkeypatch):
         @activity.defn(name="fetch_evaluation_activity")
         async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
-            calls.append("fetch")
             return {
                 "id": inputs.evaluation_id,
                 "name": "Hog eval",
@@ -794,17 +876,135 @@ class TestRunEvaluationWorkflow:
         async def mock_execute_hog_eval(
             evaluation: dict[str, Any], event_data: dict[str, Any]
         ) -> EvaluationActivityResult:
-            calls.append("execute_hog")
             return {
                 "result_type": "boolean",
-                "verdict": False,
-                "reasoning": "Must return boolean, got int: 42",
+                "verdict": True,
+                "reasoning": "",
                 "allows_na": False,
-                "skipped": True,
-                "skip_reason": "hog_error",
-                "terminal_user_error": True,
-                "status_reason": "hog_error",
             }
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(_: EmitEvaluationEventInputs) -> None:
+            return
+
+        original_patched = run_evaluation_module.temporalio.workflow.patched
+
+        def pre_patch(patch_id: str) -> bool:
+            if patch_id in ("remove-per-evaluation-signal-2026-08", "merge-local-eval-activities-2026-09"):
+                return False
+            return original_patched(patch_id)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_fetch_evaluation, mock_execute_hog_eval, mock_emit_evaluation_event],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", pre_patch)
+                try:
+                    handle = await env.client.start_workflow(
+                        RunEvaluationWorkflow.run,
+                        RunEvaluationInputs(
+                            evaluation_id="pre-patch-hog-evaluation",
+                            event_data=create_mock_event_data(team_id=1),
+                        ),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                    )
+                    result: WorkflowResult = await handle.result()
+                    history = await handle.fetch_history()
+                finally:
+                    monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", original_patched)
+
+        assert result["verdict"] is True
+
+        # A pre-patch hog run recorded fetch/execute/emit commands; the new code must replay them.
+        await Replayer(
+            workflows=[RunEvaluationWorkflow],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ).replay_workflow(history)
+
+    @pytest.mark.asyncio
+    async def test_merged_local_eval_result_is_not_emitted_again_by_the_workflow(self):
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            return LocalEvaluationOutcome(
+                evaluation={
+                    "id": inputs.evaluation_id,
+                    "name": "Hog eval",
+                    "evaluation_type": "hog",
+                    "evaluation_config": {},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "team_id": 1,
+                },
+                result={
+                    "result_type": "boolean",
+                    "verdict": True,
+                    "reasoning": "",
+                    "allows_na": False,
+                },
+                emitted=True,
+            )
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
+            raise AssertionError("the merged activity already emitted; the workflow must not emit again")
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_run_local_evaluation, mock_emit_evaluation_event],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=str(uuid.uuid4()),
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert result["verdict"] is True
+        assert result["skipped"] is False
+
+    @pytest.mark.asyncio
+    async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):
+        calls: list[str] = []
+
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            calls.append("local_eval")
+            return LocalEvaluationOutcome(
+                evaluation={
+                    "id": inputs.evaluation_id,
+                    "name": "Hog eval",
+                    "evaluation_type": "hog",
+                    "evaluation_config": {},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "team_id": 1,
+                },
+                result={
+                    "result_type": "boolean",
+                    "verdict": False,
+                    "reasoning": "Must return boolean, got int: 42",
+                    "allows_na": False,
+                    "skipped": True,
+                    "skip_reason": "hog_error",
+                    "terminal_user_error": True,
+                    "status_reason": "hog_error",
+                },
+                emitted=False,
+            )
 
         @activity.defn(name="disable_evaluation_activity")
         async def mock_disable_evaluation(
@@ -826,8 +1026,7 @@ class TestRunEvaluationWorkflow:
                 task_queue=task_queue,
                 workflows=[RunEvaluationWorkflow],
                 activities=[
-                    mock_fetch_evaluation,
-                    mock_execute_hog_eval,
+                    mock_run_local_evaluation,
                     mock_disable_evaluation,
                     mock_send_evaluation_disabled_email,
                 ],
@@ -844,8 +1043,7 @@ class TestRunEvaluationWorkflow:
                 )
 
         assert calls == [
-            "fetch",
-            "execute_hog",
+            "local_eval",
             f"disable:{evaluation_id}:1:hog_error:Must return boolean, got int: 42",
         ]
         assert result["evaluation_id"] == evaluation_id
@@ -2322,3 +2520,160 @@ class TestJudgePromptAssembly:
         assert "Tools available:" not in user_prompt
         assert "Input:" in user_prompt
         assert "Output:" in user_prompt
+
+
+class TestRunLocalEvaluationActivity:
+    # A fixed workflow start time: the activity only threads it through to the emitted event.
+    START_TIME = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def _create_hog_evaluation(self, team, source: str):
+        from posthog.cdp.validation import compile_hog
+
+        return Evaluation.objects.create(
+            team=team,
+            name="Hog eval",
+            evaluation_type="hog",
+            evaluation_config={"source": source, "bytecode": compile_hog(source, "destination")},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+        )
+
+    def _inputs(self, evaluation, team, start_time: datetime) -> RunLocalEvaluationInputs:
+        return RunLocalEvaluationInputs(
+            evaluation_id=str(evaluation.id),
+            event_data=create_mock_event_data(team.id),
+            start_time=start_time,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_executes_and_emits_in_one_activity(self, setup_data):
+        team = setup_data["team"]
+        evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
+        start_time = self.START_TIME
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, start_time))
+
+        assert outcome.evaluation["id"] == str(evaluation.id)
+        assert outcome.result is not None
+        assert outcome.result["verdict"] is True
+        mock_capture.assert_called_once()
+        capture_kwargs = mock_capture.call_args.kwargs
+        assert capture_kwargs["event_name"] == "$ai_evaluation"
+        assert capture_kwargs["properties"]["$ai_evaluation_result"] is True
+        # A retried emit only deduplicates when the timestamp is stable across attempts.
+        assert capture_kwargs["timestamp"] == start_time
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_terminal_hog_error_returns_without_emitting(self, setup_data):
+        team = setup_data["team"]
+        evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return 42")
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, self.START_TIME))
+
+        assert outcome.result is not None
+        assert outcome.result["terminal_user_error"] is True
+        assert outcome.result["skip_reason"] == "hog_error"
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_llm_judge_returns_fetch_only(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, self.START_TIME))
+
+        assert outcome.result is None
+        assert outcome.evaluation["evaluation_type"] == "llm_judge"
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_sentiment_without_user_messages_emits_skipped_event(self, setup_data):
+        team = setup_data["team"]
+
+        def _create_sentiment_evaluation():
+            return Evaluation.objects.create(
+                team=team,
+                name="Sentiment eval",
+                evaluation_type="sentiment",
+                evaluation_config={"source": "user_messages"},
+                output_type="sentiment",
+                output_config={},
+                enabled=True,
+            )
+
+        evaluation = await sync_to_async(_create_sentiment_evaluation)()
+        inputs = RunLocalEvaluationInputs(
+            evaluation_id=str(evaluation.id),
+            event_data=create_mock_event_data(
+                team.id,
+                properties={"$ai_input": [{"role": "assistant", "content": "no user turn"}]},
+            ),
+            start_time=self.START_TIME,
+        )
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            outcome = await run_local_evaluation_activity(inputs)
+
+        assert outcome.result is not None
+        assert outcome.result["skipped"] is True
+        assert outcome.result["skip_reason"] == "no_user_messages"
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["properties"]["$ai_evaluation_skipped"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_emit_failure_raises_the_typed_error(self, setup_data):
+        # The workflow keys its once-per-run alert counter on this type; an untyped raise
+        # would silently drop hog/sentiment emit failures from llma_eval_errors.
+        from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+            EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE,
+        )
+
+        team = setup_data["team"]
+        evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            mock_capture.side_effect = Exception("capture down")
+            with pytest.raises(ApplicationError) as exc_info:
+                await run_local_evaluation_activity(self._inputs(evaluation, team, self.START_TIME))
+
+        assert exc_info.value.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_emit_event_uuid_is_stable_across_activity_attempts(self, setup_data):
+        from temporalio.testing import ActivityEnvironment
+
+        team = setup_data["team"]
+        evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
+        inputs = self._inputs(evaluation, team, self.START_TIME)
+
+        env = ActivityEnvironment()
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            await env.run(run_local_evaluation_activity, inputs)
+            await env.run(run_local_evaluation_activity, inputs)
+
+        first_uuid = mock_capture.call_args_list[0].kwargs["event_uuid"]
+        second_uuid = mock_capture.call_args_list[1].kwargs["event_uuid"]
+        assert first_uuid is not None
+        assert first_uuid == second_uuid

@@ -59,6 +59,15 @@ describe("show_actions tool", () => {
           channel_id: "chan",
           canvas_id: "dash",
         },
+        { kind: "open_inbox", label: "Open Self-driving" },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("accepts open_inbox pointed at a single report", () => {
+    expect(
+      showActionsSchema.actions.safeParse([
+        { kind: "open_inbox", label: "Open the report", report_id: "rep_1" },
       ]).success,
     ).toBe(true);
   });

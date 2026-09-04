@@ -10,11 +10,12 @@ credentials.
 
 from __future__ import annotations
 
+import time
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date
-from typing import Any, Literal, LiteralString, Optional, cast
+from typing import Any, Literal, LiteralString, Optional, TypeVar, cast
 
 import psycopg
 import pyarrow as pa
@@ -48,6 +49,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     project_arrow_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
+    fetch_row_batches,
+    iter_row_batches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -69,7 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RedshiftSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "JsonAsStringLoader",
@@ -392,6 +397,49 @@ def _recover_after_failed_probe(connection: psycopg.Connection) -> None:
         pass
 
 
+_T = TypeVar("_T")
+
+_MAX_SETUP_CONNECTION_DROP_ATTEMPTS = 3
+
+
+def _is_transient_connection_drop_error(error: BaseException) -> bool:
+    """True if a freshly opened connection died before `build_pipeline`'s setup phase finished.
+
+    psycopg raises this exact OperationalError message when libpq finds the socket already gone
+    (a network blip or a cluster pause/resize) — the keepalives configured on connect only detect
+    a dead peer during a query, not this class of drop between connecting and the first query.
+    """
+    return isinstance(error, psycopg.OperationalError) and "the connection is lost" in str(error)
+
+
+def _retry_on_transient_connection_drop(
+    operation: Callable[[], _T],
+    logger: FilteringBoundLogger,
+    *,
+    max_attempts: int = _MAX_SETUP_CONNECTION_DROP_ATTEMPTS,
+) -> _T:
+    """Run `operation`, retrying the whole thing (including reopening the connection) on a
+    transient connection drop rather than failing sync setup on the first blip and burning a
+    full Temporal activity retry — which re-runs from the very start of the sync — to recover
+    from something a cheap in-process reconnect fixes in seconds.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except psycopg.OperationalError as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_connection_drop_error(e):
+                raise
+            logger.warning(
+                "Transient Redshift connection drop during pipeline setup; retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
+
+
 def _reads_primary_keys(cursor: psycopg.Cursor, schema: str) -> bool | None:
     """Can this connection read primary-key constraints in `schema` at all?
 
@@ -479,17 +527,17 @@ def _stream_rows_as_arrow_batches(
     chunk_size: int,
     arrow_schema: pa.Schema,
     *,
+    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
     binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
-    """Yield one Arrow table per `chunk_size` rows, reading rows straight off the wire.
+    """Yield one Arrow table per `chunk_size` rows (or per byte budget), reading rows off the wire.
 
     `stream()` puts libpq in single-row (or chunked-row) mode: no cursor is declared, so the
     per-node cap on cursor data never applies, and no result set is buffered into the worker
     either. Those were the two ways a large table could not be read.
     """
     column_names: list[str] = []
-    pending: list[Any] = []
 
     def to_arrow(rows: list[Any]) -> pa.Table:
         return table_from_iterator(
@@ -499,17 +547,13 @@ def _stream_rows_as_arrow_batches(
             binary_reporter=binary_reporter,
         )
 
-    for row in cursor.stream(query, size=_libpq_rows_per_chunk()):
+    for rows in iter_row_batches(
+        cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size, byte_bounded=byte_bounded
+    ):
         if not column_names:
             # Only described once the first result arrives, so it can't be read before the loop.
             column_names = [column.name for column in cursor.description or []]
-        pending.append(row)
-        if len(pending) >= chunk_size:
-            yield to_arrow(pending)
-            pending = []
-
-    if pending:
-        yield to_arrow(pending)
+        yield to_arrow(rows)
 
 
 def _fetch_arrow_batches(
@@ -518,19 +562,19 @@ def _fetch_arrow_batches(
     arrow_schema: pa.Schema,
     fetch_size: int | None = None,
     *,
+    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
     binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
-    """Yield one Arrow table per `chunk_size` rows drawn from an already-executed `cursor`.
+    """Yield one Arrow table per `chunk_size` rows (or per byte budget) from an executed `cursor`.
 
-    `fetch_size` decouples the per-`FETCH` page from the Arrow batch: rows accumulate across
-    pages until `chunk_size` is reached. Redshift caps a single `FETCH` on a single-node cluster
-    (see `REDSHIFT_SINGLE_NODE_FETCH_LIMIT`) far below the chunk sizes we target, so paging is
-    the only way to keep the server cursor and still write batches the Delta writer sizes well.
-    Defaults to `chunk_size`, i.e. one `FETCH` per Arrow table.
+    `fetch_size` caps the per-`FETCH` page independently of the Arrow batch: rows accumulate
+    across pages until `chunk_size` is reached. Redshift caps a single `FETCH` on a single-node
+    cluster (see `REDSHIFT_SINGLE_NODE_FETCH_LIMIT`) far below the chunk sizes we target, so
+    paging is the only way to keep the server cursor and still write batches the Delta writer
+    sizes well. Defaults to `chunk_size`, i.e. one `FETCH` per Arrow table.
     """
     column_names = [column.name for column in cursor.description or []]
-    page_size = fetch_size or chunk_size
 
     def to_arrow(rows: list[Any]) -> pa.Table:
         return table_from_iterator(
@@ -540,21 +584,10 @@ def _fetch_arrow_batches(
             binary_reporter=binary_reporter,
         )
 
-    pending: list[Any] = []
-    while True:
-        rows = cursor.fetchmany(page_size)
-        if not rows:
-            break
-
-        pending.extend(rows)
-        # Overshoots by at most `page_size - 1` rows, which is bounded and far below the byte
-        # budget `chunk_size` was derived from.
-        if len(pending) >= chunk_size:
-            yield to_arrow(pending)
-            pending = []
-
-    if pending:
-        yield to_arrow(pending)
+    for rows in fetch_row_batches(
+        cursor.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_size or chunk_size
+    ):
+        yield to_arrow(rows)
 
 
 def _stream_arrow_batches(
@@ -565,6 +598,7 @@ def _stream_arrow_batches(
     cursor_name: str,
     logger: FilteringBoundLogger,
     *,
+    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
 ) -> Iterator[pa.Table]:
     """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
@@ -597,6 +631,7 @@ def _stream_arrow_batches(
                 query,
                 chunk_size,
                 arrow_schema,
+                byte_bounded=byte_bounded,
                 primary_keys=primary_keys,
                 binary_reporter=binary_reporter,
             ):
@@ -624,6 +659,7 @@ def _stream_arrow_batches(
                     chunk_size,
                     arrow_schema,
                     fetch_size,
+                    byte_bounded=byte_bounded,
                     primary_keys=primary_keys,
                     binary_reporter=binary_reporter,
                 ):
@@ -733,6 +769,19 @@ class QualifiedRelation:
 
     schema: str
     name: str
+
+
+@frozen
+class RedshiftTableSetup:
+    """Everything `build_pipeline` learns about a table before it can stream rows."""
+
+    full_table: Table[RedshiftColumn]
+    primary_keys: list[str] | None
+    projected_table: Table[RedshiftColumn]
+    chunk_size: int
+    rows_to_sync: int
+    partition_settings: PartitionSettings | None
+    duplicate_primary_keys: bool
 
 
 class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
@@ -1465,96 +1514,122 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        with self.connect(config) as connection:
-            # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
-            # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
-            # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
-            # raises `InFailedSqlTransaction` until a rollback. Mirrors the postgres source.
-            connection.autocommit = True
-            with connection.cursor() as cursor:
-                logger.debug("Getting table types...")
-                full_table = self.get_table_metadata(cursor, schema, table_name, logger)
+        def _discover_and_probe() -> RedshiftTableSetup:
+            with self.connect(config) as connection:
+                # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
+                # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
+                # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
+                # raises `InFailedSqlTransaction` until a rollback. Mirrors the postgres source.
+                connection.autocommit = True
+                with connection.cursor() as cursor:
+                    logger.debug("Getting table types...")
+                    full_table = self.get_table_metadata(cursor, schema, table_name, logger)
 
-                cursor.execute(
-                    sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 60 * 10))  # 10 mins
-                )
-                try:
-                    logger.debug("Getting primary keys...")
-                    primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name, logger, full_table.type)
-                    if primary_keys:
-                        logger.debug(f"Found primary keys: {primary_keys}")
-
-                    # Resolve PKs before projection so SELECT and Arrow schema agree.
-                    if primary_keys is None and "id" in full_table:
-                        logger.debug("Falling back to ['id'] for primary keys...")
-                        primary_keys = ["id"]
-
-                    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-                    table = project_arrow_columns(full_table, projected)
-                    logger.debug(f"Source schema: {table.to_arrow_schema()}")
-
-                    inner_query_with_limit = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        table.type,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                        add_sampling=True,
-                        enabled_columns=enabled_columns,
-                        primary_keys=primary_keys,
+                    cursor.execute(
+                        sql.SQL("SET statement_timeout = {timeout}").format(
+                            timeout=sql.Literal(1000 * 60 * 10)
+                        )  # 10 mins
                     )
+                    try:
+                        logger.debug("Getting primary keys...")
+                        primary_keys = self.get_primary_keys_for_table(
+                            cursor, schema, table_name, logger, full_table.type
+                        )
+                        if primary_keys:
+                            logger.debug(f"Found primary keys: {primary_keys}")
 
-                    inner_query_without_limit = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        table.type,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                        enabled_columns=enabled_columns,
-                        primary_keys=primary_keys,
-                        row_filters=row_filters,
-                    )
-                    logger.debug("Getting table chunk size...")
-                    if chunk_size_override is not None:
-                        chunk_size = chunk_size_override
-                        logger.debug(f"Using chunk_size_override: {chunk_size_override}")
-                    else:
-                        # `inner_query_with_limit` is a `psycopg.sql.Composed`
-                        # rather than a `str`; the override on
-                        # `fetch_average_row_size` accepts it via `Any`.
-                        chunk_size = self.get_chunk_size(
-                            cursor,
+                        # Resolve PKs before projection so SELECT and Arrow schema agree.
+                        if primary_keys is None and "id" in full_table:
+                            logger.debug("Falling back to ['id'] for primary keys...")
+                            primary_keys = ["id"]
+
+                        projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                        table = project_arrow_columns(full_table, projected)
+                        logger.debug(f"Source schema: {table.to_arrow_schema()}")
+
+                        inner_query_with_limit = _build_query(
                             schema,
                             table_name,
-                            inner_query_with_limit,  # type: ignore[arg-type]
-                            None,
-                            logger,
+                            should_use_incremental_field,
+                            table.type,
+                            incremental_field,
+                            incremental_field_type,
+                            db_incremental_field_last_value,
+                            add_sampling=True,
+                            enabled_columns=enabled_columns,
+                            primary_keys=primary_keys,
                         )
-                    logger.debug("Getting rows to sync...")
-                    rows_to_sync = self.get_rows_to_sync(cursor, inner_query_without_limit, None, logger)
-                    logger.debug("Getting partition settings...")
-                    partition_settings = (
-                        self.get_partition_settings(cursor, schema, table_name, logger)
-                        if should_use_incremental_field
-                        else None
-                    )
-                    duplicate_primary_keys = False
-                    if primary_keys == ["id"] and "id" in full_table:
-                        # Only check dupes when we fell back to the `id` PK above.
-                        logger.debug("Checking duplicate primary keys...")
-                        duplicate_primary_keys = self.has_duplicate_primary_keys(
-                            cursor, schema, table_name, primary_keys, logger
+
+                        inner_query_without_limit = _build_query(
+                            schema,
+                            table_name,
+                            should_use_incremental_field,
+                            table.type,
+                            incremental_field,
+                            incremental_field_type,
+                            db_incremental_field_last_value,
+                            enabled_columns=enabled_columns,
+                            primary_keys=primary_keys,
+                            row_filters=row_filters,
                         )
-                except psycopg.errors.QueryCanceled:
-                    if should_use_incremental_field:
-                        raise QueryTimeoutException(
-                            f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) is set as a SORTKEY on the table"
+                        logger.debug("Getting table chunk size...")
+                        if chunk_size_override is not None:
+                            chunk_size = chunk_size_override
+                            logger.debug(f"Using chunk_size_override: {chunk_size_override}")
+                        else:
+                            # `inner_query_with_limit` is a `psycopg.sql.Composed`
+                            # rather than a `str`; the override on
+                            # `fetch_average_row_size` accepts it via `Any`.
+                            chunk_size = self.get_chunk_size(
+                                cursor,
+                                schema,
+                                table_name,
+                                inner_query_with_limit,  # type: ignore[arg-type]
+                                None,
+                                logger,
+                            )
+                        logger.debug("Getting rows to sync...")
+                        rows_to_sync = self.get_rows_to_sync(cursor, inner_query_without_limit, None, logger)
+                        logger.debug("Getting partition settings...")
+                        partition_settings = (
+                            self.get_partition_settings(cursor, schema, table_name, logger)
+                            if should_use_incremental_field
+                            else None
                         )
-                    raise
+                        duplicate_primary_keys = False
+                        if primary_keys == ["id"] and "id" in full_table:
+                            # Only check dupes when we fell back to the `id` PK above.
+                            logger.debug("Checking duplicate primary keys...")
+                            duplicate_primary_keys = self.has_duplicate_primary_keys(
+                                cursor, schema, table_name, primary_keys, logger
+                            )
+                    except psycopg.errors.QueryCanceled:
+                        if should_use_incremental_field:
+                            raise QueryTimeoutException(
+                                f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) is set as a SORTKEY on the table"
+                            )
+                        raise
+            return RedshiftTableSetup(
+                full_table=full_table,
+                primary_keys=primary_keys,
+                projected_table=table,
+                chunk_size=chunk_size,
+                rows_to_sync=rows_to_sync,
+                partition_settings=partition_settings,
+                duplicate_primary_keys=duplicate_primary_keys,
+            )
+
+        # A fresh connection can still drop before setup finishes (network blip, cluster
+        # pause/resize) — retry the whole discovery+probe phase (reopening the connection) rather
+        # than let it fail through to a full Temporal activity retry, which restarts the sync
+        # from scratch. See `_retry_on_transient_connection_drop`.
+        setup = _retry_on_transient_connection_drop(_discover_and_probe, logger)
+        primary_keys = setup.primary_keys
+        table = setup.projected_table
+        chunk_size = setup.chunk_size
+        rows_to_sync = setup.rows_to_sync
+        partition_settings = setup.partition_settings
+        duplicate_primary_keys = setup.duplicate_primary_keys
 
         def get_rows() -> Iterator[Any]:
             arrow_schema = table.to_arrow_schema()
@@ -1584,6 +1659,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     arrow_schema,
                     f"posthog_{inputs.team_id}_{schema}.{table_name}",
                     logger,
+                    byte_bounded=inputs.byte_bounded_extraction,
                     primary_keys=primary_keys,
                 )
 

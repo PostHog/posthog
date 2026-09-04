@@ -59,15 +59,6 @@ python manage.py ingest_report_json \
     --team-id 1
 ```
 
-To test report-canvas Activity delivery, set a suggested reviewer whose GitHub login belongs to a user in the local organization:
-
-```bash
-python manage.py ingest_report_json \
-    products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
-    --team-id 1 \
-    --suggested-reviewer-login <your-github-login>
-```
-
 The fixture must match the shape in `report_generation/fixtures/` — a JSON object with `repository`, `signal_ids`, and a `result` that parses as `ReportResearchOutput`. Autostart still requires a working GitHub integration (for reviewer resolution) and the commit authors in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` whose effective priority threshold (personal or team default) covers the report's priority — otherwise the report will be saved but no `Task` will be created.
 
 ## Seeding billable reports (refund testing)
@@ -150,6 +141,21 @@ python manage.py sync_signals_scout_skills --all-enabled --dry-run
 ```
 
 Output buckets per team: `created`, `updated`, `diverged` (team-edited or hand-authored rows left alone), `tombstoned` (rows the team already soft-deleted — left alone, never resurrected), `pruned` (live rows whose canonical skill was removed from disk — soft-deleted so the coordinator stops dispatching them). Same function the coordinator and runner call lazily — this command is just the impatient path.
+
+### Pre-computed scout suggestions
+
+`run_scout_suggestions` drives the headless "Suggested for this project" scan (`../scout_harness/suggestions.py`) without waiting for its Temporal coordinator. `--team-id` runs the scan inline for one team (bypassing the planner and its cap; the org still needs AI data processing approved) and prints the stored batch; `--show` prints the stored batch without running; `--plan` prints what the coordinator would dispatch on the next tick under the current `signals-scout-suggestions` flag payload.
+
+```bash
+# Generate (or regenerate) the batch for one team now, then print it
+python manage.py run_scout_suggestions --team-id 1
+
+# Just print what is stored
+python manage.py run_scout_suggestions --team-id 1 --show
+
+# What would the next coordinator tick dispatch?
+python manage.py run_scout_suggestions --plan
+```
 
 ## Backfilling task_run artefacts
 

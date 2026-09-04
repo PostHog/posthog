@@ -25,6 +25,7 @@ import {
 import type { UserBasicType } from '~/types'
 
 import {
+    accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
@@ -38,7 +39,11 @@ import {
     CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import type { AccountRelationshipDefinitionApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
+import type {
+    AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
+    CustomPropertyValueWriteApi,
+} from '../../generated/api.schemas'
 import { accountsColumnConfigLogic, isLegacyRoleColumn } from './accountsColumnConfigLogic'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import {
@@ -108,6 +113,9 @@ export type AccountSortOrder = { column: AccountSortableColumn; direction: Accou
 
 export const savingRoleKey = (accountId: string, column: string): string => `${accountId}:${column}`
 
+export const customPropertySavingKey = (accountId: string, definitionId: string): string =>
+    `${accountId}:${definitionId}`
+
 // Which accounts path the shareable view state gets written back to. It must be the path we are
 // already on: the setters that mirror view state into the URL also fire while state is being
 // restored (the default-column upgrade once relationship definitions load, the auto-restored saved
@@ -147,6 +155,7 @@ export interface accountsLogicValues {
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     defaultSelectColumns: string[] // accountsColumnConfigLogic
     querySelectColumns: string[] // accountsColumnConfigLogic
+    relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi> // accountsColumnConfigLogic
     relationshipDefinitionsLoaded: boolean // accountsColumnConfigLogic
     selectColumns: string[] // accountsColumnConfigLogic
     visibleColumnNames: string[] // accountsColumnConfigLogic
@@ -166,13 +175,17 @@ export interface accountsLogicValues {
     allRolesUnassigned: boolean
     assignedToCurrentUser: boolean
     assignedToFilter: RoleFilterValue
+    awaitingSavedView: boolean
     canSortClientSide: boolean
     currentUserId: number | null
+    customPropertyOverrides: Record<string, CustomPropertyValueWriteApi['value']>
+    isCustomPropertySaving: (accountId: string, definitionId: string) => boolean
     isRoleSaving: (accountId: string, column: string) => boolean
     isTagsSaving: (accountId: string) => boolean
     listPaginated: boolean
     metricsQuery: AccountsTableQuery | null
     relationshipOverrides: Record<string, number[]>
+    savingCustomProperties: Record<string, true>
     savingRoles: Record<string, true>
     savingTags: Record<string, true>
     searchInput: string
@@ -192,6 +205,20 @@ export interface accountsLogicActions {
     ) => {
         customPropertyDefinitions: CustomPropertyDefinitionApi[]
         payload?: any
+    } // accountsColumnConfigLogic
+    loadRelationshipDefinitionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // accountsColumnConfigLogic
+    loadRelationshipDefinitionsSuccess: (
+        relationshipDefinitions: AccountRelationshipDefinitionApi[],
+        payload?: any
+    ) => {
+        payload?: any
+        relationshipDefinitions: AccountRelationshipDefinitionApi[]
     } // accountsColumnConfigLogic
     moveColumn: (
         oldIndex: number,
@@ -245,6 +272,55 @@ export interface accountsLogicActions {
         queryId: string
         refresh: RefreshType | undefined
     } // dataNodeLogic
+    listLoadDataSuccess: (
+        response:
+            | Record<string, any>
+            | null
+            | import('~/queries/schema').ErrorTrackingQueryResponse
+            | import('~/queries/schema').HogQLAutocompleteResponse
+            | import('~/queries/schema').HogQLMetadataResponse
+            | import('~/queries/schema').HogQLQueryResponse<any[]>
+            | import('~/queries/schema').HogQueryResponse
+            | import('~/queries/schema').LogAttributesQueryResponse
+            | import('~/queries/schema').LogValuesQueryResponse
+            | import('~/queries/schema').MetricsQueryResponse
+            | import('~/queries/schema').SessionsQueryResponse
+            | import('~/queries/schema').TraceSpansAggregationQueryResponse
+            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+            | import('~/queries/schema').TraceSpansQueryResponse
+            | undefined,
+        payload?:
+            | {
+                  overrideQuery: DataNode<Record<string, any>> | undefined
+                  pollOnly: boolean
+                  queryId: string
+                  refresh: RefreshType | undefined
+              }
+            | undefined
+    ) => {
+        payload?: {
+            overrideQuery: DataNode<Record<string, any>> | undefined
+            pollOnly: boolean
+            queryId: string
+            refresh: RefreshType | undefined
+        }
+        response:
+            | Record<string, any>
+            | null
+            | import('~/queries/schema').ErrorTrackingQueryResponse
+            | import('~/queries/schema').HogQLAutocompleteResponse
+            | import('~/queries/schema').HogQLMetadataResponse
+            | import('~/queries/schema').HogQLQueryResponse<any[]>
+            | import('~/queries/schema').HogQueryResponse
+            | import('~/queries/schema').LogAttributesQueryResponse
+            | import('~/queries/schema').LogValuesQueryResponse
+            | import('~/queries/schema').MetricsQueryResponse
+            | import('~/queries/schema').SessionsQueryResponse
+            | import('~/queries/schema').TraceSpansAggregationQueryResponse
+            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+            | import('~/queries/schema').TraceSpansQueryResponse
+            | undefined
+    } // dataNodeLogic
     listLoadNextData: () => any // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true
@@ -264,6 +340,23 @@ export interface accountsLogicActions {
     } // userLogic
     addTagToFilter: (tag: string) => {
         tag: string
+    }
+    clearCustomPropertyOverrides: () => {
+        value: true
+    }
+    customPropertyUpdateFinished: (
+        accountId: string,
+        definitionId: string
+    ) => {
+        accountId: string
+        definitionId: string
+    }
+    customPropertyUpdateStarted: (
+        accountId: string,
+        definitionId: string
+    ) => {
+        accountId: string
+        definitionId: string
     }
     openAccount: (
         accountId: string,
@@ -311,6 +404,18 @@ export interface accountsLogicActions {
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
     }
+    setAwaitingSavedView: (awaiting: boolean) => {
+        awaiting: boolean
+    }
+    setCustomPropertyOverride: (
+        accountId: string,
+        definitionId: string,
+        value: CustomPropertyValueWriteApi['value'] | null
+    ) => {
+        accountId: string
+        definitionId: string
+        value: boolean | number | string | null
+    }
     setRelationshipOverride: (
         accountId: string,
         column: string,
@@ -348,6 +453,15 @@ export interface accountsLogicActions {
     toggleSort: (column: AccountSortableColumn) => {
         column: string
     }
+    updateAccountCustomProperty: (
+        accountId: string,
+        definition: CustomPropertyDefinitionApi,
+        value: CustomPropertyValueWriteApi['value']
+    ) => {
+        accountId: string
+        definition: CustomPropertyDefinitionApi
+        value: boolean | number | string
+    }
     updateAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
     }
@@ -374,6 +488,9 @@ export interface accountsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentUserId: (user: UserType | null) => number | null
         assignedToCurrentUser: (assignedToFilter: RoleFilterValue, currentUserId: number | null) => boolean
+        isCustomPropertySaving: (
+            savingCustomProperties: Record<string, true>
+        ) => (accountId: string, definitionId: string) => boolean
         isRoleSaving: (savingRoles: Record<string, true>) => (accountId: string, column: string) => boolean
         isTagsSaving: (savingTags: Record<string, true>) => (accountId: string) => boolean
         activeFilterCount: (
@@ -411,6 +528,7 @@ export interface accountsLogicMeta {
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
+            relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             columnDisplay: AccountColumnDisplayState,
             sortOrder: AccountSortOrder,
@@ -421,7 +539,8 @@ export interface accountsLogicMeta {
         ) => AccountsTableQueryPlan
         accountsQuerySource: (
             accountsTableQueryPlan: AccountsTableQueryPlan,
-            relationshipDefinitionsLoaded: boolean
+            relationshipDefinitionsLoaded: boolean,
+            awaitingSavedView: boolean
         ) => AccountsTableQuery | null
         accountsDataTableQuery: (
             accountsTableQueryPlan: AccountsTableQueryPlan,
@@ -430,7 +549,8 @@ export interface accountsLogicMeta {
         metricsQuery: (
             overviewMetrics: AccountsTableMetric[],
             accountsTableQueryPlan: AccountsTableQueryPlan,
-            relationshipDefinitionsLoaded: boolean
+            relationshipDefinitionsLoaded: boolean,
+            awaitingSavedView: boolean
         ) => AccountsTableQuery | null
     }
 }
@@ -458,6 +578,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 'querySelectColumns',
                 'aliasToRelationshipDefinition',
                 'aliasToDefinition',
+                'relationshipDefinitionsById',
                 'relationshipDefinitionsLoaded',
                 'customPropertyDefinitionsById',
                 'columnDisplay',
@@ -473,6 +594,8 @@ export const accountsLogic = kea<accountsLogicType>([
             accountsColumnConfigLogic,
             [
                 'loadCustomPropertyDefinitionsSuccess',
+                'loadRelationshipDefinitionsSuccess',
+                'loadRelationshipDefinitionsFailure',
                 'setSelectColumns',
                 'selectColumn',
                 'unselectColumn',
@@ -492,7 +615,7 @@ export const accountsLogic = kea<accountsLogicType>([
             membersLogic,
             ['ensureAllMembersLoaded'],
             dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
-            ['loadData as listLoadData', 'loadNextData as listLoadNextData'],
+            ['loadData as listLoadData', 'loadDataSuccess as listLoadDataSuccess', 'loadNextData as listLoadNextData'],
         ],
     })),
     actions({
@@ -513,6 +636,19 @@ export const accountsLogic = kea<accountsLogicType>([
         // The raw filter setters are also fired by URL sync and cross-filter
         // cascades, so capturing analytics here keeps phantom events out.
         reportFilterChange: (filterType: AccountFilterType) => ({ filterType }),
+        updateAccountCustomProperty: (
+            accountId: string,
+            definition: CustomPropertyDefinitionApi,
+            value: CustomPropertyValueWriteApi['value']
+        ) => ({ accountId, definition, value }),
+        customPropertyUpdateStarted: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
+        customPropertyUpdateFinished: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
+        clearCustomPropertyOverrides: true,
+        setCustomPropertyOverride: (
+            accountId: string,
+            definitionId: string,
+            value: CustomPropertyValueWriteApi['value'] | null
+        ) => ({ accountId, definitionId, value }),
         updateAccountRole: (accountId: string, column: string, user: UserBasicType | null) => ({
             accountId,
             column,
@@ -541,6 +677,7 @@ export const accountsLogic = kea<accountsLogicType>([
         // Restrict the list to a single account by id — drives the `/accounts/:accountId/:tab`
         // path route. null clears it (back to the full list).
         setAccountIdFilter: (accountId: string | null) => ({ accountId }),
+        setAwaitingSavedView: (awaiting: boolean) => ({ awaiting }),
     }),
     reducers({
         searchInput: [
@@ -586,6 +723,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAccountIdFilter: (_, { accountId }) => accountId,
             },
         ],
+        awaitingSavedView: [
+            false,
+            {
+                setAwaitingSavedView: (_, { awaiting }) => awaiting,
+            },
+        ],
         sortOrder: [
             null as AccountSortOrder,
             {
@@ -602,6 +745,36 @@ export const accountsLogic = kea<accountsLogicType>([
             {
                 listLoadData: () => false,
                 listLoadNextData: () => true,
+            },
+        ],
+        savingCustomProperties: [
+            {} as Record<string, true>,
+            {
+                customPropertyUpdateStarted: (state, { accountId, definitionId }) => ({
+                    ...state,
+                    [customPropertySavingKey(accountId, definitionId)]: true,
+                }),
+                customPropertyUpdateFinished: (state, { accountId, definitionId }) => {
+                    const next = { ...state }
+                    delete next[customPropertySavingKey(accountId, definitionId)]
+                    return next
+                },
+            },
+        ],
+        customPropertyOverrides: [
+            {} as Record<string, CustomPropertyValueWriteApi['value']>,
+            {
+                setCustomPropertyOverride: (state, { accountId, definitionId, value }) => {
+                    const next = { ...state }
+                    const key = customPropertySavingKey(accountId, definitionId)
+                    if (value === null) {
+                        delete next[key]
+                    } else {
+                        next[key] = value
+                    }
+                    return next
+                },
+                clearCustomPropertyOverrides: () => ({}),
             },
         ],
         savingRoles: [
@@ -666,6 +839,12 @@ export const accountsLogic = kea<accountsLogicType>([
             (s) => [s.assignedToFilter, s.currentUserId],
             (assignedToFilter: RoleFilterValue, currentUserId: number | null): boolean =>
                 currentUserId !== null && assignedToFilter.length === 1 && assignedToFilter[0] === currentUserId,
+        ],
+        isCustomPropertySaving: [
+            (s) => [s.savingCustomProperties],
+            (savingCustomProperties: Record<string, true>) =>
+                (accountId: string, definitionId: string): boolean =>
+                    !!savingCustomProperties[customPropertySavingKey(accountId, definitionId)],
         ],
         isRoleSaving: [
             (s) => [s.savingRoles],
@@ -782,6 +961,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
+                s.relationshipDefinitionsById,
                 s.customPropertyDefinitionsById,
                 s.columnDisplay,
                 s.sortOrder,
@@ -797,6 +977,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
+                relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
                 columnDisplay: AccountColumnDisplayState,
                 sortOrder: AccountSortOrder,
@@ -811,6 +992,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter,
                 tileFilter,
                 accountFilters,
+                relationshipDefinitionsById,
                 customPropertyDefinitionsById,
                 columnDisplay,
                 sortOrder,
@@ -822,11 +1004,13 @@ export const accountsLogic = kea<accountsLogicType>([
             (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan => buildAccountsTableQueryPlan(input),
         ],
         accountsQuerySource: [
-            (s) => [s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
+            (s) => [s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded, s.awaitingSavedView],
             (
                 accountsTableQueryPlan: AccountsTableQueryPlan,
-                relationshipDefinitionsLoaded: boolean
-            ): AccountsTableQuery | null => (relationshipDefinitionsLoaded ? accountsTableQueryPlan.query : null),
+                relationshipDefinitionsLoaded: boolean,
+                awaitingSavedView: boolean
+            ): AccountsTableQuery | null =>
+                relationshipDefinitionsLoaded && !awaitingSavedView ? accountsTableQueryPlan.query : null,
         ],
         accountsDataTableQuery: [
             (s) => [s.accountsTableQueryPlan, s.accountsQuerySource],
@@ -842,13 +1026,14 @@ export const accountsLogic = kea<accountsLogicType>([
             }),
         ],
         metricsQuery: [
-            (s) => [s.overviewMetrics, s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
+            (s) => [s.overviewMetrics, s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded, s.awaitingSavedView],
             (
                 overviewMetrics: AccountsTableMetric[],
                 accountsTableQueryPlan: AccountsTableQueryPlan,
-                relationshipDefinitionsLoaded: boolean
+                relationshipDefinitionsLoaded: boolean,
+                awaitingSavedView: boolean
             ): AccountsTableQuery | null => {
-                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded) {
+                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded || awaitingSavedView) {
                     return null
                 }
                 return {
@@ -862,35 +1047,87 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache, selectors }) => ({
+        listLoadData: ({ queryId }) => {
+            if (cache.awaitingCustomPropertyRefresh) {
+                cache.awaitingCustomPropertyRefresh = false
+                cache.customPropertyRefreshQueryId = queryId
+            }
+        },
+        listLoadDataSuccess: ({ payload }) => {
+            if (payload?.queryId !== cache.customPropertyRefreshQueryId) {
+                return
+            }
+            cache.customPropertyRefreshQueryId = undefined
+            actions.clearCustomPropertyOverrides()
+        },
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
             cache.customPropertyDefinitionsLoaded = true
+            if (!cache.relationshipDefinitionsLoaded) {
+                return
+            }
             const definitionsById = Object.fromEntries(
                 customPropertyDefinitions.map((definition) => [definition.id, definition])
             )
-            const supportedFilters = supportedAccountFilters(values.accountFilters, definitionsById)
+            const supportedFilters = supportedAccountFilters(
+                values.accountFilters,
+                definitionsById,
+                values.relationshipDefinitionsById
+            )
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
         },
-        setAccountFilters: ({ filters }) => {
+        loadRelationshipDefinitionsSuccess: () => {
+            cache.relationshipDefinitionsLoaded = true
             if (!cache.customPropertyDefinitionsLoaded) {
                 return
             }
-            const supportedFilters = supportedAccountFilters(filters, values.customPropertyDefinitionsById)
+            const supportedFilters = supportedAccountFilters(
+                values.accountFilters,
+                values.customPropertyDefinitionsById,
+                values.relationshipDefinitionsById
+            )
+            if (!objectsEqual(supportedFilters, values.accountFilters)) {
+                actions.setAccountFilters(supportedFilters)
+            }
+        },
+        loadRelationshipDefinitionsFailure: () => {
+            cache.relationshipDefinitionsLoaded = true
+            actions.setAccountFilters(values.accountFilters)
+        },
+        setAccountFilters: ({ filters }) => {
+            if (!cache.customPropertyDefinitionsLoaded || !cache.relationshipDefinitionsLoaded) {
+                return
+            }
+            const supportedFilters = supportedAccountFilters(
+                filters,
+                values.customPropertyDefinitionsById,
+                values.relationshipDefinitionsById
+            )
             if (!objectsEqual(supportedFilters, filters)) {
                 actions.setAccountFilters(supportedFilters)
             }
         },
         updateAccountFilters: ({ filters }, _, __, previousState) => {
-            const supportedFilters = cache.customPropertyDefinitionsLoaded
-                ? supportedAccountFilters(filters, values.customPropertyDefinitionsById)
-                : filters
+            const supportedFilters =
+                cache.customPropertyDefinitionsLoaded && cache.relationshipDefinitionsLoaded
+                    ? supportedAccountFilters(
+                          filters,
+                          values.customPropertyDefinitionsById,
+                          values.relationshipDefinitionsById
+                      )
+                    : filters
             const previousFilters = selectors.accountFilters(previousState)
             const changedFilter =
                 supportedFilters.find((filter, index) => !objectsEqual(filter, previousFilters[index])) ??
                 previousFilters.find((filter, index) => !objectsEqual(filter, supportedFilters[index]))
             actions.setAccountFilters(supportedFilters)
-            const fieldKind = changedFilter?.type === 'account' ? 'account_field' : 'custom_property'
+            const fieldKind =
+                changedFilter?.type === 'account'
+                    ? 'account_field'
+                    : changedFilter?.type === 'account_relationship'
+                      ? 'relationship'
+                      : 'custom_property'
             posthog.capture(AccountsEvents.FilterChanged, {
                 filter_type: fieldKind,
                 field_kind: fieldKind,
@@ -1007,6 +1244,38 @@ export const accountsLogic = kea<accountsLogicType>([
             })
             dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
             dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
+        },
+        updateAccountCustomProperty: async ({ accountId, definition, value }) => {
+            if (
+                definition.is_canonical ||
+                definition.source ||
+                values.isCustomPropertySaving(accountId, definition.id)
+            ) {
+                return
+            }
+            const key = customPropertySavingKey(accountId, definition.id)
+            const previous = values.customPropertyOverrides[key] ?? null
+            actions.customPropertyUpdateStarted(accountId, definition.id)
+            actions.setCustomPropertyOverride(accountId, definition.id, value)
+            try {
+                await accountsCustomPropertyValuesCreate(String(values.currentTeamId), accountId, {
+                    definition: definition.id,
+                    value,
+                })
+                posthog.capture(AccountsEvents.CustomPropertyUpdated, {
+                    display_type: definition.display_type,
+                    workflow_reference: definition.has_workflow_reference,
+                })
+                cache.awaitingCustomPropertyRefresh = true
+                dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
+                dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
+            } catch (error) {
+                actions.setCustomPropertyOverride(accountId, definition.id, previous)
+                posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountCustomProperty' })
+                lemonToast.error('Failed to update custom property')
+            } finally {
+                actions.customPropertyUpdateFinished(accountId, definition.id)
+            }
         },
         updateAccountRole: async ({ accountId, column, user }) => {
             if (values.isRoleSaving(accountId, column)) {

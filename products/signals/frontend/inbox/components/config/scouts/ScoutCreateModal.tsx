@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useId } from 'react'
 
 import {
     LemonButton,
@@ -12,21 +11,26 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
     ScoutCreateModalLogicProps,
     scoutCreateModalLogic,
+    scoutCreateModalLogicKey,
 } from '../../../logics/scoutCreateModalLogic'
 import {
     getScoutScheduleMode,
     getScoutScheduleOptions,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
+    SCOUT_WEEKDAY_OPTIONS,
+    SCOUT_WEEKLY_ON_SCHEDULE_MODE,
     SIGNALS_SCOUT_SKILL_PREFIX,
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
@@ -41,13 +45,26 @@ export interface ScoutCreateModalProps {
 }
 
 export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: ScoutCreateModalProps): JSX.Element {
-    const logicKey = useId()
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
+    const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated }
     const logic = scoutCreateModalLogic(logicProps)
-    const { isScoutCreateFormSubmitting, scoutCreateForm, scoutCreateFormChanged, scoutCreateFormValidationErrors } =
-        useValues(logic)
-    const { resetScoutCreateForm, setScoutCreateDailyTime, setScoutCreateScheduleMode } = useActions(logic)
+    const {
+        isScoutCreateFormSubmitting,
+        scoutCreateForm,
+        scoutCreateFormChanged,
+        scoutCreateFormValidationErrors,
+        scoutCreateFormTouches,
+        showScoutCreateFormErrors,
+    } = useValues(logic)
+    const {
+        resetScoutCreateForm,
+        resetMcpServersDefaulted,
+        setScoutCreateDailyTime,
+        setScoutCreateWeeklyDay,
+        setScoutCreateScheduleMode,
+    } = useActions(logic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const scheduleMode = getScoutScheduleMode(scoutCreateForm.config)
 
@@ -56,12 +73,20 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
             return
         }
         resetScoutCreateForm()
+        // Leaving the modal on purpose discards the draft, so clear the "servers defaulted" marker too.
+        // Otherwise its persisted `true` would make the next open skip the all-servers default.
+        resetMcpServersDefaulted()
         onClose()
     }
 
     const tagsValidationError = scoutCreateFormValidationErrors.config?.tags?.find(
         (error): error is string => typeof error === 'string'
     )
+    // Field errors only render after a submit attempt, and the submit button is disabled while the
+    // form has errors, so a name typo would otherwise surface only as the button's tooltip. Show the
+    // name error in the help slot as soon as the field has been left, until the form shows it itself.
+    const touchedNameError =
+        scoutCreateFormTouches.name && !showScoutCreateFormErrors ? scoutCreateFormValidationErrors.name : undefined
     const firstError = [
         scoutCreateFormValidationErrors.name,
         scoutCreateFormValidationErrors.description,
@@ -112,18 +137,37 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         name="name"
                         label="Name"
                         help={
-                            <>
-                                Scout names start with{' '}
-                                <span className="font-mono text-[11px]">{SIGNALS_SCOUT_SKILL_PREFIX}</span>.
-                            </>
+                            !redesign ? (
+                                <>
+                                    Scout names start with{' '}
+                                    <span className="font-mono text-[11px]">{SIGNALS_SCOUT_SKILL_PREFIX}</span>.
+                                </>
+                            ) : touchedNameError ? (
+                                <span className="text-danger">{touchedNameError}</span>
+                            ) : (
+                                'Lowercase letters, numbers, and hyphens.'
+                            )
                         }
                     >
-                        <LemonInput
-                            autoFocus
-                            maxLength={64}
-                            placeholder="signals-scout-checkout-failures"
-                            data-attr="scout-create-name"
-                        />
+                        {redesign ? (
+                            <LemonInput
+                                autoFocus
+                                // The prefix is fixed and shown in the field, so the limit is what is left for the typed part.
+                                maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
+                                prefix={
+                                    <span className="font-mono text-xs text-muted">{SIGNALS_SCOUT_SKILL_PREFIX}</span>
+                                }
+                                placeholder="checkout-failures"
+                                data-attr="scout-create-name"
+                            />
+                        ) : (
+                            <LemonInput
+                                autoFocus
+                                maxLength={64}
+                                placeholder="signals-scout-checkout-failures"
+                                data-attr="scout-create-name"
+                            />
+                        )}
                     </LemonField>
 
                     <LemonField
@@ -134,7 +178,7 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         <LemonTextArea
                             minRows={2}
                             maxRows={4}
-                            maxLength={4096}
+                            maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
                             placeholder="Investigates recurring checkout failures and reports meaningful changes."
                             data-attr="scout-create-description"
                         />
@@ -191,7 +235,7 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                             help={
                                 scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE
                                     ? 'A cron schedule provided by the opening context'
-                                    : 'Choose a rolling cadence, or a set time each day'
+                                    : 'Choose a rolling cadence, or a set time each day or week'
                             }
                         >
                             <LemonSelect
@@ -200,7 +244,17 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                                 onChange={setScoutCreateScheduleMode}
                             />
                         </LemonField.Pure>
-                        {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ? (
+                        {scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE ? (
+                            <LemonField.Pure label="Run day" help="The scout runs once a week, on this day">
+                                <LemonSelect
+                                    value={scoutCreateForm.weeklyDay}
+                                    options={SCOUT_WEEKDAY_OPTIONS}
+                                    onChange={setScoutCreateWeeklyDay}
+                                />
+                            </LemonField.Pure>
+                        ) : null}
+                        {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ||
+                        scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE ? (
                             <LemonField.Pure label="Run time" help={`Uses the project timezone (${projectTimezone})`}>
                                 <LemonInput
                                     type="time"
@@ -218,10 +272,14 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                                     label="Enable this scout"
                                     bordered
                                     fullWidth
+                                    disabledReason={isScoutCreateFormSubmitting ? 'Creating the scout' : undefined}
                                 />
                             )}
                         </LemonField>
-                        <LemonField name="config.emit">
+                        <LemonField
+                            name="config.emit"
+                            help="Turn this off for a dry run. The scout still runs on its schedule, and its signals stay out of the inbox."
+                        >
                             {({ value, onChange }) => (
                                 <LemonSwitch
                                     checked={value}
@@ -229,12 +287,10 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                                     label="Write signals to the inbox"
                                     bordered
                                     fullWidth
+                                    disabledReason={isScoutCreateFormSubmitting ? 'Creating the scout' : undefined}
                                 />
                             )}
                         </LemonField>
-                        <span className="text-xs text-muted">
-                            Turn off inbox signals to run the scout in dry-run mode.
-                        </span>
                         <LemonField name="config.output_destinations">
                             {({ value, onChange }) => (
                                 <ScoutSlackDestination

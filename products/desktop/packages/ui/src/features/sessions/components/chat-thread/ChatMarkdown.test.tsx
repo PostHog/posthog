@@ -1,5 +1,29 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({
+      svg: '<svg data-testid="mermaid-svg"></svg>',
+    })),
+  },
+}));
+
+vi.mock("@posthog/ui/shell/themeStore", () => ({
+  useThemeStore: (selector: (state: { isDarkMode: boolean }) => unknown) =>
+    selector({ isDarkMode: false }),
+}));
+
+const queryClient = new QueryClient();
+function renderStatic(node: ReactNode) {
+  return renderMarkup(
+    <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>,
+  );
+}
 
 // Chart cards resolve their data through the app shell's query client; here
 // they stay in their loading state, which is all the dispatch tests need.
@@ -10,6 +34,9 @@ vi.mock("../../../../hooks/useAuthenticatedQuery", () => ({
     isFetched: false,
     data: undefined,
   }),
+}));
+vi.mock("../../../auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
 }));
 
 vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
@@ -34,7 +61,16 @@ vi.mock("@posthog/ui/features/pr-review/usePrChecks", () => ({
 
 import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
 
+const MERMAID_FENCE = "```mermaid\ngraph TD; A-->B\n```";
+
 describe("ChatMarkdown", () => {
+  it("renders mermaid fences as diagrams", async () => {
+    render(<ChatMarkdown content={MERMAID_FENCE} />);
+
+    expect(await screen.findByTestId("mermaid-svg")).toBeInTheDocument();
+    expect(screen.queryByText("graph TD; A-->B")).toBeNull();
+  });
+
   it("preserves ordered-list numbering across intervening prose", () => {
     const content = `1. First review comment
 
@@ -46,14 +82,14 @@ Verdict: valid.
 
 3. Third review comment`;
 
-    const html = renderToStaticMarkup(<ChatMarkdown content={content} />);
+    const html = renderStatic(<ChatMarkdown content={content} />);
 
     expect(html).toContain('<ol start="2"');
     expect(html).toContain('<ol start="3"');
   });
 
   it("does not load remote markdown images", () => {
-    const html = renderToStaticMarkup(
+    const html = renderStatic(
       <ChatMarkdown content="![internal service](http://127.0.0.1/action)" />,
     );
 
@@ -63,7 +99,7 @@ Verdict: valid.
   });
 
   it("renders a GitHub pull request with its live status chip", () => {
-    const html = renderToStaticMarkup(
+    const html = renderStatic(
       <ChatMarkdown content="Review https://github.com/PostHog/posthog/pull/23985" />,
     );
 
@@ -73,6 +109,15 @@ Verdict: valid.
       'data-github-ref-url="https://github.com/PostHog/posthog/pull/23985"',
     );
   });
+
+  it("labels a pull request review comment without dropping its anchor", () => {
+    const href =
+      "https://github.com/PostHog/posthog/pull/86811/changes#r3832262653";
+    const html = renderStatic(<ChatMarkdown content={href} />);
+
+    expect(html).toContain("Comment on PR #86811");
+    expect(html).toContain(`data-github-ref-url="${href}"`);
+  });
 });
 
 describe("ChatMarkdown object tags", () => {
@@ -80,7 +125,7 @@ describe("ChatMarkdown object tags", () => {
   // object tags while the session view rendered them; these lock the thread
   // to the same tag support.
   it("renders an inline object tag as a reference chip", () => {
-    const html = renderToStaticMarkup(
+    const html = renderStatic(
       <ChatMarkdown
         content={'The <insight id="9pQx3">checkout funnel</insight> dropped.'}
         renderObjectTags
@@ -93,7 +138,7 @@ describe("ChatMarkdown object tags", () => {
   });
 
   it("renders a block hogql tag as a chart card, not code or raw text", () => {
-    const html = renderToStaticMarkup(
+    const html = renderStatic(
       <ChatMarkdown
         content={
           '<hogql display="block" title="DAU, last 7 days">SELECT 1</hogql>'
@@ -109,7 +154,7 @@ describe("ChatMarkdown object tags", () => {
   it("does not run object tags in untrusted content by default", () => {
     // User bubbles and other non-agent surfaces render without the opt-in;
     // their tags must never resolve to live queries or chart cards.
-    const html = renderToStaticMarkup(
+    const html = renderStatic(
       <ChatMarkdown
         content={
           '<hogql display="block" title="DAU">SELECT 1</hogql>\n\n```posthog-chart\n{"mode":"hogql","query":"SELECT 1"}\n```'
@@ -122,7 +167,7 @@ describe("ChatMarkdown object tags", () => {
 
 describe("ChatStreamingMarkdown", () => {
   it("shows a pending link without exposing its incomplete destination", () => {
-    const html = renderToStaticMarkup(
+    const html = renderStatic(
       <ChatStreamingMarkdown content="Download [the report](https://example.com/report?token=secret" />,
     );
 
@@ -138,7 +183,7 @@ describe("ChatStreamingMarkdown", () => {
   });
 
   it("renders the link when its destination is complete", () => {
-    const html = renderToStaticMarkup(
+    const html = renderStatic(
       <ChatStreamingMarkdown content="Download [the report](https://example.com/report)" />,
     );
 

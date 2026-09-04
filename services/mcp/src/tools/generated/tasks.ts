@@ -2,33 +2,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    LoopsCreateBody,
-    LoopsDestroyParams,
-    LoopsListQueryParams,
-    LoopsPartialUpdateBody,
-    LoopsPartialUpdateParams,
-    LoopsPreviewCreateBody,
-    LoopsPreviewCreateParams,
-    LoopsRetrieveParams,
-    LoopsRunCreateParams,
-    LoopsRunsRetrieveParams,
-    LoopsRunsRetrieveQueryParams,
-    TaskChannelsCreateBody,
-    TaskChannelsInstructionsRetrieveParams,
-    TaskChannelsInstructionsUpdateBody,
-    TaskChannelsInstructionsUpdateParams,
-    TaskChannelsListQueryParams,
-    TaskChannelsRetrieveParams,
-    TasksCreateBody,
-    TasksListQueryParams,
-    TasksRetrieveParams,
-    TasksRunsListParams,
-    TasksRunsListQueryParams,
-    TasksRunsRetrieveParams,
-    TasksRunsSessionLogsRetrieveParams,
-    TasksRunsSessionLogsRetrieveQueryParams,
-} from '@/generated/tasks/api'
+import * as orvalSchemas from '@/generated/tasks/api'
 import { ChannelInstructionsBaseVersionSchema } from '@/schema/tool-inputs'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
@@ -39,12 +13,15 @@ import {
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ChannelCreateSchema = TaskChannelsCreateBody
+const ChannelCreateSchema = () => {
+    const TaskChannelsCreateBody = orvalSchemas.TaskChannelsCreateBody()
+    return TaskChannelsCreateBody
+}
 
-const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDTO> => ({
+const channelCreate = (): ToolBase<ReturnType<typeof ChannelCreateSchema>, Schemas.ChannelDTO> => ({
     name: 'channel-create',
-    schema: ChannelCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelCreateSchema>) => {
+    schema: ChannelCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -62,17 +39,22 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
     },
 })
 
-const ChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
-    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe('ID of the channel whose instructions to read.'),
-})
+const ChannelInstructionsRetrieveSchema = () => {
+    const TaskChannelsInstructionsRetrieveParams = orvalSchemas.TaskChannelsInstructionsRetrieveParams()
+    return TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
+        id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe(
+            'ID of the channel whose instructions to read.'
+        ),
+    })
+}
 
 const channelInstructionsRetrieve = (): ToolBase<
-    typeof ChannelInstructionsRetrieveSchema,
+    ReturnType<typeof ChannelInstructionsRetrieveSchema>,
     Schemas.ChannelInstructionsDTO
 > => ({
     name: 'channel-instructions-retrieve',
-    schema: ChannelInstructionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsRetrieveSchema>) => {
+    schema: ChannelInstructionsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelInstructionsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
             method: 'GET',
@@ -82,22 +64,26 @@ const channelInstructionsRetrieve = (): ToolBase<
     },
 })
 
-const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
-    .extend(TaskChannelsInstructionsUpdateBody.shape)
-    .extend({
-        id: TaskChannelsInstructionsUpdateParams.shape['id'].describe(
-            'ID of the channel whose instructions to update.'
-        ),
-        base_version: ChannelInstructionsBaseVersionSchema,
-    })
+const ChannelInstructionsUpdateSchema = () => {
+    const TaskChannelsInstructionsUpdateBody = orvalSchemas.TaskChannelsInstructionsUpdateBody()
+    const TaskChannelsInstructionsUpdateParams = orvalSchemas.TaskChannelsInstructionsUpdateParams()
+    return TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
+        .extend(TaskChannelsInstructionsUpdateBody.shape)
+        .extend({
+            id: TaskChannelsInstructionsUpdateParams.shape['id'].describe(
+                'ID of the channel whose instructions to update.'
+            ),
+            base_version: ChannelInstructionsBaseVersionSchema,
+        })
+}
 
 const channelInstructionsUpdate = (): ToolBase<
-    typeof ChannelInstructionsUpdateSchema,
+    ReturnType<typeof ChannelInstructionsUpdateSchema>,
     Schemas.ChannelInstructionsDTO
 > => ({
     name: 'channel-instructions-update',
-    schema: ChannelInstructionsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsUpdateSchema>) => {
+    schema: ChannelInstructionsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelInstructionsUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.content !== undefined) {
@@ -115,12 +101,15 @@ const channelInstructionsUpdate = (): ToolBase<
     },
 })
 
-const ChannelListSchema = TaskChannelsListQueryParams
+const ChannelListSchema = () => {
+    const TaskChannelsListQueryParams = orvalSchemas.TaskChannelsListQueryParams()
+    return TaskChannelsListQueryParams
+}
 
-const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChannelDTOList> => ({
+const channelList = (): ToolBase<ReturnType<typeof ChannelListSchema>, Schemas.PaginatedChannelDTOList> => ({
     name: 'channel-list',
-    schema: ChannelListSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelListSchema>) => {
+    schema: ChannelListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
             method: 'GET',
@@ -134,14 +123,17 @@ const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChan
     },
 })
 
-const ChannelRetrieveSchema = TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
-    id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
-})
+const ChannelRetrieveSchema = () => {
+    const TaskChannelsRetrieveParams = orvalSchemas.TaskChannelsRetrieveParams()
+    return TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
+        id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
+    })
+}
 
-const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.ChannelDTO> => ({
+const channelRetrieve = (): ToolBase<ReturnType<typeof ChannelRetrieveSchema>, Schemas.ChannelDTO> => ({
     name: 'channel-retrieve',
-    schema: ChannelRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelRetrieveSchema>) => {
+    schema: ChannelRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ChannelDTO>({
             method: 'GET',
@@ -151,7 +143,68 @@ const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.Chann
     },
 })
 
-const LoopsCreateSchema = LoopsCreateBody
+const LoopChannelInstructionsRetrieveSchema = () => {
+    const TaskChannelsInstructionsRetrieveParams = orvalSchemas.TaskChannelsInstructionsRetrieveParams()
+    return TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
+        id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe("ID of the loop's context channel."),
+    })
+}
+
+const loopChannelInstructionsRetrieve = (): ToolBase<
+    ReturnType<typeof LoopChannelInstructionsRetrieveSchema>,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'loop-channel-instructions-retrieve',
+    schema: LoopChannelInstructionsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopChannelInstructionsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const LoopChannelInstructionsUpdateSchema = () => {
+    const TaskChannelsInstructionsUpdateBody = orvalSchemas.TaskChannelsInstructionsUpdateBody()
+    const TaskChannelsInstructionsUpdateParams = orvalSchemas.TaskChannelsInstructionsUpdateParams()
+    return TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
+        .extend(TaskChannelsInstructionsUpdateBody.shape)
+        .extend({
+            id: TaskChannelsInstructionsUpdateParams.shape['id'].describe("ID of the loop's context channel."),
+            base_version: ChannelInstructionsBaseVersionSchema,
+        })
+}
+
+const loopChannelInstructionsUpdate = (): ToolBase<
+    ReturnType<typeof LoopChannelInstructionsUpdateSchema>,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'loop-channel-instructions-update',
+    schema: LoopChannelInstructionsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopChannelInstructionsUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LoopsCreateSchema = () => {
+    const LoopsCreateBody = orvalSchemas.LoopsCreateBody()
+    return LoopsCreateBody
+}
 
 const LoopsCreateSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -160,10 +213,10 @@ const LoopsCreateSchemaExecute = z.strictObject({
     confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
 })
 
-const loopsCreatePrepare = (): ToolBase<typeof LoopsCreateSchema, PrepareConfirmedActionResult> => ({
+const loopsCreatePrepare = (): ToolBase<ReturnType<typeof LoopsCreateSchema>, PrepareConfirmedActionResult> => ({
     name: 'loops-create-prepare',
-    schema: LoopsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsCreateSchema>) => {
+    schema: LoopsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsCreateSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -185,7 +238,7 @@ const loopsCreateExecute = (): ToolBase<typeof LoopsCreateSchemaExecute, Schemas
     handler: async (context: Context, confirmationParams: z.infer<typeof LoopsCreateSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof LoopsCreateSchema>>(context, {
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof LoopsCreateSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'loops-create',
             codec: __runtime.codec,
@@ -259,12 +312,15 @@ const loopsCreateExecute = (): ToolBase<typeof LoopsCreateSchemaExecute, Schemas
     },
 })
 
-const LoopsDestroySchema = LoopsDestroyParams.omit({ project_id: true })
+const LoopsDestroySchema = () => {
+    const LoopsDestroyParams = orvalSchemas.LoopsDestroyParams()
+    return LoopsDestroyParams.omit({ project_id: true })
+}
 
-const loopsDestroy = (): ToolBase<typeof LoopsDestroySchema, unknown> => ({
+const loopsDestroy = (): ToolBase<ReturnType<typeof LoopsDestroySchema>, unknown> => ({
     name: 'loops-destroy',
-    schema: LoopsDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsDestroySchema>) => {
+    schema: LoopsDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -274,12 +330,15 @@ const loopsDestroy = (): ToolBase<typeof LoopsDestroySchema, unknown> => ({
     },
 })
 
-const LoopsListSchema = LoopsListQueryParams
+const LoopsListSchema = () => {
+    const LoopsListQueryParams = orvalSchemas.LoopsListQueryParams()
+    return LoopsListQueryParams
+}
 
-const loopsList = (): ToolBase<typeof LoopsListSchema, WithPostHogUrl<Schemas.PaginatedLoopDTOList>> => ({
+const loopsList = (): ToolBase<ReturnType<typeof LoopsListSchema>, WithPostHogUrl<Schemas.PaginatedLoopDTOList>> => ({
     name: 'loops-list',
-    schema: LoopsListSchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsListSchema>) => {
+    schema: LoopsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedLoopDTOList>({
             method: 'GET',
@@ -293,14 +352,16 @@ const loopsList = (): ToolBase<typeof LoopsListSchema, WithPostHogUrl<Schemas.Pa
     },
 })
 
-const LoopsPartialUpdateSchema = LoopsPartialUpdateParams.omit({ project_id: true }).extend(
-    LoopsPartialUpdateBody.shape
-)
+const LoopsPartialUpdateSchema = () => {
+    const LoopsPartialUpdateBody = orvalSchemas.LoopsPartialUpdateBody()
+    const LoopsPartialUpdateParams = orvalSchemas.LoopsPartialUpdateParams()
+    return LoopsPartialUpdateParams.omit({ project_id: true }).extend(LoopsPartialUpdateBody.shape)
+}
 
-const loopsPartialUpdate = (): ToolBase<typeof LoopsPartialUpdateSchema, Schemas.LoopDTO> => ({
+const loopsPartialUpdate = (): ToolBase<ReturnType<typeof LoopsPartialUpdateSchema>, Schemas.LoopDTO> => ({
     name: 'loops-partial-update',
-    schema: LoopsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsPartialUpdateSchema>) => {
+    schema: LoopsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -363,14 +424,16 @@ const loopsPartialUpdate = (): ToolBase<typeof LoopsPartialUpdateSchema, Schemas
     },
 })
 
-const LoopsPreviewCreateSchema = LoopsPreviewCreateParams.omit({ project_id: true }).extend(
-    LoopsPreviewCreateBody.shape
-)
+const LoopsPreviewCreateSchema = () => {
+    const LoopsPreviewCreateBody = orvalSchemas.LoopsPreviewCreateBody()
+    const LoopsPreviewCreateParams = orvalSchemas.LoopsPreviewCreateParams()
+    return LoopsPreviewCreateParams.omit({ project_id: true }).extend(LoopsPreviewCreateBody.shape)
+}
 
-const loopsPreviewCreate = (): ToolBase<typeof LoopsPreviewCreateSchema, Schemas.LoopPreviewDTO> => ({
+const loopsPreviewCreate = (): ToolBase<ReturnType<typeof LoopsPreviewCreateSchema>, Schemas.LoopPreviewDTO> => ({
     name: 'loops-preview-create',
-    schema: LoopsPreviewCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsPreviewCreateSchema>) => {
+    schema: LoopsPreviewCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsPreviewCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.trigger_type !== undefined) {
@@ -388,12 +451,15 @@ const loopsPreviewCreate = (): ToolBase<typeof LoopsPreviewCreateSchema, Schemas
     },
 })
 
-const LoopsRetrieveSchema = LoopsRetrieveParams.omit({ project_id: true })
+const LoopsRetrieveSchema = () => {
+    const LoopsRetrieveParams = orvalSchemas.LoopsRetrieveParams()
+    return LoopsRetrieveParams.omit({ project_id: true })
+}
 
-const loopsRetrieve = (): ToolBase<typeof LoopsRetrieveSchema, WithPostHogUrl<Schemas.LoopDTO>> => ({
+const loopsRetrieve = (): ToolBase<ReturnType<typeof LoopsRetrieveSchema>, WithPostHogUrl<Schemas.LoopDTO>> => ({
     name: 'loops-retrieve',
-    schema: LoopsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsRetrieveSchema>) => {
+    schema: LoopsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LoopDTO>({
             method: 'GET',
@@ -403,12 +469,15 @@ const loopsRetrieve = (): ToolBase<typeof LoopsRetrieveSchema, WithPostHogUrl<Sc
     },
 })
 
-const LoopsRunCreateSchema = LoopsRunCreateParams.omit({ project_id: true })
+const LoopsRunCreateSchema = () => {
+    const LoopsRunCreateParams = orvalSchemas.LoopsRunCreateParams()
+    return LoopsRunCreateParams.omit({ project_id: true })
+}
 
-const loopsRunCreate = (): ToolBase<typeof LoopsRunCreateSchema, Schemas.LoopFireResult> => ({
+const loopsRunCreate = (): ToolBase<ReturnType<typeof LoopsRunCreateSchema>, Schemas.LoopFireResult> => ({
     name: 'loops-run-create',
-    schema: LoopsRunCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsRunCreateSchema>) => {
+    schema: LoopsRunCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsRunCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LoopFireResult>({
             method: 'POST',
@@ -418,14 +487,19 @@ const loopsRunCreate = (): ToolBase<typeof LoopsRunCreateSchema, Schemas.LoopFir
     },
 })
 
-const LoopsRunsRetrieveSchema = LoopsRunsRetrieveParams.omit({ project_id: true }).extend(
-    LoopsRunsRetrieveQueryParams.shape
-)
+const LoopsRunsRetrieveSchema = () => {
+    const LoopsRunsRetrieveParams = orvalSchemas.LoopsRunsRetrieveParams()
+    const LoopsRunsRetrieveQueryParams = orvalSchemas.LoopsRunsRetrieveQueryParams()
+    return LoopsRunsRetrieveParams.omit({ project_id: true }).extend(LoopsRunsRetrieveQueryParams.shape)
+}
 
-const loopsRunsRetrieve = (): ToolBase<typeof LoopsRunsRetrieveSchema, WithPostHogUrl<Schemas.LoopRunPage>> => ({
+const loopsRunsRetrieve = (): ToolBase<
+    ReturnType<typeof LoopsRunsRetrieveSchema>,
+    WithPostHogUrl<Schemas.LoopRunPage>
+> => ({
     name: 'loops-runs-retrieve',
-    schema: LoopsRunsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof LoopsRunsRetrieveSchema>) => {
+    schema: LoopsRunsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsRunsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LoopRunPage>({
             method: 'GET',
@@ -448,41 +522,45 @@ const loopsRunsRetrieve = (): ToolBase<typeof LoopsRunsRetrieveSchema, WithPostH
     },
 })
 
-const TasksCreateSchema = TasksCreateBody.omit({
-    title_manually_set: true,
-    origin_product: true,
-    repositories: true,
-    github_integration: true,
-    github_user_integration: true,
-    signal_report: true,
-    signal_report_task_relationship: true,
-    json_schema: true,
-    archived: true,
-    ci_prompt: true,
-    branch: true,
-    runtime_adapter: true,
-    model: true,
-    reasoning_effort: true,
-    pending_user_message: true,
-    pending_user_artifact_ids: true,
-    auto_publish: true,
-    channel: true,
-    naming_source: true,
-    sandbox_environment_id: true,
-    custom_image_id: true,
-    runtime: true,
-}).extend({
-    description: TasksCreateBody.shape['description']
-        .unwrap()
-        .describe(
-            'The task for the agent to carry out, written as a direct prompt (e.g. "Investigate the spike in $exception events on the checkout page and open a PR with a fix"). Passed verbatim to the agent as its instructions, so be specific.'
-        ),
-})
+const TasksCreateSchema = () => {
+    const TasksCreateBody = orvalSchemas.TasksCreateBody()
+    return TasksCreateBody.omit({
+        title_manually_set: true,
+        origin_product: true,
+        repositories: true,
+        github_integration: true,
+        github_user_integration: true,
+        signal_report: true,
+        signal_report_task_relationship: true,
+        json_schema: true,
+        archived: true,
+        ci_prompt: true,
+        branch: true,
+        runtime_adapter: true,
+        model: true,
+        reasoning_effort: true,
+        initial_permission_mode: true,
+        pending_user_message: true,
+        pending_user_artifact_ids: true,
+        auto_publish: true,
+        channel: true,
+        naming_source: true,
+        sandbox_environment_id: true,
+        custom_image_id: true,
+        runtime: true,
+    }).extend({
+        description: TasksCreateBody.shape['description']
+            .unwrap()
+            .describe(
+                'The task for the agent to carry out, written as a direct prompt (e.g. "Investigate the spike in $exception events on the checkout page and open a PR with a fix"). Passed verbatim to the agent as its instructions, so be specific.'
+            ),
+    })
+}
 
-const tasksCreate = (): ToolBase<typeof TasksCreateSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
+const tasksCreate = (): ToolBase<ReturnType<typeof TasksCreateSchema>, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
     name: 'tasks-create',
-    schema: TasksCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksCreateSchema>) => {
+    schema: TasksCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.title !== undefined) {
@@ -514,12 +592,18 @@ const tasksCreate = (): ToolBase<typeof TasksCreateSchema, WithPostHogUrl<Schema
     },
 })
 
-const TasksListSchema = TasksListQueryParams
+const TasksListSchema = () => {
+    const TasksListQueryParams = orvalSchemas.TasksListQueryParams()
+    return TasksListQueryParams
+}
 
-const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>> => ({
+const tasksList = (): ToolBase<
+    ReturnType<typeof TasksListSchema>,
+    WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>
+> => ({
     name: 'tasks-list',
-    schema: TasksListSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksListSchema>) => {
+    schema: TasksListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTaskDetailDTOList>({
             method: 'GET',
@@ -532,6 +616,7 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                 commented_by: params.commented_by,
                 created_by: params.created_by,
                 exclude_origin_product: params.exclude_origin_product,
+                hog_flow_id: params.hog_flow_id,
                 internal: params.internal,
                 limit: params.limit,
                 mentions: params.mentions,
@@ -581,12 +666,15 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
     },
 })
 
-const TasksRetrieveSchema = TasksRetrieveParams.omit({ project_id: true })
+const TasksRetrieveSchema = () => {
+    const TasksRetrieveParams = orvalSchemas.TasksRetrieveParams()
+    return TasksRetrieveParams.omit({ project_id: true })
+}
 
-const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
+const tasksRetrieve = (): ToolBase<ReturnType<typeof TasksRetrieveSchema>, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
     name: 'tasks-retrieve',
-    schema: TasksRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksRetrieveSchema>) => {
+    schema: TasksRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.TaskDetailDTO>({
             method: 'GET',
@@ -601,15 +689,19 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
     },
 })
 
-const TasksRunsListSchema = TasksRunsListParams.omit({ project_id: true }).extend(TasksRunsListQueryParams.shape)
+const TasksRunsListSchema = () => {
+    const TasksRunsListParams = orvalSchemas.TasksRunsListParams()
+    const TasksRunsListQueryParams = orvalSchemas.TasksRunsListQueryParams()
+    return TasksRunsListParams.omit({ project_id: true }).extend(TasksRunsListQueryParams.shape)
+}
 
 const tasksRunsList = (): ToolBase<
-    typeof TasksRunsListSchema,
+    ReturnType<typeof TasksRunsListSchema>,
     WithPostHogUrl<Schemas.PaginatedTaskRunDetailDTOList>
 > => ({
     name: 'tasks-runs-list',
-    schema: TasksRunsListSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksRunsListSchema>) => {
+    schema: TasksRunsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTaskRunDetailDTOList>({
             method: 'GET',
@@ -641,12 +733,15 @@ const tasksRunsList = (): ToolBase<
     },
 })
 
-const TasksRunsRetrieveSchema = TasksRunsRetrieveParams.omit({ project_id: true })
+const TasksRunsRetrieveSchema = () => {
+    const TasksRunsRetrieveParams = orvalSchemas.TasksRunsRetrieveParams()
+    return TasksRunsRetrieveParams.omit({ project_id: true })
+}
 
-const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.TaskRunDetailDTO> => ({
+const tasksRunsRetrieve = (): ToolBase<ReturnType<typeof TasksRunsRetrieveSchema>, Schemas.TaskRunDetailDTO> => ({
     name: 'tasks-runs-retrieve',
-    schema: TasksRunsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksRunsRetrieveSchema>) => {
+    schema: TasksRunsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.TaskRunDetailDTO>({
             method: 'GET',
@@ -661,19 +756,23 @@ const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.T
     },
 })
 
-const TasksRunsSessionLogsRetrieveSchema = TasksRunsSessionLogsRetrieveParams.omit({ project_id: true })
-    .extend(TasksRunsSessionLogsRetrieveQueryParams.shape)
-    .extend({
-        limit: TasksRunsSessionLogsRetrieveQueryParams.shape['limit']
-            .default(100)
-            .optional()
-            .describe('Maximum number of entries to return (default 100, max 5000)'),
-    })
+const TasksRunsSessionLogsRetrieveSchema = () => {
+    const TasksRunsSessionLogsRetrieveParams = orvalSchemas.TasksRunsSessionLogsRetrieveParams()
+    const TasksRunsSessionLogsRetrieveQueryParams = orvalSchemas.TasksRunsSessionLogsRetrieveQueryParams()
+    return TasksRunsSessionLogsRetrieveParams.omit({ project_id: true })
+        .extend(TasksRunsSessionLogsRetrieveQueryParams.shape)
+        .extend({
+            limit: TasksRunsSessionLogsRetrieveQueryParams.shape['limit']
+                .default(100)
+                .optional()
+                .describe('Maximum number of entries to return (default 100, max 5000)'),
+        })
+}
 
-const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRetrieveSchema, unknown> => ({
+const tasksRunsSessionLogsRetrieve = (): ToolBase<ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>, unknown> => ({
     name: 'tasks-runs-session-logs-retrieve',
-    schema: TasksRunsSessionLogsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksRunsSessionLogsRetrieveSchema>) => {
+    schema: TasksRunsSessionLogsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -696,6 +795,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'channel-instructions-update': channelInstructionsUpdate,
     'channel-list': channelList,
     'channel-retrieve': channelRetrieve,
+    'loop-channel-instructions-retrieve': loopChannelInstructionsRetrieve,
+    'loop-channel-instructions-update': loopChannelInstructionsUpdate,
     'loops-create-prepare': loopsCreatePrepare,
     'loops-create-execute': loopsCreateExecute,
     'loops-destroy': loopsDestroy,

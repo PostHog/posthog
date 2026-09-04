@@ -32,6 +32,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
@@ -64,6 +65,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     Table,
     ValidatedRowFilter,
     compute_projected_columns,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
+    EXTRACT_BATCH_MAX_BYTES,
+    fetch_row_batches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -104,6 +109,17 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
+# Rows the row-size probe aims to measure. Enough for a stable p95 and a meaningful widest row,
+# few enough that `octet_length(t::text)` — which de-toasts every value — stays cheap on a table
+# whose values are megabytes each.
+SIZE_SAMPLE_TARGET_ROWS = 1000
+# Ceiling on rows measured when the catalog estimate is stale enough to over-sample. Reaching it
+# reintroduces the head bias `_size_sample_percent` exists to remove, so keep it well clear of
+# the target rather than close to it.
+SIZE_SAMPLE_MAX_ROWS = 5000
+# A sample can ask for arbitrarily few of a huge table's pages, but not for none of them.
+MIN_SIZE_SAMPLE_PERCENT = 0.0001
 
 # Alias for the projected `xmin` system column on xmin syncs. `SELECT *` never returns system
 # columns, so it must be projected explicitly; the alias also names the ORDER BY / WHERE cursor.
@@ -228,6 +244,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # source was streaming moments earlier in the same sync, so a fresh reconnect recovers. Match the
     # Erlang-tuple wording, the stable low-false-positive signal.
     "{:error, :econnrefused}",
+    # The generic GenServer-timeout sibling: Supavisor reports a pool-level checkout or internal
+    # backend-connect timeout as a ConnectionFailure carrying "{:error, :timeout}", the Erlang
+    # GenServer call-timeout atom, distinct from the POSIX-level ":etimedout". Same transient pooler
+    # class as :etimedout and :econnrefused (pooler couldn't hand us a backend connection; recovers
+    # once the pool has capacity or the backend reconnects), so recover by reconnecting.
+    "{:error, :timeout}",
     # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
     # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
     # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
@@ -255,9 +277,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # carrying "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts,
     # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
     # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
-    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
-    # stable code, distinct from genuine credential-rejection wordings.
-    "(ecircuitbreaker)",
+    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the full
+    # "failed to retrieve database credentials" wording, NOT the bare "(ECIRCUITBREAKER)" code —
+    # Supavisor reuses the same code for a different condition ("too many authentication failures",
+    # tripped by repeated bad credentials rather than pooler bookkeeping), which must stay
+    # non-retryable and is matched separately in source.py's `get_non_retryable_errors`.
+    "(ecircuitbreaker) failed to retrieve database credentials",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
@@ -631,6 +656,18 @@ def _recovery_conflict_abort_error(retries: int) -> Exception:
         f"Read replica kept canceling reads due to conflict with recovery after {retries} retries. "
         f"Increase max_standby_streaming_delay or enable hot_standby_feedback on the replica, or sync "
         f"from the primary database instead of the read replica."
+    )
+
+
+def _unorderable_read_abort_error(schema: str, table_name: str) -> Exception:
+    # Non-retryable (see source.py): a full-table read orders nothing, so a re-read can only be paged
+    # by seeking on a key that is unique and never NULL. Without one there is no safe page order at
+    # all, and every whole-activity retry re-reads into the same wall.
+    return Exception(
+        f"Read replica canceled the read of {schema}.{table_name} due to conflict with recovery, and "
+        f"the table has no key that can resume a canceled read. Resuming needs a key that is unique "
+        f"and never NULL. Add a primary key to the table, increase max_standby_streaming_delay or "
+        f"enable hot_standby_feedback on the replica, or sync from the primary database instead."
     )
 
 
@@ -1996,6 +2033,54 @@ def _capture_xmin_ceiling(
     )
 
 
+def build_incremental_condition(
+    incremental_field: str,
+    incremental_field_type: IncrementalFieldType,
+    db_incremental_field_last_value: Any,
+    *,
+    upper_bound_inclusive: Optional[Any] = None,
+) -> sql.Composed:
+    """The `field <op> watermark` predicate every incremental read of a table shares.
+
+    One builder so the streaming read, the row count and the has-new-rows probe cannot drift
+    apart on the operator or on how a missing watermark is normalized. A probe whose predicate
+    is narrower than the read's would report "nothing new" for rows the read would return.
+
+    `>=` for Date comes from `incremental_type_to_operator`; a windowed read passes
+    `upper_bound_inclusive` and keeps `>`, because consecutive windows reuse the previous
+    window's high value as the next one's low and `>=` would re-fetch the boundary rows.
+    """
+    if incremental_field_type == IncrementalFieldType.XID:
+        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
+
+    # A stored watermark of "" (a stale or corrupted sync_type_config value) must not become a
+    # literal `''`: Postgres rejects casting it against a numeric/date column with "invalid input
+    # syntax", so treat it the same as no watermark at all.
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    operator = (
+        sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")
+    )
+    return sql.SQL("{incremental_field} {op} {last_value}").format(
+        incremental_field=sql.Identifier(incremental_field),
+        op=operator,
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+
+
+def _offset_paging_tiebreak(keys: list[str]) -> sql.Composed:
+    """Trailing ORDER BY terms that make an offset-paged read totally ordered.
+
+    `LIMIT/OFFSET` paging issues one statement per chunk, so every chunk re-evaluates the ORDER BY
+    from scratch. Any order that leaves rows tied lets Postgres return the tied rows in a different
+    sequence per chunk, and the pages then overlap and skip. A full-table scan has no ORDER BY at
+    all, `xmin` repeats across every row one transaction wrote, and an incremental cursor repeats
+    across rows sharing a timestamp, so each needs the primary key appended to break the ties.
+    """
+    return sql.SQL(", ").join(sql.SQL("{col} ASC").format(col=sql.Identifier(key)) for key in keys)
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -2006,11 +2091,13 @@ def _build_query(
     db_incremental_field_last_value: Optional[Any],
     add_sampling: Optional[bool] = False,
     *,
+    sample_percent: Optional[float] = None,
     upper_bound_inclusive: Optional[Any] = None,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     xmin_bounds: Optional[XminBounds] = None,
+    offset_paging_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
@@ -2022,7 +2109,13 @@ def _build_query(
 
     if xmin_bounds is not None:
         return _build_xmin_query(
-            schema, table_name, select_clause, xmin_bounds, row_filter_conditions, add_sampling=bool(add_sampling)
+            schema,
+            table_name,
+            select_clause,
+            xmin_bounds,
+            row_filter_conditions,
+            add_sampling=bool(add_sampling),
+            offset_paging_keys=offset_paging_keys,
         )
 
     if not should_use_incremental_field:
@@ -2032,16 +2125,27 @@ def _build_query(
                     cols=select_clause, table=sql.Identifier(schema, table_name)
                 )
             else:
-                query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
-                    cols=select_clause, table=sql.Identifier(schema, table_name)
+                # A percentage sized to the table returns roughly the target row count from pages
+                # spread across all of it. The fixed 1% below needs `LIMIT` to stay affordable, and
+                # a sample scan reads blocks in physical order, so that pairing only ever measures
+                # the front of the table — blind to a region that widens later, which is exactly
+                # the shape that makes a row-count batch unsafe.
+                query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM ({percent})").format(
+                    cols=select_clause,
+                    table=sql.Identifier(schema, table_name),
+                    percent=sql.Literal(sample_percent if sample_percent is not None else 1),
                 )
-            return query + sql.SQL(" LIMIT 1000")
+                if sample_percent is not None:
+                    return query + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(SIZE_SAMPLE_MAX_ROWS))
+            return query + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(SIZE_SAMPLE_TARGET_ROWS))
 
         query = sql.SQL("SELECT {cols} FROM {table}").format(
             cols=select_clause, table=sql.Identifier(schema, table_name)
         )
         if row_filter_conditions:
             query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
+        if offset_paging_keys:
+            query = query + sql.SQL(" ORDER BY ") + _offset_paging_tiebreak(offset_paging_keys)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -2050,56 +2154,43 @@ def _build_query(
     # `xmin` is a synthetic system column with no ordering operators against a plain integer
     # (see `_xmin_predicate`) — it only works through the dedicated xmin replication sync type,
     # which never reaches this generic path (it always sets `xmin_bounds` and returns above).
-    # Picking `xmin` as a plain incremental/append field builds `"xmin" >= 0`, which Postgres
-    # rejects with `UndefinedFunction`.
-    if incremental_field_type == IncrementalFieldType.XID:
-        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
-
-    # A stored watermark of "" (e.g. a stale/corrupted sync_type_config value) must not become a
-    # literal `''` in the WHERE clause — Postgres rejects casting it against a numeric/date/etc.
-    # column with "invalid input syntax", so treat it the same as no watermark at all.
-    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
-
-    # Use the type-aware operator (`>=` for Date) only for single-shot scans. Windowed
-    # scans (upper_bound_inclusive set) must keep `>` because consecutive windows use the
-    # previous window's hi as the next window's lo — `>=` would re-fetch every row at the
-    # boundary value, duplicating each window's hi inside a single run.
-    operator = (
-        sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")
+    incremental_condition = build_incremental_condition(
+        incremental_field,
+        incremental_field_type,
+        db_incremental_field_last_value,
+        upper_bound_inclusive=upper_bound_inclusive,
     )
 
     if add_sampling:
         if table_type == "view":
-            query = sql.SQL(
-                "SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
-            ).format(
+            query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {predicate} AND random() < 0.01").format(
                 cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
-                incremental_field=sql.Identifier(incremental_field),
-                op=operator,
-                last_value=sql.Literal(db_incremental_field_last_value),
+                predicate=incremental_condition,
             )
         else:
+            # Sized like the full-refresh sample, but never below the fixed 1% this has always
+            # drawn. A small table is one page, and a 1% page sample misses it ~99 times in 100,
+            # so an incremental sync of one measures nothing and has to guess at its row size.
+            # Raising the floor only ever draws more pages; a table big enough for the estimate
+            # to fall under 1% keeps exactly the sample it has today, where the slice it filters
+            # to is the part the estimate cannot speak for.
             query = sql.SQL(
-                "SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} {op} {last_value}"
+                "SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM ({percent}) WHERE {predicate}"
             ).format(
+                percent=sql.Literal(max(sample_percent, 1.0) if sample_percent is not None else 1),
                 cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
-                incremental_field=sql.Identifier(incremental_field),
-                op=operator,
-                last_value=sql.Literal(db_incremental_field_last_value),
+                predicate=incremental_condition,
             )
     else:
-        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {predicate}").format(
             cols=select_clause,
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
-            incremental_field=sql.Identifier(incremental_field),
-            op=operator,
-            last_value=sql.Literal(db_incremental_field_last_value),
+            predicate=incremental_condition,
         )
 
     if add_sampling:
@@ -2115,7 +2206,17 @@ def _build_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    return query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
+    ordered = query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
+    tiebreak = [key for key in offset_paging_keys or [] if key != incremental_field]
+    if tiebreak:
+        ordered = ordered + sql.SQL(", ") + _offset_paging_tiebreak(tiebreak)
+    return ordered
+
+
+# The `xmin` system column cast to a sortable, comparable integer, because no ordering operators
+# exist on raw `xid`. The window predicate, the projection and the seek must all compare the same
+# expression, so they share this one.
+_XMIN_CURSOR = sql.SQL("xmin::text::bigint")
 
 
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
@@ -2123,7 +2224,7 @@ def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
     if bounds.full_scan:
         # No window is safe across wraparound epochs (see `_capture_xmin_ceiling`), so read it all.
         return sql.SQL("TRUE").format()
-    xmin_expr = sql.SQL("xmin::text::bigint")
+    xmin_expr = _XMIN_CURSOR
     if bounds.wraparound_or_range:
         return sql.SQL("({xmin} >= {lo} OR {xmin} < {hi})").format(
             xmin=xmin_expr, lo=sql.Literal(bounds.lower), hi=sql.Literal(bounds.upper)
@@ -2141,11 +2242,12 @@ def _build_xmin_query(
     row_filter_conditions: list[sql.Composable],
     *,
     add_sampling: bool,
+    offset_paging_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     # `_ph_xmin` is force-projected (system columns never come back from `SELECT *`) and kept out of
     # `compute_projected_columns` so it can't collide with the user's incremental-field machinery.
-    select = sql.SQL("xmin::text::bigint AS {alias}, {cols}").format(
-        alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
+    select = sql.SQL("{cursor} AS {alias}, {cols}").format(
+        cursor=_XMIN_CURSOR, alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
     )
     query = sql.SQL("SELECT {cols} FROM {table} WHERE {predicate}").format(
         cols=select, table=sql.Identifier(schema, table_name), predicate=_xmin_predicate(bounds)
@@ -2153,11 +2255,84 @@ def _build_xmin_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    # ORDER BY the cast cursor so the offset-resume path stays correct on a connection drop.
-    ordered = query + sql.SQL(" ORDER BY xmin::text::bigint ASC")
+    # The cast cursor orders the read, but every row one transaction wrote shares it, so an
+    # offset-paged read needs the tiebreak below before its order survives per-chunk re-evaluation.
+    ordered = query + sql.SQL(" ORDER BY {cursor} ASC").format(cursor=_XMIN_CURSOR)
+    if offset_paging_keys:
+        ordered = ordered + sql.SQL(", ") + _offset_paging_tiebreak(offset_paging_keys)
     if add_sampling:
         return ordered + sql.SQL(" LIMIT 1000")
     return ordered
+
+
+def _column_is_not_null(table: Table[PostgreSQLColumn], column_name: str) -> bool:
+    """Whether `column_name` is declared NOT NULL.
+
+    `Column.nullable` is annotated `bool`, but `_get_table` fills it straight from
+    `information_schema.columns.is_nullable` for a table, which Postgres returns as the string
+    "YES"/"NO"; only the materialised-view branch produces a real boolean. A bare truth test
+    therefore reads every column of every table as nullable, because "NO" is truthy. Sibling
+    sources normalise at construction (Redshift, Trino), but doing that here would change the Arrow
+    field nullability this source has always emitted, so interpret both shapes at the point of use.
+    """
+
+    def is_not_null(nullable: object) -> bool:
+        if isinstance(nullable, str):
+            return nullable.strip().upper() == "NO"
+        return not nullable
+
+    return any(is_not_null(column.nullable) for column in table.columns if column.name == column_name)
+
+
+def _build_keyset_query(
+    schema: str,
+    table_name: str,
+    primary_keys: list[str],
+    after: Optional[tuple[Any, ...]],
+    *,
+    incremental_field: Optional[str] = None,
+    enabled_columns: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+    xmin_bounds: Optional[XminBounds] = None,
+) -> sql.Composed:
+    """One page of a full-table or xmin read, seeking past the last key already read.
+
+    A full-table read has no ORDER BY, so LIMIT/OFFSET cannot page it: every page is its own scan
+    and may come back in a different order, which both repeats and drops rows. Ordering by the
+    primary key gives the pages one sequence to walk, and seeking past the last key keeps each page
+    an index range scan. The key must be unique, or a page boundary inside a run of equal keys
+    drops the rest of that run.
+
+    An xmin read does order itself, but every row one transaction wrote carries the same `xmin`, so
+    a bulk-loaded table is one long run of equal keys. Its cursor therefore leads the primary key in
+    the seek instead of replacing it, which makes the pair unique again.
+    """
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause: sql.Composable = (
+        sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
+    )
+    key_expressions: list[sql.Composable] = [sql.Identifier(key) for key in primary_keys]
+    if xmin_bounds is not None:
+        select_clause = sql.SQL("{cursor} AS {alias}, {cols}").format(
+            cursor=_XMIN_CURSOR, alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
+        )
+        key_expressions.insert(0, _XMIN_CURSOR)
+    key_columns = sql.SQL(", ").join(key_expressions)
+
+    conditions = render_psycopg_row_filter_conditions(row_filters or [])
+    if xmin_bounds is not None:
+        conditions.insert(0, _xmin_predicate(xmin_bounds))
+    if after is not None:
+        conditions.append(
+            sql.SQL("({keys}) > ({values})").format(
+                keys=key_columns, values=sql.SQL(", ").join(sql.Literal(value) for value in after)
+            )
+        )
+
+    query = sql.SQL("SELECT {cols} FROM {table}").format(cols=select_clause, table=sql.Identifier(schema, table_name))
+    if conditions:
+        query = query + sql.SQL(" WHERE ") + and_join(conditions)
+    return query + sql.SQL(" ORDER BY {keys} ASC").format(keys=key_columns)
 
 
 def _build_count_query(
@@ -2185,19 +2360,38 @@ def _build_count_query(
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
-    if incremental_field_type == IncrementalFieldType.XID:
-        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
-
-    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
-
-    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
-    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {predicate}").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
-        incremental_field=sql.Identifier(incremental_field),
-        op=operator,
-        last_value=sql.Literal(db_incremental_field_last_value),
+        predicate=build_incremental_condition(
+            incremental_field, incremental_field_type, db_incremental_field_last_value
+        ),
+    )
+
+
+def build_has_new_rows_query(
+    schema: str,
+    table_name: str,
+    incremental_field: str,
+    incremental_field_type: IncrementalFieldType,
+    db_incremental_field_last_value: Any,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+) -> sql.Composed:
+    """Existence check over the same rows `_build_query` would stream.
+
+    Shares its predicate and row filters, and drops only what a "does anything match" question
+    does not need: the projection, the ordering, and every row past the first. No
+    `upper_bound_inclusive` either, since that windows one run's reads rather than defining what
+    counts as new.
+    """
+    conditions = [
+        build_incremental_condition(incremental_field, incremental_field_type, db_incremental_field_last_value),
+        *render_psycopg_row_filter_conditions(row_filters or []),
+    ]
+    return sql.SQL("SELECT 1 FROM {schema}.{table} WHERE {predicate} LIMIT 1").format(
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        predicate=and_join(conditions),
     )
 
 
@@ -2366,7 +2560,84 @@ def _has_duplicate_primary_keys(
         return False
 
 
-def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+@frozen
+class _TableChunking:
+    """How much of a table one read pulls at a time.
+
+    Two row counts with two different jobs. `batch_rows` sizes what the pipeline receives, from
+    the sample's p95. `fetch_rows` sizes a single `FETCH`, from the sample's p99 — a `FETCH` is
+    materialised whole, so it has to be sized for the rows a heavy page is made of rather than
+    for the table's typical row.
+    """
+
+    batch_rows: int
+    fetch_rows: int
+
+
+def _fetch_rows_for(batch_rows: int, wide_row_bytes: int | None) -> int:
+    """Rows per `FETCH` that the sample's p99 row says fit in one batch budget.
+
+    The p99 and not the widest row. A `FETCH` is sized for what a page of rows weighs, and one
+    outlier says nothing about that — sizing off the maximum lets a single freak row hold the
+    whole table to tiny fetches, since this becomes a hard ceiling the reader's own high-water
+    mark can shrink below but never grow above. At the p99 a table only fetches small when wide
+    rows are common enough to actually fill a page, which is the case that kills the pod.
+
+    No usable measurement keeps the whole-batch `FETCH` this driver has always issued, leaving
+    the shrink to the reader's running high-water mark. That is the pre-existing exposure,
+    never a new one.
+    """
+    if not wide_row_bytes or wide_row_bytes <= 0:
+        return batch_rows
+    return max(1, min(batch_rows, EXTRACT_BATCH_MAX_BYTES // wide_row_bytes))
+
+
+def _estimated_row_count(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> int | None:
+    """Catalog row estimate for one table, or None when neither source has run yet.
+
+    `reltuples` is -1 on a table ANALYZE has never touched, and the stats collector's
+    `n_live_tup` is 0 on a fresh standby, so both are checked before giving up.
+    """
+    try:
+        cursor.execute(
+            sql.SQL("""
+                SELECT c.reltuples, s.n_live_tup
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+                WHERE n.nspname = {schema} AND c.relname = {table}
+            """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        reltuples, n_live_tup = row
+        for estimate in (reltuples, n_live_tup):
+            if estimate is not None and estimate > 0:
+                return int(estimate)
+        return None
+    except Exception as e:
+        logger.debug(f"_estimated_row_count: Error: {e}", exc_info=e)
+        return None
+
+
+def _size_sample_percent(row_estimate: int | None) -> float | None:
+    """Percentage of pages to sample so about `SIZE_SAMPLE_TARGET_ROWS` rows come back.
+
+    None when the catalog cannot say how big the table is; the caller keeps the fixed 1% sample.
+    """
+    if not row_estimate or row_estimate <= 0:
+        return None
+    if row_estimate <= SIZE_SAMPLE_TARGET_ROWS:
+        return 100.0
+    return max(MIN_SIZE_SAMPLE_PERCENT, 100.0 * SIZE_SAMPLE_TARGET_ROWS / row_estimate)
+
+
+def _get_table_chunk_size(
+    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger
+) -> _TableChunking:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
     # transaction (e.g. tests or future callers), wrap in a SAVEPOINT so that a
@@ -2378,8 +2649,16 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             cursor.execute("SAVEPOINT _chunk_size_probe")
             savepoint_active = True
 
+        # The extra percentile and the maximum ride along on rows the p95 already materialised,
+        # so both cost nothing to learn. The p99 sizes a `FETCH`, because that is the row size a
+        # page of rows is actually made of; the maximum is logged rather than used, since one
+        # outlier row characterises no page (see `_fetch_rows_for`).
         query = sql.SQL("""
-            SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
+            SELECT
+                percentile_cont(0.95) within group (order by subquery.row_size),
+                percentile_cont(0.99) within group (order by subquery.row_size),
+                max(subquery.row_size)
+            FROM (
                 SELECT octet_length(t::text) as row_size FROM ({}) as t
             ) as subquery
         """).format(inner_query)
@@ -2396,15 +2675,33 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
-            chunk_size = DEFAULT_CHUNK_SIZE
-        else:
-            row_size_bytes = row[0] or 1
-            chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-            logger.debug(
-                f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
-            )
+            return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
-        return chunk_size
+        # A sample that measured nothing returns NULL percentiles: an empty table, or a
+        # never-analyzed one, which draws no catalog estimate and so falls back to a fixed 1%
+        # of pages that a small table usually misses entirely. Reading that as a one-byte row
+        # derives a chunk of 150 million, and a chunk is what sizes the `FETCH` when no page cap
+        # applies — so the read asks for the whole table in one page on exactly the tables whose
+        # row size is unknown. This stays off the gate: it is a defect in the arithmetic, not
+        # behavior worth preserving, and every other SQL source already floors this case.
+        row_size_bytes = row[0]
+        if not row_size_bytes:
+            logger.debug(f"_get_table_chunk_size: Nothing measured. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
+            return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
+        wide_row_bytes = int(row[1]) if row[1] else None
+        largest_row_bytes = int(row[2]) if row[2] else None
+        # A row wider than the whole budget floors the division to zero, and a zero-row chunk
+        # reads `FETCH FORWARD 0` — an empty page the loop cannot tell from the end of the
+        # result set, so the table syncs as empty. One row per batch is what such a table can
+        # actually do; the sibling `SQLSourceImplementation.get_chunk_size` already floors it.
+        batch_rows = max(1, int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes))
+        chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, wide_row_bytes))
+        logger.debug(
+            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. wide_row_bytes={wide_row_bytes}. "
+            f"largest_row_bytes={largest_row_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. "
+            f"Using CHUNK_SIZE={chunking.batch_rows}, FETCH_ROWS={chunking.fetch_rows}"
+        )
+        return chunking
     except Exception as e:
         # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
         # DEFAULT_CHUNK_SIZE. The estimation query wraps the sample in `octet_length(t::text)`,
@@ -2423,7 +2720,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
                 logger.debug(f"_get_table_chunk_size: Failed to rollback savepoint: {rollback_error}")
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
-        return DEFAULT_CHUNK_SIZE
+        return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
 
 def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger) -> bool:
@@ -2994,6 +3291,8 @@ def postgres_source(
     is_xmin: bool = False,
     xmin_last_value: Optional[int] = None,
     xmin_num_wraparound: Optional[int] = None,
+    byte_bounded_extraction: bool = False,
+    activity_attempt: int = 1,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3162,6 +3461,9 @@ def postgres_source(
                                 incremental_field_type,
                                 db_incremental_field_last_value,
                                 add_sampling=True,
+                                sample_percent=_size_sample_percent(
+                                    _estimated_row_count(cursor, schema, table_name, logger)
+                                ),
                                 enabled_columns=enabled_columns,
                                 primary_keys=primary_keys,
                                 xmin_bounds=xmin_bounds,
@@ -3199,10 +3501,19 @@ def postgres_source(
                                 )
                             logger.debug("Getting table chunk size...")
                             if chunk_size_override is not None:
-                                chunk_size = chunk_size_override
+                                chunking = _TableChunking(
+                                    batch_rows=chunk_size_override, fetch_rows=chunk_size_override
+                                )
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                                chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                            chunk_size = chunking.batch_rows
+                            # The page cap only exists to bound what one `FETCH` materialises, so
+                            # it belongs behind the same gate as the byte bound it serves. Applied
+                            # with the gate off it shrinks the fetch without ever flushing a batch:
+                            # the read pays a round trip per page and still accumulates the whole
+                            # table, which is worse than the single full-size fetch it replaced.
+                            fetch_page_rows = chunking.fetch_rows if byte_bounded_extraction else None
 
                             logger.debug("Getting rows to sync...")
                             # For partitioned tables without an incremental cursor (initial
@@ -3438,13 +3749,28 @@ def postgres_source(
                 connection.commit()
                 return connection
 
-            def offset_chunking(offset: int, chunk_size: int, *, from_recovery_conflict: bool = False):
+            def offset_chunking(
+                offset: int,
+                chunk_size: int,
+                *,
+                from_recovery_conflict: bool = False,
+                keyset_primary_keys: list[str] | None = None,
+            ):
                 # If the db is a read replica and we're running into `conflict with recovery errors,
                 # we create a new query for each chunk. This is due to how the primary replicates
-                # over, we often run into errors when vacuums are happening
-                logger.debug(
-                    f"Using offset chunking to read from read replica. offset = {offset}, chunk_size = {chunk_size}"
-                )
+                # over, we often run into errors when vacuums are happening.
+                #
+                # `keyset_primary_keys` pages by seeking past the last key read instead of by OFFSET,
+                # for a read whose own query orders nothing (see `_build_keyset_query`).
+                if keyset_primary_keys is not None:
+                    logger.debug(
+                        f"Using keyset chunking to read from read replica. keys = {keyset_primary_keys}, "
+                        f"chunk_size = {chunk_size}"
+                    )
+                else:
+                    logger.debug(
+                        f"Using offset chunking to read from read replica. offset = {offset}, chunk_size = {chunk_size}"
+                    )
 
                 query = _build_query(
                     schema,
@@ -3458,7 +3784,37 @@ def postgres_source(
                     primary_keys=primary_keys,
                     row_filters=row_filters,
                     xmin_bounds=xmin_bounds,
+                    offset_paging_keys=primary_keys,
                 )
+
+                last_key: tuple[Any, ...] | None = None
+                # An xmin read leads its seek with the cursor, which comes back under the projected
+                # alias rather than a column name, so the two lists differ for it.
+                keyset_result_columns: list[str] = []
+                if keyset_primary_keys is not None:
+                    keyset_result_columns = (
+                        [XMIN_PROJECTED_COLUMN, *keyset_primary_keys]
+                        if xmin_bounds is not None
+                        else keyset_primary_keys
+                    )
+
+                def build_page_query() -> sql.Composed:
+                    if keyset_primary_keys is not None:
+                        page = _build_keyset_query(
+                            schema,
+                            table_name,
+                            keyset_primary_keys,
+                            last_key,
+                            incremental_field=incremental_field,
+                            enabled_columns=enabled_columns,
+                            row_filters=row_filters,
+                            xmin_bounds=xmin_bounds,
+                        )
+                        return page + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(chunk_size))
+                    return query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
+                        limit=sql.Literal(chunk_size),
+                        offset=sql.Literal(offset),
+                    )
 
                 successive_errors = 0
                 successive_conn_errors = 0
@@ -3508,10 +3864,7 @@ def postgres_source(
                         # argument: 'name'". This LIMIT/OFFSET fetchall path wants an
                         # unnamed client cursor.
                         with psycopg.Cursor(connection) as cursor:
-                            query_with_limit_sql = query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
-                                limit=sql.Literal(chunk_size),
-                                offset=sql.Literal(offset),
-                            )
+                            query_with_limit_sql = build_page_query()
                             logger.debug(f"Postgres query: {query_with_limit_sql}")
                             cursor.execute(query_with_limit_sql)
 
@@ -3521,7 +3874,11 @@ def postgres_source(
                             if not rows or len(rows) == 0:
                                 break
 
-                            offset += len(rows)
+                            if keyset_primary_keys is not None:
+                                key_positions = [column_names.index(key) for key in keyset_result_columns]
+                                last_key = tuple(rows[-1][position] for position in key_positions)
+                            else:
+                                offset += len(rows)
 
                             yield table_from_iterator(
                                 (dict(zip(column_names, row)) for row in rows),
@@ -3653,6 +4010,8 @@ def postgres_source(
                     table_name=table_name,
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
+                    byte_bounded=byte_bounded_extraction,
+                    fetch_rows=fetch_page_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     incremental_field=incremental_field,
@@ -3690,6 +4049,8 @@ def postgres_source(
                     db_incremental_field_last_value=db_incremental_field_last_value,
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
+                    byte_bounded=byte_bounded_extraction,
+                    fetch_rows=fetch_page_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     using_read_replica=using_read_replica,
@@ -3697,6 +4058,42 @@ def postgres_source(
                     primary_keys=primary_keys,
                     binary_reporter=binary_reporter,
                 )
+                return
+
+            # Seeking needs a key that is unique and never NULL. A page boundary inside a run of
+            # equal keys drops the rest of that run, and `key > last` never matches NULL, so a NULL
+            # row is dropped unless it lands on the first page. Postgres guarantees both for a
+            # declared primary key, so that needs no further check. The assumed `id` is neither
+            # until proven: its duplicate probe groups NULLs together, so one NULL row alone passes
+            # it, and the column has to be NOT NULL as well. A partitioned parent's key is unique
+            # only per child.
+            assumed_id_is_seekable = not has_duplicate_primary_keys and all(
+                _column_is_not_null(full_table, key) for key in primary_keys or []
+            )
+            keyset_primary_keys = (
+                primary_keys
+                if primary_keys and not is_partitioned and (not used_id_pk_fallback or assumed_id_is_seekable)
+                else None
+            )
+
+            # A server cursor idles in an open transaction through every Delta merge, and a replica
+            # that cancels reads during that idle kills each attempt at the same place. The handler
+            # below cannot resume past the first row, because the cursor's order is arbitrary, so
+            # it re-raises for a restart, and a restart on another cursor repeats the failure. The
+            # seek pages in autocommit, so nothing idles and a conflict resumes at the last key.
+            # Only from the second attempt, so a replica that never cancels keeps one snapshot.
+            if (
+                activity_attempt > 1
+                and using_read_replica
+                and keyset_primary_keys is not None
+                and not should_use_incremental_field
+                and xmin_bounds is None
+            ):
+                logger.debug(
+                    f"Attempt {activity_attempt} of a full-table read on a read replica. Seeking from the "
+                    f"start instead of reopening a server cursor. keys = {keyset_primary_keys}"
+                )
+                yield from offset_chunking(0, chunk_size, keyset_primary_keys=keyset_primary_keys)
                 return
 
             initial_read_drop_retries = 0
@@ -3733,13 +4130,17 @@ def postgres_source(
                             column_names = [column.name for column in cursor.description or []]
                             read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                            while True:
-                                rows = cursor.fetchmany(chunk_size)
-                                if not rows:
-                                    break
-
+                            for rows in fetch_row_batches(
+                                cursor.fetchmany,
+                                max_rows=chunk_size,
+                                byte_bounded=byte_bounded_extraction,
+                                max_page_rows=fetch_page_rows,
+                            ):
                                 dicts = [dict(zip(column_names, row)) for row in rows]
-                                del rows
+                                # The batcher still holds this list, so only clearing it in place
+                                # frees the tuples before the Arrow build. `del` would drop the
+                                # local name and leave the batcher's reference holding the rows.
+                                rows.clear()
                                 yield table_from_iterator(
                                     iter(dicts), read_schema, primary_keys=primary_keys, binary_reporter=binary_reporter
                                 )
@@ -3748,6 +4149,33 @@ def postgres_source(
                 except psycopg.errors.SerializationFailure as e:
                     # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                     if using_read_replica and "conflict with recovery" in "".join(e.args):
+                        # Paging by OFFSET needs a query whose order is total, the precondition the
+                        # connection-dropped handler below also enforces. A full-table read orders
+                        # nothing, and an xmin read orders on a cursor that every row of one
+                        # transaction shares, so both seek on the primary key instead. Seeking can
+                        # only start from the top, because rows already yielded are already written.
+                        if not should_use_incremental_field:
+                            if keyset_primary_keys is not None and offset == 0:
+                                logger.debug(
+                                    f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."
+                                )
+                                yield from offset_chunking(
+                                    0,
+                                    chunk_size,
+                                    from_recovery_conflict=True,
+                                    keyset_primary_keys=keyset_primary_keys,
+                                )
+                                return
+                            # An xmin read still has its cursor to page on, and it appends, so
+                            # restarting it would duplicate the rows it already wrote. Keep paging.
+                            if xmin_bounds is None:
+                                if keyset_primary_keys is None:
+                                    raise _unorderable_read_abort_error(schema, table_name) from e
+                                # Retryable, so Temporal restarts the read and the load overwrites
+                                # from the first batch. The next attempt can conflict before any row
+                                # is out, where seeking takes over.
+                                raise
+
                         logger.debug(
                             f"Falling back to offset chunking for table due to SerializationFailure error: {e}."
                         )

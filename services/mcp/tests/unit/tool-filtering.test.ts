@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { hasScope } from '@/lib/api'
 import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
@@ -445,10 +446,14 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
+        'internal_run:read',
+        'loop_context_internal:write',
         'signal_scout_internal:read',
         'signal_scout_internal:write',
         'signal_scout_report:read',
         'signal_scout_report:write',
+        'signal_scratchpad_internal:read',
+        'signal_scratchpad_internal:write',
     ])
 
     // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
@@ -476,6 +481,53 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
             missing,
             `OAUTH_SCOPES_SUPPORTED is missing scopes used by tool definitions: ${missing.join(', ')}`
         ).toEqual([])
+    })
+})
+
+describe('server-minted scope matching', () => {
+    it('requires literal internal scopes instead of accepting a wildcard', () => {
+        expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
+        expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
+    })
+
+    // The scratchpad write scope was split out of `signal_scout_internal`, which is on the
+    // server-mint-only list. Moving the tools without moving the object would let a
+    // user-consented `*` token through this filter and back onto durable agent memory, which
+    // later runs read verbatim into their prompts.
+    it('never lets a wildcard reach the scratchpad write scope', () => {
+        expect(hasScope(['*'], 'signal_scratchpad_internal:write')).toBe(false)
+        expect(hasScope(['signal_scratchpad_internal:write'], 'signal_scratchpad_internal:write')).toBe(true)
+    })
+
+    // Withholding the wildcard from these objects must not also withhold write-implies-read.
+    // Scout sandbox tokens carry `signal_scout_internal:write` and never the `:read` form, so
+    // dropping that rule hid `scout-members-list` from every scout's toolset and left reports
+    // with nobody to route to. Django authorizes the same tokens with the rule applied.
+    it.each([
+        'internal_run',
+        'loop_context_internal',
+        'mcp_builtin_agent',
+        'signal_scout_internal',
+        'signal_scout_report',
+        'signal_scratchpad_internal',
+    ])('lets a %s:write token satisfy the matching :read scope', (scopeObject) => {
+        expect(hasScope([`${scopeObject}:write`], `${scopeObject}:read`)).toBe(true)
+        // The implication runs one way only.
+        expect(hasScope([`${scopeObject}:read`], `${scopeObject}:write`)).toBe(false)
+        // A wildcard still reaches neither form.
+        expect(hasScope(['*'], `${scopeObject}:read`)).toBe(false)
+        expect(hasScope(['*'], `${scopeObject}:write`)).toBe(false)
+    })
+
+    it('does not let a write on one internal object reach another', () => {
+        expect(hasScope(['signal_scout_report:write'], 'signal_scout_internal:read')).toBe(false)
+    })
+
+    it('leaves wildcard and write-implies-read intact for user-grantable scopes', () => {
+        expect(hasScope(['*'], 'insight:read')).toBe(true)
+        expect(hasScope(['*'], 'insight:write')).toBe(true)
+        expect(hasScope(['insight:write'], 'insight:read')).toBe(true)
+        expect(hasScope(['insight:read'], 'insight:write')).toBe(false)
     })
 })
 
@@ -811,6 +863,14 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('billing-spend-get')
     })
 
+    it('customer-analytics-csp flag gates account meeting tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': false } })
+        expect(off).not.toContain('accounts-meetings-list')
+
+        const on = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': true } })
+        expect(on).toContain('accounts-meetings-list')
+    })
+
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
         // Flag ON: the cell tools take over create/read/edit — the model never sees two
         // tools for the same job. Flag OFF: only the legacy surface.
@@ -870,7 +930,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
-                'product-data-catalog',
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
@@ -879,11 +938,14 @@ describe('Tool Filtering - Feature Flags', () => {
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
+                'experiment-flag-cleanup-pr',
                 'data-warehouse-scene',
                 'data-quality-checks',
+                'context-layer',
+                'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(32)
+        expect(flags).toHaveLength(34)
     })
 
     it('every loops tool is gated on the loops flag', () => {
@@ -894,6 +956,20 @@ describe('Tool Filtering - Feature Flags', () => {
         for (const [name, definition] of loopsTools) {
             expect({ name, feature_flag: definition.feature_flag }).toEqual({ name, feature_flag: 'loops' })
         }
+    })
+
+    it('keeps public context wiki tools separate from internal loop tools', () => {
+        const definitions = getToolDefinitions()
+        expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
+        expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
+            'task:write',
+            'loop_context_internal:write',
+        ])
+        expect(definitions['loop-channel-instructions-update']!.required_scopes).toEqual([
+            'task:write',
+            'loop_context_internal:write',
+        ])
+        expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

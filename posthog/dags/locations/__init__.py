@@ -10,6 +10,7 @@ from posthog.dags.common.resources import (
     ClayWebhookResource,
     ClickhouseClusterResource,
     PostgresResource,
+    PostgresURL,
     PostgresURLResource,
     PostHogAnalyticsResource,
     RedisResource,
@@ -49,6 +50,9 @@ resources_by_env = {
         "persons_database": PostgresURLResource(
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
         ),
+        "persons_database_url": PostgresURL(
+            connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
+        ),
         # Kafka producer (auto-configured from Django settings)
         "kafka_producer": kafka_producer_resource,
         # Clay webhook for job switchers pipeline
@@ -83,6 +87,9 @@ resources_by_env = {
         "posthoganalytics": PostHogAnalyticsResource(personal_api_key=dagster.EnvVar("PERSONAL_API_KEY")),
         # Persons DB resource (parses connection URL)
         "persons_database": PostgresURLResource(
+            connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
+        ),
+        "persons_database_url": PostgresURL(
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
         ),
         # Kafka producer (auto-configured from Django settings)

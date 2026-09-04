@@ -315,6 +315,54 @@ database "posthog" {
     }
   }
 
+  table "billing_usage_records" {
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
+    }
+  }
+
   table "channel_definition" {
     order_by = ["domain", "kind"]
     settings = {
@@ -338,6 +386,130 @@ database "posthog" {
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.channel_definition"
       replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "clickhouse_cleanup_deleted_persons" {
+    order_by     = ["run_id", "team_id", "person_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "max_version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_orphaned_distinct_ids" {
+    order_by     = ["run_id", "team_id", "distinct_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "own_tombstone" {
+      type = "UInt8"
+    }
+    column "max_version" {
+      type = "Int64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_revived_distinct_ids" {
+    order_by     = ["run_id", "team_id", "distinct_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_revived_persons" {
+    order_by     = ["run_id", "team_id", "person_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
     }
   }
 
@@ -2165,10 +2337,10 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'group1'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "group1"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -2316,10 +2488,10 @@ database "posthog" {
       type = "Float64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_performance_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_performance_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2340,10 +2512,10 @@ database "posthog" {
       type = "Nullable(Int8)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_unique_id'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_unique_id"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -4914,6 +5086,58 @@ database "posthog" {
     }
   }
 
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
   table "sharded_distinct_id_usage" {
     order_by     = ["team_id", "minute", "distinct_id"]
     partition_by = "toYYYYMMDD(minute)"
@@ -5956,7 +6180,7 @@ database "posthog" {
   table "sharded_events_recent" {
     order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toStartOfDay(inserted_at)"
-    ttl          = "toDateTime(inserted_at) + toIntervalDay(7)"
+    ttl          = "toDate(inserted_at) + toIntervalDay(9)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
@@ -11283,10 +11507,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -11359,10 +11583,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,
@@ -11984,4 +12208,40 @@ SQL
     layout "hashed" {
     }
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

@@ -11,9 +11,10 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -335,7 +336,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_organization_api_includes_default_role_id(self):
         """Test that the organization API includes the default_role_id field"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         # Create a role and set it as default
         role = Role.objects.create(name="Default Role", organization=self.organization)
@@ -351,7 +352,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_set_default_role_via_api(self):
         """Test that the default role can be set via the organization API"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -369,7 +370,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_clear_default_role_via_api(self):
         """Test that the default role can be cleared via the organization API"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -389,7 +390,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_role_serializer_includes_is_default_field(self):
         """Test that the role serializer includes is_default field"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         # Create a role and set it as default
         role = Role.objects.create(name="Default Role", organization=self.organization)

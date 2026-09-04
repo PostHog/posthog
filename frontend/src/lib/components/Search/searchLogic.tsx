@@ -1,19 +1,22 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { IconBell, IconBuilding, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
-import api from 'lib/api'
+import api, { isAbortError } from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { toSentenceCase } from 'lib/utils/strings'
+import { capitalizeFirstLetter, toSentenceCase } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,9 +31,12 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
+import { getTitleText } from '~/scenes/settings/settingsSearch'
 import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
+import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
+import type { TicketApi } from 'products/conversations/frontend/generated/api.schemas'
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -38,7 +44,7 @@ import type { Noun } from '../../../models/groupsModel'
 import type { FileSystemImport } from '../../../queries/schema/schema-general'
 import type { GroupType, IntegrationType, UserType } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import { filterSearchItems } from './utils'
+import { filterSearchItems, shouldSearchTickets } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
@@ -97,7 +103,7 @@ const fileSystemEntryToSearchItem = (
     return {
         name: itemName,
         displayName,
-        href: item.href || '#',
+        href: item.href || PLACEHOLDER_HREF,
         lastViewedAt: item.last_viewed_at ?? null,
         itemType,
         record: { ...item, iconColor: productIconColor },
@@ -149,6 +155,19 @@ const SEARCH_LIMIT = 5
 const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
 
 /**
+ * Re-throw a search error, first handing a run we aborted over to whatever superseded it. A
+ * superseded run must not settle its loader: kea-loaders keeps one loading flag per loader, so
+ * clearing it here would drop the skeleton the newer run just raised. An abort with nothing behind
+ * it falls through to the failure path, which stays silent: initKea's onFailure skips AbortError.
+ */
+const rethrowSearchError = (error: unknown, breakpoint: BreakPointFunction): never => {
+    if (isAbortError(error)) {
+        breakpoint()
+    }
+    throw error
+}
+
+/**
  * Lean projection of SETTINGS_MAP for search. The full map statically imports every
  * settings component (the whole configuration UI graph), so it is loaded dynamically
  * on mount and only the searchable metadata is kept.
@@ -160,6 +179,7 @@ export interface SettingsSectionSummary {
     hideFromNavigation?: boolean
     flag?: SettingSection['flag']
     to?: string
+    keywords?: string[]
     settings: {
         id: string
         hasTitle: boolean
@@ -191,6 +211,10 @@ export interface searchLogicValues {
     accountSearchResults: AccountApi[]
     accountSearchResultsLoading: boolean
     allCategories: SearchCategory[]
+    customerItems: {
+        accountItems: SearchItem[]
+        ticketItems: SearchItem[]
+    }
     dataManagementItems: SearchItem[]
     groupItems: SearchItem[]
     groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>
@@ -207,6 +231,7 @@ export interface searchLogicValues {
         recentsLoading: boolean
         starredHasLoaded: boolean
         starredLoading: boolean
+        ticketSearchResultsLoading: boolean
         unifiedSearchResultsLoading: boolean
     }
     miscItems: SearchItem[]
@@ -226,6 +251,9 @@ export interface searchLogicValues {
     settingsItems: SearchItem[]
     settingsSections: SettingsSectionSummary[]
     starredItems: SearchItem[]
+    ticketItems: SearchItem[]
+    ticketSearchResults: TicketApi[]
+    ticketSearchResultsLoading: boolean
     toolsItems: SearchItem[]
     unifiedSearchItems: Record<string, SearchItem[]>
     unifiedSearchResults: SearchResponse | null
@@ -318,6 +346,27 @@ export interface searchLogicActions {
             searchTerm: string
         }
     }
+    loadTicketSearchResults: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadTicketSearchResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTicketSearchResultsSuccess: (
+        ticketSearchResults: TicketApi[],
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        ticketSearchResults: TicketApi[]
+        payload?: {
+            searchTerm: string
+        }
+    }
     loadUnifiedSearchResults: ({ searchTerm }: { searchTerm: string }) => {
         searchTerm: string
     }
@@ -378,6 +427,7 @@ export interface searchLogicMeta {
             groupSearchResultsLoading: boolean,
             personSearchResultsLoading: boolean,
             accountSearchResultsLoading: boolean,
+            ticketSearchResultsLoading: boolean,
             playlistSearchResultsLoading: boolean,
             searchPending: boolean,
             search: string
@@ -413,6 +463,14 @@ export interface searchLogicMeta {
         ) => SearchItem[]
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
         accountItems: (accountSearchResults: AccountApi[]) => SearchItem[]
+        ticketItems: (ticketSearchResults: TicketApi[]) => SearchItem[]
+        customerItems: (
+            accountItems: SearchItem[],
+            ticketItems: SearchItem[]
+        ) => {
+            accountItems: SearchItem[]
+            ticketItems: SearchItem[]
+        }
         playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         miscItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
@@ -431,6 +489,7 @@ export interface searchLogicMeta {
             personSearchResultsLoading: boolean,
             groupSearchResultsLoading: boolean,
             accountSearchResultsLoading: boolean,
+            ticketSearchResultsLoading: boolean,
             playlistSearchResultsLoading: boolean
         ) => {
             accountSearchResultsLoading: boolean
@@ -442,6 +501,7 @@ export interface searchLogicMeta {
             recentsLoading: boolean
             starredHasLoaded: boolean
             starredLoading: boolean
+            ticketSearchResultsLoading: boolean
             unifiedSearchResultsLoading: boolean
         }
         allCategories: (
@@ -456,7 +516,10 @@ export interface searchLogicMeta {
             newItems: SearchItem[],
             personItems: SearchItem[],
             groupItems: SearchItem[],
-            accountItems: SearchItem[],
+            customerItems: {
+                accountItems: SearchItem[]
+                ticketItems: SearchItem[]
+            },
             playlistItems: SearchItem[],
             unifiedSearchItems: Record<string, SearchItem[]>,
             loadingStates: {
@@ -469,6 +532,7 @@ export interface searchLogicMeta {
                 recentsLoading: boolean
                 starredHasLoaded: boolean
                 starredLoading: boolean
+                ticketSearchResultsLoading: boolean
                 unifiedSearchResultsLoading: boolean
             },
             search: string
@@ -510,7 +574,7 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: (search: string) => ({ search }),
         setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         searchedRecents: [
             null as FileSystemEntry[] | null,
             {
@@ -519,14 +583,19 @@ export const searchLogic = kea<searchLogicType>([
                     if (!searchTerm) {
                         return null
                     }
-                    const response = await api.fileSystem.list({
-                        search: searchTerm,
-                        limit: RECENTS_LIMIT + 1,
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                    })
-                    breakpoint()
-                    return response.results.slice(0, RECENTS_LIMIT)
+                    try {
+                        const response = await api.fileSystem.list({
+                            search: searchTerm,
+                            limit: RECENTS_LIMIT + 1,
+                            orderBy: '-last_viewed_at',
+                            notType: 'folder',
+                            signal: cache.searchAbortController?.signal,
+                        })
+                        breakpoint()
+                        return response.results.slice(0, RECENTS_LIMIT)
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -540,13 +609,20 @@ export const searchLogic = kea<searchLogicType>([
                         return null
                     }
 
-                    const response = await api.search.list({
-                        q: trimmed,
-                        include_counts: false,
-                    })
-                    breakpoint()
+                    try {
+                        const response = await api.search.list(
+                            {
+                                q: trimmed,
+                                include_counts: false,
+                            },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
 
-                    return response
+                        return response
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -567,14 +643,19 @@ export const searchLogic = kea<searchLogicType>([
 
                     const results = await Promise.allSettled(
                         groupTypesList.map((groupType) =>
-                            api.groups.listClickhouse({
-                                group_type_index: groupType.group_type_index,
-                                search: trimmed,
-                                limit: SEARCH_LIMIT,
-                            })
+                            api.groups.listClickhouse(
+                                {
+                                    group_type_index: groupType.group_type_index,
+                                    search: trimmed,
+                                    limit: SEARCH_LIMIT,
+                                },
+                                { signal: cache.searchAbortController?.signal }
+                            )
                         )
                     )
 
+                    // allSettled never rejects, so an abort lands here instead of in a catch: the
+                    // breakpoint hands a superseded run over, and the filter below drops the rest.
                     breakpoint()
 
                     return Object.fromEntries(
@@ -599,10 +680,23 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })
-                    breakpoint()
+                    const clientQueryId: string | null = cache.personSearchQueryId
+                    try {
+                        const response = await api.persons.list(
+                            { search: trimmed, limit: SEARCH_LIMIT, client_query_id: clientQueryId ?? undefined },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
 
-                    return response.results
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    } finally {
+                        // The request is over, so there is no ClickHouse query left to cancel.
+                        if (cache.personSearchQueryId === clientQueryId) {
+                            cache.personSearchQueryId = null
+                        }
+                    }
                 },
             },
         ],
@@ -616,13 +710,56 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await accountsList(String(values.currentTeamId), {
-                        search: trimmed,
-                        limit: SEARCH_LIMIT,
-                    })
-                    breakpoint()
+                    try {
+                        const response = await accountsList(
+                            String(values.currentTeamId),
+                            {
+                                search: trimmed,
+                                limit: SEARCH_LIMIT,
+                            },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
 
-                    return response.results
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
+                },
+            },
+        ],
+        // Support tickets come from the Conversations list endpoint rather than the unified
+        // search API: that endpoint already resolves a bare number to one ticket and matches the
+        // customer's name and email, the subject, and message content, none of which the
+        // full-text `ENTITY_MAP` entry over ticket columns would cover. It answers newest-active
+        // first (`-updated_at`), which is the order a support lookup wants.
+        ticketSearchResults: [
+            [] as TicketApi[],
+            {
+                loadTicketSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    // Returning early also clears the rows a longer query left behind, so a query
+                    // too short to search never shows results that no longer match what is typed.
+                    if (!shouldSearchTickets(trimmed) || !values.currentTeamId) {
+                        return []
+                    }
+
+                    try {
+                        const response = await conversationsTicketsList(
+                            String(values.currentTeamId),
+                            {
+                                search: trimmed,
+                                limit: SEARCH_LIMIT,
+                            },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
+
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -636,14 +773,19 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await api.fileSystem.list({
-                        search: trimmed,
-                        type: 'session_recording_playlist',
-                        limit: SEARCH_LIMIT,
-                    })
-                    breakpoint()
+                    try {
+                        const response = await api.fileSystem.list({
+                            search: trimmed,
+                            type: 'session_recording_playlist',
+                            limit: SEARCH_LIMIT,
+                            signal: cache.searchAbortController?.signal,
+                        })
+                        breakpoint()
 
-                    return response.results
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
                 },
             },
         ],
@@ -678,6 +820,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.groupSearchResultsLoading,
                 s.personSearchResultsLoading,
                 s.accountSearchResultsLoading,
+                s.ticketSearchResultsLoading,
                 s.playlistSearchResultsLoading,
                 s.searchPending,
                 s.search,
@@ -688,6 +831,7 @@ export const searchLogic = kea<searchLogicType>([
                 groupSearchResultsLoading: boolean,
                 personSearchResultsLoading: boolean,
                 accountSearchResultsLoading: boolean,
+                ticketSearchResultsLoading: boolean,
                 playlistSearchResultsLoading: boolean,
                 searchPending: boolean,
                 search: string
@@ -697,6 +841,7 @@ export const searchLogic = kea<searchLogicType>([
                     groupSearchResultsLoading ||
                     personSearchResultsLoading ||
                     accountSearchResultsLoading ||
+                    ticketSearchResultsLoading ||
                     playlistSearchResultsLoading ||
                     searchPending) &&
                 search.trim() !== '',
@@ -759,7 +904,7 @@ export const searchLogic = kea<searchLogicType>([
                     displayName: product.displayLabel ?? product.path,
                     category: 'tools',
                     productCategory: product.category || null,
-                    href: product.href || '#',
+                    href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
                     searchKeywords: productSearchKeywords[product.path],
@@ -833,7 +978,7 @@ export const searchLogic = kea<searchLogicType>([
                     displayName: item.path,
                     category: 'data-management',
                     productCategory: item.category || null,
-                    href: item.href || '#',
+                    href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
                     tags: item.tags,
                     searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
@@ -903,7 +1048,7 @@ export const searchLogic = kea<searchLogicType>([
                         displayName,
                         category: 'create',
                         productCategory: item.category || null,
-                        href: item.href || '#',
+                        href: item.href || PLACEHOLDER_HREF,
                         itemType: item.iconType || item.type || null,
                         tags: item.tags,
                         record: {
@@ -953,7 +1098,7 @@ export const searchLogic = kea<searchLogicType>([
                     displayName: item.path,
                     category: 'people',
                     productCategory: item.category || null,
-                    href: item.href || '#',
+                    href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
                     tags: item.tags,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
@@ -1046,6 +1191,43 @@ export const searchLogic = kea<searchLogicType>([
                 })
             },
         ],
+        ticketItems: [
+            (s) => [s.ticketSearchResults],
+            (ticketSearchResults: TicketApi[]): SearchItem[] => {
+                return ticketSearchResults.map((ticket) => {
+                    // Only email tickets carry a subject, so a Slack or widget ticket falls back to
+                    // its latest message — the only line of it that reads as a title. The number
+                    // leads either way: it is how support refers to a ticket everywhere else, and
+                    // it is what someone who typed a number is looking to confirm.
+                    const subject = ticket.email_subject || ticket.last_message_text || 'Untitled ticket'
+                    const displayName = `#${ticket.ticket_number} ${subject}`
+                    return {
+                        id: `ticket-${ticket.id}`,
+                        name: displayName,
+                        displayName,
+                        category: 'tickets',
+                        // The detail scene redirects a UUID to the ticket-number URL, so linking
+                        // there directly saves the row a redirect.
+                        href: urls.supportTicketDetail(ticket.ticket_number),
+                        itemType: 'conversations',
+                        // Rendered as the row's muted trailing text: which tickets are still open
+                        // is the first thing a support agent reads off a list of matches.
+                        productCategory: ticket.status ? capitalizeFirstLetter(ticket.status.replace(/_/g, ' ')) : null,
+                        record: { type: 'conversations', id: ticket.id, ticketNumber: ticket.ticket_number },
+                    }
+                })
+            },
+        ],
+        // Accounts and support tickets, handed to allCategories as one value. kea types a
+        // selector's dependency list up to 16 entries and allCategories sits on that limit, so the
+        // two customer-scoped lists ride in together rather than one of them being dropped.
+        customerItems: [
+            (s) => [s.accountItems, s.ticketItems],
+            (
+                accountItems: SearchItem[],
+                ticketItems: SearchItem[]
+            ): { accountItems: SearchItem[]; ticketItems: SearchItem[] } => ({ accountItems, ticketItems }),
+        ],
         playlistItems: [
             (s) => [s.playlistSearchResults],
             (playlistSearchResults: FileSystemEntry[]): SearchItem[] => {
@@ -1055,7 +1237,7 @@ export const searchLogic = kea<searchLogicType>([
                         id: `playlist-${item.id}`,
                         name: name ? unescapePath(name) : item.path,
                         category: 'session_recording_playlist',
-                        href: item.href || '#',
+                        href: item.href || PLACEHOLDER_HREF,
                         itemType: 'session_recording_playlist',
                         disabledReason: getEntryAccessDisabledReason(item),
                         record: item as unknown as Record<string, unknown>,
@@ -1201,14 +1383,17 @@ export const searchLogic = kea<searchLogicType>([
                     // Create a search item for each settings section
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
-                    const settings = section.settings
-                        .filter((setting) => setting.hasTitle)
-                        .flatMap((setting) => [
-                            toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                            ...(setting.titleString ? [setting.titleString] : []),
-                            ...(setting.descriptionString ? [setting.descriptionString] : []),
-                            ...(setting.keywords ?? []),
-                        ])
+                    const searchTerms = [
+                        ...(section.keywords ?? []),
+                        ...section.settings
+                            .filter((setting) => setting.hasTitle)
+                            .flatMap((setting) => [
+                                toSentenceCase(setting.id.replace(/[-]/g, ' ')),
+                                ...(setting.titleString ? [setting.titleString] : []),
+                                ...(setting.descriptionString ? [setting.descriptionString] : []),
+                                ...(setting.keywords ?? []),
+                            ]),
+                    ]
 
                     // Create the display name for each settings section
                     const displayName = section.titleString ?? toSentenceCase(section.id.replace(/[-]/g, ' '))
@@ -1220,7 +1405,7 @@ export const searchLogic = kea<searchLogicType>([
 
                     items.push({
                         id: `settings-${effectiveSectionId}`,
-                        name: `${levelPrefix}: ${displayName} (${settings})`,
+                        name: `${levelPrefix}: ${displayName} (${searchTerms})`,
                         displayName: `${displayName}${displayNameSuffix}`,
                         category: 'settings',
                         href: billingHref || section.to || urls.settings(effectiveSectionId),
@@ -1332,6 +1517,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
                 s.accountSearchResultsLoading,
+                s.ticketSearchResultsLoading,
                 s.playlistSearchResultsLoading,
             ],
             (
@@ -1342,6 +1528,7 @@ export const searchLogic = kea<searchLogicType>([
                 personSearchResultsLoading: boolean,
                 groupSearchResultsLoading: boolean,
                 accountSearchResultsLoading: boolean,
+                ticketSearchResultsLoading: boolean,
                 playlistSearchResultsLoading: boolean
             ) => ({
                 unifiedSearchResultsLoading,
@@ -1353,6 +1540,7 @@ export const searchLogic = kea<searchLogicType>([
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 accountSearchResultsLoading,
+                ticketSearchResultsLoading,
                 playlistSearchResultsLoading,
             }),
         ],
@@ -1369,7 +1557,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.newItems,
                 s.personItems,
                 s.groupItems,
-                s.accountItems,
+                s.customerItems,
                 s.playlistItems,
                 s.unifiedSearchItems,
                 s.loadingStates,
@@ -1387,7 +1575,7 @@ export const searchLogic = kea<searchLogicType>([
                 newItems: SearchItem[],
                 personItems: SearchItem[],
                 groupItems: SearchItem[],
-                accountItems: SearchItem[],
+                customerItems: { accountItems: SearchItem[]; ticketItems: SearchItem[] },
                 playlistItems: SearchItem[],
                 unifiedSearchItems: Record<string, SearchItem[]>,
                 loadingStates: {
@@ -1400,6 +1588,7 @@ export const searchLogic = kea<searchLogicType>([
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
                     accountSearchResultsLoading: boolean
+                    ticketSearchResultsLoading: boolean
                     playlistSearchResultsLoading: boolean
                 },
                 search: string
@@ -1414,8 +1603,11 @@ export const searchLogic = kea<searchLogicType>([
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
                     accountSearchResultsLoading,
+                    ticketSearchResultsLoading,
                     playlistSearchResultsLoading,
                 } = loadingStates
+
+                const { accountItems, ticketItems } = customerItems
 
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
@@ -1598,6 +1790,15 @@ export const searchLogic = kea<searchLogicType>([
                         })
                     }
 
+                    // Add support tickets
+                    if (ticketItems.length > 0 || ticketSearchResultsLoading) {
+                        categories.push({
+                            key: 'tickets',
+                            items: ticketItems,
+                            isLoading: ticketSearchResultsLoading,
+                        })
+                    }
+
                     // Add persons
                     if (personItems.length > 0 || personSearchResultsLoading) {
                         categories.push({
@@ -1621,20 +1822,55 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setSearch: async ({ search }, breakpoint) => {
+            if (search.trim() === '') {
+                // An empty term means the palette closed or the box was cleared, so no later run
+                // will replace what is in flight. Stop it now, because a person search can run for
+                // a minute and nobody is waiting on the answer.
+                cache.disposables.dispose('searchAbortController')
+                return
+            }
+
             await breakpoint(150)
 
-            if (search.trim() !== '') {
-                actions.searchRecents({ search })
-                actions.loadUnifiedSearchResults({ searchTerm: search })
-                actions.loadPersonSearchResults({ searchTerm: search })
-                actions.loadGroupSearchResults({ searchTerm: search })
-                if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
-                    actions.loadAccountSearchResults({ searchTerm: search })
-                }
-                actions.loadPlaylistSearchResults({ searchTerm: search })
+            // Registering under the same key aborts the previous term's requests. The new ones go
+            // out in the same tick, so each superseded run sees its replacement when it wakes up.
+            cache.disposables.add(
+                () => {
+                    const controller = new AbortController()
+                    const clientQueryId = uuid()
+                    cache.searchAbortController = controller
+                    cache.personSearchQueryId = clientQueryId
+                    return () => {
+                        const personSearchRunning = cache.personSearchQueryId === clientQueryId
+                        cache.searchAbortController = null
+                        cache.personSearchQueryId = null
+                        controller.abort()
+                        if (personSearchRunning) {
+                            // Dropping the request does not reach ClickHouse, so the person search
+                            // would keep scanning and holding a query slot. Kill it by name.
+                            api.cancelQuery(clientQueryId).catch((error) =>
+                                console.warn('Failed cancelling person search', error)
+                            )
+                        }
+                    }
+                },
+                'searchAbortController',
+                // This controller belongs to one set of requests. Hiding the tab must not abort
+                // them, or showing it again would arm a fresh controller over nothing.
+                { pauseOnPageHidden: false }
+            )
+
+            actions.searchRecents({ search })
+            actions.loadUnifiedSearchResults({ searchTerm: search })
+            actions.loadPersonSearchResults({ searchTerm: search })
+            actions.loadGroupSearchResults({ searchTerm: search })
+            if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+                actions.loadAccountSearchResults({ searchTerm: search })
             }
+            actions.loadTicketSearchResults({ searchTerm: search })
+            actions.loadPlaylistSearchResults({ searchTerm: search })
         },
     })),
     afterMount(({ actions }) => {
@@ -1644,17 +1880,21 @@ export const searchLogic = kea<searchLogicType>([
                     SETTINGS_MAP.map((section) => ({
                         id: section.id,
                         level: section.level,
-                        titleString: typeof section.title === 'string' ? section.title : null,
+                        titleString: getTitleText(section.title) || null,
                         hideFromNavigation: section.hideFromNavigation,
                         flag: section.flag,
                         to: section.to,
+                        keywords: section.keywords,
                         settings: section.settings.map((setting) => ({
                             id: setting.id,
-                            // A JSX-titled setting has no title string to search but must stay
-                            // findable via its id token — hasTitle preserves that distinction.
+                            // A setting can render a title that getTitleText cannot read, such as a
+                            // whole component, and it must stay findable via its id token.
+                            // hasTitle preserves that distinction.
                             hasTitle: !!setting.title,
-                            titleString: typeof setting.title === 'string' ? setting.title : null,
-                            descriptionString: typeof setting.description === 'string' ? setting.description : null,
+                            titleString: getTitleText(setting.title) || null,
+                            descriptionString:
+                                setting.searchDescription ??
+                                (typeof setting.description === 'string' ? setting.description : null),
                             keywords: setting.keywords,
                         })),
                     }))

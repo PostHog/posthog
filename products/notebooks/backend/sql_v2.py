@@ -195,9 +195,16 @@ def build_data_plane_url() -> str:
     return f"{_backend_base_url()}/internal/notebooks/data_plane/query/"
 
 
-def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | None) -> str:
+def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | None, run_id: str | None = None) -> str:
+    """Sign a data-plane token for the sandbox.
+
+    `run_id` names the run the fetch belongs to, so a data-plane query counts as observable
+    progress on it (see `touch_run_progress`). It rides the signed token rather than the
+    request body because the sandbox must not be able to name a different run than the one
+    the backend dispatched to it.
+    """
     return signing.dumps(
-        {"notebook_short_id": notebook_short_id, "team_id": team_id, "user_id": user_id},
+        {"notebook_short_id": notebook_short_id, "team_id": team_id, "user_id": user_id, "run_id": run_id},
         salt=_DATA_PLANE_TOKEN_SALT,
     )
 
@@ -207,16 +214,21 @@ class DataPlaneClaims:
     notebook_short_id: str
     team_id: int
     user_id: int | None
+    # Absent on a token minted before the run-progress claim existed, so it stays optional:
+    # such a token still fetches data, it just cannot advance its run's watchdog clock.
+    run_id: str | None = None
 
 
 def verify_data_plane_token(token: str) -> DataPlaneClaims:
     """Return the claims from a valid token, else raise signing.BadSignature."""
     data = signing.loads(token, salt=_DATA_PLANE_TOKEN_SALT, max_age=_DATA_PLANE_TOKEN_MAX_AGE_SECONDS)
     user_id = data.get("user_id")
+    run_id = data.get("run_id")
     return DataPlaneClaims(
         notebook_short_id=str(data["notebook_short_id"]),
         team_id=int(data["team_id"]),
         user_id=int(user_id) if user_id is not None else None,
+        run_id=str(run_id) if run_id else None,
     )
 
 
@@ -393,12 +405,16 @@ def dispatch_sql_v2_run(
     node_type: str = "hogql",
     output_name: str = "",
     inputs: list[dict] | None = None,
+    variables: dict | None = None,
 ) -> None:
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
     Returns as soon as the server accepts (202); the result arrives via the callback. A
     kernel node (python or duckdb) carries the `node`/`inputs` shape the executor consumes;
     a hogql node keeps the flat `code` the capped-fetch path reads — the paths stay additive.
+
+    `variables` are notebook-level values a python node reads as globals; the executor passes
+    the whole `node` object through, so they need no handling of their own on the way in.
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
@@ -414,12 +430,17 @@ def dispatch_sql_v2_run(
         "callback_url": build_callback_url(str(run.id)),
         "callback_token": mint_callback_token(str(run.id), notebook.team_id),
         "data_plane_url": build_data_plane_url(),
-        "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
+        "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id, str(run.id)),
         "page_limit": DISPLAY_PAGE_LIMIT,
         "cache_limit": RESULT_CACHE_ROWS,
     }
     if node_type in ("python", "duckdb"):
-        payload["node"] = {"type": node_type, "code": code, "output_name": output_name}
+        payload["node"] = {
+            "type": node_type,
+            "code": code,
+            "output_name": output_name,
+            "variables": variables or {},
+        }
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code
@@ -455,7 +476,7 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
     if run.node_type == NotebookNodeRun.NodeType.HOGQL:
         payload["code"] = run.code
         payload["data_plane_url"] = build_data_plane_url()
-        payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id)
+        payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id, str(run.id))
     else:
         payload["result_id"] = str(run.result_id)
     try:

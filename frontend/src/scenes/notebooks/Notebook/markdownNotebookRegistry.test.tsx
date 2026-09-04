@@ -6,7 +6,11 @@ import {
     mergeMarkdownNotebookRegistries,
     omitInsertCommands,
 } from 'lib/components/MarkdownNotebook'
-import { getInsertedComponentPanelVisibility } from 'lib/components/MarkdownNotebook/componentPanels'
+import {
+    type ComponentPanelVisibility,
+    getInsertedComponentPanelVisibility,
+} from 'lib/components/MarkdownNotebook/componentPanels'
+import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -26,7 +30,6 @@ import {
     getNodeAttributes,
     getQueryTitle,
     getSerializableAttributeInputValue,
-    getSerializableProps,
 } from './markdownNotebookRegistry'
 
 jest.mock('./MarkdownNotebookEntityPicker', () => ({
@@ -82,19 +85,33 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        // An inserted code cell holds no code and no result, so a closed editor panel leaves the
-        // user an empty box. Resolving through getInsertedComponentPanelVisibility rather than
-        // reading the prop keeps this honest if the panel prop is renamed again.
+        it('gates widget insertion and registers only the Widget component', () => {
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true }, 'Widget')).toEqual([
+                { key: 'component-Widget', category: 'Common' },
+            ])
+            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([])
+            for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
+                expect(NOTEBOOK_MARKDOWN_REGISTRY.components).not.toHaveProperty(legacyTag)
+            }
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ToolbarComponent).toBeTruthy()
+        })
+
+        // The panel visibility resolver is the notebook shell's public behavior. Testing through it
+        // keeps new programmable blocks usable even if the persisted panel prop changes.
         it.each([
             ['SQL', 'component-SQLV2'],
             ['Python', 'component-PythonV2'],
-        ])('inserts a %s cell with its code editor open', (_label, commandKey) => {
+            ['Widget', 'component-Widget'],
+        ])('inserts a %s block with its input panel open', (_label, commandKey) => {
             const insertedNodes: NotebookComponentBlockNode[] = []
             const noop = (): void => {}
             const commands = buildInsertCommands(
                 mergeMarkdownNotebookRegistries(
                     getMarkdownNotebookDefaultRegistry(),
-                    getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
+                    getMarkdownRegistryForFeatureFlags({
+                        [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
+                        [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true,
+                    })
                 ),
                 (_nodeId, node) => insertedNodes.push(node),
                 noop,
@@ -107,6 +124,50 @@ describe('markdownNotebookRegistry', () => {
 
             expect(insertedNodes).toHaveLength(1)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+        })
+    })
+
+    describe('discussion comment composer', () => {
+        const renderCommentShell = (componentPanels: ComponentPanelVisibility): ReturnType<typeof render> => {
+            // No `showFilters` in props: composer visibility is driven by the transient panel
+            // state, so the open state never has to be written into the shared document markdown.
+            const node: NotebookComponentBlockNode = {
+                id: 'comment-node',
+                type: 'component',
+                tagName: 'Comment',
+                props: { replies: [] },
+            }
+            return render(
+                <NotebookComponentShell
+                    node={node}
+                    mode="edit"
+                    componentPanels={componentPanels}
+                    persistComponentPanelVisibility={false}
+                    isSelected={false}
+                    registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                    toggleComponentPanel={jest.fn()}
+                    setLocalComponentPanels={jest.fn()}
+                    rememberComponentPanels={jest.fn()}
+                    setBlockRef={jest.fn()}
+                    updateNode={jest.fn()}
+                    deleteNode={jest.fn()}
+                    deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                    insertParagraphAfterNode={jest.fn()}
+                    moveFocusToAdjacentNode={jest.fn(() => false)}
+                />
+            )
+        }
+
+        // The edit panel is what makes the composer editable, so a thread renders its composer
+        // when that panel is open and the read-only view branch (no composer) when it is closed.
+        // Insertion opens the panel transiently, so the composer never depends on a persisted prop.
+        it.each([
+            ['renders the composer when the edit panel is open', { filters: true, results: true }, true],
+            ['renders no composer when the edit panel is closed', { filters: false, results: true }, false],
+        ])('%s', (_label, componentPanels, expectComposer) => {
+            const { container } = renderCommentShell(componentPanels)
+            const composer = container.querySelector('[data-attr="notebook-discussion-comment-input"]')
+            expect(composer !== null).toBe(expectComposer)
         })
     })
 
@@ -293,6 +354,26 @@ describe('markdownNotebookRegistry', () => {
         expect(fields[1].textContent).toContain('View')
     })
 
+    it('hides the backing canvas ID from generated widget settings', () => {
+        const { container } = render(
+            <RealNotebookNodeIdentityAndViewEdit
+                node={{
+                    id: 'generated-widget-node',
+                    type: 'component',
+                    tagName: 'Widget',
+                    props: { id: 'canvas-id' },
+                }}
+                mode="edit"
+                updateProps={jest.fn()}
+                deleteNode={jest.fn()}
+                notebookNodeType={NotebookNodeType.GeneratedWidget}
+                options={KNOWN_NODES[NotebookNodeType.GeneratedWidget]}
+            />
+        )
+
+        expect(container.childElementCount).toBe(0)
+    })
+
     it('selects a referenced object from the same picker used by notebook insertion', () => {
         const updateProps = jest.fn()
         const { container } = render(
@@ -393,64 +474,6 @@ describe('markdownNotebookRegistry', () => {
             ['an unrecognized query suggests no title rather than the raw kind', { kind: 'DataTableNode' }, null],
         ])('%s', (_label, query, expected) => {
             expect(getQueryTitle(query)).toEqual(expected)
-        })
-    })
-
-    describe('getSerializableProps', () => {
-        it('preserves a query whose nested filter carries undefined fields, stripping the undefined', () => {
-            // Regression: a completed person-property filter from the DataTable arrives with absent
-            // label/group_type_index as `undefined`. Previously the whole `query` prop was dropped,
-            // so the People table never re-queried when a filter was added.
-            const result = getSerializableProps({
-                query: {
-                    kind: 'DataTableNode',
-                    source: {
-                        kind: 'ActorsQuery',
-                        properties: [
-                            { type: 'person', key: 'email', operator: 'exact', value: 'x@y.com', label: undefined },
-                        ],
-                    },
-                },
-            })
-
-            expect(result.query).toEqual({
-                kind: 'DataTableNode',
-                source: {
-                    kind: 'ActorsQuery',
-                    properties: [{ type: 'person', key: 'email', operator: 'exact', value: 'x@y.com' }],
-                },
-            })
-        })
-
-        it('keeps a fully-serializable filter (e.g. cohort) untouched', () => {
-            const query = {
-                kind: 'DataTableNode',
-                source: {
-                    kind: 'ActorsQuery',
-                    properties: [{ type: 'cohort', key: 'id', value: 42, operator: 'in' }],
-                },
-            }
-
-            expect(getSerializableProps({ query }).query).toEqual(query)
-        })
-
-        it.each([
-            ['undefined', { a: undefined }, {}],
-            ['function', { a: () => undefined }, {}],
-        ])('omits the key entirely when the value is not serializable (%s)', (_label, attributes, expected) => {
-            expect(getSerializableProps(attributes as any)).toEqual(expected)
-        })
-
-        it('preserves primitive, array and nested object props', () => {
-            expect(
-                getSerializableProps({ id: 'abc', count: 3, enabled: true, items: ['a', 'b'], nested: { x: 1 } } as any)
-            ).toEqual({ id: 'abc', count: 3, enabled: true, items: ['a', 'b'], nested: { x: 1 } })
-        })
-
-        it('strips undefined nested in an object while keeping its siblings', () => {
-            expect(getSerializableProps({ nested: { keep: 'yes', drop: undefined } } as any)).toEqual({
-                nested: { keep: 'yes' },
-            })
         })
     })
 })

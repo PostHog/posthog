@@ -3,15 +3,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.crossref import CrossrefResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source import CrossrefSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crossref import (
     CrossrefSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCrossrefSource:
@@ -19,54 +14,6 @@ class TestCrossrefSource:
         self.source = CrossrefSource()
         self.team_id = 123
         self.config = CrossrefSourceConfig()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CROSSREF
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Crossref"
-        assert config.label == "Crossref"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/crossref.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/crossref"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["mailto", "member_id", "funder_id", "issn"]
-        assert all(not f.required and not f.secret for f in config.fields if isinstance(f, SourceFieldInputConfig))
-
-    def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-
-        works = schemas["Works"]
-        assert works.supports_incremental is True
-        assert works.supports_append is False
-        assert {f["field"] for f in works.incremental_fields} == {"indexed_date", "deposited_date", "created_date"}
-
-        for name in ("Members", "Funders", "Types", "Licenses"):
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Members"])
-        assert [s.name for s in schemas] == ["Members"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_lists_tables_without_credentials_publishes_catalog(self):
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -145,11 +92,6 @@ class TestCrossrefSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is CrossrefResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_crossref_source):

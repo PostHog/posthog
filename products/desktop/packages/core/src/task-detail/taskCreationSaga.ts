@@ -65,6 +65,7 @@ function buildCloudFirstMessage(
     input.channelContext,
     input.channelName,
     input.channelContextId,
+    input.channelContextPath,
   );
   const pendingUserMessage =
     [messageText, customInstructionsText, channelContextText]
@@ -87,6 +88,17 @@ export class TaskCreationSaga extends Saga<
     logger?: SagaLogger,
   ) {
     super(logger);
+  }
+
+  private notifyTaskReady(output: TaskCreationOutput): void {
+    try {
+      this.deps.onTaskReady?.(output);
+    } catch (error) {
+      this.log.error("Task-ready callback failed", {
+        taskId: output.task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   protected async execute(
@@ -132,6 +144,8 @@ export class TaskCreationSaga extends Saga<
     const workspaceMode =
       input.workspaceMode ??
       (task.latest_run?.environment === "cloud" ? "cloud" : "local");
+    const shouldDeferLocalPiTaskReady =
+      isPiRuntime && !taskId && workspaceMode !== "cloud";
 
     let workspace: Workspace | null = null;
     const branch = input.branch ?? task.latest_run?.branch ?? null;
@@ -140,8 +154,8 @@ export class TaskCreationSaga extends Saga<
 
     if (hasProvisioning) {
       this.deps.host.setProvisioningActive(task.id);
-      if (this.deps.onTaskReady) {
-        this.deps.onTaskReady({ task, workspace });
+      if (!shouldDeferLocalPiTaskReady) {
+        this.notifyTaskReady({ task, workspace });
       }
     }
 
@@ -201,10 +215,8 @@ export class TaskCreationSaga extends Saga<
         }
       } catch (error) {
         // For a fresh worktree task the prompt is already persisted as the task
-        // description and the UI has navigated onto the task. Rolling the saga
-        // back here would run task_creation's deleteTask and destroy that task,
-        // losing the prompt. Instead keep the task with no workspace (the shape
-        // openTask re-provisions from) so the user can retry setup on it.
+        // description. Rolling the saga back here would delete that task and
+        // lose the prompt. Keep the task with no workspace so setup can retry.
         if (!hasProvisioning) throw error;
         const provisioningError =
           error instanceof Error ? error.message : String(error);
@@ -213,6 +225,9 @@ export class TaskCreationSaga extends Saga<
           error,
         });
         this.deps.host.clearProvisioning(task.id);
+        if (shouldDeferLocalPiTaskReady) {
+          this.notifyTaskReady({ task, workspace: null });
+        }
         // The in-flight mark is left to TTL-expire on purpose: this state has
         // its own retry-prompt UX, and auto-recovery would race the retry.
         return { task, workspace: null, provisioningError };
@@ -328,11 +343,15 @@ export class TaskCreationSaga extends Saga<
       );
     }
 
-    if (!hasProvisioning && !shouldStartCloudRun) {
+    if (
+      !hasProvisioning &&
+      !shouldStartCloudRun &&
+      !shouldDeferLocalPiTaskReady
+    ) {
       if (!taskId && workspaceMode === "cloud") {
         await this.deps.sessionService.watchCreatedCloudTask(task);
       }
-      this.deps.onTaskReady?.({ task, workspace });
+      this.notifyTaskReady({ task, workspace });
     }
 
     if (hasProvisioning) {
@@ -486,7 +505,7 @@ export class TaskCreationSaga extends Saga<
 
       if (!hasProvisioning) {
         await this.deps.sessionService.watchCreatedCloudTask(task);
-        this.deps.onTaskReady?.({ task, workspace });
+        this.notifyTaskReady({ task, workspace });
       }
     }
 
@@ -518,6 +537,7 @@ export class TaskCreationSaga extends Saga<
         input.channelContext,
         input.channelName,
         input.channelContextId,
+        input.channelContextPath,
       );
       if (initialPrompt && channelContextBlock) {
         initialPrompt.push(channelContextBlock);
@@ -530,13 +550,25 @@ export class TaskCreationSaga extends Saga<
             const thinkingLevel = PI_THINKING_LEVELS.find(
               (level) => level === input.reasoningLevel,
             );
+            const channelContextText = buildChannelContextText(
+              input.channelContext,
+              input.channelName,
+              input.channelContextId,
+              input.channelContextPath,
+            );
+            const prompt = [input.content, channelContextText]
+              .filter((part): part is string => !!part)
+              .join("\n\n");
 
             await this.deps.piRunner.create({
-              taskId: task.id,
-              cwd: agentCwd ?? "",
-              projectTrustPath:
-                workspace?.folderPath ?? repoPath ?? scratchCwd ?? undefined,
-              prompt: input.content ?? "",
+              taskContext: {
+                taskId: task.id,
+                cwd: agentCwd ?? "",
+                customInstructions: input.customInstructions,
+                additionalDirectories: input.additionalDirectories,
+                channelMode: !!scratchCwd && agentCwd === scratchCwd,
+              },
+              prompt,
               model: input.model,
               thinkingLevel,
             });
@@ -551,6 +583,10 @@ export class TaskCreationSaga extends Saga<
           if (input.executionMode)
             connectParams.executionMode = input.executionMode;
           if (input.adapter) connectParams.adapter = input.adapter;
+          if (input.codexModelAccess)
+            connectParams.codexModelAccess = input.codexModelAccess;
+          if (input.claudeModelAccess)
+            connectParams.claudeModelAccess = input.claudeModelAccess;
           if (input.model) connectParams.model = input.model;
           if (input.reasoningLevel)
             connectParams.reasoningLevel = input.reasoningLevel;
@@ -577,6 +613,10 @@ export class TaskCreationSaga extends Saga<
           await this.deps.sessionService.disconnectFromTask(taskId);
         },
       });
+    }
+
+    if (shouldDeferLocalPiTaskReady) {
+      this.notifyTaskReady({ task, workspace });
     }
 
     return { task, workspace };
@@ -810,10 +850,14 @@ export class TaskCreationSaga extends Saga<
         const result = await this.deps.posthogClient.createTask({
           description,
           naming_source: namingSource,
-          repository: input.repositories
-            ? undefined
-            : (repository ?? undefined),
-          repositories: input.repositories,
+          // Signal-report tasks are code-access-exempt, so their repository is
+          // resolved server-side from the report's own repo selection — the
+          // backend rejects a client-set repo (it would bypass that gate).
+          repository:
+            input.repositories || input.signalReportId
+              ? undefined
+              : (repository ?? undefined),
+          repositories: input.signalReportId ? undefined : input.repositories,
           github_integration:
             input.workspaceMode === "cloud" &&
             (input.cloudRunSource === "signal_report" || input.repositories)
@@ -827,8 +871,12 @@ export class TaskCreationSaga extends Saga<
           origin_product: input.signalReportId
             ? "signal_report"
             : "user_created",
-          // The server associates the task with the report and records the implementation
-          // task_run artefact — no relationship label is sent (associations are unlabelled).
+          // Labels the task↔report association so the server routes it to the
+          // right per-report cap; unlabelled defaults to implementation, which
+          // burns the report's one-live-PR gate.
+          signal_report_task_relationship: input.signalReportId
+            ? input.signalReportTaskRelationship
+            : undefined,
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)

@@ -36,8 +36,10 @@ const CLAUDE_MODEL_EFFORTS: Readonly<
   "claude-sonnet-4-6": STANDARD_EFFORTS,
   "claude-sonnet-5": EXTENDED_EFFORTS,
   "claude-fable-5": EXTENDED_EFFORTS,
+  "claude-fable-5-1": EXTENDED_EFFORTS,
   "@cf/zai-org/glm-5.2": ["high", "max"],
   "zai-org/glm-5.3": ["high", "max"],
+  "zai-org/glm-5.3-flash": ["high", "max"],
   "claude-opus-5": EXTENDED_EFFORTS,
 };
 
@@ -120,6 +122,7 @@ const MODELS_WITH_1M_CONTEXT = new Set([
   "claude-sonnet-4-6",
   "claude-sonnet-5",
   "claude-fable-5",
+  "claude-fable-5-1",
 ]);
 
 export function supports1MContext(modelId: string): boolean {

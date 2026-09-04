@@ -1,8 +1,9 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { usePendingTabViewState } from "@posthog/ui/features/browser-tabs/usePendingTabViewState";
 import { ActivityFeedList } from "@posthog/ui/features/canvas/components/ActivityFeedList";
+import { CanvasesPane } from "@posthog/ui/features/canvas/components/CanvasesPane";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
@@ -11,20 +12,22 @@ import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/
 import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   selectActivityItem,
-  useActivityDetailStore,
+  selectActivityReport,
+  useActivitySelection,
 } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import {
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -49,7 +52,7 @@ import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebar
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
 import { useParams } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useRef } from "react";
+import { memo, useDeferredValue, useEffect, useRef } from "react";
 
 /**
  * The sidebar slider: the channel list and the channel you're in, laid out side
@@ -67,18 +70,28 @@ function ChannelPanes({
   channelId,
   showList,
   sidebarVisible,
+  pendingTabSwitch,
 }: {
   channelId: string | null;
   showList: boolean;
   sidebarVisible: boolean;
+  pendingTabSwitch: boolean;
 }) {
   // Mark the channel seen only while a reader can see its pane: this pane is
   // the one showing (not the list) and the sidebar is on screen. A collapsed
   // sidebar keeps both panes mounted, so without the visibility gate a mention
   // landing behind it would clear the unread emphasis nobody saw.
   const visibleChannelId =
-    !showList && sidebarVisible ? (channelId ?? undefined) : undefined;
+    !pendingTabSwitch && !showList && sidebarVisible
+      ? (channelId ?? undefined)
+      : undefined;
   useMarkChannelSeen(visibleChannelId);
+  const animateTransition = useChannelPaneStore(
+    (state) => state.animateTransition,
+  );
+  const finishTransition = useChannelPaneStore(
+    (state) => state.finishTransition,
+  );
   const panesRef = useRef<HTMLDivElement | null>(null);
   useChannelPaneSwipe(panesRef, {
     // With no channel to slide to, the list is all there is — leave the gesture
@@ -91,8 +104,13 @@ function ChannelPanes({
   return (
     <div ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
       <div
+        onTransitionEnd={(event) => {
+          if (event.currentTarget === event.target) finishTransition();
+        }}
         className={cn(
-          "flex h-full w-[200%] transition-transform duration-200 ease-out motion-reduce:transition-none",
+          "flex h-full w-[200%]",
+          animateTransition &&
+            "transition-transform duration-200 ease-out motion-reduce:transition-none",
           showList ? "translate-x-0" : "-translate-x-1/2",
         )}
       >
@@ -115,7 +133,7 @@ function ChannelPanes({
     </div>
   );
 }
-export function ChannelsSidebar() {
+function ChannelsSidebarImpl() {
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
@@ -160,13 +178,7 @@ export function ChannelsSidebar() {
   // Channels stay behind project-bluebird: the switch only appears where the
   // canvas backend is wired, and a persisted "on" is ignored when the flag is
   // off so the sidebar can't strand a user on an unsupported feature.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const channelsEnabled =
-    useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const channelsWorld = channelsLayout || channelsEnabled;
+  const channelsWorld = useChannelsWorld();
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
   // Under the layout the row moves into the account menu (ProjectSwitcher),
   // beside Settings — the bottom of the sidebar belongs to the channel list.
@@ -186,16 +198,32 @@ export function ChannelsSidebar() {
   const archivedTaskIds = useArchivedTaskIds();
 
   // Scoping lives in ChannelRouteSync: this column is not always drawn.
-  const { currentChannelId } = useCurrentChannel({ enabled: channelsLayout });
+  useCurrentChannel({ enabled: channelsLayout });
+  // The route's space, before the space list has resolved it. That hook withholds
+  // an unresolved id so nothing files against a dead space, but the pane only has
+  // to draw one — waiting held its tabs behind the fetch, and a stale id is
+  // dropped by the same hook a tick later.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   // Browsing the list is view state, not navigation: you stay in the channel
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
-  const { showsActivityDetail } = useRailSurface();
-  const selectedActivityId = useActivityDetailStore((s) => s.selected?.id);
-  const { feedId } = useParams({ strict: false });
+  const { pane: railPane, showsActivityDetail } = useRailSurface();
+  const selectedActivityId = useActivitySelection()?.id;
+  const feedId = useParams({
+    strict: false,
+    select: (params) => params.feedId,
+  });
   const pane = useChannelPaneStore((s) => s.pane);
-  const showList = pane === "list" || currentChannelId == null;
+  const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
+    usePendingTabViewState();
+  const presentedChannelId =
+    pendingTabViewState?.spaceId !== undefined
+      ? pendingTabViewState.spaceId
+      : currentChannelId;
+  const showList =
+    (pendingTabViewState?.listOpen ?? pane === "list") ||
+    presentedChannelId == null;
 
   return (
     <ResizableSidebar
@@ -239,14 +267,18 @@ export function ChannelsSidebar() {
                 className="min-h-0 flex-1"
                 selectedId={selectedActivityId}
                 onActivate={selectActivityItem}
+                onReportActivate={selectActivityReport}
               />
+            ) : railPane === "canvases" ? (
+              <CanvasesPane className="min-h-0 flex-1" />
             ) : feedId ? (
               <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />
             ) : (
               <ChannelPanes
-                channelId={currentChannelId}
+                channelId={presentedChannelId}
                 showList={showList}
                 sidebarVisible={open || peek}
+                pendingTabSwitch={pendingTabSwitch}
               />
             )
           ) : bodyChannelsWorld ? (
@@ -292,3 +324,6 @@ export function ChannelsSidebar() {
     </ResizableSidebar>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const ChannelsSidebar = memo(ChannelsSidebarImpl);

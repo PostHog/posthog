@@ -13,7 +13,19 @@ CREATE TABLE posthog.kafka_app_metrics (
   error_uuid UUID,
   error_type String,
   error_details String CODEC(ZSTD(3))
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_app_metrics\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_app_metrics';
+CREATE TABLE posthog.kafka_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC')
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_billing_usage_records', kafka_topic_list = 'clickhouse_billing_usage_records';
 CREATE TABLE posthog.kafka_duplicate_events (
   team_id Int64,
   distinct_id String,
@@ -31,7 +43,7 @@ CREATE TABLE posthog.kafka_duplicate_events (
   duplicate_message String,
   distinct_fields String,
   inserted_at DateTime64(3, 'UTC')
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_duplicate_events\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ingestion_events_duplicates\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_duplicate_events', kafka_topic_list = 'clickhouse_ingestion_events_duplicates';
 CREATE TABLE posthog.kafka_error_tracking_issue_fingerprint_embeddings (
   team_id Int64,
   model_name LowCardinality(String),
@@ -39,14 +51,14 @@ CREATE TABLE posthog.kafka_error_tracking_issue_fingerprint_embeddings (
   fingerprint String,
   inserted_at DateTime64(3, 'UTC'),
   embeddings Array(Float64)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_error_tracking_fingerprint_embeddings\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_error_tracking_issue_fingerprint_embeddings\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_error_tracking_fingerprint_embeddings', kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_embeddings';
 CREATE TABLE posthog.kafka_error_tracking_issue_fingerprint_overrides (
   team_id Int64,
   fingerprint String,
   issue_id UUID,
   is_deleted Int8,
   version Int64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse-error-tracking-issue-fingerprint-overrides\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_error_tracking_issue_fingerprint\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides', kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint';
 CREATE TABLE posthog.kafka_events_dead_letter_queue (
   id UUID,
   event_uuid UUID,
@@ -64,21 +76,21 @@ CREATE TABLE posthog.kafka_events_dead_letter_queue (
   error_location String,
   error String,
   tags Array(String)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_skip_broken_messages = 1000, kafka_topic_list = 'kafka_topic_list = \'events_dead_letter_queue\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_skip_broken_messages = 1000, kafka_topic_list = 'events_dead_letter_queue';
 CREATE TABLE posthog.kafka_groups (
   group_type_index UInt8,
   group_key String,
   created_at DateTime64(3),
   team_id Int64,
   group_properties String
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_groups\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_groups';
 CREATE TABLE posthog.kafka_ingestion_warnings (
   team_id Int64,
   source LowCardinality(String),
   type String,
   details String CODEC(ZSTD(3)),
   timestamp DateTime64(6, 'UTC')
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ingestion_warnings\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_ingestion_warnings';
 CREATE TABLE posthog.kafka_log_entries_v3 (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -87,7 +99,7 @@ CREATE TABLE posthog.kafka_log_entries_v3 (
   timestamp DateTime64(6, 'UTC'),
   level LowCardinality(String),
   message String
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_log_entries\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'log_entries\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_log_entries_ws (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -96,7 +108,7 @@ CREATE TABLE posthog.kafka_log_entries_ws (
   timestamp DateTime64(6, 'UTC'),
   level LowCardinality(String),
   message String
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_log_entries_ws\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'log_entries\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_ws', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_person (
   id UUID,
   created_at DateTime64(3),
@@ -106,21 +118,21 @@ CREATE TABLE posthog.kafka_person (
   is_deleted Int8,
   version UInt64,
   last_seen_at Nullable(DateTime64(3))
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_person';
 CREATE TABLE posthog.kafka_person_distinct_id2 (
   team_id Int64,
   distinct_id String,
   person_id UUID,
   is_deleted Int8,
   version Int64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person_distinct_id\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_person_distinct_id';
 CREATE TABLE posthog.kafka_person_distinct_id_overrides (
   team_id Int64,
   distinct_id String,
   person_id UUID,
   is_deleted Int8,
   version Int64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse-person-distinct-id-overrides\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person_distinct_id\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-distinct-id-overrides', kafka_topic_list = 'clickhouse_person_distinct_id';
 CREATE TABLE posthog.kafka_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -131,7 +143,7 @@ CREATE TABLE posthog.kafka_plugin_log_entries (
   type String,
   message String,
   instance_id UUID
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'plugin_log_entries\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'plugin_log_entries';
 CREATE TABLE posthog.kafka_posthog_document_embeddings (
   team_id Int64,
   product LowCardinality(String),
@@ -144,7 +156,7 @@ CREATE TABLE posthog.kafka_posthog_document_embeddings (
   content String,
   metadata String,
   embedding Array(Float64)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_document_embeddings\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_document_embeddings\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_document_embeddings', kafka_topic_list = 'clickhouse_document_embeddings';
 CREATE TABLE posthog.kafka_session_replay_events (
   session_id String,
   team_id Int64,
@@ -172,7 +184,7 @@ CREATE TABLE posthog.kafka_session_replay_events (
   ai_tags_freeform Array(String),
   ai_highlighted UInt8,
   surfacing_score Nullable(Float32)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_session_replay_events\'';
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_session_replay_events';
 CREATE TABLE posthog.kafka_usage_report_events_preagg (
   uuid UUID,
   event String,
@@ -181,7 +193,7 @@ CREATE TABLE posthog.kafka_usage_report_events_preagg (
   team_id Int64,
   distinct_id String,
   person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_usage_report_events_preagg\'', kafka_num_consumers = 1, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_events_json\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_usage_report_events_preagg', kafka_num_consumers = 1, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -293,6 +305,21 @@ CREATE TABLE posthog.writable_app_metrics (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics', rand());
+CREATE TABLE posthog.writable_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.writable_duplicate_events (
   team_id Int64,
   distinct_id String,
@@ -314,6 +341,23 @@ CREATE TABLE posthog.writable_duplicate_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'duplicate_events');
+CREATE TABLE posthog.writable_error_tracking_fingerprint_issue_state (
+  team_id Int64,
+  fingerprint String,
+  issue_id UUID,
+  issue_name Nullable(String),
+  issue_description Nullable(String),
+  issue_status String,
+  issue_severity Nullable(String),
+  assigned_user_id Nullable(Int64),
+  assigned_role_id Nullable(UUID),
+  first_seen DateTime64(3, 'UTC'),
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_fingerprint_issue_state');
 CREATE TABLE posthog.writable_error_tracking_issue_fingerprint_embeddings (
   team_id Int64,
   model_name LowCardinality(String),
@@ -518,6 +562,21 @@ CREATE MATERIALIZED VIEW posthog.app_metrics_mv TO posthog.writable_app_metrics 
   _offset,
   _partition
 FROM posthog.kafka_app_metrics;
+CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_billing_usage_records (schema_version UInt8, record_id String, producer_id LowCardinality(String), team_id Int64, organization_id UUID, usage_key LowCardinality(String), unit LowCardinality(String), quantity Int64, timestamp DateTime64(6, 'UTC'), inserted_at DateTime64(6, 'UTC'), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
+  schema_version,
+  record_id,
+  producer_id,
+  team_id,
+  organization_id,
+  usage_key,
+  unit,
+  quantity,
+  timestamp,
+  inserted_at,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_billing_usage_records;
 CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplicate_events (team_id Int64, distinct_id String, event String, source_uuid UUID, duplicate_uuid UUID, similarity_score Float64, dedup_type LowCardinality(String), is_confirmed UInt8, reason Nullable(String), version String, different_property_count UInt32, properties_similarity Float64, source_message String, duplicate_message String, distinct_fields Array(Tuple(field_name String, original_value String, new_value String)), inserted_at DateTime64(3, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   distinct_id,

@@ -1,0 +1,55 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confidence": {
+            "anyOf": [
+                {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Discovery confidence in this join, 0-1."
+        },
+        "configuration": {
+            "description": "Extra join configuration, e.g. a field mapping."
+        },
+        "evidence": {
+            "description": "Sampling evidence: match rates, sample values."
+        },
+        "field_name": {
+            "description": "Accessor the join adds to the source table.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "joining_table_key": {
+            "description": "HogQL key expression on the joining table (casts allowed).",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "joining_table_name": {
+            "description": "Name of the table being joined in.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "reasoning": {
+            "description": "Why this join is proposed.",
+            "type": "string"
+        },
+        "source_table_key": {
+            "description": "HogQL key expression on the source table (casts allowed).",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "source_table_name": {
+            "description": "Name of the table the join starts from.",
+            "maxLength": 400,
+            "type": "string"
+        }
+    },
+    "required": ["source_table_name", "source_table_key", "joining_table_name", "joining_table_key", "field_name"],
+    "type": "object"
+}

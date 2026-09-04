@@ -1,3 +1,4 @@
+import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { Theme } from "@radix-ui/themes";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,8 +18,9 @@ const mocks = vi.hoisted(() => ({
   navigateToArchived: vi.fn(),
   track: vi.fn(),
   routeChannelId: undefined as string | undefined,
-  routeId: "/website/$channelId/",
+  fullPath: "/spaces/$channelId",
   markChannelSeen: vi.fn(),
+  historyTabId: undefined as string | undefined,
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({
@@ -83,18 +85,34 @@ vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: {}, isFetched: true }),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useParams: () => ({ channelId: mocks.routeChannelId }),
+  useParams: ({
+    select,
+  }: {
+    select?: (params: { channelId: string | undefined }) => unknown;
+  } = {}) => {
+    const params = { channelId: mocks.routeChannelId };
+    return select ? select(params) : params;
+  },
   useRouterState: ({
     select,
   }: {
-    select: (s: { matches: { routeId: string }[] }) => unknown;
-  }) => select({ matches: [{ routeId: mocks.routeId }] }),
+    select: (s: {
+      matches: { fullPath: string }[];
+      location: { pathname: string; state: { tabId?: string } };
+    }) => unknown;
+  }) =>
+    select({
+      matches: [{ fullPath: mocks.fullPath }],
+      location: {
+        pathname: mocks.fullPath,
+        state: { tabId: mocks.historyTabId },
+      },
+    }),
 }));
 
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
-  keepListForRoute,
   showChannelList,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
@@ -126,6 +144,60 @@ const ENG = {
   starred: false,
 };
 
+function setPendingTabSwitch({
+  href,
+  viewState,
+  channelId,
+}: {
+  href: string;
+  viewState: { listOpen: boolean; spaceId: string | null };
+  channelId: string | null;
+}): void {
+  mocks.historyTabId = "target-tab";
+  browserTabsStore.getState().setSnapshot({
+    windows: [
+      {
+        id: "window-1",
+        isPrimary: true,
+        bounds: null,
+        activeTabId: "channel-tab",
+      },
+    ],
+    tabs: [
+      {
+        id: "channel-tab",
+        windowId: "window-1",
+        href: `/spaces/${ENG.id}`,
+        viewState: { listOpen: false, spaceId: ENG.id },
+        dashboardId: null,
+        taskId: null,
+        channelId: ENG.id,
+        channelSection: null,
+        appView: null,
+        position: 1_000,
+        scrollState: null,
+        createdAt: 1,
+        lastActiveAt: 1,
+      },
+      {
+        id: "target-tab",
+        windowId: "window-1",
+        href,
+        viewState,
+        dashboardId: null,
+        taskId: null,
+        channelId,
+        channelSection: null,
+        appView: null,
+        position: 2_000,
+        scrollState: null,
+        createdAt: 2,
+        lastActiveAt: 2,
+      },
+    ],
+  });
+}
+
 describe("ChannelsSidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -136,9 +208,14 @@ describe("ChannelsSidebar", () => {
     mocks.archivedTaskIds = new Set();
     mocks.track.mockClear();
     mocks.routeChannelId = undefined;
-    mocks.routeId = "/website/$channelId/";
+    mocks.fullPath = "/spaces/$channelId/";
+    mocks.historyTabId = undefined;
+    browserTabsStore.getState().setSnapshot({ windows: [], tabs: [] });
     useCurrentChannelStore.setState({ currentChannelId: null });
-    useChannelPaneStore.setState({ pane: "channel" });
+    useChannelPaneStore.setState({
+      pane: "channel",
+      animateTransition: false,
+    });
     // hasUserSetOpen pins `open`, so the auto-open effect (which sees no
     // workspaces in this harness) can't collapse it out from under the tests.
     useSidebarStore.setState({
@@ -164,7 +241,7 @@ describe("ChannelsSidebar", () => {
     // never be what a reader finds under the Activity destination.
     it("hands the column to the activity feed on the Activity route", () => {
       mocks.routeChannelId = undefined;
-      mocks.routeId = "/website/activity";
+      mocks.fullPath = "/activity";
       renderSidebar();
 
       expect(screen.getByTestId("activity-feed")).toBeInTheDocument();
@@ -188,6 +265,34 @@ describe("ChannelsSidebar", () => {
 
       expect(listIsInteractive()).toBe(true);
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("shows an in-flight tab's list before its route settles", () => {
+      mocks.routeChannelId = ENG.id;
+      setPendingTabSwitch({
+        href: "/spaces",
+        viewState: { listOpen: true, spaceId: ENG.id },
+        channelId: null,
+      });
+
+      renderSidebar();
+
+      expect(listIsInteractive()).toBe(true);
+      expect(useChannelPaneStore.getState().pane).toBe("channel");
+    });
+
+    it("does not mark an in-flight tab's channel seen", () => {
+      mocks.routeChannelId = ENG.id;
+      setPendingTabSwitch({
+        href: `/spaces/${ME.id}`,
+        viewState: { listOpen: false, spaceId: ME.id },
+        channelId: ME.id,
+      });
+
+      renderSidebar();
+
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ME.id);
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
     });
 
     it("marks a channel seen only while its pane is visible", () => {
@@ -228,6 +333,17 @@ describe("ChannelsSidebar", () => {
       expect(screen.getByTestId("channel-sidebar").textContent).toBe(ME.id);
     });
 
+    // The pane carries the space's own tabs, so holding it back until the space
+    // list lands left a cold load with nothing to switch between.
+    it("opens the route's channel before the channel list lands", () => {
+      mocks.routeChannelId = ENG.id;
+      mocks.channels = [];
+      mocks.channelsLoading = true;
+      renderSidebar();
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
+      expect(listIsInteractive()).toBe(false);
+    });
+
     it("stays on the list while no channel resolves", () => {
       mocks.channels = [ENG];
       renderSidebar();
@@ -241,8 +357,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = ENG.id;
       const { rerender } = renderSidebar();
       act(() => {
-        showChannelList();
-        keepListForRoute(ENG.id);
+        showChannelList({ keepForRoute: ENG.id });
       });
       expect(listIsInteractive()).toBe(true);
 

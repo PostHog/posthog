@@ -83,7 +83,7 @@ export function getCachedArchiveTask(
       .flatMap(([, tasks]) => tasks ?? [])
       .find((item) => item.id === taskId) ??
     queryClient
-      .getQueriesData<Schemas.TaskSummary[]>({
+      .getQueriesData<Schemas.TaskSummaryDTO[]>({
         queryKey: taskKeys.allSummaries(),
       })
       .flatMap(([, tasks]) => tasks ?? [])
@@ -94,7 +94,7 @@ export function getCachedArchiveTask(
 function makeOrchestrationDeps(
   queryClient: QueryClient,
   keys: ArchiveCacheKeys,
-  options?: { skipNavigate?: boolean; navigateSpace?: "code" | "website" },
+  options?: { skipNavigate?: boolean; navigateUnscoped?: boolean },
 ): ArchiveOrchestrationDeps {
   const hostClient = resolveService<HostTrpcClient>(HOST_TRPC_CLIENT);
   return {
@@ -112,7 +112,7 @@ function makeOrchestrationDeps(
       const view = getAppViewSnapshot();
       if (view.type === "task-detail" && view.taskId === taskId) {
         openTaskInput(
-          options?.navigateSpace ? { space: options.navigateSpace } : undefined,
+          options?.navigateUnscoped ? { unscoped: true } : undefined,
         );
       }
     },
@@ -183,14 +183,14 @@ function makeOrchestrationDeps(
   };
 }
 
-export async function archiveTaskImperative(
+async function archiveTaskImperative(
   taskId: string,
   queryClient: QueryClient,
   keys: ArchiveCacheKeys,
   options?: {
     skipNavigate?: boolean;
     optimistic?: boolean;
-    navigateSpace?: "code" | "website";
+    navigateUnscoped?: boolean;
   },
 ): Promise<void> {
   await archiveTask(
@@ -218,10 +218,9 @@ export async function archiveTasksImperative(
 }
 
 export function useArchiveTask(options?: {
-  // Which new-task screen to land on if the archived task is the active view.
-  // Defaults to Code; the bluebird/channels nav passes "website" so archiving
-  // from there returns to the website new-task screen instead.
-  navigateSpace?: "code" | "website";
+  // Ignore the scoped space when the archived task is the active view, landing
+  // on the unscoped new-task screen instead of the space's own.
+  navigateUnscoped?: boolean;
 }) {
   const queryClient = useQueryClient();
   const keys = useArchiveCacheKeys();
@@ -229,7 +228,7 @@ export function useArchiveTask(options?: {
 
   const archiveTask = async ({ taskId }: { taskId: string }) => {
     await archiveTaskImperative(taskId, queryClient, keys, {
-      navigateSpace: options?.navigateSpace,
+      navigateUnscoped: options?.navigateUnscoped,
     });
     const toastId = `archive-undo-${taskId}`;
     toast.success("Task archived", {

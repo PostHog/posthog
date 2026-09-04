@@ -8,15 +8,12 @@ import { inject, injectable } from "inversify";
 import { composeUtterance } from "./composeUtterance";
 import {
   type ISpeechQueue,
-  SPEECH_QUEUE_SERVICE,
   SPEECH_SETTINGS_PROVIDER,
   SPEECH_USER_NAME_PROVIDER,
   type SpeechRequest,
   type SpeechSettingsProvider,
   type UserNameProvider,
 } from "./identifiers";
-
-export { SPEECH_QUEUE_SERVICE };
 
 /** Max queued utterances (excluding the one currently playing) before we drop. */
 const MAX_QUEUE = 3;

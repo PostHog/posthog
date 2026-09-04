@@ -51,6 +51,14 @@ class TestCanvasSourceAdapter(SimpleTestCase):
     def test_valid_minimal_project_has_no_diagnostics(self):
         self.assertEqual(validate_source_project(project()), [])
 
+    def test_canvas_sdk_import_is_allowed_without_a_dependency_pin(self):
+        # The SDK is platform-provided (inlined by the builder), so the import
+        # must pass without an entry in the project's dependencies map.
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: 'import { ph } from "@posthog/canvas-sdk";\n' + CODE},
+        )
+        self.assertEqual(validate_source_project(candidate), [])
+
     @parameterized.expand(
         [
             ("wrong_schema_version", project(schemaVersion=2), "unsupported_schema_version"),
@@ -186,12 +194,99 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertNotIn("capability_missing_state", [d["code"] for d in diagnostics])
 
     def test_direct_network_calls_warn_but_stay_publishable(self):
-        # fetch() is blocked by the sandbox CSP, not by publish — a comment or
-        # string mentioning it must not brick a canvas, so it's a warning.
-        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + 'fetch("/api/x");'})
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + "fetch(dynamicUrl);"})
         diagnostics = validate_source_project(candidate)
         self.assertFalse(has_errors(diagnostics))
         self.assertIn("network_fetch", [d["code"] for d in diagnostics])
+
+    @parameterized.expand(
+        [
+            ("fetch", 'fetch("https://api.example.com/v1/data");', CANVAS_COMPONENT_PATH, "https://api.example.com"),
+            (
+                "fetch_template_literal",
+                "fetch(`https://api.example.com/v1/${reportId}`);",
+                CANVAS_COMPONENT_PATH,
+                "https://api.example.com",
+            ),
+            (
+                "image",
+                '<img src="https://images.example.com/chart.png" />',
+                CANVAS_COMPONENT_PATH,
+                "https://images.example.com",
+            ),
+            (
+                "image_srcset",
+                '<img srcSet="/chart-small.png 1x, https://images.example.com/chart-large.png 2x" />',
+                CANVAS_COMPONENT_PATH,
+                "https://images.example.com",
+            ),
+            (
+                "stylesheet",
+                '<link rel="stylesheet" href="https://styles.example.com/theme.css" />',
+                CANVAS_ENTRY_HTML,
+                "https://styles.example.com",
+            ),
+            (
+                "css_url",
+                '.hero { background-image: url("https://images.example.com/hero.png"); }',
+                "src/theme.css",
+                "https://images.example.com",
+            ),
+            (
+                "css_import",
+                '@import url("https://styles.example.com/base.css");',
+                "src/theme.css",
+                "https://styles.example.com",
+            ),
+        ]
+    )
+    def test_literal_external_resources_require_declared_origin(self, _name, snippet, path, expected_origin):
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE, path: snippet})
+
+        diagnostics = validate_source_project(candidate)
+
+        entry = next(d for d in diagnostics if d["code"] == "capability_missing_network_origin")
+        self.assertIn(f'"{expected_origin}" in capabilities.network.origins', entry["message"])
+        self.assertEqual(entry["path"], path)
+
+    def test_declared_origin_covers_literal_external_resources(self):
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: CODE + 'fetch("https://api.example.com/v1/data");'},
+            capabilities={"network": {"origins": ["https://api.example.com"]}},
+        )
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertNotIn("capability_missing_network_origin", [entry["code"] for entry in diagnostics])
+
+    @parameterized.expand(
+        [
+            ("anchor", '<a href="https://posthog.com/docs">Docs</a>'),
+            ("open_external", 'ph.openExternal("https://app.posthog.com/insights/abc");'),
+        ]
+    )
+    def test_navigation_urls_do_not_require_network_origin(self, _name, snippet):
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + snippet})
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertNotIn("capability_missing_network_origin", [entry["code"] for entry in diagnostics])
+
+    @parameterized.expand(
+        [
+            ("object", '<object data="https://cdn.example.com/report.pdf"></object>'),
+            ("embed", '<embed src="https://cdn.example.com/report.pdf" />'),
+        ]
+    )
+    def test_object_and_embed_do_not_require_network_origin(self, _name, snippet):
+        # The artifact CSP keeps object-src 'none', so a declared origin cannot
+        # make these load. Flagging them would block publish with a remedy that
+        # does nothing.
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE + snippet})
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertNotIn("capability_missing_network_origin", [entry["code"] for entry in diagnostics])
 
     @parameterized.expand(
         [
@@ -199,7 +294,7 @@ class TestCanvasSourceAdapter(SimpleTestCase):
             ("path", "https://api.example.com/v1"),
             ("credentials", "https://user:secret@api.example.com"),
             ("wildcard", "https://*.example.com"),
-            # Origins land in the viewer's connect-src, so private and local
+            # Origins land in the viewer's CSP, so private and local
             # destinations would let a canvas probe the viewer's machine or LAN.
             ("loopback_ipv4", "https://127.0.0.1:8443"),
             ("private_ipv4", "https://192.168.1.1"),
@@ -219,7 +314,7 @@ class TestCanvasSourceAdapter(SimpleTestCase):
             ("ipv4_hex_label", "https://1.2.3.0x10"),
             ("ipv6_scope_id", "https://[fe80::1%eth0]"),
             ("ipv6_global_scope_id", "https://[2606:4700:4700::1111%foo; img-src evil.example]"),
-            # A delimiter in the hostname would break out of the connect-src it is
+            # A delimiter in the hostname would break out of the directive it is
             # spliced into. This form carries no wildcard, so only the hostname
             # charset check rejects it.
             ("csp_directive_injection", "https://example.com; img-src evil.example.net"),

@@ -7,6 +7,8 @@ import {
     FacetSelection,
     FacetSource,
     FilterGroupFacetSource,
+    buildCustomFacet,
+    customFacetIdentity,
     cycleFacetFilter,
     facetFilterSelection,
     facetScopeSignature,
@@ -20,6 +22,7 @@ const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name' }
 
 const STATUS_SOURCE: FilterGroupFacetSource = { type: 'column', column: 'status_code' }
 const POD_SOURCE: FilterGroupFacetSource = { type: 'resourceAttribute', key: 'k8s.pod.name' }
+const HTTP_STATUS_ATTRIBUTE_SOURCE: FilterGroupFacetSource = { type: 'attribute', key: 'http.status_code' }
 
 function groupWith(values: object[]): UniversalFiltersGroup {
     return {
@@ -39,6 +42,11 @@ describe('facets', () => {
                 'resource-attribute facet writes a span_resource_attribute filter',
                 POD_SOURCE,
                 PropertyFilterType.SpanResourceAttribute,
+            ],
+            [
+                'plain-attribute facet writes a span_attribute filter',
+                HTTP_STATUS_ATTRIBUTE_SOURCE,
+                PropertyFilterType.SpanAttribute,
             ],
         ])('%s', (_, source, expectedType) => {
             const group = cycleFacetFilter(undefined, source, 'a')
@@ -357,6 +365,27 @@ describe('facets', () => {
 
         it('keeps column facets whatever the tenant emits', () => {
             expect(resolveFacets(FACETS, []).map((f) => f.key)).toEqual(['service', 'status'])
+        })
+
+        it('passes a plain-attribute facet through unchanged, regardless of presence', () => {
+            // Custom facets are added by the user picking a real key, not resolved against a curated
+            // alias list — resolveFacets must never drop or rewrite them the way it does resourceAttribute.
+            const attributeFacet = buildCustomFacet('http.status_code', 'attribute')
+            expect(resolveFacets([attributeFacet], [])).toEqual([attributeFacet])
+        })
+    })
+
+    describe('buildCustomFacet / customFacetIdentity', () => {
+        it.each<['attribute' | 'resourceAttribute']>([['attribute'], ['resourceAttribute']])(
+            'round-trips the key and sourceType through a %s facet',
+            (sourceType) => {
+                const facet = buildCustomFacet('http.status_code', sourceType)
+                expect(customFacetIdentity(facet)).toEqual({ key: 'http.status_code', sourceType })
+            }
+        )
+
+        it('returns null for a curated facet', () => {
+            expect(customFacetIdentity(FACETS[0])).toBeNull()
         })
     })
 })

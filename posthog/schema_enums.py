@@ -89,6 +89,13 @@ class AccountsTableCustomPropertyOperator(StrEnum):
     IS_DATE_AFTER = "is_date_after"
 
 
+class AccountsTableRelationshipOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
 class AccountsTableSortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
@@ -188,6 +195,14 @@ class AssistantArrayPropertyFilterOperator(StrEnum):
     IS_NOT = "is_not"
 
 
+class AssistantBehavioralPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+
+
 class Operator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
@@ -222,6 +237,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     SCATTER_PLOT = "ScatterPlot"
+    BOX_PLOT = "BoxPlot"
 
 
 class Scale(StrEnum):
@@ -445,7 +461,6 @@ class AssistantTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
-    EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"
     CREATE_SURVEY = "create_survey"
     EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -512,11 +527,6 @@ class AssistantTool(StrEnum):
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
     SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
-    READ_REPLAY_VISION_ACTIONS = "read_replay_vision_actions"
-    UPDATE_REPLAY_VISION_ACTION = "update_replay_vision_action"
-    DELETE_REPLAY_VISION_ACTION = "delete_replay_vision_action"
-    RUN_REPLAY_VISION_ACTION = "run_replay_vision_action"
-    CREATE_REPLAY_VISION_ACTION = "create_replay_vision_action"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -532,6 +542,7 @@ class Display(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -602,6 +613,11 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BehavioralEventSource(StrEnum):
+    EVENTS = "events"
+    ACTIONS = "actions"
+
+
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -663,6 +679,7 @@ class ChartDisplayType(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -671,6 +688,13 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Curve(StrEnum):
@@ -858,6 +882,29 @@ class CurrencyCode(StrEnum):
     YER = "YER"
     ZAR = "ZAR"
     ZMW = "ZMW"
+
+
+class CustomBotField(StrEnum):
+    FIELD_RAW_USER_AGENT = "$raw_user_agent"
+    FIELD_IP = "$ip"
+    FIELD_LIB = "$lib"
+    FIELD_HOST = "$host"
+    FIELD_PATHNAME = "$pathname"
+    FIELD_CURRENT_URL = "$current_url"
+    FIELD_BROWSER = "$browser"
+    FIELD_OS = "$os"
+    FIELD_BROWSER_LANGUAGE = "$browser_language"
+    FIELD_SCREEN_WIDTH = "$screen_width"
+    FIELD_SCREEN_HEIGHT = "$screen_height"
+    FIELD_GEOIP_COUNTRY_CODE = "$geoip_country_code"
+    FIELD_REFERRER = "$referrer"
+    FIELD_REFERRING_DOMAIN = "$referring_domain"
+
+
+class CustomBotMatcher(StrEnum):
+    CONTAINS = "contains"
+    REGEX = "regex"
+    CIDR = "cidr"
 
 
 class CustomChannelField(StrEnum):
@@ -1160,6 +1207,11 @@ class ErrorTrackingQueryIssueSeverity(StrEnum):
     CRITICAL = "critical"
 
 
+class ErrorTrackingReleasesOrderBy(StrEnum):
+    LATEST = "latest"
+    OCCURRENCES = "occurrences"
+
+
 class EvaluationRuntime(StrEnum):
     HOG = "hog"
     LLM_JUDGE = "llm_judge"
@@ -1454,6 +1506,7 @@ class ExternalDataSourceType(StrEnum):
     EBAY = "Ebay"
     COMMERCETOOLS = "Commercetools"
     LIGHTSPEED_RETAIL = "LightspeedRetail"
+    SHIPMAIL = "Shipmail"
     SHIP_STATION = "ShipStation"
     CONSTANT_CONTACT = "ConstantContact"
     MAILGUN = "Mailgun"
@@ -1568,6 +1621,7 @@ class ExternalDataSourceType(StrEnum):
     CUSTOMERLY = "Customerly"
     DATASCOPE = "Datascope"
     DBT = "Dbt"
+    DEMODESK = "Demodesk"
     DEPUTY = "Deputy"
     DEVIN_AI = "DevinAI"
     DOCUSEAL = "Docuseal"
@@ -2535,6 +2589,7 @@ class ExternalDataSourceType(StrEnum):
     SIDE_SHIFT = "SideShift"
     DUCK_LAKE = "DuckLake"
     STARBURST = "Starburst"
+    TRINO = "Trino"
     EASYBILL = "Easybill"
     BEXIO = "Bexio"
     UMAMI = "Umami"
@@ -2586,6 +2641,25 @@ class ExternalDataSourceType(StrEnum):
     CAPTERRA = "Capterra"
     GOOGLE_POSTMASTER_TOOLS = "GooglePostmasterTools"
     GROWI = "Growi"
+    CLARIFY = "Clarify"
+    DATO_CMS = "DatoCMS"
+    WPS_OFFICE = "WPSOffice"
+    TERA_BOX = "TeraBox"
+    SIMON_DATA = "SimonData"
+    COMMISSION_JUNCTION = "CommissionJunction"
+    LIVEBLOCKS = "Liveblocks"
+    NATION_BUILDER = "NationBuilder"
+    TANA = "Tana"
+    ZENCHEF = "Zenchef"
+    LOVABLE = "Lovable"
+    ANVIL = "Anvil"
+    COOLIFY = "Coolify"
+    SOCIAL_PILOT = "SocialPilot"
+    ROKT_ADS = "RoktAds"
+    STRATO = "Strato"
+    MEDUSA = "Medusa"
+    MEMBRAIN = "Membrain"
+    RECALL_AI = "RecallAI"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2739,13 +2813,6 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -2919,6 +2986,11 @@ class InfinityValue(float, Enum):
     NUMBER__999999 = -999999
 
 
+class InlineBehavioralType(StrEnum):
+    PERFORMED_EVENT = "performed_event"
+    PERFORMED_EVENT_MULTIPLE = "performed_event_multiple"
+
+
 class InsightFilterProperty(StrEnum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"
@@ -2988,6 +3060,7 @@ class IntegrationKind(StrEnum):
     APNS = "apns"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
+    AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
@@ -3062,6 +3135,22 @@ class NeighborDirection(StrEnum):
     AFTER = "after"
 
 
+class MCPToolQualitySortColumn(StrEnum):
+    TOTAL_CALLS = "total_calls"
+    ERROR_RATE_PCT = "error_rate_pct"
+    P50_DURATION_MS = "p50_duration_ms"
+    P95_DURATION_MS = "p95_duration_ms"
+    P99_DURATION_MS = "p99_duration_ms"
+    USERS = "users"
+    SESSIONS = "sessions"
+    LAST_SEEN = "last_seen"
+
+
+class MCPToolQualitySortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class MarketingAnalyticsAttributionBreakdown(StrEnum):
     CHANNEL = "channel"
     SOURCE = "source"
@@ -3132,6 +3221,12 @@ class MarketingAnalyticsDrillDownLevel(StrEnum):
 class MarketingAnalyticsOrderByEnum(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class MarketingAnalyticsRetentionInterval(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
 
 
 class MarketingAnalyticsSchemaFieldTypes(StrEnum):
@@ -3224,6 +3319,18 @@ class MetricsAttributeScope(StrEnum):
     AUTO = "auto"
 
 
+class MetricsAxisScale(StrEnum):
+    LINEAR = "linear"
+    LOG = "log"
+
+
+class MetricsDisplayType(StrEnum):
+    LINE = "line"
+    AREA = "area"
+    BAR = "bar"
+    STAT = "stat"
+
+
 class MetricsFilterOp(StrEnum):
     EQ = "eq"
     NEQ = "neq"
@@ -3237,6 +3344,12 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsStatSummary(StrEnum):
+    LATEST = "latest"
+    AVERAGE = "average"
+    TOTAL = "total"
 
 
 class MultiQuestionFormFieldType(StrEnum):
@@ -3303,6 +3416,7 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
     ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY = "ErrorTrackingFingerprintProjectionQuery"
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
+    ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
@@ -3334,6 +3448,7 @@ class NodeKind(StrEnum):
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
+    WEB_AGENT_ANALYTICS_QUERY = "WebAgentAnalyticsQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -3344,6 +3459,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
+    MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3386,6 +3502,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
+    MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -3433,6 +3550,21 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PredicateIndexVerdict(StrEnum):
+    INDEXED = "indexed"
+    BLOCKED = "blocked"
+    UNINDEXED_COLUMN = "unindexed_column"
+    UNINDEXED_JSON = "unindexed_json"
+    OPERATOR_NOT_INDEXABLE = "operator_not_indexable"
+
+
+class PredicateScope(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    GROUP = "group"
+    UNKNOWN = "unknown"
 
 
 class ProductIntentContext(StrEnum):
@@ -3555,10 +3687,12 @@ class ProductKey(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     COHORTS = "cohorts"
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DASHBOARDS = "dashboards"
     DATA_CATALOG = "data_catalog"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
@@ -3591,11 +3725,16 @@ class ProductKey(StrEnum):
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_AI_ONBOARDING = "posthog_ai_onboarding"
+    POSTHOG_DESKTOP = "posthog_desktop"
+    POSTHOG_GITHUB = "posthog_github"
+    POSTHOG_SLACK = "posthog_slack"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
     PULSE = "pulse"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVIEW_HOG = "review_hog"
+    SELF_DRIVING = "self_driving"
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"
@@ -3625,6 +3764,7 @@ class PropertyFilterType(StrEnum):
     FEATURE = "feature"
     SESSION = "session"
     COHORT = "cohort"
+    BEHAVIORAL = "behavioral"
     RECORDING = "recording"
     LOG_ENTRY = "log_entry"
     GROUP = "group"
@@ -3634,6 +3774,7 @@ class PropertyFilterType(StrEnum):
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
     ACCOUNT = "account"
+    ACCOUNT_RELATIONSHIP = "account_relationship"
     ACCOUNT_CUSTOM_PROPERTY = "account_custom_property"
     FLAG = "flag"
     LOG = "log"
@@ -4062,6 +4203,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     ACCOUNT_FIELDS = "account_fields"
+    ACCOUNT_RELATIONSHIPS = "account_relationships"
     ACCOUNT_CUSTOM_PROPERTIES = "account_custom_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
@@ -4077,6 +4219,13 @@ class TaxonomicFilterGroupType(StrEnum):
 
 class TikTokAdsDefaultSources(StrEnum):
     TIKTOK = "tiktok"
+
+
+class TimeUnitType(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
 
 
 class TraceOrderColumn(StrEnum):
@@ -4111,16 +4260,22 @@ class UsageMetricFormat(StrEnum):
     CURRENCY = "currency"
 
 
-class UserProductListReason(StrEnum):
-    DEFAULT = "default"
-    ONBOARDING = "onboarding"
-    PRODUCT_INTENT = "product_intent"
-    USED_BY_COLLEAGUES = "used_by_colleagues"
-    USED_SIMILAR_PRODUCTS = "used_similar_products"
-    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
-    NEW_PRODUCT = "new_product"
-    SALES_LED = "sales_led"
-    ONBOARDING_DELEGATED = "onboarding_delegated"
+class WebAgentAnalyticsQueryType(StrEnum):
+    OVERVIEW = "overview"
+    ISSUES = "issues"
+    PAGE_REQUESTS = "page_requests"
+    TRANSITIONS = "transitions"
+    DEMAND = "demand"
+    ISSUE_VARIANTS = "issue_variants"
+    REQUEST_ANATOMY = "request_anatomy"
+    JOURNEY_SUMMARY = "journey_summary"
+    JOURNEYS = "journeys"
+    JOURNEY_DETAIL = "journey_detail"
+
+
+class WebAgentContentGrouping(StrEnum):
+    EXACT = "exact"
+    NORMALIZED = "normalized"
 
 
 class WebAnalyticsItemKind(StrEnum):

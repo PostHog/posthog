@@ -25,6 +25,26 @@ tools:
             from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context
             — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation,
             see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.
+
+            A dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring,
+            weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive:
+            an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search
+            notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few
+            metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.
+        agent_note: Consider offering the user a recurring delivery of this dashboard as a next step, but only when the
+            dashboard in this response has tiles on it. Creating from a template (`use_template`) or duplicating another
+            dashboard (`use_dashboard`) usually starts with tiles, though duplicating an empty dashboard does not. A
+            dashboard with no tiles has nothing to deliver, and subscriptions-create needs at least one chart, so say
+            nothing about subscriptions until it has some. Describe it the way a person would recognize it, for example
+            a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel.
+            To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id,
+            `dashboard_export_insights` listing up to 10 charts, `target_type` of `email` or `slack`, and
+            `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`.
+            Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for
+            `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather
+            than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or
+            subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user
+            already declined a subscription earlier in this conversation, do not offer again.
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -76,7 +96,7 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
-    dashboard-create-text-tile:
+    dashboard-create-tile:
         operation: dashboards_create_text_tile_create
         enabled: true
         scopes:
@@ -85,17 +105,16 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        input_schema: DashboardTileCreateSchema
         enrich_url: '{params.id}'
-        title: Create dashboard text tile
+        title: Create dashboard tile
         description: >
-            Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings,
-            dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns
-            wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If
-            `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards
-            if you need precise placement.
-        param_overrides:
-            id:
-                cast: string-int
+            Add a dashboard tile. Set `type` to text or image. Use Markdown headings, dividers, or notes for a text
+            tile. The desktop grid is 12 columns wide. A typical text heading uses a thin full-width banner (e.g.
+            `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the dashboard places the tile at the
+            bottom with the default size. Use dashboard-reorder-tiles for precise placement. An image tile body must
+            contain exactly one Markdown image, such as `![Accessible description](https://example.com/image.png)`. The
+            image URL must be reachable by dashboard viewers. Use `layouts` to control the tile size.
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -227,6 +246,21 @@ tools:
             Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use
             dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the
             layout parameter to force a 2-column or full-width grid instead.
+    dashboard-saved-views-create:
+        operation: dashboard_saved_views_create
+        enabled: false
+    dashboard-saved-views-destroy:
+        operation: dashboard_saved_views_destroy
+        enabled: false
+    dashboard-saved-views-list:
+        operation: dashboard_saved_views_list
+        enabled: false
+    dashboard-saved-views-partial-update:
+        operation: dashboard_saved_views_partial_update
+        enabled: false
+    dashboard-saved-views-update:
+        operation: dashboard_saved_views_update
+        enabled: false
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false

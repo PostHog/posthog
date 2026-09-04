@@ -29,12 +29,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from .attribution_base import PERSON_ARRAYS_CTE, AttributionQueryRunnerBase
+from .attribution_base import PERSON_ARRAYS_CTE, PERSON_CONVERSION_COUNT, AttributionQueryRunnerBase
 from .attribution_weights import (
     build_first_touch_weights,
     build_last_touch_weights,
@@ -143,6 +143,8 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             # because timestamps don't: they're truncated to whole seconds, so two conversions in the
             # same second would otherwise group together as one.
             ast.Field(chain=[_CONVERSION_INDEX]),
+            # Rides along so the footer can report the person's exact conversion total.
+            ast.Field(chain=[PERSON_CONVERSION_COUNT]),
             ast.Alias(alias="conversion_time", expr=ast.TupleAccess(tuple=conversion, index=1)),
             ast.Alias(alias="conversion_value", expr=ast.TupleAccess(tuple=conversion, index=2)),
             ast.Alias(alias="tps", expr=in_window),
@@ -322,7 +324,7 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
         """
         return ast.SelectQuery(
             select=[
-                ast.Alias(alias=_TOTAL_CONVERSIONS, expr=ast.Call(name="count", args=[])),
+                ast.Alias(alias=_TOTAL_CONVERSIONS, expr=self._total_conversions_expr(_CONVERSION_INDEX)),
                 ast.Alias(
                     alias=_ATTRIBUTED_CONVERSIONS,
                     expr=ast.Call(
@@ -476,6 +478,9 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             modifiers=self.modifiers,
             limit_context=self.limit_context or LimitContext.QUERY,
             context=self._shared_hogql_context,
+            # The per-person touchpoint arrays are unbounded, so let the GROUP BY spill to disk
+            # rather than hit the memory limit. Same guard funnels, retention and paths use.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         # Mapped by column name, not tuple position, so adding a column can't shift every later one.

@@ -1,0 +1,12 @@
+{
+    "id": "LB2",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "1202-1209",
+    "priority": "should_fix",
+    "title": "An older completed run can hide the latest failed re-review",
+    "problem": "The query excludes failed runs before it orders by recency. An older completed run at the same head can then hide a newer failed re-review. This happens after same-head reviews, including a base retarget. The older approval may already be dismissed. A later receiver retry treats the old verdict as current and does not replace the failed review.",
+    "suggestion": "Load the latest run at the head without excluding statuses. Restart it when it is queued. Create a replacement when its latest status is failed or superseded. Only return early when the latest run is live or delivered.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

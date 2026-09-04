@@ -5,11 +5,18 @@ import {
     computeFleetSummary,
     computeScoutRollups,
     deriveRunOutcome,
+    formatRunCost,
     mostRecentEmittedRuns,
-    reconcileById,
     runMatchesFilter,
+    dayTimeToWeeklyCron,
+    getScoutScheduleMode,
+    SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
+    SCOUT_DAILY_AT_SCHEDULE_MODE,
+    SCOUT_WEEKLY_ON_SCHEDULE_MODE,
     ScoutRunOutcome,
+    scoutCronScheduleError,
     scoutReportActivityLabel,
+    weeklyCronToDayTime,
 } from './scoutRunsWindow'
 
 const NOW = new Date('2026-06-27T22:00:00Z')
@@ -48,6 +55,18 @@ describe('scoutRunsWindow report channel', () => {
             ],
         ])('%s', (_name, overrides, expected) => {
             expect(deriveRunOutcome(makeRun(overrides), NOW)).toEqual(expected)
+        })
+    })
+
+    describe('formatRunCost', () => {
+        // A cheap run still cost something, and "$0.00" is exactly the number this readout exists
+        // to replace, so anything under a cent gets the digits to show it.
+        it.each<[number, string]>([
+            [4.0327, '$4.03'],
+            [0.0042, '$0.0042'],
+            [0, '$0.00'],
+        ])('%s → %s', (cost, expected) => {
+            expect(formatRunCost(cost)).toEqual(expected)
         })
     })
 
@@ -135,47 +154,61 @@ describe('scoutRunsWindow report channel', () => {
             expect(computeFleetSummary([], rollups).touchedReportCount).toEqual(2)
         })
     })
+})
 
-    describe('reconcileById', () => {
-        it('keeps the previous reference for unchanged items and the fresh one for changed items', () => {
-            // Every runs-window poll returns freshly parsed objects; reconcileById is what preserves
-            // identity so memoized rows only re-render on real change. If it degrades to `return next`,
-            // unchanged runs churn references every 60s and the memo is silently defeated.
-            const prevUnchanged = makeRun({ run_id: 'run-1', emitted_count: 1 })
-            const prevChanged = makeRun({ run_id: 'run-2', status: 'in_progress' })
+describe('scout schedule modes', () => {
+    it.each<[string, string | null, string]>([
+        ['a rolling interval', null, '1440'],
+        ['a plain daily cron', '0 9 * * *', SCOUT_DAILY_AT_SCHEDULE_MODE],
+        ['a single weekday cron', '30 8 * * 4', SCOUT_WEEKLY_ON_SCHEDULE_MODE],
+        ['a Sunday cron written as 7', '30 8 * * 7', SCOUT_WEEKLY_ON_SCHEDULE_MODE],
+        ['a weekday-range cron', '0 9 * * 1-5', SCOUT_CUSTOM_CRON_SCHEDULE_MODE],
+        ['a monthly cron', '0 9 1 * *', SCOUT_CUSTOM_CRON_SCHEDULE_MODE],
+    ])('reads %s as its own mode', (_label, runCronSchedule, expected) => {
+        expect(getScoutScheduleMode({ run_interval_minutes: 1440, run_cron_schedule: runCronSchedule })).toEqual(
+            expected
+        )
+    })
 
-            const nextUnchanged = makeRun({ run_id: 'run-1', emitted_count: 1 })
-            const nextChanged = makeRun({ run_id: 'run-2', status: 'completed' })
-            const nextNew = makeRun({ run_id: 'run-3' })
+    it('round-trips a weekly day and time through the cron it writes', () => {
+        expect(dayTimeToWeeklyCron('4', '08:30')).toEqual('30 8 * * 4')
+        expect(weeklyCronToDayTime('30 8 * * 4')).toEqual({ day: '4', time: '08:30' })
+    })
 
-            const result = reconcileById(
-                [prevUnchanged, prevChanged],
-                [nextUnchanged, nextChanged, nextNew],
-                (run) => run.run_id
-            )
+    it('reads the other Sunday spelling as the dropdown value', () => {
+        expect(weeklyCronToDayTime('30 8 * * 7')).toEqual({ day: '0', time: '08:30' })
+    })
 
-            expect(result[0]).toBe(prevUnchanged)
-            expect(result[1]).toBe(nextChanged)
-            expect(result[2]).toBe(nextNew)
+    describe('scoutCronScheduleError', () => {
+        it.each<[string, string]>([
+            ['0 9 * * 1-5', 'weekdays'],
+            ['30 8 * * 1,4', 'two days a week'],
+            ['0 9 1 * *', 'the first of the month'],
+            ['0 9,17 * * *', 'twice a day'],
+            ['0 9 * * MON', 'a named weekday'],
+            ['0 9 15 2 *', 'a real February date'],
+            ['0 9 31 2,3 MON', 'a real date in one of the months'],
+            ['10,50 0,23 * * 1', 'slots either side of midnight, but only one day a week'],
+            ['0 9 * * 5#2', 'syntax only the backend models'],
+            ['0 9 L * *', 'the last day of the month'],
+            ['R 9 * * *', 'a random minute the scheduler picks'],
+        ])('accepts %s (%s)', (expression) => {
+            expect(scoutCronScheduleError(expression)).toBeNull()
         })
 
-        it('returns the next array untouched when there is no previous window', () => {
-            const next = [makeRun({ run_id: 'run-1' })]
-            expect(reconcileById([], next, (run) => run.run_id)).toBe(next)
-        })
-
-        it('never reuses items the isReusable predicate rejects, even when deep-equal', () => {
-            // A running run's row renders a wall-clock duration: reusing its reference would let the
-            // memoized row skip the poll re-render and freeze the ticking timer.
-            const prev = makeRun({ run_id: 'run-1', status: 'in_progress' })
-            const next = makeRun({ run_id: 'run-1', status: 'in_progress' })
-            const result = reconcileById(
-                [prev],
-                [next],
-                (run) => run.run_id,
-                (run) => run.status !== 'in_progress'
-            )
-            expect(result[0]).toBe(next)
+        it.each<[string, string]>([
+            ['0 9 * *', 'Enter a five-field cron expression, like 0 9 * * 1-5.'],
+            ['70 9 * * *', 'Enter a five-field cron expression, like 0 9 * * 1-5.'],
+            ['not a cron at all', 'Enter a five-field cron expression, like 0 9 * * 1-5.'],
+            ['0 0 31 2 *', 'This schedule never matches a real date. Check the day and month.'],
+            ['0 0 31 2 MON', 'This schedule never matches a real date. Check the day and month.'],
+            ['*/20 * * * *', 'Runs must be at least 30 minutes apart.'],
+            ['0,15 9 * * *', 'Runs must be at least 30 minutes apart.'],
+            ['10,50 0,23 * * *', 'Runs must be at least 30 minutes apart.'],
+            ['*/1e2 9 * * *', 'Enter a five-field cron expression, like 0 9 * * 1-5.'],
+            ['0 9 * * @', 'Enter a five-field cron expression, like 0 9 * * 1-5.'],
+        ])('refuses %s', (expression, expected) => {
+            expect(scoutCronScheduleError(expression)).toEqual(expected)
         })
     })
 })

@@ -95,7 +95,7 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
                 # Batch's retries exhausted — count its alerts as errored, keep going.
                 workflow.logger.warning(
                     "Cohort batch activity failed; counting batch alerts as errored",
-                    cohort_count=len(batch.manifests),
+                    extra={"cohort_count": len(batch.manifests)},
                 )
                 alerts_errored += sum(len(m.alert_ids) for m in batch.manifests)
             elif isinstance(result, BaseException):

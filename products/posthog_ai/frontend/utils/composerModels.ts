@@ -141,6 +141,18 @@ export function getEffortLabel(effort: string | null | undefined): string {
     return effort ? (EFFORT_LABELS[effort] ?? effort) : 'Effort'
 }
 
+// Keep an effort only if the model supports it, else nothing. The stored-preference counterpart of
+// `resolveEffortForModel`: a settings row wants "no pick" when the effort no longer applies, where a
+// composer wants a concrete value to send. Mirrors the backend's `filter_unsupported_effort`.
+export function filterEffortForModel(
+    catalogue: ModelChoiceApi[],
+    effort: string | null | undefined,
+    model: string | null | undefined
+): ReasoningEffortEnumApi | null {
+    const allowed = getEffortsForModel(catalogue, model).map((option) => option.value)
+    return effort && allowed.includes(effort as ReasoningEffortEnumApi) ? (effort as ReasoningEffortEnumApi) : null
+}
+
 // Clamp an effort to one the selected model actually supports — the new-run path can inherit an effort from a
 // previous run on a different model (e.g. `max` carried over to a model that only offers low/medium/high), and the
 // backend rejects an out-of-range effort. Falls back to the default when valid, else the highest available.
@@ -159,6 +171,22 @@ export function resolveEffortForModel(
         return effort as ReasoningEffortEnumApi
     }
     return allowed.includes(DEFAULT_COMPOSER_EFFORT) ? DEFAULT_COMPOSER_EFFORT : allowed[allowed.length - 1]
+}
+
+/**
+ * A run-create request that pins no runtime selection at all: the backend resolves the model
+ * triple from the stored team/user default (or its own fallback), and the permission mode
+ * rides along, clamped server-side to whichever runtime the default names. Used whenever the
+ * composer's selection is untouched — pinning the displayed fallback instead would freeze a
+ * value the server could have resolved better (and would go stale the moment the default
+ * changes or a fetch fails). The generated request types are discriminated on
+ * `runtime_adapter`, so this shape deliberately steps outside them.
+ */
+export function buildServerResolvedRunCreateRequest(
+    permissionMode: PermissionMode,
+    rest: Partial<TaskRunCreateRequestSchemaApi>
+): TaskRunCreateRequestSchemaApi {
+    return { ...rest, initial_permission_mode: permissionMode } as unknown as TaskRunCreateRequestSchemaApi
 }
 
 /**

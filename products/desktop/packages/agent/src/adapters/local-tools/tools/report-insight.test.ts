@@ -3,11 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const getTaskRun = vi.fn();
 const reportAnalysisInsight = vi.fn();
 
 vi.mock("../../../signed-commit-artefacts", () => ({
-  createSandboxPosthogClient: () => ({ getTaskRun, reportAnalysisInsight }),
+  createSandboxPosthogClient: () => ({ reportAnalysisInsight }),
   withReportDeadline: <T>(work: (signal: AbortSignal) => Promise<T>) =>
     work(new AbortController().signal),
 }));
@@ -94,8 +93,7 @@ describe("reportInsightTool", () => {
     const logPath = path.join(cwd, LOG_RELATIVE_PATH);
     await mkdir(path.dirname(logPath), { recursive: true });
     await writeFile(logPath, RUN_LOG);
-    getTaskRun.mockResolvedValue({ state: {} });
-    reportAnalysisInsight.mockResolvedValue({});
+    reportAnalysisInsight.mockResolvedValue({ insight_index: 0 });
   });
 
   afterEach(async () => {
@@ -225,32 +223,31 @@ describe("reportInsightTool", () => {
     expect(reportAnalysisInsight).not.toHaveBeenCalled();
   });
 
-  it("enforces the per-run cap and the no-findings contradiction", async () => {
-    getTaskRun.mockResolvedValue({
-      state: {
-        [INSIGHTS_STATE_KEY]: Array(5).fill({ category: "missing_tool" }),
-      },
-    });
-    const capped = await reportInsightTool.handler(ctx(cwd), validFinding());
-    expect(capped.isError).toBe(true);
-    expect(capped.content[0].text).toMatch(/cap/);
-
-    getTaskRun.mockResolvedValue({
-      state: {
-        [INSIGHTS_STATE_KEY]: [{ no_findings_reason: "run_was_efficient" }],
-      },
-    });
-    const contradictory = await reportInsightTool.handler(
-      ctx(cwd),
-      validFinding(),
+  it("numbers the recorded finding from the server's index", async () => {
+    reportAnalysisInsight.mockResolvedValue({ insight_index: 2 });
+    const result = await reportInsightTool.handler(ctx(cwd), validFinding());
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toMatch(
+      /Recorded finding 3 .+ 2 more allowed/,
     );
-    expect(contradictory.isError).toBe(true);
-    expect(contradictory.content[0].text).toMatch(/contradictory/);
+  });
+
+  it("returns a coaching error when the server rejects the report", async () => {
+    reportAnalysisInsight.mockRejectedValueOnce(
+      new Error(
+        'Failed request: [400] {"evidence":[{"quote":["Ensure this value has at least 20 characters."]}]}',
+      ),
+    );
+    const result = await reportInsightTool.handler(ctx(cwd), validFinding());
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/was rejected by the server/);
+    expect(result.content[0].text).toContain(
+      "Ensure this value has at least 20 characters",
+    );
   });
 
   it("accumulates findings filed as parallel tool calls", async () => {
     const state: Record<string, unknown> = {};
-    getTaskRun.mockImplementation(() => Promise.resolve({ state }));
     reportAnalysisInsight.mockImplementation(appendingUpdateMock(state));
 
     const second = validFinding({

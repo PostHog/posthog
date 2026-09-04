@@ -1,10 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getBubbleSteps as getBubbleStepsPA } from '../product-analytics/bubble'
+import { getBubbleInstallSteps } from '../product-analytics/bubble'
 import { StepDefinition } from '../steps'
-import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
+import { sessionReplayFinalStep } from './_snippets/session-replay-final-step'
 
-export const getBubbleSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =>
-    createSessionReplayStepsFromPA(getBubbleStepsPA, ctx)
+export const getBubbleSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getBubbleInstallSteps(ctx),
+    sessionReplayFinalStep(ctx),
+]
 
 export const BubbleInstallation = createInstallation(getBubbleSteps)

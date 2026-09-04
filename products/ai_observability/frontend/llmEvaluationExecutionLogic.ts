@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -131,7 +131,12 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                         lemonToast.success('Evaluation started successfully')
                         return response
                     } catch (error) {
-                        lemonToast.error('Failed to start evaluation')
+                        // `initKea`'s loader handler renders `detail` or `statusText`, so toasting
+                        // here as well would repeat it. A reply carrying neither leaves that
+                        // handler silent, which is the case this covers.
+                        if (!(error instanceof ApiError) || !(error.detail || error.statusText)) {
+                            lemonToast.error('Failed to start evaluation')
+                        }
                         throw error
                     }
                 },

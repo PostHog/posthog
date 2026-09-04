@@ -39,15 +39,23 @@ then dies in the rendered canvas. Declare:
 - `capabilities.posthog.captureEvents` — every event name it passes to `ph.capture`.
 - `capabilities.posthog.inlineQueries: true` — when it calls `ph.query` at all.
 - `capabilities.posthog.agentRequests: true` — when it calls `ph.agent.request`.
-- `capabilities.network.origins` — each exact HTTPS origin used by `fetch` or `XMLHttpRequest`.
+- `capabilities.network.origins` — each exact HTTPS origin used by `fetch`, `XMLHttpRequest`, or an
+  external stylesheet, image, font, media file, or frame. Remote scripts remain blocked.
   Do not include paths, credentials, queries, fragments, or wildcards. The host must be public:
   loopback and private IPs, single-label names like `intranet`, and the `.local`, `.localhost`,
   `.internal`, and `.home.arpa` suffixes are all rejected, so a local dev host such as
   `https://localhost:8010` fails validation with an `invalid_network_origin` error. Data sent to a
   declared origin leaves PostHog and appears in the capability review before promotion.
 
-Validation rejects undeclared literal calls (`capability_missing_*` diagnostics) so you can fix
-them before publishing; dynamic ids it can only warn about, so keep the declarations complete.
+Before validation, inventory every literal external URL in every source file. Classify navigation
+links and `ph.openExternal()` URLs as navigation; they do not need a network origin. For every
+request or resource URL, declare its scheme + host + optional port only. Include every origin a
+request redirects to and every secondary origin a stylesheet references for fonts or images.
+Never infer that one CDN hostname covers another.
+
+Validation rejects undeclared literal calls and resource URLs (`capability_missing_*` diagnostics)
+so you can fix them before publishing. Dynamic URLs and redirect destinations cannot be inferred,
+so the inventory is still required even when validation is clean.
 
 ## Validate until clean
 
@@ -59,7 +67,8 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
   (bare imports are limited to the dependencies returned in the source project),
   `forbidden_dynamic_import` / `forbidden_require` / `forbidden_inline_script`,
   `invalid_path`, `capability_missing_insight` / `capability_missing_capture_event` /
-  `capability_missing_inline_queries` / `capability_missing_agent_requests`,
+  `capability_missing_inline_queries` / `capability_missing_agent_requests` /
+  `capability_missing_network_origin`,
   `dependency_not_admitted` / `dependency_version_mismatch`, and path/size violations.
 - `warning` diagnostics don't block, but heed them: `network_fetch` / `network_xhr` mean the code
   reaches for the network directly. Declare the exact HTTPS origin or use the `ph` bridge.

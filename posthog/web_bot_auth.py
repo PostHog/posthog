@@ -17,7 +17,7 @@ from posthog.web_bot_auth_keys import load_web_bot_auth_private_key_configuratio
 CONTENT_TYPE = "application/http-message-signatures-directory+json"
 _TAG = "http-message-signatures-directory"
 _SIGNATURE_LIFETIME_SECONDS = 300
-_CACHE_MAX_AGE_SECONDS = 240
+_CACHE_MAX_AGE_SECONDS = 60
 
 # Covering @authority prevents cross-authority signature replay. Keep its value constant so this
 # endpoint cannot act as a confused deputy and sign a directory for a requester-controlled domain.

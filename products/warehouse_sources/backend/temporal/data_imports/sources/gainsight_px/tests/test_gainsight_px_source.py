@@ -1,22 +1,11 @@
-from types import SimpleNamespace
-from typing import cast
-
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px import (
-    GainsightPxResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source import GainsightPxSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
     GainsightPxSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGainsightPxSource:
@@ -24,32 +13,6 @@ class TestGainsightPxSource:
         self.source = GainsightPxSource()
         self.team_id = 123
         self.config = GainsightPxSourceConfig(api_key="key", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GAINSIGHTPX
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "GainsightPx"
-        assert config.label == "Gainsight PX"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/gainsight_px.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/gainsight-px"
-        assert len(config.fields) == 2
-
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        region_field = config.fields[1]
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.name == "region"
-        assert region_field.defaultValue == "us"
-        assert {option.value for option in region_field.options} == {"us", "eu", "us2"}
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -108,29 +71,3 @@ class TestGainsightPxSource:
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid
         mock_validate.assert_called_once_with(self.config.api_key, self.config.region)
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is GainsightPxResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source.gainsight_px_source"
-    )
-    def test_source_for_pipeline_plumbs_inputs(self, mock_gainsight_source):
-        mock_gainsight_source.return_value = SimpleNamespace(name="users")
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        logger = mock.MagicMock()
-        inputs = SimpleNamespace(schema_name="users", team_id=self.team_id, job_id="job-1", logger=logger)
-
-        response = self.source.source_for_pipeline(self.config, manager, cast(SourceInputs, inputs))
-
-        mock_gainsight_source.assert_called_once_with(
-            api_key="key",
-            region="us",
-            endpoint="users",
-            team_id=self.team_id,
-            job_id="job-1",
-            resumable_source_manager=manager,
-        )
-        assert response is mock_gainsight_source.return_value

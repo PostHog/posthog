@@ -1,0 +1,27 @@
+name: aurora_db_latency
+description: >
+  Per-database commit latency (aurora_stat_get_db_commit_latency) and DML
+  counts + latency by statement class (aurora_stat_dml_activity). All
+  cumulative microseconds/counts; reset by pg_stat_reset, so stats_reset from
+  pg_stat_database is included for reset detection.
+interval: 60s
+scope: cluster
+kind: cumulative
+requires: { aurora: true }
+key: [datname]
+query: |
+  SELECT d.datname,
+         aurora_stat_get_db_commit_latency(d.oid)::bigint AS commit_latency_us,
+         (dml).select_count::bigint            AS select_count,
+         (dml).select_latency_microsecs::bigint AS select_latency_us,
+         (dml).insert_count::bigint            AS insert_count,
+         (dml).insert_latency_microsecs::bigint AS insert_latency_us,
+         (dml).update_count::bigint            AS update_count,
+         (dml).update_latency_microsecs::bigint AS update_latency_us,
+         (dml).delete_count::bigint            AS delete_count,
+         (dml).delete_latency_microsecs::bigint AS delete_latency_us,
+         s.stats_reset
+  FROM pg_database d
+  JOIN pg_stat_database s ON s.datid = d.oid
+  CROSS JOIN LATERAL aurora_stat_dml_activity(d.oid) dml
+  WHERE NOT d.datistemplate AND d.datname <> 'rdsadmin'

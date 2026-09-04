@@ -7,6 +7,7 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 from psycopg.pq import TransactionStatus
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.r
     _build_query,
     _explain_query,
     _fetch_arrow_batches,
+    _is_transient_connection_drop_error,
     _libpq_rows_per_chunk,
     _stream_arrow_batches,
     _stream_rows_as_arrow_batches,
@@ -731,7 +733,7 @@ class TestFetchArrowBatches:
 
         tables = list(_fetch_arrow_batches(cursor, 5, _STREAM_SCHEMA, fetch_size=2))
 
-        assert _ids(tables) == [[1, 2, 3, 4, 5, 6], [7]]
+        assert _ids(tables) == [[1, 2, 3, 4, 5], [6, 7]]
         assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2, 2, 2, 2]
 
     def test_fetches_a_whole_chunk_at_a_time_by_default(self):
@@ -1278,6 +1280,26 @@ class TestRedshiftValidateCredentials:
         assert error is not None and "does not support SSL" in error
         capture.assert_not_called()
 
+    def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker):
+        # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
+        # it must be replaced with concrete guidance rather than surfaced verbatim.
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(
+            source,
+            "get_schemas",
+            side_effect=BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None
+        assert "Could not establish session to SSH gateway" not in error
+        assert "SSH tunnel" in error and "firewall" in error
+
 
 class TestRedshiftSourceForPipeline:
     def test_forwards_chunk_size_override_from_external_data_schema(self, mocker):
@@ -1354,7 +1376,65 @@ def build_pipeline_mocks(mocker):
     return mock_connect, streaming_cursor
 
 
+class TestIsTransientConnectionDropError:
+    def test_matches_connection_is_lost(self):
+        assert _is_transient_connection_drop_error(psycopg.OperationalError("the connection is lost")) is True
+
+    def test_does_not_match_unrelated_operational_error(self):
+        # A permanent, non-actionable failure that also raises OperationalError must not be
+        # swept up by the narrow "the connection is lost" match and retried in-process.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("password authentication failed for user testuser")
+            )
+            is False
+        )
+
+    def test_does_not_match_non_operational_error(self):
+        assert _is_transient_connection_drop_error(ValueError("the connection is lost")) is False
+
+
 class TestBuildPipeline:
+    def test_retries_once_on_transient_connection_drop_during_setup(self, build_pipeline_mocks, mocker):
+        # Regression: `get_table_metadata` hit a freshly opened connection that dropped
+        # (`psycopg.OperationalError: the connection is lost`) before setup finished. Without an
+        # in-process retry this failed the whole sync out to Temporal's activity-level retry, which
+        # restarts the entire setup phase from scratch instead of reconnecting once.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        attempts = {"n": 0}
+        fake_table = Table(
+            name="messages",
+            parents=("public",),
+            columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
+            type="table",
+        )
+
+        def flaky_get_table_metadata(*args, **kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise psycopg.OperationalError("the connection is lost")
+            return fake_table
+
+        mocker.patch.object(RedshiftImplementation, "get_table_metadata", side_effect=flaky_get_table_metadata)
+
+        impl = RedshiftImplementation()
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+
+        assert attempts["n"] == 2
+        assert response.primary_keys == ["id"]
+
+    def test_gives_up_after_max_attempts_on_persistent_connection_drop(self, build_pipeline_mocks, mocker):
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            side_effect=psycopg.OperationalError("the connection is lost"),
+        )
+
+        impl = RedshiftImplementation()
+        with pytest.raises(psycopg.OperationalError):
+            impl.build_pipeline(_make_config(), _make_inputs())
+
     def test_returns_source_response(self, build_pipeline_mocks):
         mock_connect, _ = build_pipeline_mocks
         impl = RedshiftImplementation()

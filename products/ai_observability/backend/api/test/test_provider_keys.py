@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.proxy import models_cache_key
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
@@ -19,8 +20,6 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -196,13 +195,19 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertIn("Key 1", names)
         self.assertIn("Key 2", names)
 
-    def test_can_retrieve_single_provider_key(self):
+    @parameterized.expand(
+        [
+            ("long_key", "sk-test-key-12345", "sk-t...2345"),
+            ("short_key", "sk-short-key", "********"),
+        ]
+    )
+    def test_can_retrieve_single_provider_key(self, _name: str, api_key: str, expected_mask: str):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
             name="My Key",
             state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test-key-12345"},
+            encrypted_config={"api_key": api_key},
             created_by=self.user,
         )
 
@@ -210,7 +215,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "My Key")
         self.assertEqual(response.data["provider"], "openai")
-        self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
+        self.assertEqual(response.data["api_key_masked"], expected_mask)
 
     def test_can_update_provider_key_name(self):
         key = LLMProviderKey.objects.create(

@@ -174,8 +174,10 @@ describe('accountSummariesLogic', () => {
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockPatch.mockResolvedValue(CADENCE_OFF)
         await mount('acc-deadline')
+        // Pin the clock before setCadence: the deadline is written with Date.now() inside the
+        // listener, and any real-clock drift past startedAt would put the mocked "now" below it.
         const startedAt = Date.now()
-        const nowSpy = jest.spyOn(Date, 'now')
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(startedAt)
 
         logic.actions.setCadence('daily')
         await expectLogic(logic).toFinishAllListeners()

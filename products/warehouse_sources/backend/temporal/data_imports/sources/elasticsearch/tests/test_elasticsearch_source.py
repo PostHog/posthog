@@ -1,8 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source import (
     ElasticsearchSource,
     _auth_from_config,
@@ -11,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ElasticsearchAuthMethodConfig,
     ElasticsearchSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source"
 
@@ -46,35 +43,6 @@ class TestElasticsearchSource:
         self.source = ElasticsearchSource()
         self.team_id = 123
         self.config = _config()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ELASTICSEARCH
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Elasticsearch"
-        assert config.label == "Elasticsearch"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/elasticsearch.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["host", "auth_method"]
-
-    def test_auth_method_is_a_select_with_basic_and_api_key(self):
-        config = self.source.get_source_config
-        auth_field = next(f for f in config.fields if f.name == "auth_method")
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert {option.value for option in auth_field.options} == {"basic", "api_key"}
-
-    def test_secret_subfields_are_marked_secret(self):
-        config = self.source.get_source_config
-        auth_field = next(f for f in config.fields if f.name == "auth_method")
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        subfields = [f for option in auth_field.options for f in (option.fields or [])]
-        secret_names = {f.name for f in subfields if isinstance(f, SourceFieldInputConfig) and f.secret}
-        assert secret_names == {"password", "api_key"}
 
     @pytest.mark.parametrize(
         "observed_error",

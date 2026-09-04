@@ -4,6 +4,17 @@ import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
 import type { LegendItem, LegendItemClickModifiers } from './Legend'
 import { legendItemsFromSeries } from './legendItemsFromSeries'
 
+/** True when the primary pointer is coarse (a touch screen), read live at click time. Guarded like
+ *  `prefersReducedMotion` because `matchMedia` is absent in jsdom test workers and other non-browser
+ *  hosts, where a bare access would throw mid-render. Missing support reads as a fine pointer. */
+function isCoarsePointer(): boolean {
+    return (
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches
+    )
+}
+
 /** Mark each `hiddenKeys` series as `visibility.excluded` so the chart drops it from rendering,
  *  scales, tooltips, and hit-testing — leaving the visible series to rescale into the freed space.
  *  Other `visibility` flags are preserved. Returns the input untouched when nothing is hidden. */
@@ -137,9 +148,12 @@ export function useChartLegend<Meta>(
     // Grafana's legend model: a plain click isolates (and clicking the isolated row restores all),
     // ⌘/Ctrl-click builds a selection one series at a time. Picking one series out of twenty is the
     // common case, and it costs one click here instead of nineteen.
+    // A touch screen has no ⌘/Ctrl/Shift, so the additive gesture is unreachable and isolate-on-tap
+    // would strand the user on one series with no way to add a second. Tap toggles there instead, so
+    // taps build any subset the way the checkbox legend table does. Isolate stays on the row menu.
     const handleItemClick = useCallback(
         (key: string, { additive }: LegendItemClickModifiers) => {
-            if (additive || !canIsolate) {
+            if (additive || !canIsolate || isCoarsePointer()) {
                 toggle(key)
                 return
             }

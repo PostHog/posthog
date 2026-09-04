@@ -107,6 +107,9 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
                         {maintainedDays >= 1 && (
                             <span>· carried forward {maintainedDays === 1 ? '1 day' : `${maintainedDays} days`}</span>
                         )}
+                        {/* Most memories are durable, so an expiry is the exception worth calling out —
+                            without it a reader can't tell why an entry they remember has stopped showing up. */}
+                        {entry.expires_at && <span>· expires {humanFriendlyDetailedTime(entry.expires_at)}</span>}
                         <span className="flex-1" />
                         {(scoutName || entry.created_by_run_id) && (
                             <span className="shrink-0">

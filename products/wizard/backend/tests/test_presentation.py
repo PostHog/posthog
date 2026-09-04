@@ -95,7 +95,7 @@ class TestWizardSessionViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
+    @patch("products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async")
     def test_completed_session_accepts_event_definition_write_scope(self, _mock_sync):
         self._authenticate_personal_api_key(["wizard_session:write", "event_definition:write"])
 
@@ -107,7 +107,7 @@ class TestWizardSessionViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
+    @patch("products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async")
     def test_repost_same_session_id_upserts(self, _mock_sync):
         first = self.client.post(self._url(), self._payload(), format="json")
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)

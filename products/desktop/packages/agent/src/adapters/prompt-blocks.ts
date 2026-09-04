@@ -6,9 +6,7 @@ import type { PromptRequest } from "@agentclientprotocol/sdk";
  * injections with `_meta.ui.hidden` so the parts that reason about what the user
  * actually said (slash-command detection, transcript echoes) can skip them.
  */
-export function isHiddenPromptBlock(
-  block: PromptRequest["prompt"][number],
-): boolean {
+function isHiddenPromptBlock(block: PromptRequest["prompt"][number]): boolean {
   const meta = block._meta as { ui?: { hidden?: boolean } } | undefined;
   return meta?.ui?.hidden === true;
 }

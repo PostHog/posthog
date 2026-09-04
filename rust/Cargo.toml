@@ -19,8 +19,10 @@ members = [
   "common/cookieless",
   "common/database",
   "common/dns",
+  "common/grpc",
   "common/health",
   "common/kafka",
+  "common/kafka-consumer",
   "common/liveness",
   "common/lifecycle",
   "common/limiters",
@@ -43,6 +45,8 @@ members = [
   "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",
+  "usage-ingestion-proto",
+  "usage-ingestion",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
@@ -69,6 +73,8 @@ members = [
   "personhog-test-harness",
   "affected-services",
   "property-vals-rs",
+  "pgcollector",
+  "pgapi",
 ]
 
 # NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
@@ -183,8 +189,9 @@ once_cell = "1.21.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
-public-suffix = "0.1.2"
+percent-encoding = "2.3.1"
 prost = "0.13"
+public-suffix = "0.1.2"
 rand = "0.8.5"
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
@@ -233,7 +240,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.24.0", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.25.4", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

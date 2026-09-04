@@ -12,6 +12,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
+import createEventDefinitionTool from '@/tools/projects/createEventDefinition'
 import getProjectsTool from '@/tools/projects/getProjects'
 import setActiveProjectTool from '@/tools/projects/setActive'
 import updateEventDefinitionTool from '@/tools/projects/updateEventDefinition'
@@ -76,6 +77,48 @@ describe('Projects', { concurrent: false }, () => {
             const text = setResult.content[0]!.text
             expect(text).toContain(`Switched to project ${targetProject}`)
             expect(text).toContain('Current context:')
+        })
+    })
+
+    describe('event-definition-create tool', () => {
+        const createTool = createEventDefinitionTool()
+        const createdEventDefinitionIds: string[] = []
+
+        afterEach(async () => {
+            for (const id of createdEventDefinitionIds) {
+                try {
+                    await context.api.request({
+                        method: 'DELETE',
+                        path: `/api/projects/${TEST_PROJECT_ID}/event_definitions/${id}/`,
+                    })
+                } catch (error) {
+                    console.warn(`Failed to cleanup event definition ${id}:`, error)
+                }
+            }
+            createdEventDefinitionIds.length = 0
+        })
+
+        it('should create a definition for an event with no prior captured event', async () => {
+            const eventName = `mcp_test_event_${uuidv4()}`
+            const result = await createTool.handler(context, {
+                eventName,
+                data: { description: 'Defined before ingestion', tags: ['mcp-test'] },
+            })
+            const eventDef = parseToolResponse(result)
+            createdEventDefinitionIds.push(eventDef.id)
+
+            expect(eventDef.name).toBe(eventName)
+            expect(eventDef.description).toBe('Defined before ingestion')
+            expect(eventDef.tags).toContain('mcp-test')
+            expect(eventDef.url).toContain(`/data-management/events/${eventDef.id}`)
+        })
+
+        it('should throw error when the event definition already exists', async () => {
+            const eventName = `mcp_test_event_${uuidv4()}`
+            const first = await createTool.handler(context, { eventName })
+            createdEventDefinitionIds.push(parseToolResponse(first).id)
+
+            await expect(createTool.handler(context, { eventName })).rejects.toThrow()
         })
     })
 

@@ -27,6 +27,7 @@ import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -68,6 +69,10 @@ export const SeriesTab = (): JSX.Element => {
 
     if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         return <HeatmapSeriesTab />
+    }
+
+    if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        return <BoxPlotSeriesTab />
     }
 
     if (showTableSettings) {

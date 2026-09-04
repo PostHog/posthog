@@ -25,10 +25,15 @@ Use React, Quill, Recharts, Lucide, and Day.js for the standard application shel
 also admits ten optional libraries for specialized work. Read
 [references/platform-libraries.md](references/platform-libraries.md) before choosing one.
 
+PostHog data comes through `import { ph } from "@posthog/canvas-sdk"` — a platform-provided
+module, so it needs no `dependencies` entry. The same object exists as the `window.ph` global
+(how existing canvases reach it); prefer the import in new code.
+
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
-validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
-and works only in the **published** canvas — the edit-mode preview blocks all direct network
-access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
+validation. Direct network requests and external images, fonts, media, or frames require an exact
+HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the
+edit-mode preview blocks direct network access regardless of declaration. Stylesheets from declared
+origins are allowed; remote scripts remain blocked, so bundle code with the canvas.
 
 ## Quill component rules
 
@@ -130,6 +135,15 @@ sessionization, attribution, or unique visitors in HogQL. Format large values fo
 
 Use controlled Quill inputs for each dimension, event, or date choice. Keep result sets small and
 refresh every dependent query when a control changes.
+
+### Checklist or runbook
+
+For a checklist, QA runbook, launch plan, onboarding sequence, or any list of steps people work
+through and tick off, start from the complete, validated project in
+[references/checklist-example.md](references/checklist-example.md). Its load-bearing parts — the
+typed content module separate from the component, one shared `ph.state` key per step, the
+debounced ref-alongside-state update path, an expected outcome on every step, and visible
+load/save failure states — are what break when improvised. Keep them; replace the content.
 
 ## Date window
 

@@ -6,14 +6,17 @@
 //! message). Scope is one `anonymize_message` call; the map is dropped when it returns.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{bail, Result};
+use serde::Serialize;
 
 use crate::allow_lists::AllowLists;
 use crate::assets::PLACEHOLDER_SRC;
 use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
-use crate::collect::{collectable_data_uri_bytes, CollectedImage, ImageCollection, ImageCollector};
+use crate::collect::{
+    collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
+};
 use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
 use crate::timings::PhaseTimings;
 use crate::url_collect::{CollectedUrl, UrlCollection, UrlCollector};
@@ -22,6 +25,20 @@ use crate::url_collect::{CollectedUrl, UrlCollection, UrlCollector};
 /// `compression::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ImageSource {
+    CssProperty(&'static str),
+    HtmlAttribute(&'static str),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ImageSourceCount {
+    pub source: &'static str,
+    pub property: &'static str,
+    pub kind: &'static str,
+    pub count: u32,
+}
 
 /// Scrub context: the allow lists, the cv decompression budget, the blur memo, the image scrub
 /// policy (inline blur, or deferred onto the shared worker pool), and the optional collection lane.
@@ -39,6 +56,7 @@ pub struct Ctx<'a> {
     collector: Option<RefCell<ImageCollector>>,
     // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
     url_collector: Option<RefCell<UrlCollector>>,
+    image_source_counts: RefCell<BTreeMap<(ImageSource, &'static str), u32>>,
     // Whether a well-formed ref already present in the *input* is left alone. Off unless the
     // caller vouches for the input's provenance; see `preserving_image_refs`.
     preserve_image_refs: bool,
@@ -77,6 +95,7 @@ impl<'a> Ctx<'a> {
             images: ImageQueue::default(),
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
             url_collector: None,
+            image_source_counts: RefCell::new(BTreeMap::new()),
             preserve_image_refs: false,
         }
     }
@@ -124,6 +143,19 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    pub(crate) fn scrub_image_from(
+        &self,
+        original: &str,
+        fallback: ImageFallback,
+        source: ImageSource,
+    ) -> String {
+        let scrubbed = self.scrub_image(original, fallback);
+        if is_image_ref(&scrubbed) {
+            self.record_image_source(source, "inline");
+        }
+        scrubbed
+    }
+
     pub(crate) fn has_pending_images(&self) -> bool {
         self.images.has_pending()
     }
@@ -161,6 +193,37 @@ impl<'a> Ctx<'a> {
     pub(crate) fn collect_url(&self, original: &str) -> Option<String> {
         let collector = self.url_collector.as_ref()?;
         collector.borrow_mut().collect(original)
+    }
+
+    pub(crate) fn collect_url_from(&self, original: &str, source: ImageSource) -> Option<String> {
+        let reference = self.collect_url(original)?;
+        self.record_image_source(source, "url");
+        Some(reference)
+    }
+
+    fn record_image_source(&self, source: ImageSource, kind: &'static str) {
+        let mut counts = self.image_source_counts.borrow_mut();
+        let count = counts.entry((source, kind)).or_default();
+        *count = count.saturating_add(1);
+    }
+
+    pub fn take_image_source_counts(&self) -> Vec<ImageSourceCount> {
+        let counts = std::mem::take(&mut *self.image_source_counts.borrow_mut());
+        counts
+            .into_iter()
+            .map(|((source, kind), count)| {
+                let (source, property) = match source {
+                    ImageSource::CssProperty(property) => ("css", property),
+                    ImageSource::HtmlAttribute(property) => ("html", property),
+                };
+                ImageSourceCount {
+                    source,
+                    property,
+                    kind,
+                    count,
+                }
+            })
+            .collect()
     }
 
     /// Drain the collected URLs (hash-sorted). Empty when URL collection was off.

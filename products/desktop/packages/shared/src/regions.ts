@@ -1,6 +1,7 @@
-export type CloudRegion = "us" | "eu" | "dev";
+export const CLOUD_REGIONS = ["us", "eu", "dev", "dev-cloud"] as const;
+export type CloudRegion = (typeof CLOUD_REGIONS)[number];
 
-export interface RegionLabel {
+interface RegionLabel {
   flag: string;
   label: string;
   hint: string;
@@ -21,6 +22,11 @@ export const REGION_LABELS: Record<CloudRegion, RegionLabel> = {
     flag: "🛠️",
     label: "Local development",
     hint: "localhost:8010",
+  },
+  "dev-cloud": {
+    flag: "🧪",
+    label: "Dev Cloud",
+    hint: "app.dev.posthog.dev",
   },
 };
 
