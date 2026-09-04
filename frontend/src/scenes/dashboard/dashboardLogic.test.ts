@@ -594,7 +594,7 @@ describe('dashboardLogic', () => {
                 logic.actions.setDates('-7d', null)
             }).toFinishAllListeners()
 
-            jest.spyOn(api, 'update').mockResolvedValue({
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
                 ...logic.values.dashboard!,
                 persisted_filters: logic.values.effectiveEditBarFilters,
             })
