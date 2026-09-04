@@ -18,6 +18,7 @@ from posthog.models.team.team import Team
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.enums import ResolvedAccessSource, ResolvedAccessSourceSubject
 from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
@@ -78,21 +79,12 @@ class ResolvedAccessSerializer(serializers.Serializer):
 
     access_level = serializers.CharField(help_text="The access level that applies.")
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=[
-            "object",
-            "parent_object",
-            "resource",
-            "parent_resource",
-            "system_default",
-            "org_admin",
-            "creator",
-            "org_membership",
-        ],
+        choices=ResolvedAccessSource.choices,
         help_text="How the level was derived: a rule on the object, its parent object, the resource, the parent "
         "resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).",
     )
     source_subject = serializers.ChoiceField(
-        choices=["member", "role", "default"],
+        choices=ResolvedAccessSourceSubject.choices,
         allow_null=True,
         help_text="Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.",
     )
