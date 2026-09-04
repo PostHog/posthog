@@ -41,7 +41,18 @@ export function initPostHog(appName: string, appVersion: string): void {
     client.register({
         $mcp_app_name: appName,
         $mcp_app_version: appVersion,
+        // Stamped once per loaded app document. Host notifications currently arrive at
+        // twice the connection count, and this separates a host that delivers each
+        // notification twice from a host that mounts the app twice.
+        $mcp_app_instance_id: newInstanceId(),
     })
+}
+
+function newInstanceId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID()
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 /**
@@ -118,11 +129,26 @@ export function captureToolInput(params: { toolName?: string | undefined; hasArg
  */
 export function captureToolResult(params: {
     hasStructuredContent?: boolean | undefined
+    hasAppData?: boolean | undefined
     contentLength?: number | undefined
+    rendered?: boolean | undefined
 }): void {
     capture('mcp_ui_app_tool_result', {
         has_structured_content: params.hasStructuredContent,
+        has_app_data: params.hasAppData,
         content_length: params.contentLength,
+        rendered: params.rendered,
+    })
+}
+
+/**
+ * Capture the app giving up on the host, which is the only signal that a person saw
+ * a failed render instead of a chart.
+ */
+export function captureWaitTimeout(params: { phase: string; timeoutMs: number }): void {
+    capture('mcp_ui_app_wait_timeout', {
+        phase: params.phase,
+        timeout_ms: params.timeoutMs,
     })
 }
 
