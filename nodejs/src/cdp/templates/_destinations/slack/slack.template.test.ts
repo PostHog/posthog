@@ -86,9 +86,17 @@ describe('slack template', () => {
     })
 
     // Clearing these has to keep the request inside chat:write, so a workspace that never granted
-    // chat:write.customize has a way to make the destination work.
-    it.each([['icon_emoji'], ['username']])('should omit %s when it is empty', async (key) => {
-        const response = await tester.invoke({ ...commonInputs, [key]: '' })
+    // chat:write.customize has a way to make the destination work. The UI writes '' on clear, but an
+    // API caller can leave the input unset or null, and neither may reach Slack either.
+    it.each([
+        ['icon_emoji', 'cleared in the UI', ''],
+        ['icon_emoji', 'unset', undefined],
+        ['icon_emoji', 'null', null],
+        ['username', 'cleared in the UI', ''],
+        ['username', 'unset', undefined],
+        ['username', 'null', null],
+    ])('should omit %s when it is %s', async (key, _name, value) => {
+        const response = await tester.invoke({ ...commonInputs, [key]: value })
 
         expect(response.error).toBeUndefined()
         expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty(key)
