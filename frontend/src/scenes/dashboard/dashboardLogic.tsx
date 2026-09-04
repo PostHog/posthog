@@ -2584,7 +2584,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 urlVariables: Record<string, HogQLVariable>
             ): boolean =>
                 (hasUrlFilters && !hasIntermittentFilters && !filterEditModeActive) ||
-                Object.keys(urlVariables).length > 0,
+                (Object.keys(urlVariables).length > 0 && !filterEditModeActive),
         ],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
