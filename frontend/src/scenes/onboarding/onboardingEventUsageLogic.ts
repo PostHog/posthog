@@ -19,6 +19,7 @@ export type SelfDrivingOnboardingStepId =
 export const SELF_DRIVING_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
     version: 2,
     flow_variant: 'context_first',
+    entry_point: 'welcome',
 }
 
 export type CloudRunExperimentArm = 'control' | 'test'
