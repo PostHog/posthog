@@ -74,7 +74,7 @@
                 {
                     "properties": {
                         "source": {
-                            "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                            "description": "Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
                             "minLength": 1,
                             "type": "string"
                         }
