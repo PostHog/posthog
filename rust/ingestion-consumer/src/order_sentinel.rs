@@ -50,7 +50,7 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::ledger_shadow::set_held_gauges;
+use crate::commit_ledger::set_held_gauges;
 use crate::types::SerializedKafkaMessage;
 use common_kafka_consumer::{AssignmentEpoch, Held, TopicOffsetLedger, TopicPartition};
 

@@ -16,12 +16,12 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
+use crate::commit_ledger::CommitLedger;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
-use crate::ledger_shadow::LedgerShadow;
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -223,7 +223,7 @@ pub struct IngestionConsumer {
     commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    ledger_shadow: LedgerShadow,
+    commit_ledger: CommitLedger,
 }
 
 impl IngestionConsumer {
@@ -242,7 +242,10 @@ impl IngestionConsumer {
         // Share the context's commit sentinel and ledger so rebalance
         // callbacks reset the same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
-        let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let topic_offset_ledger = consumer
+            .context()
+            .topic_offset_ledger()
+            .expect("the context carries a ledger");
         let (batcher, outputs) = Batcher::new(
             dispatcher,
             Arc::clone(&transport),
@@ -252,7 +255,7 @@ impl IngestionConsumer {
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
-            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
+            commit_ledger: CommitLedger::new(topic_offset_ledger),
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -322,7 +325,7 @@ impl IngestionConsumer {
             consumer: Arc::new(consumer),
             commit_sentinel,
             debug_recorder,
-            ledger_shadow: LedgerShadow::new(Some(topic_offset_ledger)),
+            commit_ledger: CommitLedger::new(topic_offset_ledger),
             batcher,
             outputs: Some(outputs),
             transport,
@@ -610,15 +613,15 @@ impl IngestionConsumer {
                         lag_ms,
                     };
                     let key = TopicPartition::new(topic.clone(), partition);
-                    let generations_version = self.ledger_shadow.generations_version();
+                    let generations_version = self.commit_ledger.generations_version();
                     match partitions.get_mut(&key) {
                         Some(deliveries) => deliveries.record(
                             generations_version,
-                            || self.ledger_shadow.generation(&key),
+                            || self.commit_ledger.generation(&key),
                             &delivery,
                         ),
                         None => {
-                            let generation = self.ledger_shadow.generation(&key);
+                            let generation = self.commit_ledger.generation(&key);
                             partitions.insert(
                                 key,
                                 PartitionDeliveries::new(
@@ -674,7 +677,7 @@ impl IngestionConsumer {
         // One ledger call per partition keeps the lock and the gauge labels
         // off the per-message path.
         for (topic_partition, partition) in &partitions {
-            self.ledger_shadow
+            self.commit_ledger
                 .charge(topic_partition, partition.generation, &partition.charges);
         }
 
@@ -723,7 +726,7 @@ impl IngestionConsumer {
                 .map(|(topic_partition, span)| (*topic_partition, span)),
         )?;
         for topic_partition in settled {
-            self.ledger_shadow.drain(topic_partition);
+            self.commit_ledger.drain(topic_partition);
         }
         Ok(())
     }
@@ -734,11 +737,10 @@ impl IngestionConsumer {
         topic_partition: &TopicPartition,
         partition: &PartitionDeliveries,
     ) -> Option<Settlement> {
-        self.ledger_shadow.settle(
+        self.commit_ledger.settle(
             topic_partition,
             partition.generation,
             partition.charges.iter().map(|(offset, _)| *offset),
-            &partition.span,
         )
     }
 

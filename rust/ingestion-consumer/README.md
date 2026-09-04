@@ -29,7 +29,7 @@ Null-key messages (e.g. overflow rerouting) are excluded from both checks: the p
 
 ## Offset ledger
 
-`ledger_shadow.rs` drives the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
+`commit_ledger.rs` drives the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
 Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
 A partition that settles without a frontier is not committed and stays on its last commit.
 `ingestion_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `ingestion_consumer_ledger_uncommitted_events` and `ingestion_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
