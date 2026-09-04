@@ -309,13 +309,16 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)
     client_identifier = app.client_id
+    accepted_audiences = (
+        audiences if audiences is not None else expected_assertion_audiences(AGENTIC_TOKEN_ENDPOINT_PATH)
+    )
 
     try:
         claims = jwt.decode(
             assertion,
             key=key,
             algorithms=ALLOWED_ASSERTION_ALGORITHMS,
-            audience=audiences if audiences is not None else expected_assertion_audiences(AGENTIC_TOKEN_ENDPOINT_PATH),
+            audience=accepted_audiences,
             issuer=client_identifier,
             leeway=ASSERTION_CLOCK_SKEW_SECONDS,
             options={
@@ -330,7 +333,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
         # The reason is logged rather than returned: which check failed is useful to us and
         # not something an unauthenticated caller needs.
         addressing = (
-            {"presented_audience": _unverified_audience(assertion), "expected_audiences": audiences}
+            {"presented_audience": _unverified_audience(assertion), "expected_audiences": accepted_audiences}
             if isinstance(e, jwt.InvalidAudienceError)
             else {}
         )
