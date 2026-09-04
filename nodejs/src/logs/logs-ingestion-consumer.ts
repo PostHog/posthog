@@ -12,6 +12,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -1033,6 +1034,13 @@ export class LogsIngestionConsumer {
                             },
                         ])
                     } catch (error) {
+                        // A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped. The
+                        // message itself is fine and processes once the dependency is back, so
+                        // quarantining it would move good data into the DLQ. Leave it on the source
+                        // topic and fail the batch below instead.
+                        if (error instanceof DependencyUnavailableError) {
+                            throw error
+                        }
                         await this.produceToDlq(message, error)
                         throw error
                     }
@@ -1040,12 +1048,20 @@ export class LogsIngestionConsumer {
             )
         )
 
-        const failures = results.filter((r) => r.status === 'rejected')
+        const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
         if (failures.length > 0) {
             logger.error('Failed to process some log messages', {
                 failureCount: failures.length,
                 totalCount: messages.length,
             })
+        }
+
+        // Rethrow before the tallies and usage metrics are emitted: a rejected background task
+        // stops the offset commit, so the consumer replays this batch from the last good commit
+        // and would count them twice.
+        const dependencyFailure = failures.find((r) => r.reason instanceof DependencyUnavailableError)
+        if (dependencyFailure) {
+            throw dependencyFailure.reason
         }
 
         await this.emitMetricRuleTallies(metricTalliesByTeam)

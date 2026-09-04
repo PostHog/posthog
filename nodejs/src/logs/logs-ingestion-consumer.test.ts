@@ -17,6 +17,7 @@ import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -638,6 +639,34 @@ describe('LogsIngestionConsumer', () => {
                 expect(dlqMessage.headers.source_topic).toEqual(messages[0].topic)
                 expect(dlqMessage.headers.source_partition).toEqual(messages[0].partition.toString())
                 expect(dlqMessage.headers.source_offset).toEqual(messages[0].offset.toString())
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+
+        it('should fail the batch instead of DLQing when a dependency is unavailable', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
+                const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
+                if (t === KAFKA_LOGS_CLICKHOUSE) {
+                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                }
+                return passthrough(topicMessages)
+            })
+
+            try {
+                // The message is good data that succeeds on redelivery. Quarantining it would
+                // move it out of the source topic for an outage that was not its fault.
+                await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow(
+                    'broker down'
+                )
+                expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)).toHaveLength(0)
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
             }
