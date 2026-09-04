@@ -1,7 +1,7 @@
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
+import { clearsSavedDashboardFilter, isDashboardFilterEmpty } from './dashboardFilterEmpty'
 
 describe('isDashboardFilterEmpty', () => {
     const emptyCases: Array<[string, DashboardFilter | TileFilters | null | undefined]> = [
@@ -44,5 +44,26 @@ describe('isDashboardFilterEmpty', () => {
 
     test.each(nonEmptyCases)('returns false for %s', (_, filter) => {
         expect(isDashboardFilterEmpty(filter)).toBe(false)
+    })
+})
+
+describe('clearsSavedDashboardFilter', () => {
+    const SAVED: DashboardFilter = {
+        date_from: '-30d',
+        date_to: null,
+        properties: [{ key: 'email', type: PropertyFilterType.Person, value: 'foo', operator: PropertyOperator.Exact }],
+    }
+
+    const cases: Array<[string, DashboardFilter, DashboardFilter | null, boolean]> = [
+        ['a saved date range switched off', { date_from: null, date_to: null }, SAVED, true],
+        ['saved properties switched off', { properties: [] }, SAVED, true],
+        ['a payload that mentions no filter at all', {}, SAVED, false],
+        ['a filter the dashboard has not saved', { interval: null }, SAVED, false],
+        ['a date range switched off with nothing saved', { date_from: null, date_to: null }, null, false],
+        ['a saved date range replaced rather than switched off', { date_from: '-7d', date_to: null }, SAVED, false],
+    ]
+
+    test.each(cases)('reports %s', (_, filter, savedFilters, expected) => {
+        expect(clearsSavedDashboardFilter(filter, savedFilters)).toBe(expected)
     })
 })

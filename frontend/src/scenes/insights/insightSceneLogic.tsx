@@ -20,7 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
-import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
+import { clearsDashboardFilter, isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicType } from 'scenes/insights/insightLogic'
@@ -850,8 +850,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     insightMode,
                     itemId,
                     alert_id,
-                    // Only pass filters/variables if overrides exist
-                    filtersOverride && isDashboardFilterEmpty(filtersOverride) ? undefined : filtersOverride,
+                    // Only pass filters/variables if overrides exist. An override that switches a
+                    // dashboard filter off constrains nothing, but still has to reach the insight — a tile
+                    // whose date range was cleared must open on the same data it shows.
+                    filtersOverride &&
+                        isDashboardFilterEmpty(filtersOverride) &&
+                        !clearsDashboardFilter(filtersOverride)
+                        ? undefined
+                        : filtersOverride,
                     variablesOverride && !isEmptyObject(variablesOverride) ? variablesOverride : undefined,
                     tileFiltersOverride && isDashboardFilterEmpty(tileFiltersOverride)
                         ? undefined
