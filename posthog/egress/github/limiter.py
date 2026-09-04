@@ -353,6 +353,31 @@ def consume_github_installation_sync(
     )
 
 
+def peek_github_installation_sync(
+    installation_id: str | int,
+    n: int = 1,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "unknown",
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> bool:
+    """Admit without spending; pair with :func:`charge_github_installation_sync` once the response shows
+    whether GitHub charged the call. See ``OutboundRateLimiter.peek_sync``."""
+    _note_demand_if_interactive(installation_id, priority, resource)
+    return get_outbound_rate_limiter().peek_sync(
+        github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
+    )
+
+
+def charge_github_installation_sync(
+    installation_id: str | int,
+    n: int = 1,
+    *,
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> None:
+    get_outbound_rate_limiter().charge_sync(github_installation_key(installation_id, resource=resource), n)
+
+
 def github_installation_pace_seconds(
     installation_id: str | int,
     *,

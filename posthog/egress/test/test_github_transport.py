@@ -42,20 +42,22 @@ class TestGitHubTransport(SimpleTestCase):
         # The gate must charge each URL to the meter GitHub bills it against — the whole point of the
         # per-resource split. A regression here reverts /search/code to the core envelope.
         client = GitHubClient()
-        with patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=True) as consume:
+        with patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=True) as peek:
             client._consume("42", MagicMock(), "test", url)
-        assert consume.call_args.kwargs["resource"] == expected
+        assert peek.call_args.kwargs["resource"] == expected
 
     def test_identity_blind_call_never_touches_the_limiter(self) -> None:
         # A None installation_id (public token / raw PAT) records volume only and must skip the gate,
         # or unrelated tokens would share and clobber one phantom budget.
         with (
-            patch("posthog.egress.github.transport.consume_github_installation_sync") as consume,
+            patch("posthog.egress.github.transport.peek_github_installation_sync") as peek,
+            patch("posthog.egress.github.transport.charge_github_installation_sync") as charge,
             patch("requests.request", return_value=_response()),
             patch("posthog.egress.github.transport.record_github_api_response"),
         ):
             github_request("GET", "https://api.github.com/search/code?q=x", source="test", installation_id=None)
-        consume.assert_not_called()
+        peek.assert_not_called()
+        charge.assert_not_called()
 
 
 class TestGitHubConditionalRequests(SimpleTestCase):
@@ -66,9 +68,8 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         super().setUp()
         cache.clear()
         self.addCleanup(cache.clear)
-        self.consume = patch(
-            "posthog.egress.github.transport.consume_github_installation_sync", return_value=True
-        ).start()
+        patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=True).start()
+        self.charge = patch("posthog.egress.github.transport.charge_github_installation_sync").start()
         patch("posthog.egress.github.transport.record_github_api_response").start()
         self.addCleanup(patch.stopall)
 
@@ -105,8 +106,8 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         assert replayed.json() == {"items": [1]}
         # The recorder must still see the real 304, or the rate-limit telemetry starts lying.
         assert statuses == [200, 304]
-        # A 304 is still gated: it is a real request, and only GitHub declines to charge it.
-        assert self.consume.call_count == 2
+        # GitHub does not charge the 304, so only the first call spends our budget.
+        assert self.charge.call_count == 1
 
     def test_replay_carries_the_stored_content_type(self) -> None:
         # A 304 need not repeat Content-Type. Replaying its headers would leave encoding unset and send

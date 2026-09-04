@@ -13,6 +13,7 @@ storage, which requires a separate ``coredis`` client and would bypass our confi
 import time
 import asyncio
 import threading
+from collections.abc import Callable
 
 import structlog
 import redis.exceptions
@@ -74,9 +75,24 @@ def _check(
     # toward denying, never over-allowing the shared budget) and bounded by headroom plus the
     # consumer's reactive backoff — fine for egress; cross-window atomicity (a custom multi-window Lua)
     # isn't worth it at v1.
-    if not all(limiter.test(item, key, cost=n + reserve) for item, reserve in zip(items, reserves)):
-        return False
+    return _test(limiter, items, key, n, reserves) and _hit(limiter, items, key, n)
+
+
+def _test(
+    limiter: SlidingWindowCounterRateLimiter,
+    items: list[RateLimitItemPerSecond],
+    key: str,
+    n: int,
+    reserves: list[int],
+) -> bool:
+    return all(limiter.test(item, key, cost=n + reserve) for item, reserve in zip(items, reserves))
+
+
+def _hit(limiter: SlidingWindowCounterRateLimiter, items: list[RateLimitItemPerSecond], key: str, n: int) -> bool:
     return all(limiter.hit(item, key, cost=n) for item in items)
+
+
+_Op = Callable[[SlidingWindowCounterRateLimiter, list[RateLimitItemPerSecond], list[int]], bool]
 
 
 def _window_wait(
@@ -123,15 +139,31 @@ class LimitsBackend:
         return await asyncio.to_thread(self.consume_sync, key, policy, n, priority)
 
     def consume_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
+        return self._run(
+            key, policy, priority, lambda limiter, items, reserves: _check(limiter, items, key, n, reserves)
+        )
+
+    def peek_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
+        """The admission half of ``consume_sync`` alone: True if ``n`` would be granted now, nothing spent."""
+        return self._run(
+            key, policy, priority, lambda limiter, items, reserves: _test(limiter, items, key, n, reserves)
+        )
+
+    def charge_sync(self, key: str, policy: RatePolicy, n: int) -> None:
+        """The spending half of ``consume_sync`` alone, for a caller that peeked earlier. Bounded by the
+        window like ``hit`` is, so a charge past the limit is dropped rather than overdrawing."""
+        self._run(key, policy, Priority.CRITICAL, lambda limiter, items, _reserves: _hit(limiter, items, key, n))
+
+    def _run(self, key: str, policy: RatePolicy, priority: Priority, op: _Op) -> bool:
         try:
             limits = policy.limits
-            return _check(self._redis_limiter(), _items(limits), key, n, _reserves(policy, priority, limits))
+            return op(self._redis_limiter(), _items(limits), _reserves(policy, priority, limits))
         except _REDIS_ERRORS:
             logger.warning("outbound_rate_limit_redis_unavailable", key=key, fallback="in_memory")
             # Reserve off the shrunk fallback budget so the floor scales with the smaller per-process
             # limit rather than the full one.
             shrunk = self._shrunk(policy)
-            return _check(self._memory_limiter(), _items(shrunk), key, n, _reserves(policy, priority, shrunk))
+            return op(self._memory_limiter(), _items(shrunk), _reserves(policy, priority, shrunk))
 
     def pace_seconds(self, key: str, policy: RatePolicy, priority: Priority) -> float:
         limits = policy.limits

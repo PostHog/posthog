@@ -151,7 +151,8 @@ That ceiling counts the uncompressed body, so the stored entry is several times 
 `GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS = 0` turns the whole thing off.
 Watch `github_egress_conditional_cache_total`: stores without matching hits mean the URL is not stable between calls.
 
-Note the limiter still counts a `304` that GitHub does not, so our budget runs slightly conservative against the real one.
+The limiter follows GitHub's accounting: the GitHub transport admits a call with `peek_sync` before sending and spends with `charge_sync` after, skipping the spend on a `304`.
+The two halves are not atomic, so calls in flight at the same time can all be admitted against the same headroom; the overrun is bounded by that concurrency and GitHub's own limit backstops it.
 
 Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
 Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.

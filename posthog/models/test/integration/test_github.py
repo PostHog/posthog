@@ -1952,7 +1952,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         assert body == {"default_branch": "main"}
 
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=False)
     @patch("posthog.models.integration.github.GitHubIntegration.access_token_expired", return_value=False)
     def test_batch_instance_is_shed_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
         # Guards the lane plumbing: if the instance priority stops reaching the transport, BATCH
@@ -1964,7 +1964,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_request.assert_not_called()
 
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=False)
     @patch("posthog.models.integration.github.GitHubIntegration.access_token_expired", return_value=False)
     def test_critical_default_proceeds_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
         ok = MagicMock()

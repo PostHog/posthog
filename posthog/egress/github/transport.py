@@ -21,7 +21,11 @@ from requests.structures import CaseInsensitiveDict
 from requests.utils import get_encoding_from_headers
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
+from posthog.egress.github.limiter import (
+    charge_github_installation_sync,
+    classify_github_resource,
+    peek_github_installation_sync,
+)
 from posthog.egress.github.observability import (
     record_github_api_exception,
     record_github_api_response,
@@ -235,9 +239,16 @@ class GitHubClient(EgressClient):
         return response
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_github_installation_sync(
+        # Admission only. GitHub charges by response, so the spend waits for _settle.
+        return peek_github_installation_sync(
             scope, resource=classify_github_resource(url), priority=priority, source=source
         )
+
+    def _settle(self, response: requests.Response, *, scope: str, url: str) -> None:
+        # GitHub does not count a 304 against the primary rate limit, so neither does our budget.
+        if response.status_code == 304:
+            return
+        charge_github_installation_sync(scope, resource=classify_github_resource(url))
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
