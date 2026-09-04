@@ -2,12 +2,12 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { MAX_GROUP_TYPES_PER_TEAM } from '~/common/groups/group-type-manager'
-import { elementsToString, extractElements } from '~/common/utils/elements-chain'
+import { elementsChainFromProperties } from '~/common/utils/elements-chain'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
-import { Element, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '~/types'
+import { Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '~/types'
 
 const elementsOrElementsChainCounter = new Counter({
     name: 'events_pipeline_elements_or_elements_chain_total',
@@ -23,17 +23,10 @@ export function getElementsChain(properties: Properties): string {
     but we still need to support the old way of sending $elements and converting them
     to $elements_chain, while everyone hasn't upgraded.
     */
-    let elementsChain = ''
+    const elementsChain = elementsChainFromProperties(properties)
     if (properties['$elements_chain']) {
-        elementsChain = properties['$elements_chain']
         elementsOrElementsChainCounter.labels('elements_chain').inc()
     } else if (properties['$elements']) {
-        const elements: Record<string, any>[] | undefined = properties['$elements']
-        let elementsList: Element[] = []
-        if (elements && elements.length) {
-            elementsList = extractElements(elements)
-            elementsChain = elementsToString(elementsList)
-        }
         elementsOrElementsChainCounter.labels('elements').inc()
     }
     delete properties['$elements_chain']

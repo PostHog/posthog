@@ -187,7 +187,17 @@ describe('HogTransformer', () => {
             `)
         })
 
-        it('should expose elements_chain from $elements_chain property', async () => {
+        // Transformations run before ingestion converts a legacy `$elements` array into
+        // `$elements_chain`, so the transformer must derive the chain from `$elements` too.
+        it.each([
+            ['$elements_chain', { $elements_chain: 'button.btn:attr__class="btn-primary"' }],
+            [
+                '$elements',
+                {
+                    $elements: [{ tag_name: 'button', attr__class: 'btn-primary', nth_child: 1, nth_of_type: 1 }],
+                },
+            ],
+        ])('should expose elements_chain from the %s property', async (_label, elementProperties) => {
             const fn = createHogFunction({
                 type: 'transformation',
                 name: 'Elements Chain Reader',
@@ -212,7 +222,7 @@ describe('HogTransformer', () => {
                     event: '$autocapture',
                     properties: {
                         $current_url: 'https://example.com',
-                        $elements_chain: 'button.btn:attr__class="btn-primary"',
+                        ...elementProperties,
                     },
                 },
                 teamId

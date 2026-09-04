@@ -4,6 +4,7 @@ import { HogTransformationResult, HogTransformer } from '~/common/hog-transforma
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { elementsChainFromProperties } from '~/common/utils/elements-chain'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -132,7 +133,9 @@ export class HogTransformerService implements HogTransformer {
                 event: event.event,
                 distinct_id: event.distinct_id,
                 properties: event.properties || {},
-                elements_chain: event.properties?.$elements_chain || '',
+                // Transformations run before ingestion converts a legacy `$elements` array
+                // into `$elements_chain`, so derive the chain here when only `$elements` is present.
+                elements_chain: elementsChainFromProperties(event.properties || {}),
                 timestamp: event.timestamp || '',
                 url: event.properties?.$current_url || '',
             },
