@@ -14,7 +14,7 @@ from email.utils import parseaddr
 from typing import Literal
 from uuid import UUID
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 import structlog
 
@@ -152,19 +152,23 @@ def start_task_from_email(team: Team, email: InboundTaskEmail) -> EmailTaskIntak
         return EmailTaskIntake(outcome="quota_exceeded")
 
     try:
-        created = create_and_run_task(
-            team=team,
-            title=text.title,
-            description=text.description,
-            origin_product=Task.OriginProduct.EMAIL,
-            user_id=user_id,
-            repository=None,
-            create_pr=False,
-            channel_id=ensure_personal_channel_id(team.id, user_id),
-            origin_key=origin_key,
-            title_manually_set=True,
-            interaction_origin="email",
-        )
+        # One transaction so the task, its run, and the (on_commit, therefore never-fired) dispatch
+        # roll back together. A task committed without a run would answer every later delivery of
+        # this message as a duplicate, so the email could never start anything.
+        with transaction.atomic():
+            created = create_and_run_task(
+                team=team,
+                title=text.title,
+                description=text.description,
+                origin_product=Task.OriginProduct.EMAIL,
+                user_id=user_id,
+                repository=None,
+                create_pr=False,
+                channel_id=ensure_personal_channel_id(team.id, user_id),
+                origin_key=origin_key,
+                title_manually_set=True,
+                interaction_origin="email",
+            )
     except IntegrityError:
         # A Mailgun retry raced the first delivery; the unique (team, origin_key) index gives the first insert the task.
         existing_id = _task_id_for_origin_key(team.id, origin_key)

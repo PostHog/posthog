@@ -93,6 +93,16 @@ class TestStartTaskFromEmail(APIBaseTest):
         assert second.task_id != first.task_id
         assert _created_task(second).team_id == other_team.id
 
+    def test_failed_run_creation_leaves_no_task_behind(self, _workflow, _quota, _email):
+        # The task row and its run have to commit together. A task committed without a run would
+        # answer every later delivery of the same message as a duplicate, so that email could never
+        # start anything.
+        with patch.object(Task, "create_run", side_effect=RuntimeError("run creation failed")):
+            with self.assertRaises(RuntimeError):
+                email_intake.start_task_from_email(self.team, _inbound(sender_email=self.user.email))
+
+        assert Task.objects.count() == 0
+
     def test_unauthenticated_sender_is_refused(self, _workflow, _quota, _email):
         intake = email_intake.start_task_from_email(
             self.team, _inbound(sender_email=self.user.email, sender_authenticated=False)
