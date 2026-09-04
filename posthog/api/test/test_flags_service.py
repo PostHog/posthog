@@ -73,7 +73,7 @@ class TestBatchEvaluateFlagForTeam(SimpleTestCase):
     @override_settings(INTERNAL_REQUEST_TOKEN="secret")
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
     def test_accepts_legacy_response_without_property_matching_version(self, mock_post):
-        response_data = {"matched_person_uuids": [], "next_cursor": None, "errors_count": 0}
+        response_data: dict[str, object] = {"matched_person_uuids": [], "next_cursor": None, "errors_count": 0}
         response = MagicMock()
         response.status_code = 200
         response.json.return_value = response_data
