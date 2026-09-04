@@ -36,6 +36,11 @@ export function transferTimeoutMs(byteLength: number): number {
   );
 }
 
+// A download cannot size its budget from bytes that have not arrived yet, so it
+// takes the ceiling the artifact surfaces enforce at the same throughput floor.
+const MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+const API_DOWNLOAD_TIMEOUT_MS = transferTimeoutMs(MAX_DOWNLOAD_BYTES);
+
 export interface TaskArtifactUploadPayload {
   name: string;
   type: ArtifactType;
@@ -681,6 +686,9 @@ export class PostHogAPIClient {
         {
           method: "POST",
           body: JSON.stringify({ storage_path: storagePath }),
+          // The signal also bounds the body read, so the flat deadline would
+          // abort a slow but working transfer of a large artifact.
+          signal: AbortSignal.timeout(API_DOWNLOAD_TIMEOUT_MS),
         },
       );
       if (!response.ok) {
@@ -702,7 +710,11 @@ export class PostHogAPIClient {
     const endpoint = `/api/projects/${teamId}/tasks/${taskRun.task}/runs/${taskRun.id}/logs`;
 
     try {
-      const response = await this.performRequestWithRetry(endpoint);
+      const response = await this.performRequestWithRetry(endpoint, {
+        // A run log holds the whole session transcript, so it gets the transfer
+        // budget rather than the flat control-plane deadline.
+        signal: AbortSignal.timeout(API_DOWNLOAD_TIMEOUT_MS),
+      });
 
       if (!response.ok) {
         if (response.status === 404) {
