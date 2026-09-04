@@ -6,6 +6,8 @@ import api, { ApiError, PaginatedResponse } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
 
+import type { PaginatedExternalDataSourceSummaryListApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { shouldLoadSourceSummaries, sourcesDataLogic } from '../sourcesDataLogic'
 
 // Stub the default `api` export but keep the real ApiError class so both the
@@ -34,6 +36,13 @@ const emptyResponse: PaginatedResponse<ExternalDataSource> = {
     next: null,
     previous: null,
 } as PaginatedResponse<ExternalDataSource>
+
+const emptySummaryResponse: PaginatedExternalDataSourceSummaryListApi = {
+    results: [],
+    count: 0,
+    next: null,
+    previous: null,
+}
 
 describe('sourcesDataLogic', () => {
     let logic: ReturnType<typeof sourcesDataLogic.build>
@@ -95,7 +104,7 @@ describe('sourcesDataLogic', () => {
         expect(shouldLoadSourceSummaries('/project/997/data-management/sources')).toBe(true)
         expect(shouldLoadSourceSummaries('/data-management/revenue')).toBe(false)
 
-        jest.spyOn(api.externalDataSources, 'listSummaries').mockResolvedValue(emptyResponse)
+        jest.spyOn(api.externalDataSources, 'listSummaries').mockResolvedValue(emptySummaryResponse)
         jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(emptyResponse)
 
         logic.mount()

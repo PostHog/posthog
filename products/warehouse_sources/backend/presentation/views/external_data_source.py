@@ -4,7 +4,7 @@ import uuid
 import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -1584,6 +1584,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
+class ExternalDataSourceSummaryAnnotations(Protocol):
+    _summary_latest_error: str | None
+    _summary_schemas_count: int
+    _summary_rows_synced: int
+
+
 class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """Source-level fields for index pages, without the potentially huge nested schema payload."""
 
@@ -1651,15 +1657,15 @@ class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, seri
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource) -> str | None:
-        return instance._summary_latest_error
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_latest_error
 
     @extend_schema_field(serializers.IntegerField())
     def get_schemas_count(self, instance: ExternalDataSource) -> int:
-        return instance._summary_schemas_count
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_schemas_count
 
     @extend_schema_field(serializers.IntegerField())
     def get_rows_synced(self, instance: ExternalDataSource) -> int:
-        return instance._summary_rows_synced
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_rows_synced
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
