@@ -8,9 +8,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import { ScoutNextRunLabel } from 'products/signals/frontend/inbox/components/config/scouts/ScoutNextRunLabel'
 import { nextRunAt, scoutCadenceLabel } from 'products/signals/frontend/inbox/utils/scoutGroups'
 import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
@@ -63,37 +65,50 @@ export function ScannerScoutRow({
         editDisabledReason ?? (rollups.get(config.skill_name)?.runningRun ? 'This scout is already running' : undefined)
 
     const timezone = currentTeam?.timezone ?? 'UTC'
-    const now = new Date()
-    const next = nextRunAt(config, timezone, now)
-    const nextRunText =
-        !next || !config.enabled
-            ? null
-            : next <= now
-              ? 'due now'
-              : next.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: timezone })
+    // A cron cadence names a wall-clock time that the coordinator resolves in the project timezone,
+    // so the label has to name that zone. A rolling interval carries no clock time to misread.
+    const cadenceTimezone = config.run_cron_schedule ? shortTimeZone(timezone) : null
+    const cadenceText = capitalizeFirstLetter(scoutCadenceLabel(config))
+    // A paused scout has no next run, and neither does a rolling one that has never run.
+    const hasNextRun = nextRunAt(config, timezone, new Date()) !== null
 
     return (
         <div className={cn('flex flex-col rounded border bg-surface-primary', !config.enabled && 'opacity-65')}>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-                <button
-                    type="button"
-                    className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-surface-secondary"
-                    onClick={() => toggleScoutExpanded(config.skill_name)}
-                    aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${prettifyScoutSkillName(config.skill_name)}`}
-                    aria-expanded={expanded}
-                    data-attr="vision-scout-row-expand"
-                >
-                    <IconChevronRight
-                        className={cn('shrink-0 text-base transition-transform', expanded && 'rotate-90')}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="text-sm font-medium">{prettifyScoutSkillName(config.skill_name)}</span>
-                        <span className="text-[11px] text-muted">
-                            {capitalizeFirstLetter(scoutCadenceLabel(config))}
-                            {nextRunText && ` · next run ${nextRunText}`}
+                {/* The schedule line sits outside the expand button: the next run carries a hover
+                    popover whose rows are clickable, and a click inside it would toggle the row. */}
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <button
+                        type="button"
+                        className="-mx-1 flex min-w-0 cursor-pointer items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-surface-secondary"
+                        onClick={() => toggleScoutExpanded(config.skill_name)}
+                        aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${prettifyScoutSkillName(config.skill_name)}`}
+                        aria-expanded={expanded}
+                        data-attr="vision-scout-row-expand"
+                    >
+                        <IconChevronRight
+                            className={cn('shrink-0 text-base transition-transform', expanded && 'rotate-90')}
+                        />
+                        <span className="truncate text-sm font-medium">
+                            {prettifyScoutSkillName(config.skill_name)}
                         </span>
+                    </button>
+                    <span className="pl-6 text-[11px] text-muted">
+                        {cadenceTimezone ? (
+                            <Tooltip title={`This time is in the project timezone (${timezone}).`}>
+                                <span>{`${cadenceText} ${cadenceTimezone}`}</span>
+                            </Tooltip>
+                        ) : (
+                            cadenceText
+                        )}
+                        {hasNextRun && (
+                            <>
+                                {' · next run '}
+                                <ScoutNextRunLabel config={config} />
+                            </>
+                        )}
                     </span>
-                </button>
+                </div>
                 <div className="flex shrink-0 items-center gap-1">
                     <Tooltip title="Scout settings">
                         <LemonButton

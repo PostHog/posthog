@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCalendar, IconPencil, IconPlus, IconTrends, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { shortTimeZone } from 'lib/utils/timezones'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -24,22 +26,26 @@ const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
     scratch: <IconPencil />,
 }
 
-/** Derived from the template's own cron, so a changed schedule can't leave a stale label behind. */
-function templateScheduleLabel(template: ScannerScoutTemplate): string {
+/** Derived from the template's own cron, so a changed schedule can't leave a stale label behind.
+ * The cron runs in the project timezone, so the label names it rather than leave a bare clock time
+ * that a reader in another timezone takes for their own. */
+function templateScheduleLabel(template: ScannerScoutTemplate, timezone: string): string {
     const cadence = parseScoutCadence(template.cron)
     if (!cadence) {
         return template.cron
     }
     const frequency = SCOUT_FREQUENCY_OPTIONS.find((option) => option.value === cadence.frequency)
-    return `${frequency?.label ?? 'Every day'} at ${cadence.time}`
+    return `${frequency?.label ?? 'Every day'} at ${cadence.time} ${shortTimeZone(timezone) ?? timezone}`
 }
 
 function ScoutTemplateCard({
     template,
+    timezone,
     disabledReason,
     onUse,
 }: {
     template: ScannerScoutTemplate
+    timezone: string
     disabledReason?: string
     onUse: () => void
 }): JSX.Element {
@@ -58,9 +64,11 @@ function ScoutTemplateCard({
                 {template.key === 'scratch' ? (
                     <span />
                 ) : (
-                    <LemonTag type="muted" size="small">
-                        {templateScheduleLabel(template)}
-                    </LemonTag>
+                    <Tooltip title={`This time is in the project timezone (${timezone}).`}>
+                        <LemonTag type="muted" size="small">
+                            {templateScheduleLabel(template, timezone)}
+                        </LemonTag>
+                    </Tooltip>
                 )}
                 <LemonButton
                     type="primary"
@@ -83,6 +91,7 @@ function ScoutTemplateCard({
  * inbox when something is worth reporting. Templates to start from, then the scanner's own roster. */
 export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { currentTeam } = useValues(teamLogic)
     const scannerName = scanner?.name || ''
     const logic = scannerScoutLogic({ scannerId, scannerName })
     const {
@@ -144,6 +153,7 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                         <ScoutTemplateCard
                             key={template.key}
                             template={template}
+                            timezone={currentTeam?.timezone ?? 'UTC'}
                             disabledReason={createDisabledReason}
                             onUse={() => openCreateModal(template.key)}
                         />
