@@ -4522,7 +4522,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         saveLayoutChanges: () => {
             actions.saveEditModeChanges('layout')
-            actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+            // Edit mode stays on after a layout save only to hold the filter bar open for unsaved
+            // settings. With nothing unsaved the dashboard has to return to view mode.
+            if (values.dashboardSettingsState === 'unsavedChanges') {
+                actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+            } else if (values.dashboardMode !== null) {
+                actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
+            }
         },
         saveDashboardColorChanges: () => {
             actions.saveEditModeChanges('colors')
@@ -4532,7 +4538,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         saveLayout: () => {
             actions.saveEditModeChanges('layout')
-            actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+            // Edit mode stays on after a layout save only to hold the filter bar open for unsaved
+            // settings. With nothing unsaved the dashboard has to return to view mode.
+            if (values.dashboardSettingsState === 'unsavedChanges') {
+                actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+            } else if (values.dashboardMode !== null) {
+                actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
+            }
         },
         saveEditModeChangesSuccess: ({ dashboard }) => {
             if (dashboard) {

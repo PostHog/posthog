@@ -717,6 +717,19 @@ describe('dashboardLogic', () => {
             expect(logic.values.filtersDirty).toBe(true)
         })
 
+        it('saving a layout change with no unsaved settings leaves edit mode', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                logic.actions.saveLayout()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardMode).toBeNull()
+            expect(logic.values.layoutEditMode).toBe(false)
+            expect(logic.values.filterEditModeActive).toBe(false)
+        })
+
         it('cancelling layout editing keeps auto-previewed filter changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
