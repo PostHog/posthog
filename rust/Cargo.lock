@@ -3866,21 +3866,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid 0.9.6",
- "der_derive",
- "flagset",
  "pem-rfc7468",
  "zeroize",
-]
-
-[[package]]
-name = "der_derive"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8034092389675178f570469e6c3b0465d3d30b4505c294a6550db47f3c17ad18"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -4680,12 +4667,6 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
 ]
-
-[[package]]
-name = "flagset"
-version = "0.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7ac824320a75a52197e8f2d787f6a38b6718bb6897a35142d749af3c0e8f4fe"
 
 [[package]]
 name = "flatbuffers"
@@ -8981,24 +8962,23 @@ dependencies = [
  "futures-util",
  "humantime",
  "jsonwebtoken",
+ "native-tls",
  "once_cell",
+ "postgres-native-tls",
  "prometheus",
  "regex",
  "reqwest 0.12.28",
  "rmcp",
  "rust_decimal",
  "rustls 0.23.37",
- "rustls-native-certs 0.8.3",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "tokio",
  "tokio-postgres",
- "tokio-postgres-rustls",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9018,23 +8998,22 @@ dependencies = [
  "glob",
  "humantime-serde",
  "include_dir",
+ "native-tls",
  "once_cell",
+ "postgres-native-tls",
  "prometheus",
  "regex",
  "rust_decimal",
  "rustls 0.23.37",
- "rustls-native-certs 0.8.3",
  "serde",
  "serde_json",
  "serde_yaml",
  "shellexpand",
  "tokio",
  "tokio-postgres",
- "tokio-postgres-rustls",
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9266,6 +9245,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a9db96d7fa8782dd8c15ce32ffe8680bbd1e978a43bf51a34d39483540495f5"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "postgres-native-tls"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fef4de47bb81477e0c3deaf153a1b10ae176484713ff1640969f4cb96b653ebc"
+dependencies = [
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tokio-postgres",
 ]
 
 [[package]]
@@ -13043,27 +13034,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
-name = "tls_codec"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0de2e01245e2bb89d6f05801c564fa27624dbd7b1846859876c7dad82e90bf6b"
-dependencies = [
- "tls_codec_derive",
- "zeroize",
-]
-
-[[package]]
-name = "tls_codec_derive"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2e76690929402faae40aebdda620a2c0e25dd6d3b9afe48867dfd95991f4bd"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "tokio"
 version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13135,21 +13105,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "whoami 2.1.3",
-]
-
-[[package]]
-name = "tokio-postgres-rustls"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27d684bad428a0f2481f42241f821db42c54e2dc81d8c00db8536c506b0a0144"
-dependencies = [
- "const-oid 0.9.6",
- "ring 0.17.14",
- "rustls 0.23.37",
- "tokio",
- "tokio-postgres",
- "tokio-rustls 0.26.4",
- "x509-cert",
 ]
 
 [[package]]
@@ -14702,18 +14657,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
-]
-
-[[package]]
-name = "x509-cert"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1301e935010a701ae5f8655edc0ad17c44bad3ac5ce8c39185f75453b720ae94"
-dependencies = [
- "const-oid 0.9.6",
- "der",
- "spki",
- "tls_codec",
 ]
 
 [[package]]
