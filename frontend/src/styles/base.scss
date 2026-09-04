@@ -2157,3 +2157,11 @@
         transform: translateY(0);
     }
 }
+
+// `-webkit-app-region` is an inherited property in Chromium, and a region marked as a drag
+// handle swallows click and drag text selection. Text entry must never become a drag handle.
+input,
+textarea,
+[contenteditable='true'] {
+    -webkit-app-region: no-drag;
+}

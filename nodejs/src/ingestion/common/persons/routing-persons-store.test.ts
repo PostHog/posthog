@@ -3,7 +3,7 @@ import { InternalPerson } from '~/types'
 
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
-import { PersonsStore } from './persons-store'
+import { MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
 import { RoutingPersonsStore, assertPersonsStoreModeConfig, parsePersonsStoreMode } from './routing-persons-store'
 
 jest.mock('~/common/persons/metrics', () => ({
@@ -11,37 +11,29 @@ jest.mock('~/common/persons/metrics', () => ({
     personhogStoreShadowSkipsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
 }))
 
+const emptyMergeResult = (): MergePersonsResult => ({ survivor: null, results: [] })
+
 /**
  * A complete, compile-checked PersonsStore mock: the annotation forces
  * every interface member to exist, so an interface change breaks this
  * factory at compile time instead of leaving stale mocks that only fail
  * when a newly routed method runs.
+ *
+ * The cover is PersonsStore only. Tests hand this to the personhog slot
+ * through a cast, so a member PersonhogPersonsStore adds beyond the
+ * interface is not checked here and would surface at runtime.
  */
-function mockStore(): jest.Mocked<PersonsStore> {
+function mockStore(backend: PersonsBackend = 'postgres'): jest.Mocked<PersonsStore> {
     return {
-        inTransaction: jest.fn(),
+        backend,
         fetchForChecking: jest.fn().mockResolvedValue(null),
         fetchForUpdate: jest.fn().mockResolvedValue(null),
-        fetchPersonsForUpdateByDistinctIds: jest.fn().mockResolvedValue([]),
         createPerson: jest.fn().mockResolvedValue({ success: true }),
-        updatePersonForMerge: jest.fn(),
         applyEventOps: jest.fn(),
         updatePersonWithPropertiesDiffForUpdate: jest.fn(),
-        deletePerson: jest.fn().mockResolvedValue([]),
-        claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
-        releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
-        isPersonLive: jest.fn().mockResolvedValue(true),
-        addDistinctId: jest.fn().mockResolvedValue([]),
-        moveDistinctIds: jest.fn().mockResolvedValue({ success: true }),
-        moveDistinctIdsFromPersons: jest.fn().mockResolvedValue({ success: true }),
-        deletePersons: jest.fn().mockResolvedValue([]),
-        countDistinctIdsForPersons: jest.fn().mockResolvedValue(new Map()),
-        updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
-        updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
+        mergePersons: jest.fn().mockResolvedValue(emptyMergeResult()),
         personPropertiesSize: jest.fn().mockResolvedValue(0),
-        fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
         shutdown: jest.fn().mockResolvedValue(undefined),
-        removeDistinctIdFromCache: jest.fn(),
         prefetchPersons: jest.fn().mockResolvedValue(undefined),
         flush: jest.fn().mockResolvedValue([]),
         releaseBatch: jest.fn(),
@@ -50,6 +42,20 @@ function mockStore(): jest.Mocked<PersonsStore> {
 }
 
 describe('RoutingPersonsStore', () => {
+    it.each([
+        // Shadow's personhog calls never reach a caller, so an error a caller
+        // sees during a shadow rollout came from Postgres and must say so.
+        ['personhog' as const, 'personhog'],
+        ['shadow' as const, 'postgres'],
+    ])('reports the authoritative backend in %s mode', (mode, expected) => {
+        const store = new RoutingPersonsStore(
+            mockStore('postgres'),
+            mockStore('personhog') as unknown as PersonhogPersonsStore,
+            mode
+        )
+        expect(store.backend).toBe(expected)
+    })
+
     const person = (teamId: number, id = '1'): InternalPerson =>
         ({ id, team_id: teamId, properties: {}, is_identified: false }) as unknown as InternalPerson
 
@@ -110,6 +116,15 @@ describe('RoutingPersonsStore', () => {
             await expect(store.flush()).rejects.toThrow('leader down')
         })
 
+        it('mergePersons routes to the personhog store', async () => {
+            const stores = makeStores()
+            const saga = emptyMergeResult()
+            stores.personhogMock.mergePersons.mockResolvedValue(saga)
+            const store = makeStore(stores, 'personhog')
+            await expect(store.mergePersons({} as never, 0)).resolves.toBe(saga)
+            expect(stores.pg.mergePersons).not.toHaveBeenCalled()
+        })
+
         it('flush never runs the pg side, and returns the personhog results', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'personhog')
@@ -151,6 +166,29 @@ describe('RoutingPersonsStore', () => {
             await expect(store.flush()).resolves.toEqual([])
         })
 
+        it('mergePersons replays the same request against the personhog backend, pg staying authoritative', async () => {
+            const stores = makeStores()
+            const pgResult = { survivor: person(1, '7'), results: [] }
+            stores.pg.mergePersons.mockResolvedValue(pgResult)
+            const store = makeStore(stores, 'shadow')
+            const request = { teamId: 1, targetDistinctId: 'd' } as never
+
+            await expect(store.mergePersons(request, 0)).resolves.toBe(pgResult)
+
+            expect(stores.pg.mergePersons).toHaveBeenCalledWith(request, 0)
+            expect(stores.personhogMock.mergePersons).toHaveBeenCalledWith(request, 0)
+        })
+
+        it('a shadow merge failure is swallowed and counted, never failing the batch', async () => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue(emptyMergeResult())
+            stores.personhogMock.mergePersons.mockRejectedValue(new Error('identity down'))
+            const store = makeStore(stores, 'shadow')
+
+            await expect(store.mergePersons({} as never, 0)).resolves.toEqual(emptyMergeResult())
+            expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith({ verb: 'mergePersons' })
+        })
+
         it('prefetch warms both worlds', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'shadow')
@@ -172,7 +210,7 @@ describe('RoutingPersonsStore', () => {
         })
     })
 
-    describe('shadow writes resolve the personhog world person', () => {
+    describe('shadow writes resolve the personhog backend person', () => {
         it.each([
             [
                 'applyEventOps',
@@ -185,7 +223,7 @@ describe('RoutingPersonsStore', () => {
                     store.updatePersonWithPropertiesDiffForUpdate(person(1, '7'), { a: '1' }, [], {}, 'd1', 0),
                 (m: jest.Mocked<PersonsStore>) => m.updatePersonWithPropertiesDiffForUpdate,
             ],
-        ] as const)('%s ships the shadow world id, not the pg id', async (_verb, call, member) => {
+        ] as const)('%s ships the shadow backend id, not the pg id', async (_verb, call, member) => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.pg.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '7'), [], true])
@@ -200,7 +238,7 @@ describe('RoutingPersonsStore', () => {
             expect((shadowArgs[0] as InternalPerson).id).toBe('99')
         })
 
-        it('skips the shadow write, counted, when the person does not exist in the personhog world', async () => {
+        it('skips the shadow write, counted, when the person does not exist in the personhog backend', async () => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.personhogMock.fetchForUpdate.mockResolvedValue(null)
@@ -211,70 +249,6 @@ describe('RoutingPersonsStore', () => {
             expect(result.id).toBe('7')
             expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
             expect(personhogStoreShadowSkipsCounter.labels).toHaveBeenCalledWith({ verb: 'applyEventOps' })
-        })
-    })
-
-    describe('merge execution routes to the team world, never across it', () => {
-        it.each([
-            ['deletePersons', (s: RoutingPersonsStore) => s.deletePersons([person(1)], 'd'), 'deletePersons'],
-            [
-                'addDistinctId',
-                (s: RoutingPersonsStore) => s.addDistinctId(person(1), 'd', 0, undefined, 0),
-                'addDistinctId',
-            ],
-            [
-                'updatePersonForMerge',
-                (s: RoutingPersonsStore) => s.updatePersonForMerge(person(1), {}, 'd', 0),
-                'updatePersonForMerge',
-            ],
-            [
-                'claimLifecycleMarks',
-                (s: RoutingPersonsStore) => s.claimLifecycleMarks('op', 1, [], 'd'),
-                'claimLifecycleMarks',
-            ],
-        ] as const)('%s reaches the personhog store for a routed team', async (_name, call, member) => {
-            const stores = makeStores()
-            const store = makeStore(stores, 'personhog')
-
-            await call(store)
-
-            expect(stores.personhogMock[member as keyof PersonsStore]).toHaveBeenCalled()
-            expect(stores.pg[member as keyof PersonsStore]).not.toHaveBeenCalled()
-        })
-
-        it('shadow mode runs merges on pg and swallows the personhog placeholder', async () => {
-            const stores = makeStores()
-            stores.personhogMock.deletePersons.mockRejectedValue(new Error('no personhog RPC: merge saga'))
-            const store = makeStore(stores, 'shadow')
-
-            await store.deletePersons([person(1)], 'd')
-
-            expect(stores.pg.deletePersons).toHaveBeenCalled()
-            expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith({ verb: 'deletePersons' })
-        })
-    })
-
-    describe('inTransaction routes by mode', () => {
-        it('personhog mode reaches the personhog store, whose placeholder answers', () => {
-            const stores = makeStores()
-            const store = makeStore(stores, 'personhog')
-            const cb = () => Promise.resolve('x')
-
-            void store.inTransaction('merge', cb)
-
-            expect(stores.personhogMock.inTransaction).toHaveBeenCalledWith('merge', cb)
-            expect(stores.pg.inTransaction).not.toHaveBeenCalled()
-        })
-
-        it('shadow mode runs the transaction on pg exactly once, unshadowed', () => {
-            const stores = makeStores()
-            const store = makeStore(stores, 'shadow')
-            const cb = () => Promise.resolve('x')
-
-            void store.inTransaction('merge', cb)
-
-            expect(stores.pg.inTransaction).toHaveBeenCalledWith('merge', cb)
-            expect(stores.personhogMock.inTransaction).not.toHaveBeenCalled()
         })
     })
 

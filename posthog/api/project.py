@@ -36,9 +36,11 @@ from posthog.api.team import (
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
     TeamCustomerAnalyticsConfigSerializer,
+    TeamFeatureFlagPolicyConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamSerializer,
+    TeamTracingConfigSerializer,
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
@@ -46,6 +48,7 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
+    handle_tracing_config,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
@@ -267,6 +270,31 @@ def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, 
 
     new_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
     capture_team_config_diff(team, "workflows_config", old_config, new_config, context=context)
+
+
+def update_team_feature_flag_policy_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
+    user_access_control = context.get("user_access_control")
+    old_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+
+    serializer = TeamFeatureFlagPolicyConfigSerializer(
+        team.feature_flag_policy_config,
+        data=validated_data,
+        partial=True,
+        context={**context, "user_access_control": user_access_control},
+    )
+    if not serializer.is_valid():
+        raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+    serializer.save()
+
+    new_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+    capture_team_config_diff(team, "feature_flag_policy_config", old_config, new_config, context=context)
 
 
 def verify_team_session_recording_retention_period(team: Team, new_retention_period: str) -> None:
@@ -577,6 +605,7 @@ class ProjectBackwardCompatSerializer(
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -683,6 +712,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
             "workflows_config",  # Compat with TeamSerializer
+            "feature_flag_policy_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
             "capture_dead_clicks",  # Compat with TeamSerializer
             "cookieless_server_hash_mode",  # Compat with TeamSerializer
@@ -796,6 +826,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "feature_flag_policy_config",
             "event_retention_months",
         }
 
@@ -926,6 +957,10 @@ class ProjectBackwardCompatSerializer(
     @staticmethod
     def validate_workflows_config(value):
         return TeamSerializer.validate_workflows_config(value)
+
+    @staticmethod
+    def validate_feature_flag_policy_config(value):
+        return TeamSerializer.validate_feature_flag_policy_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.passthrough_team
@@ -1075,6 +1110,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "feature_flag_policy_config",
         ):
             validated_data.pop(config_field, None)
 
@@ -1155,6 +1191,9 @@ class ProjectBackwardCompatSerializer(
             update_team_customer_analytics_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("workflows_config", None):
             update_team_workflows_config(team, config_data, context=config_context)
+
+        if config_data := validated_data.pop("feature_flag_policy_config", None):
+            update_team_feature_flag_policy_config(team, config_data, context=config_context)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -1690,6 +1729,32 @@ class ProjectViewSet(
         resolves alongside the legacy /api/environments/:id/logs_config/ alias."""
         project = self.get_object()
         return handle_logs_config(request, project.passthrough_team)
+
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamTracingConfigSerializer,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this project's canonical environment.
+        Members can read; writing requires project admin, matching the admin-only
+        settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+        resolves alongside the legacy /api/environments/:id/tracing_config/ alias."""
+        project = self.get_object()
+        return handle_tracing_config(request, project.passthrough_team)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
