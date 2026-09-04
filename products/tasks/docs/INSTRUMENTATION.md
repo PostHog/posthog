@@ -12,14 +12,15 @@ All events include group analytics via `groups()` from `posthog.event_usage`, wh
 
 All events captured via `Task.capture_event()` automatically include:
 
-| Property         | Type   | Description                                |
-| ---------------- | ------ | ------------------------------------------ |
-| `task_id`        | `str`  | UUID of the task                           |
-| `team_id`        | `int`  | Team ID                                    |
-| `title`          | `str`  | Task title                                 |
-| `description`    | `str`  | Task description (truncated to 500 chars)  |
-| `origin_product` | `str`  | Origin product enum value                  |
-| `repository`     | `str?` | Repository in `org/repo` format (nullable) |
+| Property         | Type   | Description                                    |
+| ---------------- | ------ | ---------------------------------------------- |
+| `task_id`        | `str`  | UUID of the task                               |
+| `team_id`        | `int`  | Team ID                                        |
+| `title`          | `str`  | Task title                                     |
+| `description`    | `str`  | Task description (truncated to 500 chars)      |
+| `origin_product` | `str`  | Origin product enum value                      |
+| `internal`       | `bool` | Whether the task is internal (not user-facing) |
+| `repository`     | `str?` | Repository in `org/repo` format (nullable)     |
 
 ### TaskRun events
 
@@ -31,6 +32,7 @@ All events captured via `TaskRun.capture_event()` automatically include:
 | `run_id`          | `str`  | UUID of the run                                                         |
 | `team_id`         | `int`  | Team ID                                                                 |
 | `repository`      | `str?` | Repository in `org/repo` format (nullable)                              |
+| `internal`        | `bool` | Whether the parent task is internal (not user-facing)                   |
 | `loop_id`         | `str?` | UUID of the loop that spawned this run, from run state (nullable)       |
 | `loop_trigger_id` | `str?` | UUID of the loop trigger that fired this run, from run state (nullable) |
 | `environment`     | `str`  | `cloud` or `local` (defaults to `cloud`)                                |

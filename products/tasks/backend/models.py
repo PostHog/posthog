@@ -582,6 +582,7 @@ class Task(DeletedMetaFields, models.Model):
                 "title": self.title,
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
+                "internal": self.internal,
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
@@ -2739,6 +2740,7 @@ class TaskRun(models.Model):
                 or self.task.repositories
                 or ([self.task.repository] if self.task.repository else []),
                 "origin_product": self.task.origin_product,
+                "internal": self.task.internal,
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "loop_id": (self.state or {}).get("loop_id"),
