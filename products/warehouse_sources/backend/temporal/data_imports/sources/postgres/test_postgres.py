@@ -3422,6 +3422,12 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         assert type(exc_info.value).__name__ in non_retryable
 
 
+def _fake_column(name: str):
+    column = mock.Mock()
+    column.name = name
+    return column
+
+
 class TestChunkedRereadAfterRecoveryConflict:
     """A read replica cancelling the initial read with "conflict with recovery" routes `get_rows`
     into a chunked re-read. Paging by LIMIT/OFFSET is only correct when the query orders its rows:
@@ -3433,34 +3439,41 @@ class TestChunkedRereadAfterRecoveryConflict:
     """
 
     _CONFLICT = "canceling statement due to conflict with recovery"
-    _ROWS: list[tuple[int]] = [(1,), (2,), (3,), (4,), (5,), (6,)]
+    _ROWS: list[tuple[int, ...]] = [(1,), (2,), (3,), (4,), (5,), (6,)]
+    # An xmin read projects the cursor ahead of the row. One bulk load gives every row the same
+    # cursor, and the trailing row sits below the window a resumed page still has to apply.
+    _XMIN_ROWS: list[tuple[int, ...]] = [(200, 1), (200, 2), (200, 3), (200, 4), (200, 5), (200, 6), (50, 7)]
+    _XMIN_BOUNDS = XminBounds(lower=100, upper=300, ceiling_xid8=300, num_wraparound=0, wraparound_or_range=False)
 
     class _Scan:
-        def __init__(self, rows: list[tuple[int]]):
+        def __init__(self, rows: list[tuple[int, ...]]):
             self._rows = rows
             self._statements = 0
 
-        def rows_for(self, ordered: bool) -> list[tuple[int]]:
-            if ordered:
+        def rows_for(self, totally_ordered: bool) -> list[tuple[int, ...]]:
+            if totally_ordered:
                 return sorted(self._rows)
             self._statements += 1
             pivot = self._statements % len(self._rows)
             return self._rows[pivot:] + self._rows[:pivot]
 
     class _PageCursor:
-        def __init__(self, scan):
-            column = mock.Mock()
-            column.name = "id"
-            self.description = [column]
+        def __init__(self, scan, column_names: list[str]):
+            self.description = [_fake_column(name) for name in column_names]
             self._scan = scan
-            self._result: list[tuple[int]] = []
+            self._result: list[tuple[int, ...]] = []
 
         def execute(self, query, *args, **kwargs):
             text = query.as_string()
-            rows = self._scan.rows_for("ORDER BY" in text)
-            seek = re.search(r'\("id"\) > \((\d+)\)', text)
+            # Only an ORDER BY that reaches the primary key is total. Anything short of it leaves
+            # rows tied, and each page is its own statement, so the pages overlap and skip.
+            rows = self._scan.rows_for('"id"' in text.partition("ORDER BY")[2])
+            window = re.search(r"xmin::text::bigint >= (\d+) AND xmin::text::bigint < (\d+)", text)
+            if window:
+                rows = [row for row in rows if int(window.group(1)) <= row[0] < int(window.group(2))]
+            seek = re.search(r"\) > \(([^)]*)\)", text)
             if seek:
-                rows = [row for row in rows if row[0] > int(seek.group(1))]
+                rows = [row for row in rows if row[-1] > int(seek.group(1).split(", ")[-1])]
             offset = re.search(r"OFFSET (\d+)", text)
             if offset:
                 rows = rows[int(offset.group(1)) :]
@@ -3477,10 +3490,8 @@ class TestChunkedRereadAfterRecoveryConflict:
             return False
 
     class _NamedCursor:
-        def __init__(self, rows_before_conflict: int, scan):
-            column = mock.Mock()
-            column.name = "id"
-            self.description = [column]
+        def __init__(self, rows_before_conflict: int, scan, column_names: list[str]):
+            self.description = [_fake_column(name) for name in column_names]
             self._pending = scan.rows_for(True)[:rows_before_conflict]
 
         def execute(self, *args, **kwargs):
@@ -3532,6 +3543,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         nullable_value: bool | str = False,
         has_id_column: bool = False,
         has_duplicate_pks: bool = False,
+        is_xmin: bool = False,
     ) -> list[int]:
         @contextmanager
         def fake_tunnel():
@@ -3548,13 +3560,16 @@ class TestChunkedRereadAfterRecoveryConflict:
         ]
         fake_table.__contains__ = mock.Mock(return_value=has_id_column)
 
-        scan = self._Scan(list(self._ROWS))
-        connection = self._Connection(self._NamedCursor(rows_before_conflict, scan))
+        rows = self._XMIN_ROWS if is_xmin else self._ROWS
+        # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
+        column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
+        scan = self._Scan(list(rows))
+        connection = self._Connection(self._NamedCursor(rows_before_conflict, scan, column_names))
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.psycopg.connect", return_value=connection),
-            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan)),
+            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan, column_names)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
             patch(f"{module}._is_duckdb_connection", return_value=False),
@@ -3562,7 +3577,8 @@ class TestChunkedRereadAfterRecoveryConflict:
             patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=2, fetch_rows=2)),
-            patch(f"{module}._get_rows_to_sync", return_value=len(self._ROWS)),
+            patch(f"{module}._get_rows_to_sync", return_value=len(rows)),
+            patch(f"{module}._capture_xmin_ceiling", return_value=self._XMIN_BOUNDS),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
             patch(f"{module}.time.sleep"),
@@ -3581,6 +3597,8 @@ class TestChunkedRereadAfterRecoveryConflict:
                 logger=structlog.get_logger(),
                 db_incremental_field_last_value=0 if should_use_incremental_field else None,
                 team_id=1,
+                is_xmin=is_xmin,
+                xmin_last_value=self._XMIN_BOUNDS.lower if is_xmin else None,
             )
             return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
 
@@ -3615,6 +3633,18 @@ class TestChunkedRereadAfterRecoveryConflict:
         )
 
         assert sorted(ids) == [row[0] for row in self._ROWS]
+
+    def test_xmin_reread_seeks_past_the_cursor_and_the_key(self):
+        # One bulk load shares a single xmin, so ordering on the cursor alone leaves the whole
+        # table tied. Row 7 is below the window, so a page that drops the predicate surfaces it.
+        ids = self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            is_xmin=True,
+        )
+
+        assert sorted(ids) == [1, 2, 3, 4, 5, 6]
 
     def test_full_refresh_stays_retryable_when_rows_are_already_written(self):
         with pytest.raises(psycopg.errors.SerializationFailure):
@@ -5091,6 +5121,47 @@ class TestBuildQuery:
         assert "'2024-01-01'" in rendered
         assert "ORDER BY" in rendered
 
+    # Offset paging re-evaluates the ORDER BY once per chunk, so anything short of a total order
+    # lets tied rows come back in a different sequence per chunk and the pages overlap and skip.
+    @pytest.mark.parametrize(
+        "offset_paging_keys,expected_suffix",
+        [
+            # The healthy server-cursor read streams one consistent snapshot and must stay unordered.
+            (None, None),
+            (["id"], 'ORDER BY "id" ASC'),
+            (["tenant_id", "id"], 'ORDER BY "tenant_id" ASC, "id" ASC'),
+        ],
+    )
+    def test_full_scan_offset_paging_order(self, offset_paging_keys, expected_suffix):
+        query = _build_query("public", "users", False, "table", None, None, None, offset_paging_keys=offset_paging_keys)
+        rendered = self._render(query).rstrip()
+        if expected_suffix is None:
+            assert "ORDER BY" not in rendered
+        else:
+            assert rendered.endswith(expected_suffix)
+
+    @pytest.mark.parametrize(
+        "offset_paging_keys,expected_suffix",
+        [
+            (None, 'ORDER BY "created_at" ASC'),
+            (["id"], 'ORDER BY "created_at" ASC, "id" ASC'),
+            # A cursor that is itself the primary key is already total, so it must not repeat.
+            (["created_at"], 'ORDER BY "created_at" ASC'),
+        ],
+    )
+    def test_incremental_offset_paging_order(self, offset_paging_keys, expected_suffix):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "created_at",
+            IncrementalFieldType.Timestamp,
+            "2024-01-01",
+            offset_paging_keys=offset_paging_keys,
+        )
+        assert self._render(query).rstrip().endswith(expected_suffix)
+
     def test_incremental_raises_without_field(self):
         with pytest.raises(ValueError, match="incremental_field and incremental_field_type can't be None"):
             _build_query("public", "events", True, "table", None, None, None)
@@ -5487,6 +5558,29 @@ class TestBuildXminQuery:
         rendered = self._render(query)
         assert "SELECT COUNT(*)" in rendered
         assert "xmin::text::bigint >= 100 AND xmin::text::bigint < 5000" in rendered
+
+    # Every row one transaction wrote shares an xmin, so the cursor alone leaves huge ties — a
+    # bulk-loaded table can be a single group. Offset paging needs the primary key to break them.
+    @pytest.mark.parametrize(
+        "offset_paging_keys,expected_suffix",
+        [
+            (None, "ORDER BY xmin::text::bigint ASC"),
+            (["id"], 'ORDER BY xmin::text::bigint ASC, "id" ASC'),
+        ],
+    )
+    def test_offset_paging_breaks_xmin_ties(self, offset_paging_keys, expected_suffix):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            xmin_bounds=self._bounds(),
+            offset_paging_keys=offset_paging_keys,
+        )
+        assert self._render(query).rstrip().endswith(expected_suffix)
 
 
 class TestCaptureXminCeiling:
