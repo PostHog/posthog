@@ -1,7 +1,14 @@
 import { PlatformSupportConfig } from 'lib/components/SupportedPlatforms/types'
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { AccessControlLevel, AccessControlResourceType, Realm, TeamPublicType, TeamType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    Realm,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -373,4 +380,21 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * re-auth modal reactively when a write is attempted.
      */
     requiresReauthentication?: boolean
+
+    /**
+     * Gate every setting in the section behind one billing feature. The section renders a single
+     * upsell when the feature is unavailable. Use this instead of a `PayGateMini` inside each
+     * setting's component, which stacks one identical upsell card per setting on the page.
+     */
+    payGate?: SettingSectionPayGate
+}
+
+export interface SettingSectionPayGate {
+    feature: AvailableFeature
+
+    /** Identifies this surface in pay gate analytics, since one feature can gate several places. */
+    featureDetail?: string
+
+    /** When true, impersonated staff see the settings rather than the upsell. */
+    bypassForImpersonation?: boolean
 }

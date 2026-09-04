@@ -50,7 +50,7 @@ import {
     DefaultRoleSelector,
     RolesAccessControls,
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
-import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
@@ -1487,6 +1487,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-activity-logs',
         title: 'Activity logs',
+        payGate: {
+            feature: AvailableFeature.AUDIT_LOGS,
+            // pinned: `pay gate shown` property value, so renaming it breaks existing insights
+            featureDetail: 'activity-log-retention',
+            bypassForImpersonation: true,
+        },
         settings: [
             {
                 id: 'activity-log-settings',
