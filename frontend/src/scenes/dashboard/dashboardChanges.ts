@@ -4,8 +4,8 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import type { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import type { AnyPropertyFilter } from '~/types'
+import type { DashboardFilter, HogQLVariable, MultipleBreakdownType } from '~/queries/schema/schema-general'
+import type { AnyPropertyFilter, BreakdownType } from '~/types'
 
 export interface DashboardSettingsChange {
     label: string
@@ -112,6 +112,30 @@ function formatDateRange(filters: DashboardFilter): string {
     return filters.explicitDate ? `${dateRange} (exact time range)` : dateRange
 }
 
+const BREAKDOWN_TYPE_LABELS: Record<BreakdownType | MultipleBreakdownType, string> = {
+    cohort: 'cohort',
+    person: 'person property',
+    event: 'event property',
+    event_metadata: 'event metadata',
+    group: 'group property',
+    session: 'session property',
+    hogql: 'SQL expression',
+    data_warehouse: 'data warehouse property',
+    data_warehouse_person_property: 'data warehouse person property',
+    revenue_analytics: 'revenue analytics property',
+}
+
+// The same property name exists in several taxonomies, so a breakdown that keeps the name and
+// changes the taxonomy would otherwise read as the same value on both sides of the change.
+function formatBreakdownValue(
+    property: unknown,
+    type: BreakdownType | MultipleBreakdownType | null | undefined
+): string {
+    const name = String(property)
+    const label = type ? BREAKDOWN_TYPE_LABELS[type] : undefined
+    return label ? `${name} (${label})` : name
+}
+
 function formatBreakdown(filters: DashboardFilter): string[] {
     const { breakdown_filter } = filters
     if (!breakdown_filter?.breakdown && !breakdown_filter?.breakdowns?.length) {
@@ -119,13 +143,15 @@ function formatBreakdown(filters: DashboardFilter): string[] {
     }
 
     if (breakdown_filter.breakdowns?.length) {
-        return breakdown_filter.breakdowns.map((breakdown) => String(breakdown.property))
+        return breakdown_filter.breakdowns.map((breakdown) => formatBreakdownValue(breakdown.property, breakdown.type))
     }
 
     if (Array.isArray(breakdown_filter.breakdown)) {
-        return breakdown_filter.breakdown.map(String)
+        return breakdown_filter.breakdown.map((breakdown) =>
+            formatBreakdownValue(breakdown, breakdown_filter.breakdown_type)
+        )
     }
-    return [String(breakdown_filter.breakdown)]
+    return [formatBreakdownValue(breakdown_filter.breakdown, breakdown_filter.breakdown_type)]
 }
 
 function formatTestAccounts(filterTestAccounts: DashboardFilter['filterTestAccounts']): string {

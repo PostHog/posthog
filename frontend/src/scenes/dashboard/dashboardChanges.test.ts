@@ -109,6 +109,45 @@ describe('getDashboardFilterChanges', () => {
         ])
     })
 
+    it('names the taxonomy of a breakdown so a switch between two of them reads as a change', () => {
+        expect(
+            getDashboardFilterChanges(
+                { breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' } },
+                { breakdown_filter: { breakdown: '$browser', breakdown_type: 'person' } }
+            )
+        ).toEqual([
+            {
+                label: 'Breakdown by',
+                previousValue: ['$browser (event property)'],
+                value: ['$browser (person property)'],
+                status: 'changed',
+            },
+        ])
+    })
+
+    it('names the taxonomy of each breakdown in a multiple breakdown', () => {
+        expect(
+            getDashboardFilterChanges(
+                {},
+                {
+                    breakdown_filter: {
+                        breakdowns: [
+                            { property: '$browser', type: 'event' },
+                            { property: '$geoip_country_code', type: 'person' },
+                        ],
+                    },
+                }
+            )
+        ).toEqual([
+            {
+                label: 'Breakdown by',
+                previousValue: [],
+                value: ['$browser (event property)', '$geoip_country_code (person property)'],
+                status: 'new',
+            },
+        ])
+    })
+
     it('lists an explicit property-filter clear', () => {
         expect(getDashboardFilterChanges({}, { properties: [] })).toEqual([
             { label: 'Property filters', previousValue: [], value: ['No property filters'], status: 'new' },
