@@ -448,8 +448,8 @@ describe('dataQualityCheckEditorLogic', () => {
     })
 
     it('saves a query nobody edited while Monaco validates the one it opened with', async () => {
-        // Monaco validates the query as soon as the editor mounts. That pass used to read as an
-        // edit awaiting validation, so Save did nothing at all for the first moment the modal was up.
+        // Monaco validates the query as soon as the editor mounts. That pass is not an edit, so it
+        // must not hold the save while it runs.
         ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
         await mountLogic()
         await openWith(
