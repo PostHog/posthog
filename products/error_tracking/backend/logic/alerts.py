@@ -1,5 +1,6 @@
 """CRUD and validation for error tracking alert configurations."""
 
+import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -220,6 +221,34 @@ def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
     return deleted > 0
 
 
+# Issue fields the delivery globals carry on every lifecycle event, so an issue-level
+# leaf compiles to `properties.<key>` exactly like the taxonomy's Issues group emits it.
+ISSUE_FILTER_KEYS = frozenset({"name", "issue_description", "severity", "first_seen", "assignee"})
+
+
+# The issue page stores description filters under `issue_description`; the same field
+# reaches the event namespace as `description`.
+_ISSUE_KEY_IN_EVENT_NAMESPACE = {"issue_description": "description"}
+
+
+def _validate_issue_leaf(property_filter: dict[str, Any]) -> None:
+    key = property_filter["key"]
+    if key not in ISSUE_FILTER_KEYS:
+        raise AlertValidationError(f"Unknown issue property in alert filters: {key}.")
+    if key != "assignee" or property_filter.get("operator") in ("is_set", "is_not_set"):
+        return
+    # The assignee picker stores the JSON string "null" when its selection is cleared;
+    # no issue ever carries that value, so the filter would never match.
+    values = property_filter.get("value")
+    for value in values if isinstance(values, list) else [values]:
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else None
+        except ValueError:
+            parsed = None
+        if not isinstance(parsed, dict) or "id" not in parsed:
+            raise AlertValidationError("Choose an assignee for the assignee filter, or remove it.")
+
+
 def _validate_filter_surface(filters: dict[str, Any]) -> None:
     # Delivery evaluates filters without person, group, or cohort context, and
     # native alerts have no bytecode refresh when actions or test-account
@@ -237,6 +266,8 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
                 # list would compile too.
                 raise AlertValidationError(f"Alert event filters must have type events, got: {entity.get('type')}.")
             property_lists.append(entity.get("properties") or [])
+    issue_keys: set[str] = set()
+    event_keys: set[str] = set()
     for property_list in property_lists:
         # The compiler accepts an object here and iterating it would only yield keys,
         # so the leaf checks below would never run.
@@ -247,10 +278,22 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
             # branch, turning a "filtered" alert into a match-all.
             if not isinstance(property_filter, dict) or not isinstance(property_filter.get("key"), str):
                 raise AlertValidationError("Each alert property filter must be an object with a key.")
-            if property_filter.get("type") not in (None, "event"):
+            property_type = property_filter.get("type")
+            if property_type == "error_tracking_issue":
+                _validate_issue_leaf(property_filter)
+                issue_keys.add(_ISSUE_KEY_IN_EVENT_NAMESPACE.get(property_filter["key"], property_filter["key"]))
+            elif property_type in (None, "event"):
+                event_keys.add(property_filter["key"])
+            else:
                 raise AlertValidationError(
-                    f"Alert filters support event properties only, got: {property_filter.get('type')}."
+                    f"Alert filters support event and issue properties only, got: {property_type}."
                 )
+    # Both kinds evaluate under one property namespace, so one alert cannot ask for the
+    # issue's value and the exception's value of the same field.
+    if issue_keys & event_keys:
+        raise AlertValidationError(
+            f"Filter on {', '.join(sorted(issue_keys & event_keys))} as an issue property or an exception property, not both."
+        )
 
 
 def _compile_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:

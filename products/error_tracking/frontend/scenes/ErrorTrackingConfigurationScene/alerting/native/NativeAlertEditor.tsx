@@ -152,13 +152,16 @@ export function NativeAlertEditor({ inline = false }: { inline?: boolean }): JSX
                         </div>
 
                         <div className="flex flex-col gap-1">
-                            <LemonLabel info="Checked against the exception when a thread would open. Later updates to the issue always post into the open thread.">
+                            <LemonLabel info="Checked when a thread would open, on issue fields such as severity or assignee and on properties of the triggering exception. Later updates to the issue always post into the open thread.">
                                 Only for issues matching
                             </LemonLabel>
                             <PropertyFilters
                                 editable
                                 propertyFilters={draft.properties}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.ErrorTrackingIssues,
+                                    TaxonomicFilterGroupType.EventProperties,
+                                ]}
                                 onChange={(properties: AnyPropertyFilter[]) => setDraft({ properties })}
                                 pageKey="error-tracking-native-alert"
                                 buttonSize="small"
