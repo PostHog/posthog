@@ -699,6 +699,9 @@ class TestSendFollowupActivityRefreshOrdering:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_error_and_complete"
             ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.refresh_store_skills_state"
+            ) as mock_refresh_store_skills,
         ):
             task_run = _make_task_run_mock()
             task_run.task.created_by = MagicMock(id=42, distinct_id="u42")
@@ -712,6 +715,7 @@ class TestSendFollowupActivityRefreshOrdering:
                 "refresh_github": mock_refresh_github,
                 "user_msg": mock_user_msg,
                 "conn_token": mock_conn_token,
+                "refresh_store_skills": mock_refresh_store_skills,
             }
 
     def test_refresh_called_before_user_message(self, _patches):
@@ -837,10 +841,15 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
         _patches["task_run"].state = {"interaction_origin": "slack", "slack_actor_user_id": 42}
 
+        order: list[str] = []
+        _patches["refresh_store_skills"].side_effect = lambda *args, **kwargs: order.append("store_skills")
+        _patches["refresh"].side_effect = lambda *args, **kwargs: order.append("mcp")
+
         with patch(
             "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user"
         ) as mock_resolve:
-            mock_resolve.return_value = MagicMock(id=99)
+            new_actor = MagicMock(id=99)
+            mock_resolve.return_value = new_actor
             send_followup_to_sandbox(
                 SendFollowupToSandboxInput(
                     run_id="run-1", message="hi", actor_user_id=99, context={"actor_slack_user_id": "U_BOB"}
@@ -851,6 +860,11 @@ class TestSendFollowupActivityRefreshOrdering:
             _patches["task_run"].id,
             updates={"slack_actor_user_id": 99, "slack_actor_slack_user_id": "U_BOB"},
         )
+        # The MCP refresh makes the sandbox re-read the run, so the new actor's skills go in first.
+        _patches["refresh_store_skills"].assert_called_once_with(
+            _patches["task_run"], new_actor, reason="slack_actor_change"
+        )
+        assert order == ["store_skills", "mcp"]
 
     def test_non_slack_delivery_does_not_stamp(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
@@ -858,6 +872,7 @@ class TestSendFollowupActivityRefreshOrdering:
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
 
         _patches["task_run_cls"].update_state_atomic.assert_not_called()
+        _patches["refresh_store_skills"].assert_not_called()
 
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)

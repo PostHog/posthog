@@ -5,10 +5,9 @@ use crate::{
 use metrics::Counter;
 use quick_cache::{sync, DefaultHashBuilder, Lifecycle, UnitWeighter};
 
-// Per-subcache eviction observer. quick_cache's built-in `stats` feature
-// only tracks hits/misses on `get`/`get_key_value` paths (not `contains_key`/
-// `insert`, which is what we use), so all cache hit/miss/eviction signal in
-// this service comes from explicit metrics emitted here and in `contains_key`.
+// Per-subcache eviction observer. The `stats` feature of quick_cache is not
+// enabled, so all cache hit/miss/eviction signal in this service comes from
+// explicit metrics emitted here and in `contains_key`.
 //
 // Counter handles are resolved once at construction and reused: these paths run
 // per update (and `on_evict` runs under the shard write lock), so a registry
@@ -104,7 +103,12 @@ impl Cache {
 
     pub fn contains_key(&self, key: &Update) -> bool {
         let entry = self.entry_for(key);
-        let found = entry.cache.contains_key(key);
+        // `get` marks the entry referenced, which quick_cache's S3-FIFO eviction
+        // uses to keep the working set resident. The `contains_key` of quick_cache
+        // skips that marking, so every entry looks cold at eviction time and the
+        // cache degrades to FIFO: live keys cycle out and each cycle costs a
+        // useless definition upsert against Postgres.
+        let found = entry.cache.get(key).is_some();
         if found {
             entry.hits.increment(1);
         } else {
