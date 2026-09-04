@@ -51,6 +51,7 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 
 **Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
 Observations have their own scene under `/replay-vision/observations/…`.
+An observation link carries the player's `?t=<seconds>` param, so a shared observation opens with its recording expanded and playing from the shared moment.
 
 Outside these scenes, the product also renders inside the session replay player: `ObservationsDock` shows what the team's scanners found about the recording being watched (standard players only — embedded, shared, and chromeless players skip every vision surface).
 
