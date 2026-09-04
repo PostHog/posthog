@@ -25,7 +25,7 @@ DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispat
 StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
 StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
 _ALLOWED_MODES = {"background", "interactive"}
-_ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
+_ALLOWED_RUN_SOURCES = {"manual", "signal_report", "agent"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
 _ALLOWED_TASK_RUNTIMES = {"acp", "pi"}
 

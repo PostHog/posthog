@@ -203,6 +203,11 @@ class TaskDetailDTO:
 
 
 @dataclass(frozen=True)
+class TaskCreateResponseDTO(TaskDetailDTO):
+    run_error: str | None = None
+
+
+@dataclass(frozen=True)
 class ChannelDTO:
     """The HTTP representation of a task channel."""
 
@@ -429,6 +434,7 @@ class TaskRunResult:
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
+    run_error: str | None = None
 
 
 @dataclass(frozen=True)

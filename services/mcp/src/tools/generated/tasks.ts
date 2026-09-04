@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/tasks/api'
-import { ChannelInstructionsBaseVersionSchema } from '@/schema/tool-inputs'
+import { ChannelInstructionsBaseVersionSchema, TaskAgentRunCreateSchema } from '@/schema/tool-inputs'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -544,6 +544,7 @@ const TasksCreateSchema = () => {
         pending_user_artifact_ids: true,
         auto_publish: true,
         channel: true,
+        start_run: true,
         naming_source: true,
         sandbox_environment_id: true,
         custom_image_id: true,
@@ -557,7 +558,10 @@ const TasksCreateSchema = () => {
     })
 }
 
-const tasksCreate = (): ToolBase<ReturnType<typeof TasksCreateSchema>, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
+const tasksCreate = (): ToolBase<
+    ReturnType<typeof TasksCreateSchema>,
+    WithPostHogUrl<Schemas.TaskCreateResponseDTO>
+> => ({
     name: 'tasks-create',
     schema: TasksCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksCreateSchema>>) => {
@@ -572,7 +576,7 @@ const tasksCreate = (): ToolBase<ReturnType<typeof TasksCreateSchema>, WithPostH
         if (params.repository !== undefined) {
             body['repository'] = params.repository
         }
-        const result = await context.api.request<Schemas.TaskDetailDTO>({
+        const result = await context.api.request<Schemas.TaskCreateResponseDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             body,
@@ -585,6 +589,10 @@ const tasksCreate = (): ToolBase<ReturnType<typeof TasksCreateSchema>, WithPostH
             'origin_product',
             'repository',
             'internal',
+            'latest_run.id',
+            'latest_run.stage',
+            'latest_run.status',
+            'run_error',
             'created_at',
             'updated_at',
         ]) as typeof result
@@ -684,6 +692,34 @@ const tasksRetrieve = (): ToolBase<ReturnType<typeof TasksRetrieveSchema>, WithP
             'latest_run.log_url',
             'latest_run.state.sandbox_connect_token',
             'latest_run.state.sandbox_url',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
+    },
+})
+
+const TasksRunCreateSchema = () => TaskAgentRunCreateSchema
+
+const tasksRunCreate = (): ToolBase<ReturnType<typeof TasksRunCreateSchema>, Schemas.TaskDetailDTO> => ({
+    name: 'tasks-run-create',
+    schema: TasksRunCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = TasksRunCreateSchema().parse(params)
+        const { id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.TaskDetailDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(id))}/run/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'task_number',
+            'title',
+            'description',
+            'repository',
+            'latest_run.id',
+            'latest_run.stage',
+            'latest_run.status',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
     },
@@ -809,6 +845,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-create': tasksCreate,
     'tasks-list': tasksList,
     'tasks-retrieve': tasksRetrieve,
+    'tasks-run-create': tasksRunCreate,
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,
     'tasks-runs-session-logs-retrieve': tasksRunsSessionLogsRetrieve,

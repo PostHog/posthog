@@ -425,7 +425,7 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
         return "read_only"
 
     run_source = parse_run_state(task_run.state).run_source
-    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
+    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT, RunSource.AGENT) else "read_only"
 
 
 def redispatch_orphaned_task_run(run_id: str) -> str:

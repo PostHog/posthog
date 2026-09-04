@@ -434,7 +434,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
             WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         )
 
-    @parameterized.expand([(None, "full"), ("manual", "full"), ("signal_report", "full")])
+    @parameterized.expand([(None, "full"), ("manual", "full"), ("signal_report", "full"), ("agent", "full")])
     def test_falls_back_to_run_source_scopes_when_dispatch_params_absent(
         self, run_source: str | None, expected_scopes: str
     ) -> None:

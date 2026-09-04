@@ -1957,6 +1957,8 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /** Start the task's first cloud run immediately after creation. */
+    start_run?: boolean
     /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
     naming_source?: string
     /**
@@ -1974,6 +1976,70 @@ export interface TaskCreateApi {
      * * `acp` - ACP
      * * `pi` - Pi */
     runtime?: TaskRuntimeEnumApi
+}
+
+/**
+ * @nullable
+ */
+export type TaskCreateResponseDTOApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Detail response for a task.
+ *
+ * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+ * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+ * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ */
+export interface TaskCreateResponseDTOApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    description: string
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskCreateResponseDTOApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** Error returned when the task was created but its first run could not start. */
+    run_error?: string
 }
 
 /**
@@ -2500,12 +2566,14 @@ export const PrAuthorshipModeEnumApi = {
 /**
  * * `manual` - manual
  * * `signal_report` - signal_report
+ * * `agent` - agent
  */
 export type RunSourceEnumApi = (typeof RunSourceEnumApi)[keyof typeof RunSourceEnumApi]
 
 export const RunSourceEnumApi = {
     Manual: 'manual',
     SignalReport: 'signal_report',
+    Agent: 'agent',
 } as const
 
 /**
@@ -2597,7 +2665,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2724,7 +2793,8 @@ export interface CodexTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2802,7 +2872,8 @@ export interface TaskRunResumeRequestSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -3089,7 +3160,8 @@ export interface TaskRunBootstrapCreateRequestApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string

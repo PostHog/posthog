@@ -1140,6 +1140,8 @@ export const tasksCreateBodyBranchMax = 255
 
 export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
 
+export const tasksCreateBodyStartRunDefault = false
+
 export const TasksCreateBody = /* @__PURE__ */ zod
     .object({
         title: zod
@@ -1279,6 +1281,10 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        start_run: zod
+            .boolean()
+            .default(tasksCreateBodyStartRunDefault)
+            .describe("Start the task's first cloud run immediately after creation."),
         naming_source: zod
             .string()
             .optional()
@@ -1794,11 +1800,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
                 ),
             run_source: zod
-                .enum(['manual', 'signal_report'])
-                .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+                .enum(['manual', 'signal_report', 'agent'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent')
                 .optional()
                 .describe(
-                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent'
                 ),
             signal_report_id: zod
                 .string()
@@ -1947,11 +1953,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
                 ),
             run_source: zod
-                .enum(['manual', 'signal_report'])
-                .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+                .enum(['manual', 'signal_report', 'agent'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent')
                 .optional()
                 .describe(
-                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent'
                 ),
             signal_report_id: zod
                 .string()
@@ -2049,11 +2055,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
             ),
         run_source: zod
-            .enum(['manual', 'signal_report'])
-            .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+            .enum(['manual', 'signal_report', 'agent'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent')
             .optional()
             .describe(
-                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent'
             ),
         signal_report_id: zod
             .string()
@@ -2395,11 +2401,11 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
                 'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
             ),
         run_source: zod
-            .enum(['manual', 'signal_report'])
-            .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+            .enum(['manual', 'signal_report', 'agent'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent')
             .optional()
             .describe(
-                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent'
             ),
         signal_report_id: zod
             .string()
