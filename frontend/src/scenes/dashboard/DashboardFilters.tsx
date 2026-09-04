@@ -89,6 +89,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                   }
               })
             : filterChanges
+    const changedCount = changes.length
     const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
 
     return (
@@ -104,10 +105,10 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                 >
                     <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
                     <span className="@max-lg/dashboard-filters:hidden whitespace-nowrap">
-                        {variablesDirty && !filtersDirty ? `1 ${changeLabel}` : `${changedFilterCount} ${changeLabel}`}
+                        {`${variablesDirty && !filtersDirty ? changedCount : changedFilterCount} ${changeLabel}`}
                     </span>
                     <span className="@min-lg/dashboard-filters:hidden whitespace-nowrap">
-                        {variablesDirty && !filtersDirty ? '1 unsaved' : `${changedFilterCount} unsaved`}
+                        {`${variablesDirty && !filtersDirty ? changedCount : changedFilterCount} unsaved`}
                     </span>
                     <IconInfo className="cursor-pointer text-sm" />
                 </button>
