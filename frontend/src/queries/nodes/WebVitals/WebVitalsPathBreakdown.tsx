@@ -150,7 +150,7 @@ const Content = ({
     const { webVitalsTab, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
-    const values = response?.results[0][band]
+    const values = response?.results?.[0]?.[band]
 
     const loadedValues = values != null
     const hasNoValues = values?.length === 0
@@ -174,7 +174,7 @@ const Content = ({
                                 <div
                                     className="absolute top-0 left-0 h-full opacity-80 bg-surface-secondary"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width }}
+                                    style={{ width: `${width}%` }}
                                 />
                                 <span
                                     title={path}
