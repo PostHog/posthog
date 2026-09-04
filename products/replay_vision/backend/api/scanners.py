@@ -75,6 +75,7 @@ from products.replay_vision.backend.impact import (
     create_affected_cohort,
 )
 from products.replay_vision.backend.models.replay_observation import (
+    TERMINAL_STATUSES,
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
@@ -112,7 +113,12 @@ from products.replay_vision.backend.scanner_config import (
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
-from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.scanning import (
+    MAX_SESSIONS_PER_SCAN,
+    run_inline_scan,
+    scan_existing_scanner,
+    session_has_replay_data,
+)
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
@@ -1740,6 +1746,27 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
+        # A settled observation already owns this (scanner, session) slot, so re-triggering is a no-op
+        # that hands back the existing row. Answer that before the replay guard: a recording can expire
+        # after its scan, and this endpoint's idempotent 200 must still return the observation rather
+        # than 400 on a recording the scan no longer needs. The guard below only gates first-time scans,
+        # where no observation exists to lose.
+        already_scanned = (
+            ReplayObservation.objects.filter(scanner_id=scanner.id, session_id=session_id, status__in=TERMINAL_STATUSES)
+            .only("id")
+            .first()
+        )
+        if already_scanned is not None:
+            return Response(
+                ObserveAlreadyScannedSerializer({"observation_id": already_scanned.id}).data,
+                status=status.HTTP_200_OK,
+            )
+        # No replay data, no scan: the workflow would only reach `fetch_session_events` and settle as
+        # ineligible, leaving an observation whose recording the player can never load. The check reads
+        # ClickHouse, which a persisted (LTS) recording can outlive while still playing, so the message
+        # speaks to the analysis data this needs rather than claiming the recording itself is gone.
+        if not session_has_replay_data(team=self.team, session_id=session_id):
+            raise ValidationError("This session doesn't have the replay data Replay vision needs to analyze it.")
 
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND

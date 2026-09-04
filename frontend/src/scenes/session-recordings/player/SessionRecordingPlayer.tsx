@@ -28,6 +28,8 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
     withSidebar?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
     accessToken?: string
+    /** Shown in place of the generic not-found page when the recording cannot be loaded. */
+    notFoundState?: JSX.Element
 }
 
 export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.Element {
@@ -48,6 +50,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         onRecordingDeleted,
         playNextRecording,
         skipToFirstMatchingEvent,
+        notFoundState,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -74,6 +77,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <SessionRecordingPlayerInternal
+                notFoundState={notFoundState}
                 noMeta={noMeta}
                 noBorder={noBorder}
                 withSidebar={withSidebar}
@@ -88,11 +92,13 @@ function SessionRecordingPlayerInternal({
     noBorder,
     withSidebar,
     playerRef,
+    notFoundState,
 }: {
     noMeta: boolean
     noBorder: boolean
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
+    notFoundState?: JSX.Element
 }): JSX.Element {
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -105,7 +111,7 @@ function SessionRecordingPlayerInternal({
             })}
         >
             <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
-                <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+                <PurePlayer noMeta={noMeta} noBorder={noBorder} notFoundState={notFoundState} />
                 {visionSurfaceShown(logicProps) && (
                     <>
                         <ObservationsDock />
