@@ -398,8 +398,14 @@ class QueryCoalescingMiddleware:
     def _carries_experiment_exposure(request: HttpRequest) -> bool:
         if request.method != "POST":
             return False
+        body = request.body
+        # Almost no body carries the filter, so a byte scan decides before we pay a parse. The
+        # escape check keeps the scan exact: JSON can spell the key's characters only literally
+        # or as \uXXXX escapes, so a body without both substrings cannot parse to the key.
+        if b'"experiment_exposure"' not in body and b"\\u" not in body:
+            return False
         try:
-            data = orjson.loads(request.body)
+            data = orjson.loads(body)
         except ValueError:
             return False
         return _has_truthy_key(data, "experiment_exposure")

@@ -541,22 +541,14 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             self.client.post(path, {"query": query})
             mock_cls.assert_called_once()
 
-    @parameterized.expand(
-        [
-            ("top_level", False),
-            ("nested_in_data_table_source", True),
-        ]
-    )
-    def test_experiment_exposure_query_is_never_served_a_coalesced_body(self, _name: str, nested: bool) -> None:
+    def test_experiment_exposure_query_is_never_served_a_coalesced_body(self) -> None:
         # A denied viewer must not read the recordings of an experiment's exposed persons. The
         # coalescing key holds no user identity, so a follower would otherwise replay the body a
         # permitted leader produced, and the runner-level experiment check never runs for it.
         experiment, denied_viewer = self._create_denied_experiment_and_viewer()
         self.client.force_login(denied_viewer)
 
-        query: dict = {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
-        if nested:
-            query = {"kind": "DataTableNode", "source": query}
+        query = {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
 
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = False
@@ -578,3 +570,31 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn("Access control failure", response.json()["detail"])
         self.assertNotIn("leader-only-session", response.content.decode())
+
+    @parameterized.expand(
+        [
+            # HogQLMetadata holds its inner query under `sourceQuery`, which the scope walk in
+            # posthog.api.query does not follow. A guard narrowed to that walk's `source` chain
+            # would coalesce this body.
+            (
+                "hogql_metadata_source_query",
+                b'{"query": {"kind": "HogQLMetadata", "language": "hogQL", "query": "select 1",'
+                b' "sourceQuery": {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}}}}',
+            ),
+            # The escaped and plain spellings of the key parse to the same document, so both
+            # produce the same coalescing key. A guard that trusts a plain byte scan of the raw
+            # body would coalesce this behind the unescaped spelling.
+            (
+                "unicode_escaped_key",
+                b'{"query": {"kind": "RecordingsQuery", "experiment_exposur\\u0065": {"experiment_id": 1}}}',
+            ),
+        ]
+    )
+    def test_disguised_exposure_filters_are_not_coalesced(self, _name: str, body: bytes) -> None:
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls,
+        ):
+            self.client.post(self._query_url(), body, content_type="application/json")
+
+        mock_cls.assert_not_called()
