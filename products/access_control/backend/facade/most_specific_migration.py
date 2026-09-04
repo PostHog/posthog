@@ -7,23 +7,26 @@ that resolve differently, and organizations with rules but no active member to e
 as, are reported and stay on the legacy resolution.
 """
 
+from collections import Counter, defaultdict
 from collections.abc import Iterable
+from itertools import batched
 from uuid import UUID
 
 from django.db.models import QuerySet
 
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
-from posthog.models.team.team import Team
 
-from products.access_control.backend.facade.resolution_preview import iter_resolution_changes
+from products.access_control.backend.facade.resolution_preview import ResolutionChange, iter_resolution_changes
 from products.access_control.backend.models.access_control import AccessControl
 
 _UPDATE_BATCH_SIZE = 500
 
 
 @frozen
-class OrganizationReadiness:
+class OrganizationChanges:
+    """How many rules on an organization resolve differently, across its evaluated teams."""
+
     id: UUID
     name: str
     teams: int
@@ -42,14 +45,14 @@ class OrganizationRef:
 class MigrationCandidates:
     """Every organization still on the legacy resolution, sorted by what the switch would do."""
 
-    divergent: list[OrganizationReadiness]
-    unchanged: list[OrganizationReadiness]
+    divergent: list[OrganizationChanges]
+    unchanged: list[OrganizationChanges]
     unevaluated: list[OrganizationRef]
     without_rules: list[UUID]
 
     @property
     def unaffected_ids(self) -> list[UUID]:
-        return [readiness.id for readiness in self.unchanged] + list(self.without_rules)
+        return [org.id for org in self.unchanged] + list(self.without_rules)
 
 
 def _pending_organizations() -> QuerySet[Organization]:
@@ -57,30 +60,34 @@ def _pending_organizations() -> QuerySet[Organization]:
 
 
 def find_organizations_to_migrate() -> MigrationCandidates:
-    totals: dict[UUID, dict[str, int]] = {}
     names: dict[UUID, str] = {}
-
+    teams_by_org: Counter[UUID] = Counter()
+    changes_by_org: defaultdict[UUID, list[ResolutionChange]] = defaultdict(list)
     for team, changes in iter_resolution_changes(only_pending=True):
-        org_id = team.organization_id
-        names[org_id] = team.organization.name
-        counts = totals.setdefault(org_id, {"teams": 0, "changes": 0, "gains": 0, "loses": 0})
-        counts["teams"] += 1
-        counts["changes"] += len(changes)
-        counts["gains"] += sum(1 for change in changes if change.direction == "gains")
-        counts["loses"] += sum(1 for change in changes if change.direction == "loses")
+        names[team.organization_id] = team.organization.name
+        teams_by_org[team.organization_id] += 1
+        changes_by_org[team.organization_id].extend(changes)
 
-    evaluated = [OrganizationReadiness(id=org_id, name=names[org_id], **counts) for org_id, counts in totals.items()]
-    divergent = sorted((r for r in evaluated if r.changes > 0), key=lambda r: -r.changes)
-    unchanged = sorted((r for r in evaluated if r.changes == 0), key=lambda r: str(r.id))
+    evaluated = [
+        OrganizationChanges(
+            id=org_id,
+            name=names[org_id],
+            teams=teams_by_org[org_id],
+            changes=len(changes),
+            gains=sum(change.direction == "gains" for change in changes),
+            loses=sum(change.direction == "loses" for change in changes),
+        )
+        for org_id, changes in changes_by_org.items()
+    ]
+    divergent = sorted((org for org in evaluated if org.changes > 0), key=lambda org: -org.changes)
+    unchanged = sorted((org for org in evaluated if org.changes == 0), key=lambda org: str(org.id))
 
-    organizations_with_rules = Team.objects.filter(id__in=AccessControl.objects.values("team_id")).values(
-        "organization_id"
-    )
+    organizations_with_rules = AccessControl.objects.values("team__organization_id")
     unevaluated = [
         OrganizationRef(id=org_id, name=name)
         for org_id, name in _pending_organizations()
         .filter(id__in=organizations_with_rules)
-        .exclude(id__in=totals.keys())
+        .exclude(id__in=changes_by_org.keys())
         .order_by("id")
         .values_list("id", "name")
     ]
@@ -95,9 +102,7 @@ def find_organizations_to_migrate() -> MigrationCandidates:
 def enable_most_specific_resolution(organization_ids: Iterable[UUID]) -> int:
     """Switch the given organizations to the most-specific resolution. Returns the number of
     rows updated. Batched so one run never holds a long lock on the organization table."""
-    ids = list(organization_ids)
     updated = 0
-    for start in range(0, len(ids), _UPDATE_BATCH_SIZE):
-        batch = ids[start : start + _UPDATE_BATCH_SIZE]
+    for batch in batched(organization_ids, _UPDATE_BATCH_SIZE, strict=False):
         updated += Organization.objects.filter(id__in=batch).update(uses_most_specific_access_resolution=True)
     return updated
