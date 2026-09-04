@@ -13,7 +13,7 @@ from bin.check_uv_python_compatibility import check_uv_python_compatibility, lab
 class TestCheckUvPythonCompatibility(unittest.TestCase):
     @parameterized.expand(
         [
-            ("supported", 0, "cpython-3.13.13\n", True),
+            ("supported", 0, "cpython-3.14.7\n", True),
             ("unsupported_returncode", 1, "", False),
             ("empty_output", 0, "", False),
         ]
@@ -21,7 +21,7 @@ class TestCheckUvPythonCompatibility(unittest.TestCase):
     def test_subprocess_result(self, _name, returncode, stdout, expected_compatible):
         completed = subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
         with patch("bin.check_uv_python_compatibility.subprocess.run", return_value=completed):
-            compatible, _message = check_uv_python_compatibility("0.11.28", "3.13.13")
+            compatible, _message = check_uv_python_compatibility("0.11.28", "3.14.7")
         self.assertEqual(compatible, expected_compatible)
 
     @parameterized.expand(
@@ -33,7 +33,7 @@ class TestCheckUvPythonCompatibility(unittest.TestCase):
     )
     def test_subprocess_failure_assumes_compatible(self, _name, error):
         with patch("bin.check_uv_python_compatibility.subprocess.run", side_effect=error):
-            compatible, _message = check_uv_python_compatibility("0.11.28", "3.13.13")
+            compatible, _message = check_uv_python_compatibility("0.11.28", "3.14.7")
         self.assertTrue(compatible)
 
 

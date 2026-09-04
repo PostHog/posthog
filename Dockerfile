@@ -166,10 +166,10 @@ RUN cd /code/common/plugin_transpiler && \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build
+FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS posthog-build
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -272,8 +272,9 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
-FROM unit:1.34.2-python3.13
+# No upstream unit:*-python3.14 image exists (nginx/unit#1667), so unitd and its Python module are
+# built below on top of the plain python image.
+FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -291,6 +292,7 @@ RUN apt-get update && \
     "build-essential" \
     "git" \
     "libpcre2-dev" \
+    "libssl-dev" \
     "zlib1g-dev" \
     && \
     git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
@@ -318,8 +320,13 @@ RUN apt-get update && \
     ./configure $CONFIGURE_ARGS && \
     ./configure python --config=/usr/local/bin/python3-config && \
     make -j "$NCPU" python3-install && \
+    install -pm755 pkg/docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh && \
+    mkdir -p /var/lib/unit /docker-entrypoint.d && \
+    groupadd --gid 999 unit && \
+    useradd --uid 999 --gid unit --no-create-home --home /nonexistent --shell /bin/false unit && \
+    ln -sf /dev/stderr /var/log/unit.log && \
     rm -rf /tmp/unit && \
-    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
+    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "libssl-dev" "zlib1g-dev" && \
     rm -rf /var/lib/apt/lists/*
 
 # Install OS runtime dependencies.

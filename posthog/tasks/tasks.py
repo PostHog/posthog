@@ -1635,8 +1635,6 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
         hours_back: Number of hours to look back (default: 14 = 12h schedule + 2h buffer)
     """
 
-    from uuid import UUID
-
     from django.db.models import Count
 
     from posthog.api.advanced_activity_logs.constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
