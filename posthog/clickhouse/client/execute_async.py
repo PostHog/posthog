@@ -530,13 +530,18 @@ def _record_blocking_query_status(
     """
     manager = QueryStatusManager(query_id, team_id)
     try:
-        if not manager.get_query_status().complete:
-            return
-    except QueryNotFoundError:
-        pass
-    manager.store_query_status(
-        query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS, cache_key=cache_key
-    )
+        try:
+            if not manager.get_query_status().complete:
+                return
+        except QueryNotFoundError:
+            pass
+        manager.store_query_status(
+            query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS, cache_key=cache_key
+        )
+    except Exception as e:
+        # The record only exists so a dropped request can be followed up on. A Redis failure here
+        # must not fail a query that succeeded, nor replace the error a failed one is about to raise.
+        capture_exception(e, {"query_id": query_id})
 
 
 def _user_safe_error_message(error: Exception) -> Optional[str]:
