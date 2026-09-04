@@ -11,6 +11,8 @@ from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.metrics.prometheus import PROVIDER_ERRORS, REQUEST_COUNT
 
+pytestmark = pytest.mark.usefixtures("accept_placeholder_model")
+
 
 class MockProviderError(Exception):
     """Mock exception with status_code attribute."""

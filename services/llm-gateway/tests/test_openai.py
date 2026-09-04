@@ -645,6 +645,57 @@ class TestUnsupportedModelRejection:
         mock_completion.assert_not_called()
 
 
+class TestUnknownModelRejection:
+    """An id no model source knows must not reach a provider: litellm raises a BadRequestError
+    from inside the call, which reaches error tracking as a fresh issue per bad id."""
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gpt-5.6-luna-fast",
+            "invalid-model-name",
+            "openai/gpt-5.6-luna-fast",  # a caller-supplied provider prefix is no bypass
+        ],
+    )
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_unknown_model_returns_400(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        model: str,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={"model": model, "messages": [{"role": "user", "content": "Hi"}]},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "model_not_supported"
+        mock_completion.assert_not_called()
+
+    @patch("llm_gateway.api.openai.litellm.aresponses")
+    def test_prefixed_known_model_still_reaches_the_provider(
+        self,
+        mock_responses: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        # The Responses path prefixes the id before dispatch, and litellm's cost map keys OpenAI
+        # models bare — the gate must read through the prefix rather than reject the request.
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value={"id": "resp_1", "output": []})
+        mock_responses.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/responses",
+            json={"model": "gpt-4", "input": "Hi"},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_responses.call_args.kwargs["model"] == "openai/gpt-4"
+
+
 class TestAudioTranscriptionsEndpoint:
     @pytest.mark.parametrize(
         "path",
