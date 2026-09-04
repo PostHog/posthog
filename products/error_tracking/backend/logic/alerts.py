@@ -303,7 +303,9 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
 PREVIEW_REPLY_EVENTS = ("$error_tracking_issue_assigned", "$error_tracking_issue_resolved")
 
 
-def preview_alert_messages(team_id: int, trigger: str, actor_email: str | None) -> dict[str, Any]:
+def preview_alert_messages(
+    team_id: int, trigger: str, actor_email: str | None, *, sample_team_id: int | None = None
+) -> dict[str, Any]:
     """Render the Slack thread an alert would open for the team's most recent issue.
 
     Returns the root for the trigger's opener event, then the replies and root edit a
@@ -325,11 +327,11 @@ def preview_alert_messages(team_id: int, trigger: str, actor_email: str | None) 
         raise AlertValidationError(f"Unknown trigger: {trigger}")
     opener_event = events_by_trigger[trigger]
 
-    # Alerts are project-wide, so the sample comes from any of the project's environments.
-    # Issue ids are time-ordered UUIDs, so the primary key stands in for a created_at sort
-    # the table has no composite index for.
-    project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
-    issue = ErrorTrackingIssue.objects.filter(team__project_id=project_id).order_by("-id").first()
+    # The sample comes from one environment the caller is authorized on (the view checks
+    # the requested one): access control is per environment, so a sibling's issue must not
+    # leak through a project-wide pick. Issue ids are time-ordered UUIDs, so the primary key
+    # stands in for a created_at sort the table has no composite index for.
+    issue = ErrorTrackingIssue.objects.filter(team_id=sample_team_id or team_id).order_by("-id").first()
     fingerprint = (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
         .values_list("fingerprint", flat=True)
