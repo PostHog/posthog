@@ -280,9 +280,13 @@ unit's rows, and records a point, so it proves the write path in Dagster+ before
 2. `dry_run: false`, `max_units: 1` and no `team_ids` -- one unit, then check the run's asset materializations for a resume point.
 3. `dry_run: false`, `max_runtime_minutes: <a few hours>` -- a bounded pass. Relaunch the same config to continue.
 
-Before the first non-dry run on US, check `pg_replication_slots` on the primary: preflight refuses to run while a slot exists. That gate matters more on US than EU, because `posthog_eventproperty` is a member of the `big_tables` publication there, so an active slot would ship every delete downstream.
+Before the first non-dry run on US, check `pg_replication_slots` on the primary: preflight refuses to run while a slot exists.
+As of the last check, CloudWatch reported `OldestReplicationSlotLag` at 0 for six hours straight on both writers, so nothing is retaining WAL and the gate should pass.
+If it does fire, look at whether the slot is active before overriding: an active slot that is caught up retains nothing, while an inactive one would hold every byte this job writes. That gate matters more on US than EU, because `posthog_eventproperty` is a member of the `big_tables` publication there, so an active slot would ship every delete downstream.
 Bound an exploratory run with `max_units` or `max_runtime_minutes`; both apply to discovery, not just deletion.
-At the default `sleep_seconds` the job clears roughly 7,700 rows/s, so shrinking the table is a multi-week campaign per region rather than a single run.
+At the default `sleep_seconds` the job clears roughly 9,800 rows/s, so a full pass over prod-US pollution takes on the order of two days rather than one sitting.
+That pace adds about 0.7 MB/s of WAL, against a measured 24-hour average of 8.4 MB/s on the prod-US writer, so it is a single-digit percentage on top of existing write load.
+Lowering `sleep_seconds` scales both together: 0.1 would clear roughly 85,000 rows/s and add about 6 MB/s, which is most of another writer's worth of traffic.
 
 ## Additional Resources
 
