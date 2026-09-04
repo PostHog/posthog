@@ -315,6 +315,40 @@ describe('SlackChannelPicker', () => {
         expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
     })
 
+    // The by-id lookup is not instant. Clicking away while it runs must not read as a dropped
+    // search, and a paste that resolves to nothing must still say so.
+    it.each([
+        { settles: 'a channel', pastedId: OFF_PAGE_CHANNEL.id, reportsDroppedSearch: false },
+        { settles: 'nothing', pastedId: 'CNOSUCHCHAN', reportsDroppedSearch: true },
+    ])('pasting an id that settles on $settles, then clicking away', async ({ pastedId, reportsDroppedSearch }) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={onChange} />
+            </Provider>
+        )
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.paste(pastedId)
+        await userEvent.click(document.body)
+
+        // The lookup is still in flight here, so neither outcome may show the message yet.
+        expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
+
+        if (reportsDroppedSearch) {
+            expect(
+                await screen.findByText('No channel selected. Pick one from the list.', undefined, { timeout: 3000 })
+            ).toBeInTheDocument()
+            expect(onChange).not.toHaveBeenCalled()
+        } else {
+            await waitFor(() => expect(onChange).toHaveBeenCalledWith(`${OFF_PAGE_CHANNEL.id}|#off-page-channel`), {
+                timeout: 3000,
+            })
+            expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
+        }
+    })
+
     it('drops the reported search when the caller swaps the workspace', async () => {
         // Some callers swap the integration without unmounting, so an error raised against the old
         // workspace would otherwise sit over a picker now listing a different workspace's channels.

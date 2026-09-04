@@ -424,7 +424,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         [slackChannelsForPicker]
     )
 
-    const showUnselectedSearchError = blurredWithoutSelection && !value
+    // A pasted id that is still resolving is a pending selection, not a dropped search, so hold
+    // the message until the lookup settles.
+    const showUnselectedSearchError = blurredWithoutSelection && !value && !pastedChannelId
 
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
@@ -463,6 +465,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         }
         const channel = slackChannels.find((x: SlackChannelType) => x.id === pastedChannelId)
         if (!channel) {
+            // Stop waiting once the lookup settles with nothing. A paste that resolves to no channel
+            // has to fall back to the dropped-search message rather than stay silent.
+            if (!slackChannelByIdLoading) {
+                setPastedChannelId(null)
+            }
             return
         }
         setPastedChannelId(null)
@@ -470,7 +477,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         if (slackChannelId(value ?? '') !== channel.id) {
             onChange?.(`${channel.id}|#${channel.name}`)
         }
-    }, [pastedChannelId, slackChannels, value, onChange])
+    }, [pastedChannelId, slackChannels, slackChannelByIdLoading, value, onChange])
 
     // Read-only pickers still need a direct lookup because the saved channel may not be on the first page.
     useEffect(() => {
