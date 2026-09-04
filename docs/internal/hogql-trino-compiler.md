@@ -34,6 +34,10 @@ The Django `DuckgresServer` row remains the transitional owner of the existing r
 
 For supported string, array, and map arguments, `empty(x)` returns true when the value is NULL or has zero length. `notEmpty(x)` requires a non-NULL value with nonzero length. String predicates use an empty-string comparison; arrays and maps use `cardinality`.
 
+`LIMIT BY` and `QUALIFY` wrappers preserve ordering by projecting unselected sort expressions inside the wrapper and removing those helper columns from the result. Helper names avoid existing aliases, and matching uses resolved column bindings so joined columns with the same name remain distinct. `DISTINCT` wrappers still reject unprojected sort expressions because adding them would change deduplication.
+
+For ordinary `GROUP BY`, an expression that matches a selected expression uses that output's ordinal. This keeps property paths, date conversions, and other bound expressions identical for Trino's grouping checks. Alias references inside larger expressions expand to their expressions, not ordinals. Complex grouping modes retain their expressions. These rewrites apply to both pure and Django-expanded compilation.
+
 ## Why some shared integration is necessary
 
 The backend owns its function mappings, structural rewrites, validation, and table rendering. These shared extension points let it reuse the existing compiler without duplicating its semantic pipeline:
