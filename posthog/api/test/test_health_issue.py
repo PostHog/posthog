@@ -472,16 +472,27 @@ class TestHealthIssueAccessControl(APIBaseTest):
         self.assertEqual(response.json()["unsnoozed"]["total"], 1)
         self.assertEqual(response.json()["unsnoozed"]["by_kind"], {"sdk_outdated": 1})
 
-    def test_restricted_member_retrieve_of_hidden_issue_returns_403(self):
+    @parameterized.expand(
+        [
+            ("retrieve", lambda client, url: client.get(url)),
+            ("resolve", lambda client, url: client.post(f"{url}/resolve")),
+            ("dismiss", lambda client, url: client.patch(url, {"dismissed": True})),
+            ("snooze", lambda client, url: client.patch(url, {"snoozed_until": "P7D"})),
+        ]
+    )
+    def test_restricted_member_object_action_returns_403(self, _name, request):
         issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
 
-        response = self.client.get(self._url(f"/{issue.id}"))
+        response = request(self.client, self._url(f"/{issue.id}"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["detail"], "You do not have viewer access to this resource.")
 
-    def test_member_without_restrictions_sees_declared_kind(self):
+    @parameterized.expand([("system_default", None), ("explicit_viewer", "viewer")])
+    def test_member_with_viewer_access_sees_declared_kind(self, _name, access_level):
         issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
+        if access_level:
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level=access_level)
 
         list_response = self.client.get(self._url())
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)

@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Case, Count, Q, QuerySet, When
@@ -30,6 +30,9 @@ from posthog.models.health_issue import HealthIssue
 from posthog.permissions import is_service_auth
 from posthog.rate_limit import HealthIssueRefreshThrottle
 from posthog.utils import relative_date_parse
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -271,6 +274,23 @@ VALID_STATUSES = {choice.value for choice in HealthIssue.Status}
 VALID_SEVERITIES = {choice.value for choice in HealthIssue.Severity}
 
 
+def _kinds_hidden_by_access_control(request: Request, user_access_control: "UserAccessControl") -> set[str]:
+    """Check kinds whose declared access-controlled resource this user cannot view."""
+    # Lazy import: same reentrancy reason as HealthIssueDetailSerializer._content.
+    from posthog.temporal.health_checks.framework import access_controlled_resources_by_kind  # noqa: PLC0415
+
+    # Service credentials are gated by API scope + project membership (see
+    # AccessControlPermission); UserAccessControl can't evaluate their synthetic users.
+    if is_service_auth(request):
+        return set()
+
+    return {
+        kind
+        for kind, resource in access_controlled_resources_by_kind().items()
+        if not user_access_control.check_access_level_for_resource(resource, "viewer")
+    }
+
+
 class HealthIssueResourceAccessPermission(BasePermission):
     """Denies an issue whose check declared an access-controlled resource the user cannot view.
 
@@ -284,19 +304,7 @@ class HealthIssueResourceAccessPermission(BasePermission):
     message = "You do not have viewer access to this resource."
 
     def has_object_permission(self, request: Request, view, obj: HealthIssue) -> bool:
-        # Lazy import: same reentrancy reason as HealthIssueDetailSerializer._content.
-        from posthog.temporal.health_checks.framework import access_controlled_resources_by_kind  # noqa: PLC0415
-
-        # Service credentials are gated by API scope + project membership (see
-        # AccessControlPermission); UserAccessControl can't evaluate their synthetic users.
-        if is_service_auth(request):
-            return True
-
-        resource = access_controlled_resources_by_kind().get(obj.kind)
-        if resource is None:
-            return True
-
-        return view.user_access_control.check_access_level_for_resource(resource, "viewer")
+        return obj.kind not in _kinds_hidden_by_access_control(request, view.user_access_control)
 
 
 def _issue_counts(queryset: QuerySet) -> dict[str, Any]:
@@ -404,32 +412,16 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         if dismissed_filter is not None:
             queryset = queryset.filter(dismissed=dismissed_filter.lower() == "true")
 
-        # Aggregate reads only: object actions keep the issue loadable so
+        # Collection reads only: detail routes keep the issue loadable so
         # HealthIssueResourceAccessPermission can deny them with a 403, mirroring
         # how routing._filter_queryset_by_access_level defers non-list actions
         # to the permission layer.
-        if self.action in ("list", "summary"):
-            hidden_kinds = self._kinds_hidden_by_access_control()
+        if not self.detail:
+            hidden_kinds = _kinds_hidden_by_access_control(self.request, self.user_access_control)
             if hidden_kinds:
                 queryset = queryset.exclude(kind__in=hidden_kinds)
 
         return queryset
-
-    def _kinds_hidden_by_access_control(self) -> set[str]:
-        """Check kinds whose declared access-controlled resource this user cannot view."""
-        # Lazy import: same reentrancy reason as HealthIssueDetailSerializer._content.
-        from posthog.temporal.health_checks.framework import access_controlled_resources_by_kind  # noqa: PLC0415
-
-        # Service credentials are gated by API scope + project membership (see
-        # AccessControlPermission); UserAccessControl can't evaluate their synthetic users.
-        if is_service_auth(self.request):
-            return set()
-
-        return {
-            kind
-            for kind, resource in access_controlled_resources_by_kind().items()
-            if not self.user_access_control.check_access_level_for_resource(resource, "viewer")
-        }
 
     @action(methods=["POST"], detail=True)
     def resolve(self, request: Request, **kwargs) -> Response:

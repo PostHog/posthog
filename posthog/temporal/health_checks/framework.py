@@ -226,6 +226,12 @@ class HealthCheck:
     # payloads embed metadata about that resource — names, keys, errors — so the
     # Health API hides the check's issues from members whose access to the
     # resource is restricted. None means every team member sees the issues.
+    #
+    # Two limits. The gate is resource-level only: an `AccessControl` deny scoped
+    # to one object's `resource_id` is not consulted, so a member barred from a
+    # single source or view still sees its issues. And only the Health API reads
+    # this field: the Signals inbox emitter does not, so a check that also
+    # overrides `render_signal` still publishes its payload there.
     access_controlled_resource: APIScopeObject | None = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
