@@ -60,10 +60,10 @@ export function CanvasShareBodyView({
   return (
     <div className="flex flex-col gap-5">
       <LinkCopyRow
-        label="Link"
-        description="Opens the canvas in PostHog Desktop."
+        label="Team link"
+        description="For people on your team. Opens the canvas straight in PostHog Desktop."
         url={appUrl}
-        copiedDescription="Anyone in this project with access can open the canvas."
+        copiedDescription="Anyone on your team with access can open the canvas."
         dataAttr="share-canvas-copy-link"
         onCopied={onLinkCopied}
       />

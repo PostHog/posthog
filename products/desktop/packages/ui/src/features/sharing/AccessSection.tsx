@@ -3,8 +3,8 @@ import type { ShareVisibility } from "./shareTarget";
 
 const COPY: Record<ShareVisibility, Record<"canvas" | "file", string>> = {
   project: {
-    canvas: "Everyone in this project. The canvas is in a shared space.",
-    file: "Everyone in this project. The task is in a shared space.",
+    canvas: "Everyone on your team. The canvas is in a shared space.",
+    file: "Everyone on your team. The task is in a shared space.",
   },
   personal: {
     canvas:
@@ -28,7 +28,7 @@ export function AccessSection({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>Who can open the link</Label>
+      <Label>Who can open the team link</Label>
       <Text size="xs" variant="muted">
         {COPY[visibility][noun]}
       </Text>

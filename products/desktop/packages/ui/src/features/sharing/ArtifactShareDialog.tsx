@@ -42,10 +42,10 @@ export function ArtifactShareBodyView({
   return (
     <div className="flex flex-col gap-5">
       <LinkCopyRow
-        label="Link"
-        description="Opens the file in PostHog Desktop, inside its task."
+        label="Team link"
+        description="For people on your team. Opens the file straight in PostHog Desktop, inside its task."
         url={appUrl}
-        copiedDescription="Anyone in this project with access to the task can open the file."
+        copiedDescription="Anyone on your team with access to the task can open the file."
         dataAttr="share-artifact-copy-link"
       />
       <AccessSection visibility={visibility} noun="file" />
