@@ -8,15 +8,28 @@ const OTHER_ORG = 'org-other'
 
 function createMockContext(overrides: {
     projectGet: ReturnType<typeof vi.fn>
+    orgProjectGet?: ReturnType<typeof vi.fn>
     getOrgID?: ReturnType<typeof vi.fn>
     getCachedOrFetchOrg?: ReturnType<typeof vi.fn>
-}): { context: Context; cache: Map<string, unknown>; getCachedOrFetchOrg: ReturnType<typeof vi.fn> } {
+}): {
+    context: Context
+    cache: Map<string, unknown>
+    getCachedOrFetchOrg: ReturnType<typeof vi.fn>
+    orgProjectGet: ReturnType<typeof vi.fn>
+    orgProjects: ReturnType<typeof vi.fn>
+} {
     const cache = new Map<string, unknown>()
     const getCachedOrFetchOrg = overrides.getCachedOrFetchOrg ?? vi.fn().mockResolvedValue(undefined)
+    // Default the org-nested lookup to "not in this org" so tests that only wire the
+    // flat lookup fall through to it, mirroring a cross-org or team-scoped session.
+    const orgProjectGet =
+        overrides.orgProjectGet ?? vi.fn().mockResolvedValue({ success: false, error: new Error('404') })
+    const orgProjects = vi.fn().mockReturnValue({ get: orgProjectGet })
     const context = {
         api: {
             publicBaseUrl: 'https://us.posthog.com',
             projects: () => ({ get: overrides.projectGet }),
+            organizations: () => ({ projects: orgProjects }),
         },
         cache: {
             get: async (key: string) => cache.get(key),
@@ -34,7 +47,7 @@ function createMockContext(overrides: {
         getDistinctId: async () => 'test-distinct-id',
         trackEvent: async () => {},
     } as unknown as Context
-    return { context, cache, getCachedOrFetchOrg }
+    return { context, cache, getCachedOrFetchOrg, orgProjectGet, orgProjects }
 }
 
 describe('switch-project', () => {
@@ -62,18 +75,25 @@ describe('switch-project', () => {
         expect(cache.get('projectId')).toBeUndefined()
     })
 
-    it('switches within the active organization without touching org state', async () => {
-        const projectGet = vi.fn().mockResolvedValue({
+    it('resolves the project inside the selected organization without hitting the flat route', async () => {
+        // Regression guard: the flat `/api/projects/{id}/` route resolves its organization
+        // from the caller's backend current organization, so a scoped key whose selected org
+        // differs is rejected with 403 there. The org-nested route must be tried first, pinned
+        // to the active org, so a reachable project in that org resolves cleanly.
+        const projectGet = vi.fn()
+        const orgProjectGet = vi.fn().mockResolvedValue({
             success: true,
             data: { id: 42, name: 'My project', organization: ACTIVE_ORG },
         })
-        const { context, cache, getCachedOrFetchOrg } = createMockContext({ projectGet })
+        const { context, cache, getCachedOrFetchOrg, orgProjects } = createMockContext({ projectGet, orgProjectGet })
 
         const result = await tool.handler(context, { projectId: 42 })
 
         expect(result.content[0]!.text).toContain('Switched to project 42')
         expect(result.content[0]!.text).not.toContain('also switched the active organization')
         expect(cache.get('projectId')).toBe('42')
+        expect(orgProjects).toHaveBeenCalledWith({ orgId: ACTIVE_ORG })
+        expect(projectGet).not.toHaveBeenCalled()
         expect(getCachedOrFetchOrg).not.toHaveBeenCalled()
     })
 
@@ -103,12 +123,15 @@ describe('switch-project', () => {
         // Team-scoped keys resolve no org on the first call, and getCachedOrFetchOrg
         // returns undefined for them (the org endpoint is rejected for such tokens).
         const getOrgID = vi.fn().mockRejectedValue(new Error('no org'))
-        const { context, cache } = createMockContext({ projectGet, getOrgID })
+        const { context, cache, orgProjects } = createMockContext({ projectGet, getOrgID })
 
         const result = await tool.handler(context, { projectId: 55 })
 
         expect(result.content[0]!.text).toContain('Switched to project 55')
         expect(result.content[0]!.text).not.toContain('also switched the active organization')
         expect(cache.get('orgId')).toBe(OTHER_ORG)
+        // With no active org resolved there is nothing to pin the org-nested lookup to,
+        // so the flat lookup is the only route tried.
+        expect(orgProjects).not.toHaveBeenCalled()
     })
 })

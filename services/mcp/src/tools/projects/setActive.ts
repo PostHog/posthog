@@ -29,7 +29,19 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     // can actually access. Previously the projectId was cached before the fetch,
     // so a bad id (or a project the session can't reach) silently "succeeded" and
     // every later call failed with an opaque error instead.
-    const projectResult = await context.api.projects().get({ projectId: projectIdStr })
+    //
+    // Resolve inside the selected organization first. The flat `/api/projects/{id}/`
+    // route resolves its organization context from the caller's backend current
+    // organization, not the org the agent selected here, so a scoped key whose
+    // selected org differs is rejected with 403 even for a reachable project. The
+    // flat lookup is kept as a fallback to discover a project in another
+    // organization (a cross-org switch) or when no active org is resolved yet.
+    let projectResult = activeOrgId
+        ? await context.api.organizations().projects({ orgId: activeOrgId }).get({ projectId: projectIdStr })
+        : undefined
+    if (!projectResult?.success) {
+        projectResult = await context.api.projects().get({ projectId: projectIdStr })
+    }
     if (!projectResult.success) {
         // Preserve the typed API error as `cause`: a not-found / no-access 404-403
         // is a recoverable agent mistake that `handleToolError` should keep out of
