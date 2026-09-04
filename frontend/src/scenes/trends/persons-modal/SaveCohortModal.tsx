@@ -6,13 +6,15 @@ interface Props {
     onSave: (title: string) => void
     onCancel: () => void
     isOpen: boolean
+    title?: string
+    description?: string
 }
 
-export function SaveCohortModal({ onSave, onCancel, isOpen }: Props): JSX.Element {
+export function SaveCohortModal({ onSave, onCancel, isOpen, title = 'New cohort', description }: Props): JSX.Element {
     const [cohortTitle, setCohortTitle] = useState('')
     return (
         <LemonModal
-            title="New cohort"
+            title={title}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={onCancel}>
@@ -33,6 +35,7 @@ export function SaveCohortModal({ onSave, onCancel, isOpen }: Props): JSX.Elemen
             onClose={onCancel}
             isOpen={isOpen}
         >
+            {description && <p className="mb-2 text-secondary">{description}</p>}
             <div className="mb-4">
                 <LemonInput
                     autoFocus

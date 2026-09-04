@@ -3,6 +3,7 @@ import './RetentionTable.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconSend } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -41,6 +42,7 @@ export function RetentionModal(): JSX.Element | null {
         insightEventsQueryUrl,
         actorsQuery,
         isCohortModalOpen,
+        cohortRedirectsToWorkflow,
         theme,
         retentionFilter,
         selectedColumnIndex,
@@ -108,14 +110,25 @@ export function RetentionModal(): JSX.Element | null {
                                 </LemonButton>
                             )}
                             {!!people.result?.length && !people.result.some((person) => isGroupType(person.person)) && (
-                                <LemonButton
-                                    onClick={() => setIsCohortModalOpen(true)}
-                                    type="secondary"
-                                    data-attr="retention-person-modal-save-as-cohort"
-                                    disabled={!people.result?.length}
-                                >
-                                    Save as cohort
-                                </LemonButton>
+                                <>
+                                    <LemonButton
+                                        onClick={() => setIsCohortModalOpen(true)}
+                                        type="secondary"
+                                        data-attr="retention-person-modal-save-as-cohort"
+                                        disabled={!people.result?.length}
+                                    >
+                                        Save as cohort
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={() => setIsCohortModalOpen(true, true)}
+                                        type="secondary"
+                                        icon={<IconSend />}
+                                        data-attr="retention-person-modal-email-actors"
+                                        disabled={!people.result?.length}
+                                    >
+                                        Email these {aggregationTargetLabel.plural}
+                                    </LemonButton>
+                                </>
                             )}
                         </div>
                         <div className="flex gap-2">
@@ -277,6 +290,12 @@ export function RetentionModal(): JSX.Element | null {
                 onSave={(title) => saveAsCohort(title)}
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
+                title={
+                    cohortRedirectsToWorkflow ? `Save these ${aggregationTargetLabel.plural} as a cohort` : undefined
+                }
+                description={
+                    cohortRedirectsToWorkflow ? 'Your new workflow will message everyone in this cohort.' : undefined
+                }
             />
         </>
     )
