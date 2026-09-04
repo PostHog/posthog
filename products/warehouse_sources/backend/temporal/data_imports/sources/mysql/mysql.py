@@ -774,6 +774,17 @@ def get_connection_metadata(conn: pymysql.Connection, *, database: str) -> dict[
     }
 
 
+# MySQL 8.0.23+ can mark a column `INVISIBLE`: `information_schema.columns` still lists it, but
+# `SELECT *` never returns it. `EXTRA` holds space-separated attributes, so a generated invisible
+# primary key reads `auto_increment INVISIBLE`.
+_INVISIBLE_COLUMN_EXTRA_TOKEN = "INVISIBLE"
+
+
+def _is_invisible_column(extra: str | None) -> bool:
+    """Return whether an `information_schema.columns` row describes an invisible column."""
+    return _INVISIBLE_COLUMN_EXTRA_TOKEN in (extra or "").upper().split()
+
+
 class MySQLColumn(Column):
     """`Column` for a MySQL source — carries enough type info to build a PyArrow field.
 
@@ -784,6 +795,7 @@ class MySQLColumn(Column):
             used to detect `unsigned` which affects the PyArrow integer width.
         nullable: Whether the column is nullable in MySQL.
         numeric_precision / numeric_scale: Populated only for `decimal` / `numeric`.
+        invisible: Whether MySQL hides the column from `SELECT *`.
     """
 
     def __init__(
@@ -794,6 +806,7 @@ class MySQLColumn(Column):
         nullable: bool,
         numeric_precision: int | None = None,
         numeric_scale: int | None = None,
+        invisible: bool = False,
     ) -> None:
         self.name = name
         self.data_type = data_type
@@ -801,6 +814,7 @@ class MySQLColumn(Column):
         self.nullable = nullable
         self.numeric_precision = numeric_precision
         self.numeric_scale = numeric_scale
+        self.invisible = invisible
 
     def to_arrow_field(self) -> pa.Field[pa.DataType]:
         """Return a `pyarrow.Field` that closely matches this column."""
@@ -1134,7 +1148,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     column_type,
                     is_nullable,
                     numeric_precision,
-                    numeric_scale
+                    numeric_scale,
+                    extra
                 FROM
                     information_schema.columns
                 WHERE
@@ -1146,7 +1161,15 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
         numeric_data_types = {"numeric", "decimal"}
         columns = []
-        for name, data_type, column_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+        for (
+            name,
+            data_type,
+            column_type,
+            nullable,
+            numeric_precision_candidate,
+            numeric_scale_candidate,
+            extra,
+        ) in cursor:
             if data_type in numeric_data_types:
                 numeric_precision = (
                     numeric_precision_candidate
@@ -1168,6 +1191,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     nullable=nullable,
                     numeric_precision=numeric_precision,
                     numeric_scale=numeric_scale,
+                    invisible=_is_invisible_column(extra),
                 )
             )
 
@@ -1432,8 +1456,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                     full_table = self.get_table_metadata(cursor, schema, table_name)
                     # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
+                    # Invisible columns stay out, so sync-all reads what `SELECT *` read. An invisible
+                    # primary key comes back through `compute_projected_columns` below.
                     enabled_columns = resolve_enabled_columns(
-                        enabled_columns, [column.name for column in full_table.columns]
+                        enabled_columns, [column.name for column in full_table.columns if not column.invisible]
                     )
 
                     # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
