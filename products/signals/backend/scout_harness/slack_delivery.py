@@ -26,6 +26,7 @@ from products.signals.backend.scout_harness.slack_charts import (
 from products.signals.backend.slack_formatting import (
     SLACK_MARKDOWN_TEXT_MAX_LEN,
     chunk_slack_text,
+    defuse_slack_tokens,
     escape_slack_mrkdwn,
     group_segments_to_limit,
     prepare_slack_markdown,
@@ -372,7 +373,7 @@ def _report_summary_chunks(report: SignalReport) -> list[str]:
     summary_text = strip_chart_references((report.summary or "").strip())
     chunks: list[str] = []
     for segment in group_segments_to_limit(split_markdown_by_headings(summary_text)):
-        rendered_segment = escape_slack_mrkdwn(segment.strip())
+        rendered_segment = defuse_slack_tokens(segment.strip())
         if not rendered_segment:
             continue
         chunks.extend(chunk_slack_text(rendered_segment, SLACK_MARKDOWN_TEXT_MAX_LEN))

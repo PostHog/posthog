@@ -164,7 +164,10 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
     assert "<@U999>" not in section_text
     assert "<!channel>" not in section_text
     assert "&lt;!here&gt;" in section_text
-    assert "&amp;" in section_text
+    # `&` is left alone. Slack decodes an entity without re-reading it as a token, so escaping it
+    # buys no safety, and it does not decode inside a link destination, where it would corrupt the
+    # query string of every link a report carries.
+    assert "everyone & " in section_text
 
 
 @pytest.mark.parametrize(
@@ -893,9 +896,9 @@ def test_build_signal_thread_blocks_delivers_markdown_for_slack_to_render() -> N
     blocks, _ = _build_signal_thread_blocks(signal)
     content_text = blocks[1]["text"]
     assert "## Bug" in content_text
-    # `&` is escaped because Slack still reads its control characters here; the Markdown around it
-    # is not, so the link keeps its syntax.
-    assert "**Export** is broken, see [issue](https://example.com/i?a=1&amp;b=2)" in content_text
+    # The link destination reaches Slack byte for byte, `&` included. Escaping it to `&amp;` here
+    # put that entity in the rendered link's href and broke the query string.
+    assert "**Export** is broken, see [issue](https://example.com/i?a=1&b=2)" in content_text
     assert "- step one" in content_text
     assert "| [#42 fix export](https://example.com/pull/42) | ready |" in content_text
 

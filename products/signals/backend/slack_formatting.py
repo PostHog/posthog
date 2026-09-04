@@ -71,13 +71,22 @@ def strip_chart_references(text: str) -> str:
 
 
 def escape_slack_mrkdwn(text: str) -> str:
-    """Neutralize Slack control syntax so untrusted text cannot inject mentions or links.
-
-    Safe to run over Markdown that Slack will render itself: the three control characters carry no
-    Markdown meaning, so emphasis, links, and tables come through untouched. Escaping `&` is what
-    stops an author writing `&lt;!here&gt;` and having the entity decode back into a live token.
-    A `>` blockquote does not survive, which is the price of the same rule."""
+    """Neutralize Slack control syntax so untrusted text cannot inject mentions or links."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def defuse_slack_tokens(text: str) -> str:
+    """Neutralize Slack's tokens in untrusted Markdown, leaving the rest of the text alone.
+
+    Slack parses its own `<…>` tokens inside a markdown block, so raw text reaches a reader as a
+    live `@here`, a live mention, or a link whose label hides where it points. Escaping the angle
+    brackets is enough to stop all three, and Slack renders the escaped form back as the literal
+    characters.
+
+    `&` is deliberately left alone. Slack decodes an entity for display without re-reading the
+    result as a token, so escaping it buys no safety, and it does not decode inside a link
+    destination, where `&amp;` would corrupt every query string a report links to."""
+    return text.replace("<", "&lt;").replace(">", "&gt;")
 
 
 def is_safe_slack_http_url(value: object) -> bool:
@@ -104,9 +113,9 @@ def slack_markdown_block(text: str) -> dict:
 def prepare_slack_markdown(text: str) -> str:
     """Make untrusted Markdown safe to hand Slack, and keep it inside one markdown block.
 
-    Escaping precedes truncation so a trailing cut can only shorten an already-inert token, never
+    Defusing precedes truncation so a trailing cut can only shorten an already-inert token, never
     leave a live mention behind."""
-    return truncate_slack_text(escape_slack_mrkdwn(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
+    return truncate_slack_text(defuse_slack_tokens(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
 
 
 # A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
