@@ -141,6 +141,31 @@ class TestEmailReputationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("pinned", True),
+            ("not_pinned", False),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_HOURLY_CAPS=[50, 200, 600],
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+    )
+    def test_allowance_says_when_the_project_is_held_on_its_tier(self, _name: str, pinned: bool):
+        # The tier sweep skips a pinned project in both directions, so the card must not tell it to
+        # keep sending cleanly to reach the tier above. The next-tier caps still resolve, which is
+        # why this flag has to travel with them rather than be inferred from them.
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"email_sending_tier": 0, "email_sending_tier_pinned": pinned},
+        )
+
+        allowance = self._get_reputation({})["sending_allowance"]
+
+        assert allowance["pinned"] is pinned
+        assert allowance["next_tier_emails_per_day"] == 1000
+
+    @parameterized.expand(
+        [
             ("no_findings", "ENABLED", None, "healthy"),
             ("low_impact", "ENABLED", "LOW", "warning"),
             ("high_impact", "ENABLED", "HIGH", "critical"),

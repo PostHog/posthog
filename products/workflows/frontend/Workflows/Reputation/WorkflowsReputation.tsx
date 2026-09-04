@@ -371,7 +371,8 @@ function TeamRatesCard({
 }
 
 // The promotion also needs steady use of the current allowance. The copy says so without naming the
-// daily bar, which moves with the caps table and would read as a promise once stale.
+// daily bar, which moves with the caps table and would read as a promise once stale. A pinned
+// project is skipped by the tier sweep in both directions, so it gets the support pointer instead.
 function NextTierLine({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
     if (allowance.next_tier_emails_per_day == null || allowance.next_tier_max_batch_audience == null) {
         return (
@@ -379,6 +380,9 @@ function NextTierLine({ allowance }: { allowance: EmailSendingAllowanceApi }): J
                 You are on the highest tier, so this is the largest allowance we give.
             </p>
         )
+    }
+    if (allowance.pinned) {
+        return <p className="text-secondary mt-2 mb-0">Contact support if you need a larger allowance.</p>
     }
     return (
         <p className="text-secondary mt-2 mb-0">
@@ -410,9 +414,12 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 )}
             </div>
             <p className="text-secondary mt-2 mb-0">
+                {allowance.pinned
+                    ? 'We set this allowance for your project, so it does not change as you send.'
+                    : 'Your allowance grows as your workflows keep sending with low bounce and spam complaint rates.'}{' '}
                 {allowance.enforced
-                    ? 'Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails above the allowance are not dropped, they are sent later.'
-                    : 'Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. We are measuring these limits and not yet applying them, so nothing you send today is held back by them.'}
+                    ? 'Emails above the allowance are not dropped, they are sent later.'
+                    : 'We are measuring these limits and not yet applying them, so nothing you send today is held back by them.'}
             </p>
             <NextTierLine allowance={allowance} />
             <div className="flex flex-wrap gap-8 mt-3">

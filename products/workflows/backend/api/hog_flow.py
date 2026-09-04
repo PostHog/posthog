@@ -2140,6 +2140,9 @@ class EmailSendingAllowance:
     next_tier_emails_per_day: Optional[int]
     next_tier_max_batch_audience: Optional[int]
     min_days_at_tier: int
+    # True while staff hold the project on its tier. The sweep skips a pinned project in both
+    # directions, so the next-tier fields above describe a tier its own sending cannot reach.
+    pinned: bool
     enforced: bool
 
 
@@ -2170,6 +2173,7 @@ def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
         next_tier_emails_per_day=next_tier.per_day if next_tier else None,
         next_tier_max_batch_audience=next_tier.max_batch_audience if next_tier else None,
         min_days_at_tier=min_days_at_tier(resolved.tier),
+        pinned=resolved.pinned,
         enforced=resolved.enforced,
     )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
@@ -2603,6 +2607,13 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     min_days_at_tier = serializers.IntegerField(
         read_only=True,
         help_text="Days the project must stay on this tier before it can move up.",
+    )
+    pinned = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when PostHog holds this project on its tier. Automatic promotion and demotion "
+            "both skip it, so the tier does not move with the project's sending."
+        ),
     )
     enforced = serializers.BooleanField(
         read_only=True,

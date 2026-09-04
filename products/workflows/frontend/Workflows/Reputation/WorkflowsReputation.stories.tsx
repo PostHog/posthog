@@ -92,6 +92,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
         next_tier_emails_per_day: 150000,
         next_tier_max_batch_audience: 75000,
         min_days_at_tier: 3,
+        pinned: false,
         enforced: true,
     },
     email_sending_suspended: false,
@@ -153,6 +154,21 @@ export const AllowanceNotYetApplied: StoryFn = () => {
                 ...baseResponse.sending_allowance!,
                 effective_max_batch_audience: 500000,
                 enforced: false,
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}
+
+export const AllowanceHeldOnTier: StoryFn = () => {
+    // Staff can hold a project on a tier below the top one. The sweep skips it, so the card must
+    // not tell it that clean sending earns the next tier.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                pinned: true,
             },
         })
     )

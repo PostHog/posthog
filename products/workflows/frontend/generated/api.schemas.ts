@@ -1593,6 +1593,8 @@ export interface EmailSendingAllowanceApi {
     readonly next_tier_max_batch_audience: number | null
     /** Days the project must stay on this tier before it can move up. */
     readonly min_days_at_tier: number
+    /** True when PostHog holds this project on its tier. Automatic promotion and demotion both skip it, so the tier does not move with the project's sending. */
+    readonly pinned: boolean
     /** True when these allowances are applied to sends. False while they are only being measured. */
     readonly enforced: boolean
 }
