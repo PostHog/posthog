@@ -3,15 +3,14 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { encodeURLFilters, SEARCH_PARAM_FILTERS_KEY } from 'scenes/dashboard/dashboardUtils'
 
 import { mswDecorator } from '~/mocks/browser'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, DashboardMode, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
-
-import { DashboardFilterBar } from './DashboardFilters'
-import { dashboardLogic } from './dashboardLogic'
-import { encodeURLFilters, SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
 type FilterBarState =
     | 'saved'
@@ -150,7 +149,7 @@ function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Elem
 
 const meta: Meta<typeof DashboardFilterBarStory> = {
     component: DashboardFilterBarStory,
-    title: 'Scenes/Dashboards/Filter bar',
+    title: 'Products/Dashboards/Filter bar',
     decorators: [
         mswDecorator({
             get: {
