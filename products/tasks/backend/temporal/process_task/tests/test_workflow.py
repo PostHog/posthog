@@ -23,7 +23,7 @@ from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
 from products.tasks.backend.temporal.constants import (
@@ -281,7 +281,7 @@ class TestProcessTaskWorkflow:
         finally:
             await sync_to_async(snapshot.delete)()
 
-    async def test_workflow_cleans_up_sandbox(self, test_task_run, github_integration):
+    async def test_workflow_cleans_up_sandbox(self, test_task_run, github_integration, assert_sandbox_shutdown):
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
@@ -290,10 +290,7 @@ class TestProcessTaskWorkflow:
             assert result.success is True
             assert result.sandbox_id is not None
 
-            await asyncio.sleep(10)
-
-            sandbox = Sandbox.get_by_id(result.sandbox_id)
-            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+            await sync_to_async(assert_sandbox_shutdown)(result.sandbox_id)
 
         finally:
             await sync_to_async(snapshot.delete)()
