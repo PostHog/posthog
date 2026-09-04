@@ -2879,6 +2879,22 @@ describe('dashboardLogic', () => {
             expect(logic.values.filterChanges).toEqual([])
         })
 
+        it('clears temporary filters without clearing URL variable overrides', async () => {
+            await mountDashboardWithVariable({ urlValue: 'url-val' })
+            router.actions.push('/', {
+                [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+                [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({ organization: 'url-val' }),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderOverridesBanner)
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({
+                [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({ organization: 'url-val' }),
+            })
+        })
+
         it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
             await mountDashboardWithVariable({
                 urlValue: 'url-override',
