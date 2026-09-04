@@ -68,6 +68,7 @@ from products.replay_vision.backend.billing import (
     observation_credits_for_model,
     projected_monthly_credits,
 )
+from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -699,7 +700,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if not team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner.",
-                code="ai_data_processing_not_approved",
+                code=AI_CONSENT_REQUIRED_CODE,
             )
         # Tags become TaggedItem rows below, not a scanner column.
         tags = validated_data.pop("tags", None)

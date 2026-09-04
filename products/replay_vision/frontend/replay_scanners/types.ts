@@ -139,8 +139,9 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
         retryHint: "A retry runs the scanner's current prompt. Edit the prompt first if you haven't changed it yet.",
     },
     infra_transient: {
-        label: 'PostHog timed out',
-        description: 'A PostHog service took too long while preparing this recording. Retry the scan in a few minutes.',
+        label: 'PostHog service unavailable',
+        description:
+            'A PostHog service was slow or unavailable while preparing this recording. Retry the scan in a few minutes.',
         retryWorthwhile: true,
     },
     internal_error: {
