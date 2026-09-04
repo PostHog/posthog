@@ -460,6 +460,7 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.signals", "products.tasks",
 ]
 layer = "modules"
 
