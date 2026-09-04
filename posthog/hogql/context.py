@@ -165,6 +165,11 @@ class HogQLContext:
     # membership rather than truthiness decides whether the lookup already ran.
     postgres_retention_starts: dict[str, Optional[datetime]] = field(default_factory=dict, compare=False, repr=False)
 
+    # Ancestor select queries of the one being expanded by the lazy-table resolver, outermost first. Set
+    # transiently around each `LazyTable.lazy_select` call so a lazy table can read a filter written on an
+    # outer query level (e.g. `document_embeddings` routing on `model_name` from a wrapping subquery).
+    lazy_table_ancestors: Optional[list[Any]] = field(default=None, compare=False, repr=False)
+
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
