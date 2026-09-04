@@ -4,11 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
-import { openPublishToCommunityDialog } from 'products/skills/frontend/skillSceneComponents'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
@@ -88,11 +91,22 @@ export function ScoutDetailHeader({
     learnedCount: number
 }): JSX.Element {
     const { updatingScoutIds, manualRunScoutIds, publishingScoutIds } = useValues(scoutFleetLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
     const { updateScoutConfig, runScoutNow, publishScoutToCommunity } = useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
     const publishing = publishingScoutIds.includes(config.id)
+    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
+    const isOwner = !!user && (config.owners ?? []).some((owner) => owner.uuid === user.uuid)
+    const publishDisabledReason = publishing
+        ? 'Opening a pull request'
+        : (config.owners ?? []).length === 0
+          ? 'Add an owner before publishing to the community'
+          : !isOwner
+            ? "Only the scout's owners can publish it"
+            : undefined
     // Filed and edited stay separate — adding the weak-signal count on top produced a total of two
     // different things, which is exactly what made the old "filed" number unreadable. A report the
     // scout filed and later added to counts once, as filed.
@@ -123,14 +137,14 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
-                {config.scout_origin !== 'canonical' && (
+                {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
                     <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
                         <LemonButton
                             type="secondary"
                             size="small"
                             icon={<IconUpload />}
                             loading={publishing}
-                            disabledReason={publishing ? 'Opening a pull request' : undefined}
+                            disabledReason={publishDisabledReason}
                             onClick={() =>
                                 openPublishToCommunityDialog({
                                     skillName: config.skill_name,

@@ -8,6 +8,7 @@ from .community_scout_config import (
     MAX_CRON_SCHEDULE_LENGTH,
     MAX_RUN_INTERVAL_MINUTES,
     MAX_TAG_LENGTH,
+    MAX_TAGS,
     MIN_RUN_INTERVAL_MINUTES,
 )
 from .skill_template_services import parse_template_variables
@@ -50,8 +51,16 @@ class CommunitySkillScoutConfigSerializer(serializers.Serializer):
     tags = serializers.ListField(
         child=serializers.CharField(max_length=MAX_TAG_LENGTH),
         required=False,
+        max_length=MAX_TAGS,
         help_text="Tags used to group the scout in the fleet.",
     )
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict):
+            unknown = sorted(set(data) - set(self.fields))
+            if unknown:
+                raise serializers.ValidationError(dict.fromkeys(unknown, "This scout setting is not supported."))
+        return super().to_internal_value(data)
 
 
 class CommunitySkillTemplateVariableSerializer(serializers.Serializer):

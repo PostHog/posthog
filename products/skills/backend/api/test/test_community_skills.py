@@ -373,6 +373,20 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertIn("scout", response.json()["detail"])
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
+    def test_install_rechecks_the_kind_after_locking(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="changes-to-scout")
+        skill.kind = "scout"
+
+        with patch(
+            "products.skills.backend.api.community_skill_services.CommunitySkill.objects.select_for_update"
+        ) as lock:
+            lock.return_value.get.return_value = skill
+            response = self.client.post(self._url("changes-to-scout/install/"), {})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scout", response.json()["detail"])
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
+
     def test_render_returns_a_scouts_body_and_settings(self, _mock_flag) -> None:
         _create_scout_skill(slug="signals-scout-feed")
 

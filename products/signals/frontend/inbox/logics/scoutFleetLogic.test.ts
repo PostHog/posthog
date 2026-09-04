@@ -21,6 +21,7 @@ import {
     signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi, UserBasicApi } from 'products/signals/frontend/generated/api.schemas'
+import { llmSkillsNamePublishCommunityCreate } from 'products/skills/frontend/generated/api'
 
 import { SignalScoutRunSummary } from '../types'
 import { scoutFleetLogic } from './scoutFleetLogic'
@@ -37,6 +38,10 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsRecentPerScout: jest.fn(),
     signalsScoutRunsTokenCosts: jest.fn(),
 }))
+jest.mock('products/skills/frontend/generated/api', () => ({
+    llmSkillsNameArchiveCreate: jest.fn(),
+    llmSkillsNamePublishCommunityCreate: jest.fn(),
+}))
 
 const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
     typeof signalsScoutChatTasksCreate
@@ -49,6 +54,9 @@ const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jes
 >
 const mockSignalsScoutRunsTokenCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<
     typeof signalsScoutRunsTokenCosts
+>
+const mockPublishCommunity = llmSkillsNamePublishCommunityCreate as jest.MockedFunction<
+    typeof llmSkillsNamePublishCommunityCreate
 >
 
 const BASE_CONFIG: SignalScoutConfigApi = {
@@ -131,6 +139,11 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
         mockSignalsScoutRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
+        mockPublishCommunity.mockReset().mockResolvedValue({
+            pr_url: 'https://github.com/PostHog/community-skills/pull/1',
+            pr_number: 1,
+            branch: 'community-skill/signals-scout-errors',
+        })
         logic = scoutFleetLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -177,6 +190,23 @@ describe('scoutFleetLogic', () => {
         )
         expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
         expect(logic.values.updatingScoutIds).toEqual([])
+    })
+
+    it('publishes a scout against its canonical project and preserves its tags', async () => {
+        const config = { ...BASE_CONFIG, scout_origin: 'custom' as const, tags: ['errors'] }
+        logic.actions.loadScoutConfigsSuccess([config])
+
+        logic.actions.publishScoutToCommunity(config.id, {})
+        await expectLogic(logic).toDispatchActions(['publishScoutToCommunityFinished'])
+
+        expect(mockPublishCommunity).toHaveBeenCalledWith(
+            String(teamLogic.values.currentProjectId),
+            config.skill_name,
+            expect.objectContaining({
+                tags: ['errors'],
+                scout_config: expect.objectContaining({ tags: ['errors'] }),
+            })
+        )
     })
 
     // The roster is the only consumer of the tag filter, so assert through the rows it renders.

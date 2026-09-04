@@ -13,13 +13,18 @@ not the authority — Signals validates the settings again when the form is subm
 """
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
+
+from croniter import CroniterError, croniter
 
 # Signals holds a scout's cadence between 30 minutes and 30 days.
 MIN_RUN_INTERVAL_MINUTES = 30
 MAX_RUN_INTERVAL_MINUTES = 43200
 MAX_CRON_SCHEDULE_LENGTH = 100
 CRON_FIELD_COUNT = 5
+CRON_MIN_GAP_SECONDS = MIN_RUN_INTERVAL_MINUTES * 60
+CRON_SAMPLE_OCCURRENCES = 100
 MAX_TAGS = 10
 MAX_TAG_LENGTH = 50
 
@@ -46,8 +51,18 @@ def _validate_run_cron_schedule(value: Any) -> str | None:
         return None
     if len(schedule) > MAX_CRON_SCHEDULE_LENGTH:
         raise ValueError(f"scout_config.run_cron_schedule must be {MAX_CRON_SCHEDULE_LENGTH} characters or fewer")
-    if len(schedule.split()) != CRON_FIELD_COUNT:
-        raise ValueError(f"scout_config.run_cron_schedule must have {CRON_FIELD_COUNT} fields")
+    if len(schedule.split()) != CRON_FIELD_COUNT or not croniter.is_valid(schedule):
+        raise ValueError("scout_config.run_cron_schedule must be a valid five-field cron expression")
+    iterator = croniter(schedule, datetime(2026, 1, 1, tzinfo=UTC))
+    try:
+        occurrences = [iterator.get_next(datetime) for _ in range(CRON_SAMPLE_OCCURRENCES)]
+    except CroniterError as error:
+        raise ValueError("scout_config.run_cron_schedule must match a real date") from error
+    min_gap = min((later - earlier).total_seconds() for earlier, later in zip(occurrences, occurrences[1:]))
+    if min_gap < CRON_MIN_GAP_SECONDS:
+        raise ValueError(
+            f"scout_config.run_cron_schedule must schedule runs at least {MIN_RUN_INTERVAL_MINUTES} minutes apart"
+        )
     return schedule
 
 

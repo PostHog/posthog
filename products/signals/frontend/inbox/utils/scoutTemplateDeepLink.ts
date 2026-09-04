@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid'
+
 import { base64Decode, base64Encode } from 'lib/utils/base64'
 
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills/frontend/skillConstants'
@@ -33,6 +35,9 @@ export interface ScoutTemplateConfig {
 /** Whole-payload cap, before decoding. Far above any real template, far below abuse territory. */
 const MAX_ENCODED_LENGTH = 16384
 const MAX_BODY_LENGTH = 20000
+const STORED_TEMPLATE_PREFIX = 'stored:'
+// Pinned storage key: a rename can strand a draft during navigation.
+const STORED_TEMPLATE_KEY_PREFIX = 'posthog.scout-create-template.'
 /** Matches the bounds the create form and the API hold a scout's cadence to. */
 const MIN_RUN_INTERVAL_MINUTES = 30
 const MAX_RUN_INTERVAL_MINUTES = 43200
@@ -42,6 +47,13 @@ const MAX_CRON_SCHEDULE_LENGTH = 100
 /** Encode a template as a URL-safe base64 fragment value (used by tests and by link authors). */
 export function encodeScoutCreateTemplate(template: ScoutTemplatePayload): string {
     return base64Encode(JSON.stringify(template)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/** Store a rendered community scout for one navigation. The URL carries only the random key. */
+export function storeCommunityScoutCreateTemplate(template: ScoutTemplatePayload): string {
+    const id = uuidv4()
+    sessionStorage.setItem(`${STORED_TEMPLATE_KEY_PREFIX}${id}`, JSON.stringify(template))
+    return `${STORED_TEMPLATE_PREFIX}${id}`
 }
 
 /** `{ key: value }` when the cleaner kept the value, and nothing when it dropped it. */
@@ -105,39 +117,50 @@ function cleanScoutName(value: unknown): string {
 }
 
 /** The decoded payload object, or null when the value isn't one. */
-function parsePayload(raw: unknown): Record<string, unknown> | null {
+function parsePayload(raw: unknown): { payload: Record<string, unknown>; stored: boolean } | null {
     if (typeof raw !== 'string' || raw.length === 0 || raw.length > MAX_ENCODED_LENGTH) {
         return null
     }
     let parsed: unknown
     try {
-        // Accept both base64 alphabets and missing padding, like the desktop deep-link decoder.
-        const normalized = raw.replace(/-/g, '+').replace(/_/g, '/')
-        const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-        parsed = JSON.parse(base64Decode(padded))
+        if (raw.startsWith(STORED_TEMPLATE_PREFIX)) {
+            const id = raw.slice(STORED_TEMPLATE_PREFIX.length)
+            const key = `${STORED_TEMPLATE_KEY_PREFIX}${id}`
+            const value = sessionStorage.getItem(key)
+            sessionStorage.removeItem(key)
+            parsed = value ? JSON.parse(value) : null
+        } else {
+            // Accept both base64 alphabets and missing padding, like the desktop deep-link decoder.
+            const normalized = raw.replace(/-/g, '+').replace(/_/g, '/')
+            const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+            parsed = JSON.parse(base64Decode(padded))
+        }
     } catch {
         return null
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         return null
     }
-    return parsed as Record<string, unknown>
+    return { payload: parsed as Record<string, unknown>, stored: raw.startsWith(STORED_TEMPLATE_PREFIX) }
 }
 
 /** Decodes a `#createScout=` value into modal initial values. Null means ignore the fragment. */
 export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValues | null {
-    const parsed = parsePayload(raw)
-    if (!parsed) {
+    const parsedResult = parsePayload(raw)
+    if (!parsedResult) {
         return null
     }
 
+    const { payload: parsed, stored } = parsedResult
     const { name, description, body, config } = parsed
     const cleanDescription =
         typeof description === 'string' ? description.trim().slice(0, SKILL_DESCRIPTION_MAX_LENGTH) : ''
-    const cleanBody = typeof body === 'string' ? body.trim().slice(0, MAX_BODY_LENGTH) : ''
+    const cleanBody = typeof body === 'string' ? (stored ? body : body.trim().slice(0, MAX_BODY_LENGTH)) : ''
+    const templateConfig = cleanConfig(config)
+    const initialConfig = stored ? { ...templateConfig, mcp_gateway_server_ids: [] } : templateConfig
 
     // A link that prefills nothing but a name is indistinguishable from noise — require substance.
-    if (!cleanDescription && !cleanBody) {
+    if (!cleanDescription && !cleanBody.trim()) {
         return null
     }
 
@@ -145,6 +168,6 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
         ...defined('name', cleanScoutName(name) || undefined),
         ...defined('description', cleanDescription || undefined),
         ...defined('body', cleanBody || undefined),
-        ...defined('config', cleanConfig(config) ?? undefined),
+        ...defined('config', initialConfig ?? undefined),
     }
 }

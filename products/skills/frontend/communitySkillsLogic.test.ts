@@ -79,7 +79,7 @@ describe('communitySkillsLogic', () => {
             kind: 'scout',
             name: 'Feed scout',
             description: 'Watch a feed for problems.',
-            body: '# Scout',
+            body: `# Scout\n${'x'.repeat(20_000)}`,
             scout_config: { run_interval_minutes: 720, emit: false },
             variable_bindings: {},
         })
@@ -95,8 +95,24 @@ describe('communitySkillsLogic', () => {
         expect(decodeScoutCreateTemplate(router.values.hashParams.createScout)).toEqual({
             name: 'signals-scout-feed',
             description: 'Watch a feed for problems.',
-            body: '# Scout',
-            config: { run_interval_minutes: 720, emit: false },
+            body: `# Scout\n${'x'.repeat(20_000)}`,
+            config: { run_interval_minutes: 720, emit: false, mcp_gateway_server_ids: [] },
         })
+        expect(String(router.values.hashParams.createScout)).toHaveLength(43)
+    })
+
+    it('uses top rated as the default scout order', async () => {
+        logic = communitySkillsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSkillsSuccess'])
+
+        router.actions.push(urls.communitySkills(), { kind: 'scout' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.order_by).toBe('-vote_count')
+        expect(mockList).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ order_by: '-vote_count' })
+        )
     })
 })

@@ -1408,6 +1408,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert mock_publish.call_args.kwargs["tags"] == expected
 
+    @parameterized.expand(
+        [
+            ("unsupported setting", {"network_access": "full"}),
+            ("too many tags", {"tags": [f"tag-{index}" for index in range(11)]}),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_scout_rejects_an_invalid_config(self, _label: str, scout_config: dict, mock_publish, _mock_flag):
+        self.create_skill(name="signals-scout-feed", category="scout")
+
+        response = self.client.post(
+            self._url("name/signals-scout-feed/publish-community"),
+            data={"scout_config": scout_config},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_publish.assert_not_called()
+
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
     def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):

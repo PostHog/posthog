@@ -52,6 +52,7 @@ export interface CommunitySkillScoutConfigApi {
     emit?: boolean
     /**
      * Tags used to group the scout in the fleet.
+     * @maxItems 10
      * @items.maxLength 50
      */
     tags?: string[]

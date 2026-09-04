@@ -11,7 +11,7 @@ import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import { INBOX_CONFIG_TAB_KEY } from 'products/signals/frontend/inbox/types'
-import { encodeScoutCreateTemplate } from 'products/signals/frontend/inbox/utils/scoutTemplateDeepLink'
+import { storeCommunityScoutCreateTemplate } from 'products/signals/frontend/inbox/utils/scoutTemplateDeepLink'
 
 import {
     communitySkillsInstallCreate,
@@ -47,13 +47,14 @@ function cleanKind(value: unknown): CommunitySkillKindEnumApi | '' {
 }
 
 function cleanFilters(values: Partial<CommunitySkillFilters>): CommunitySkillFilters {
+    const kind = cleanKind(values.kind)
     return {
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
-        order_by: values.order_by || '-install_count',
+        order_by: values.order_by || (kind === CommunitySkillKindEnumApi.Scout ? '-vote_count' : '-install_count'),
         tag: String(values.tag || ''),
         trust_tier: cleanTrustTier(values.trust_tier),
-        kind: cleanKind(values.kind),
+        kind,
     }
 }
 
@@ -61,7 +62,10 @@ function cleanFilterUrlParams(filters: CommunitySkillFilters): Record<string, un
     return {
         page: filters.page === 1 ? undefined : filters.page,
         search: filters.search || undefined,
-        order_by: filters.order_by === '-install_count' ? undefined : filters.order_by,
+        order_by:
+            filters.order_by === (filters.kind === CommunitySkillKindEnumApi.Scout ? '-vote_count' : '-install_count')
+                ? undefined
+                : filters.order_by,
         tag: filters.tag || undefined,
         trust_tier: filters.trust_tier || undefined,
         kind: filters.kind || undefined,
@@ -361,7 +365,7 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 const rendered = await communitySkillsRenderCreate(String(ApiConfig.getCurrentTeamId()), slug, {
                     variables,
                 })
-                const template = encodeScoutCreateTemplate({
+                const template = storeCommunityScoutCreateTemplate({
                     name: rendered.slug,
                     description: rendered.description,
                     body: rendered.body,

@@ -1380,7 +1380,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // the scout's cadence, emit posture and tags off its config, so the published scout carries
         // the settings the person publishing it can already see here.
         publishScoutToCommunity: async ({ configId, options }) => {
-            const teamId = teamLogic.values.currentTeamId
+            const teamId = teamLogic.values.currentProjectId
             const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
             if (!teamId || !config) {
                 actions.publishScoutToCommunityFinished(configId)
@@ -1389,6 +1389,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             try {
                 const result = await llmSkillsNamePublishCommunityCreate(String(teamId), config.skill_name, {
                     ...options,
+                    tags: options.tags ?? config.tags,
                     scout_config: shareableScoutConfig(config),
                 })
                 lemonToast.success('Opened a community pull request. A maintainer will review it.', {

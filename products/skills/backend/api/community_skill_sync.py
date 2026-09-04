@@ -127,8 +127,10 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
         if any(any(ch.isspace() for ch in t) for t in allowed_tools):
             raise ValueError("allowed_tools names cannot contain whitespace")
 
-    kind = entry.get("kind") or CommunitySkillKind.SKILL.value
-    if kind not in _VALID_KINDS:
+    kind = entry.get("kind")
+    if kind is None:
+        kind = CommunitySkillKind.SKILL.value
+    if not isinstance(kind, str) or kind not in _VALID_KINDS:
         raise ValueError(f"kind '{kind}' is not one of {sorted(_VALID_KINDS)}")
 
     scout_config = entry.get("scout_config")
@@ -205,8 +207,20 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
     # value persisted below) is the same coerced string the caps check approved.
     source_sha = _text(entry, "source_sha", "'source_sha'")
 
+    kind = entry.get("kind")
+    if kind is None:
+        kind = CommunitySkillKind.SKILL.value
+    scout_config = validate_shareable_scout_config(entry.get("scout_config"))
+
     existing = CommunitySkill.objects.filter(slug=slug).first()
-    if existing is not None and existing.source_sha and existing.source_sha == source_sha and not existing.deleted:
+    if (
+        existing is not None
+        and existing.source_sha
+        and existing.source_sha == source_sha
+        and not existing.deleted
+        and existing.kind == kind
+        and existing.scout_config == scout_config
+    ):
         return False
 
     # Model choices aren't DB-enforced, so an unknown tier would persist raw and break consumers
@@ -232,8 +246,8 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         # capitalized them in frontmatter (_validate_entry_shape guarantees a list of strings).
         "tags": [t.lower() for t in (entry.get("tags") or [])],
         "trust_tier": trust_tier,
-        "kind": entry.get("kind") or CommunitySkillKind.SKILL.value,
-        "scout_config": validate_shareable_scout_config(entry.get("scout_config")),
+        "kind": kind,
+        "scout_config": scout_config,
         "author_handle": _text(entry, "author_handle", "'author_handle'"),
         "github_url": _text(entry, "github_url", "'github_url'"),
         "source_sha": source_sha,

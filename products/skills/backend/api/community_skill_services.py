@@ -148,6 +148,10 @@ def install_community_skill(
         # a PK query still returns it, so recheck under the lock rather than installing a removed skill.
         if locked.deleted:
             raise CommunitySkillNotFoundError()
+        if locked.kind == CommunitySkillKind.SCOUT:
+            raise CommunitySkillNotInstallableError(
+                "This is a scout, so it isn't installed as a skill. Set it up from the store."
+            )
         if not (locked.body or "").strip():
             raise CommunitySkillInvalidPayloadError("This community skill has no instructions and can't be installed.")
         # A blank description passes the sync's length-only check but later makes the installed skill

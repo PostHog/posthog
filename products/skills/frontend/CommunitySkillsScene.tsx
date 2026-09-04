@@ -12,17 +12,16 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { usePagination } from 'lib/lemon-ui/PaginationControl/usePagination'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { communitySkillsLogic } from './communitySkillsLogic'
+import { communityScoutCadenceLabel } from './communitySkillUtils'
 import { CommunitySkillKindEnumApi, CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
-import type {
-    CommunitySkillListApi,
-    CommunitySkillScoutConfigApi,
-    CommunitySkillTemplateVariableApi,
-} from './generated/api.schemas'
+import type { CommunitySkillListApi, CommunitySkillTemplateVariableApi } from './generated/api.schemas'
 import { COMMUNITY_SKILLS_TAB_DESCRIPTION, COMMUNITY_SKILLS_TAB_KEY, SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
@@ -70,23 +69,6 @@ function AuthorHandle({ handle }: { handle: string }): JSX.Element {
     )
 }
 
-// What a scout's published settings mean for how often it will run, so the card says up front that
-// this is something that runs on a schedule rather than a skill an agent reaches for.
-function scoutCadenceLabel(config: CommunitySkillScoutConfigApi | undefined): string {
-    if (config?.run_cron_schedule) {
-        return 'Runs on a set schedule'
-    }
-    const minutes = config?.run_interval_minutes ?? 1440
-    if (minutes < 60) {
-        return `Runs every ${minutes} minutes`
-    }
-    if (minutes < 1440) {
-        return `Runs every ${Math.round(minutes / 60)} hours`
-    }
-    const days = Math.round(minutes / 1440)
-    return days === 1 ? 'Runs daily' : `Runs every ${days} days`
-}
-
 // A template declares variables that must be bound before it can be used. Collect a value per
 // variable, then hand them on. Defaults prefill; required variables are guarded.
 function openTemplateDialog(
@@ -128,6 +110,9 @@ function CommunitySkillAction({ skill }: { skill: CommunitySkillListApi }): JSX.
     const { installSkill, setUpScout } = useActions(communitySkillsLogic)
     const isScout = skill.kind === CommunitySkillKindEnumApi.Scout
     const busy = isScout ? !!settingUpSlugs[skill.slug] : !!installingSlugs[skill.slug]
+    const scoutCreateDisabledReason = isScout
+        ? getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
+        : null
     const templateVariables = skill.template_variables ?? []
     const isTemplate = templateVariables.length > 0
 
@@ -139,7 +124,7 @@ function CommunitySkillAction({ skill }: { skill: CommunitySkillListApi }): JSX.
             size="small"
             type="primary"
             loading={busy}
-            disabledReason={busy ? (isScout ? 'Opening the scout form…' : 'Installing…') : undefined}
+            disabledReason={busy ? (isScout ? 'Opening the scout form…' : 'Installing…') : scoutCreateDisabledReason}
             onClick={() => (isTemplate ? openTemplateDialog(skill, templateVariables, start) : start(skill.slug))}
         >
             {`${isScout ? 'Set up scout' : 'Install'}${isTemplate ? '…' : ''}`}
@@ -193,7 +178,9 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
             </div>
             <div className="flex items-center justify-between gap-2 pt-2 border-t">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted text-xs">
-                    <span>{isScout ? scoutCadenceLabel(skill.scout_config) : `${skill.install_count} installs`}</span>
+                    <span>
+                        {isScout ? communityScoutCadenceLabel(skill.scout_config) : `${skill.install_count} installs`}
+                    </span>
                     {skill.author_handle ? <AuthorHandle handle={skill.author_handle} /> : null}
                     {sourceUrl ? (
                         <Link to={sourceUrl} target="_blank" className="flex items-center gap-1">
@@ -262,7 +249,14 @@ function CommunitySkillsContent(): JSX.Element {
                 />
                 <LemonSelect<CommunitySkillKindEnumApi | ''>
                     value={filters.kind}
-                    onChange={(kind) => setFilters({ kind })}
+                    onChange={(kind) =>
+                        setFilters({
+                            kind,
+                            ...(kind === CommunitySkillKindEnumApi.Scout && filters.order_by === '-install_count'
+                                ? { order_by: '-vote_count' }
+                                : {}),
+                        })
+                    }
                     options={[
                         { value: '', label: 'Skills and scouts' },
                         { value: 'skill', label: 'Skills' },

@@ -8,6 +8,7 @@ import { LemonDivider, LemonModal, LemonSwitch, LemonTag, Link } from '@posthog/
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -34,7 +35,7 @@ import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.sch
 import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
-import { openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog } from './skillSceneComponents'
 import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {

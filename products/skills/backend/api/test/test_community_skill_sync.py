@@ -66,6 +66,8 @@ class TestCommunitySkillScoutEntryValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("an unknown kind", {"kind": "agent"}, "is not one of"),
+            ("a false kind", {"kind": False}, "is not one of"),
+            ("a zero kind", {"kind": 0}, "is not one of"),
             ("settings on a plain skill", {"scout_config": {"emit": False}}, "only valid on a 'scout'"),
             # The three that grant a scout reach into a project — never carried by a published one.
             ("network access", {"kind": "scout", "scout_config": {"network_access": "full"}}, "cannot carry"),
@@ -79,6 +81,21 @@ class TestCommunitySkillScoutEntryValidation(SimpleTestCase):
                 "a cadence under the floor",
                 {"kind": "scout", "scout_config": {"run_interval_minutes": 5}},
                 "must be between",
+            ),
+            (
+                "an invalid cron",
+                {"kind": "scout", "scout_config": {"run_cron_schedule": "61 9 * * *"}},
+                "valid five-field",
+            ),
+            (
+                "a cron under the cadence floor",
+                {"kind": "scout", "scout_config": {"run_cron_schedule": "* * * * *"}},
+                "at least 30 minutes",
+            ),
+            (
+                "a cron that never occurs",
+                {"kind": "scout", "scout_config": {"run_cron_schedule": "0 0 31 2 *"}},
+                "real date",
             ),
             (
                 "bundled files",
@@ -142,6 +159,32 @@ class TestCommunitySkillSync(APIBaseTest):
 
         result = sync_community_skills_from_github()
         self.assertEqual(result, {"synced": 0, "skipped": 1, "removed": 0})
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_reconciles_new_fields_for_an_unchanged_sha(self, mock_get) -> None:
+        existing = _create_community_skill(slug="signals-scout-feed")
+        CommunitySkill.objects.filter(pk=existing.pk).update(source_sha="same-sha", kind="skill", scout_config={})
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {
+                    "slug": "signals-scout-feed",
+                    "name": "Feed scout",
+                    "description": "Watch the feed.",
+                    "body": "# Scout",
+                    "source_sha": "same-sha",
+                    "kind": "scout",
+                    "scout_config": {"run_interval_minutes": 720},
+                }
+            ]
+        }
+
+        result = sync_community_skills_from_github()
+
+        existing.refresh_from_db()
+        self.assertEqual(result, {"synced": 1, "skipped": 0, "removed": 0})
+        self.assertEqual(existing.kind, "scout")
+        self.assertEqual(existing.scout_config, {"run_interval_minutes": 720})
 
     @patch("products.skills.backend.api.community_skill_sync.github_request")
     def test_sync_empty_registry_does_not_wipe_catalog(self, mock_get) -> None:

@@ -12,11 +12,13 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="communityskill",
             name="kind",
-            field=models.CharField(choices=[("skill", "Skill"), ("scout", "Scout")], default="skill", max_length=20),
+            field=models.CharField(
+                choices=[("skill", "Skill"), ("scout", "Scout")], db_default="skill", default="skill", max_length=20
+            ),
         ),
         migrations.AddField(
             model_name="communityskill",
             name="scout_config",
-            field=models.JSONField(blank=True, default=dict),
+            field=models.JSONField(blank=True, db_default={}, default=dict),
         ),
     ]

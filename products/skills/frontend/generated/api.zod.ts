@@ -312,6 +312,8 @@ export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunCronSchedul
 
 export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsItemMax = 50
 
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsMax = 10
+
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneMax = 64
 
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
@@ -348,6 +350,7 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
                 .describe('Whether the scout writes its reports to the inbox. False means it runs as a dry run.'),
             tags: zod
                 .array(zod.string().max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsItemMax))
+                .max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsMax)
                 .optional()
                 .describe('Tags used to group the scout in the fleet.'),
         })

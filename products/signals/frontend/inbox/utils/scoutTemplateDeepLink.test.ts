@@ -1,8 +1,25 @@
 import { SKILL_DESCRIPTION_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
-import { decodeScoutCreateTemplate, encodeScoutCreateTemplate } from './scoutTemplateDeepLink'
+import {
+    decodeScoutCreateTemplate,
+    encodeScoutCreateTemplate,
+    storeCommunityScoutCreateTemplate,
+} from './scoutTemplateDeepLink'
 
 describe('scoutTemplateDeepLink', () => {
+    it('moves a large community draft outside the URL and disconnects MCP servers', () => {
+        const body = 'x'.repeat(50_000)
+        const key = storeCommunityScoutCreateTemplate({ description: 'Large scout', body })
+
+        expect(key.length).toBeLessThan(100)
+        expect(decodeScoutCreateTemplate(key)).toEqual({
+            description: 'Large scout',
+            body,
+            config: { mcp_gateway_server_ids: [] },
+        })
+        expect(decodeScoutCreateTemplate(key)).toBeNull()
+    })
+
     it('round-trips a full template', () => {
         const encoded = encodeScoutCreateTemplate({
             name: 'signals-scout-silent-failure',
