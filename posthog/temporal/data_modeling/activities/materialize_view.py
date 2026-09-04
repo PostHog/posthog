@@ -1,3 +1,4 @@
+import re
 import uuid
 import typing
 import asyncio
@@ -498,6 +499,34 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _realign_decimal_buffers(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Rebuild every Decimal column whose values buffer is not aligned to 16 bytes.
+
+    ClickHouse streams Arrow IPC, and a decimal values buffer can arrive on an 8-byte boundary.
+    Rust's i128 needs 16 bytes, so delta-rs panics while it imports the buffer over FFI. The panic
+    reaches Python as a BaseException, which no ``except Exception`` catches, so the activity dies
+    and Temporal retries the same query until the view is suspended. ``pa.concat_arrays`` copies
+    through pyarrow's own allocator, which always returns aligned memory. The scan is cheap and the
+    copy runs only on a misaligned column, so an aligned batch is returned as it is.
+
+    See delta-io/delta-rs#3884, and ``realign_decimal_buffers`` in warehouse_sources, which guards
+    the data-import writes the same way at table level.
+    """
+    columns: list[pa.Array] = []
+    realigned = False
+    for column in batch.columns:
+        values = column.buffers()[1] if pa.types.is_decimal(column.type) else None
+        if values is not None and values.address % 16:
+            column = pa.concat_arrays([column])
+            realigned = True
+        columns.append(column)
+
+    if not realigned:
+        return batch
+
+    return pa.RecordBatch.from_arrays(columns, schema=batch.schema)
+
+
 async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
     """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
     is still queryable.
@@ -518,6 +547,50 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     await asyncio.to_thread(_upload)
     await logger.ainfo(f"Wrote empty parquet for zero-row materialization: uri={file_uri} bytes={len(parquet_bytes)}")
     return file_uri
+
+
+ArrowConversion = tuple[str, tuple[str, ...]]
+
+# ClickHouse types Arrow and Delta Lake cannot carry, matched on a substring of the described type
+# so that a wrapper such as Nullable(..) still matches.
+_ARROW_CONVERSION_BY_SUBSTRING: dict[str, ArrowConversion] = {
+    "DateTime": ("toTimeZone", ("UTC",)),
+    "Nullable(Nothing)": ("toNullableString", ()),
+    "FIXED_SIZE_BINARY": ("toString", ()),
+    "JSON": ("toString", ()),
+    "UUID": ("toString", ()),
+    "ENUM": ("toString", ()),
+    "IPv4": ("toString", ()),
+    "IPv6": ("toString", ()),
+}
+
+# Delta Lake has no unsigned integer type, so delta-rs narrows an Arrow uint64 to Int64 and the
+# write fails on every value above 2^63-1 — the range a hash key such as cityHash64 fills.
+# Decimal(20, 0) holds the whole UInt64 range, and is what the Trino printer maps UInt64 to.
+_UINT64_CONVERSION: ArrowConversion = ("accurateCastOrNull", ("Decimal(20, 0)",))
+
+_TYPE_WRAPPER_RE = re.compile(r"^(?:nullable|lowcardinality)\((.*)\)$")
+
+
+def arrow_conversion_for(ch_type: str) -> ArrowConversion | None:
+    """Return the ClickHouse call that makes a column of ``ch_type`` writable to Delta Lake."""
+    lowered = ch_type.lower()
+    # Arrays are already properly typed by ClickHouse, and converting them causes errors like
+    # "Illegal type Array(DateTime) of argument of function toTimezone".
+    if lowered.startswith("array("):
+        return None
+
+    # Matched on the whole type, because casting a Map or a Tuple that only holds a UInt64 fails.
+    unwrapped = lowered
+    while match := _TYPE_WRAPPER_RE.match(unwrapped):
+        unwrapped = match.group(1).strip()
+    if unwrapped == "uint64":
+        return _UINT64_CONVERSION
+
+    return next(
+        (conversion for name, conversion in _ARROW_CONVERSION_BY_SUBSTRING.items() if name.lower() in lowered),
+        None,
+    )
 
 
 async def hogql_table(
@@ -570,30 +643,6 @@ async def hogql_table(
 
     printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
-    arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
-        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
-        "Nullable(Nothing)": ("toNullableString", ()),
-        "FIXED_SIZE_BINARY": ("toString", ()),
-        "JSON": ("toString", ()),
-        "UUID": ("toString", ()),
-        "ENUM": ("toString", ()),
-        "IPv4": ("toString", ()),
-        "IPv6": ("toString", ()),
-    }
-
-    def _needs_conversion(ch_type: str) -> bool:
-        # Skip array types from conversion — they are already properly typed by ClickHouse
-        # and attempting to convert them causes errors like:
-        # "Illegal type Array(DateTime) of argument of function toTimezone"
-        is_array_type = ch_type.lower().startswith("array(")
-        if is_array_type:
-            return False
-        return any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
-
-    get_call_tuple = lambda ch_type: next(
-        iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
-    )
-
     try:
         described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
     except ClickHouseError as error:
@@ -605,12 +654,9 @@ async def hogql_table(
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
         described_columns = await _describe_columns(untouched, context.values, None)
 
-    query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    for column_name, ch_type in described_columns.items():
-        if _needs_conversion(ch_type):
-            query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
-        else:
-            query_typings.append((column_name, ch_type, None))
+    query_typings: list[tuple[str, str, ArrowConversion | None]] = [
+        (column_name, ch_type, arrow_conversion_for(ch_type)) for column_name, ch_type in described_columns.items()
+    ]
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:
@@ -621,9 +667,13 @@ async def hogql_table(
                 await logger.adebug(
                     f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
                 )
+                call_name, extra_args = call_tuple
                 select_fields.append(
                     ast.Alias(
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                        expr=ast.Call(
+                            name=call_name,
+                            args=[ast.Field(chain=[column_name]), *(ast.Constant(value=arg) for arg in extra_args)],
+                        ),
                         alias=column_name,
                     )
                 )
@@ -864,6 +914,7 @@ async def _materialize_fully(
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
         batch = _force_nullable(batch)
+        batch = _realign_decimal_buffers(batch)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
         await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
@@ -959,6 +1010,7 @@ async def _materialize_incrementally(
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _force_nullable(batch)
+            batch = _realign_decimal_buffers(batch)
 
             if batch.num_rows == 0:
                 # A quiet window is normal. Nothing to upsert, and no watermark to advance.

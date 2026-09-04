@@ -17,6 +17,7 @@ import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Optional
 
 from django.db import transaction
@@ -169,6 +170,7 @@ def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[
     a materialization is running; ``update_fields`` then keeps this write off every other column.
     """
     model = type(saved_query)
+    watermark = _normalize_decimal_watermark(watermark)
     watermark = _clamp_temporal_watermark(watermark)
     with transaction.atomic():
         locked = model.objects.select_for_update().get(pk=saved_query.pk)
@@ -183,6 +185,16 @@ def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state
+
+
+def _normalize_decimal_watermark(watermark: Any) -> Any:
+    """Delta Lake has no unsigned integer type, so a UInt64 key is cast to Decimal(20, 0) before the
+    query streams to Arrow, and the run reports its watermark as a Decimal. The state blob is JSON,
+    which holds no Decimal, and an untagged watermark reads as absent on the next run. An exact
+    integer keeps the value and the "int" tag that the same key had before the cast."""
+    if isinstance(watermark, Decimal) and watermark == watermark.to_integral_value():
+        return int(watermark)
+    return watermark
 
 
 def _clamp_temporal_watermark(watermark: Any) -> Any:

@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 from posthog.test.base import BaseTest
 
@@ -97,6 +98,7 @@ class TestIncrementalConfig(BaseTest):
             ("datetime", datetime(2026, 8, 1, 12, 30, tzinfo=UTC), datetime),
             ("date", date(2026, 8, 1), date),
             ("int", 42, int),
+            ("uint64_key_arriving_as_decimal", Decimal("18446744073709551615"), int),
             ("float", 42.5, float),
             ("date_like_string", "2026-08-01", str),
             ("datetime_like_string", "2026-08-01T12:30:00+00:00", str),
