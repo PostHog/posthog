@@ -97,3 +97,19 @@ class TestSlackIssueActions(BaseTest):
         assert outcome == "no_access"
         self.issue.refresh_from_db()
         assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    def test_fingerprint_owner_wins_over_the_issue_id_after_a_split(self):
+        # A split moves the fingerprint to a new issue while the old row stays; the buttons
+        # must follow it like the View issue link does.
+        new_issue = ErrorTrackingIssue.objects.create(team=self.team, name="Split out")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=new_issue, fingerprint="fp-split")
+
+        outcome = resolve_issue_from_slack(
+            self.issue.id, fingerprint="fp-split", team_id=self.team.id, integration=self.integration, user=self.user
+        )
+
+        assert outcome == "ok"
+        new_issue.refresh_from_db()
+        self.issue.refresh_from_db()
+        assert new_issue.status == ErrorTrackingIssue.Status.RESOLVED
+        assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE

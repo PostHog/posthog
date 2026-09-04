@@ -279,6 +279,10 @@ class TestAlertMessages(SimpleTestCase):
         edited = build_root_edit(resolved, headline="🔴 New issue", actions=actions)["blocks"][-1]["elements"]
         assert [el.get("action_id") for el in edited] == [None, "error_tracking_issue_assign_me"]
 
+        # A fingerprint that would push the value past Slack's limit is left out, not sent.
+        long_actions = SlackActions(integration_id=7, issue_id="issue-1", team_id=1, fingerprint="x" * 3000)
+        assert "fingerprint" not in json.loads(long_actions.value())
+
         # Preview and destinations without an integration render no interactive buttons.
         assert len(build_root_message(inputs)["blocks"][-1]["elements"]) == 1
 
