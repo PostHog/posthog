@@ -224,6 +224,27 @@ The initial schema should prefer explicit columns over a serialized model payloa
 
 The HogQL table is read-only. Creating, approving, canceling, or retrying a deletion request continues through authenticated API actions with explicit permissions.
 
+## PostgreSQL capacity and abuse controls
+
+`DataDeletionRequest` inherits from `UUIDModel`, which uses a UUIDv7 primary key. UUIDv7 values are time ordered, so inserts retain substantially better B-tree locality than random UUIDv4 values. The identifier itself is not expected to create material write pressure at deletion-request volumes.
+
+The larger PostgreSQL risks are unbounded request creation, duplicate submissions, large stored queries, inefficient list and pickup queries, and indefinite retention. Apply these controls:
+
+- Rate-limit preview and creation separately per user and team.
+- Limit each team to a small number of active requests across `pending`, `approved`, `in_progress`, and `queued` states.
+- Use an idempotency key for submission so retries and double clicks return the existing request.
+- Cap the serialized HogQL query and variables by byte size before writing them.
+- Reject unnecessary repeated previews of the same unchanged query within a short cache window.
+- Index customer list access by team and creation time.
+- Index Dagster pickup access by status and approval time based on the verified query plan.
+- Avoid indexes on large query or variables fields.
+- Define a retention or archival policy for completed and failed requests while preserving the required audit period.
+- Monitor request creation rate, active rows, table and index size, and slow queries after rollout.
+
+Enforce active-request limits transactionally so concurrent submissions cannot both pass a read-then-create check. Prefer a database-backed quota or locking strategy over an application-only count.
+
+Index design must follow measured access paths. Before adding an index, capture `EXPLAIN` plans for the team-scoped HogQL table, customer list endpoint, approval sweep, pickup sensor, and queued verifier. Add indexes concurrently where required by the migration policy.
+
 ## Approval policy
 
 Self-service submission and approval are separate decisions.
@@ -323,6 +344,9 @@ Infrastructure grants should land before application code uses them. Application
 - Customers cannot assign status, approval, origin, execution mode, or team.
 - Criteria edits clear approval and preview state.
 - Duplicate submissions return the existing request.
+- Concurrent submissions cannot exceed the active-request limit.
+- Oversized query or variables payloads fail before persistence.
+- Customer list and Dagster pickup queries use the intended indexes.
 
 ### HogQL validation
 
@@ -381,6 +405,7 @@ Operational documentation must cover credential provisioning, resource limits, r
 11. How long should completed provenance rows remain available before the existing TTL removes them?
 12. Does event deletion also need to remove or rebuild derived data outside the legacy and native-JSON event tables?
 13. What customer-visible cancellation behavior is safe before UUID queueing begins and after it completes?
+14. What per-user rate, per-team rate, active-request limit, payload-size limit, and retention period should apply?
 
 ## Definition of done
 
@@ -394,4 +419,5 @@ Operational documentation must cover credential provisioning, resource limits, r
 - `deletes_job` removes queued events from every active physical event table.
 - The product shows the request's approval, queueing, deletion, and verification state.
 - Customers can inspect their self-service requests through the team-scoped `data_deletion_requests` HogQL table.
+- PostgreSQL controls bound request volume, payload size, duplicate submissions, active work, and retained history.
 - Documentation and operational controls are ready before the feature flag expands.
