@@ -350,6 +350,12 @@ export const ExternalDataSourcesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
+    summary: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Return source-level schema counts, row totals, status, and latest errors without embedding schemas. Use this for source index pages; omit it when the caller needs schema details.'
+        ),
 })
 
 /**

@@ -248,6 +248,32 @@ class TestExternalDataSource(APIBaseTest):
         source.save(update_fields=["deleted"])
         self.assertEqual(self.client.get(url).json(), {"exists": False})
 
+    def test_summary_list_aggregates_schemas_without_serializing_them(self):
+        source = self._make_source("summary")
+        self._make_schema_with_table(
+            source,
+            "Customers",
+            status=ExternalDataSchema.Status.RUNNING,
+            latest_error="still syncing",
+            row_count=42,
+        )
+        self._make_schema_with_table(
+            source,
+            "Orders",
+            status=ExternalDataSchema.Status.COMPLETED,
+            row_count=8,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/?summary=true")
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]
+        self.assertEqual(result["schemas"], [])
+        self.assertEqual(result["schemas_count"], 2)
+        self.assertEqual(result["rows_synced"], 50)
+        self.assertEqual(result["status"], ExternalDataSchema.Status.RUNNING)
+        self.assertEqual(result["latest_error"], "still syncing")
+
     def test_list_query_count_does_not_scale_with_source_count(self):
         # Guards the prefetch design: adding sources (each with schemas + tables) must not add queries.
         # A regression to per-source credential/source lookups or the duplicate schema prefetch shows up

@@ -39172,6 +39172,8 @@ export namespace Schemas {
       /** @nullable */
       readonly last_run_at: string | null;
       readonly schemas: readonly ExternalDataSourceSerializersSchemasItem[];
+      readonly schemas_count: number;
+      readonly rows_synced: number;
       job_inputs?: unknown;
       readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
       /**
@@ -63166,6 +63168,8 @@ export namespace Schemas {
       /** @nullable */
       readonly last_run_at?: string | null;
       readonly schemas?: readonly PatchedExternalDataSourceSerializersSchemasItem[];
+      readonly schemas_count?: number;
+      readonly rows_synced?: number;
       job_inputs?: unknown;
       readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig;
       /**
@@ -95115,6 +95119,10 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * Return source-level schema counts, row totals, status, and latest errors without embedding schemas. Use this for source index pages; omit it when the caller needs schema details.
+     */
+    summary?: boolean;
     };
 
     export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {

@@ -11,14 +11,22 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Count, Exists, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
 
 import structlog
 import temporalio
 from dateutil import parser
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from openai import APIConnectionError
 from opentelemetry import trace
 from psycopg import OperationalError
@@ -62,6 +70,7 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderDailyThrottle,
     CustomSourceAIBuilderSustainedThrottle,
 )
+from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import (
@@ -983,6 +992,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
+    schemas_count = serializers.SerializerMethodField(read_only=True)
+    rows_synced = serializers.SerializerMethodField(read_only=True)
     engine = serializers.ChoiceField(
         source="connection_metadata.engine",
         read_only=True,
@@ -1086,6 +1097,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "engine",
             "last_run_at",
             "schemas",
+            "schemas_count",
+            "rows_synced",
             "job_inputs",
             "revenue_analytics_config",
             "user_access_level",
@@ -1103,6 +1116,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "last_run_at",
             "schemas",
+            "schemas_count",
+            "rows_synced",
             "engine",
             "revenue_analytics_config",
             "user_access_level",
@@ -1189,6 +1204,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
 
     def get_status(self, instance: ExternalDataSource) -> str:
+        if hasattr(instance, "_summary_has_failures"):
+            status_priority = (
+                ("_summary_has_failures", ExternalDataSchema.Status.FAILED),
+                ("_summary_has_billing_limits", "Billing limits"),
+                ("_summary_has_billing_limit_too_low", "Billing limits too low"),
+                ("_summary_has_paused", ExternalDataSchema.Status.PAUSED),
+                ("_summary_has_running", ExternalDataSchema.Status.RUNNING),
+                ("_summary_has_completed", ExternalDataSchema.Status.COMPLETED),
+            )
+            for attribute, status_value in status_priority:
+                if getattr(instance, attribute):
+                    return status_value
+            return instance.status
+
         active_schemas: list[ExternalDataSchema] = self._active_schemas(instance)
         # Negative statuses should ignore schemas the user has disabled — those can linger in
         # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
@@ -1222,6 +1251,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
+        if hasattr(instance, "_summary_latest_error"):
+            return instance._summary_latest_error
+
         prefetched_schemas = self._prefetched_schemas(instance)
         if prefetched_schemas is not None:
             schema_with_error = next(
@@ -1234,6 +1266,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_schemas(self, instance: ExternalDataSource):
+        if self.context.get("schemas_summary_only"):
+            return []
+
         prefetched_schemas = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
         if prefetched_schemas is not None:
             schemas = [schema for schema in prefetched_schemas if not schema.deleted]
@@ -1245,6 +1280,29 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_schemas_count(self, instance: ExternalDataSource) -> int:
+        summary_count = getattr(instance, "_summary_schemas_count", None)
+        if summary_count is not None:
+            return summary_count
+        schemas = self._prefetched_schemas(instance)
+        return len(schemas) if schemas is not None else instance.schemas.exclude(deleted=True).count()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_rows_synced(self, instance: ExternalDataSource) -> int:
+        summary_rows = getattr(instance, "_summary_rows_synced", None)
+        if summary_rows is not None:
+            return summary_rows
+        schemas = self._prefetched_schemas(instance)
+        if schemas is None:
+            return (
+                instance.schemas.exclude(deleted=True, table__deleted=True).aggregate(total=Sum("table__row_count"))[
+                    "total"
+                ]
+                or 0
+            )
+        return sum(schema.table.row_count or 0 for schema in schemas if schema.table and not schema.table.deleted)
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
@@ -2001,6 +2059,21 @@ class ResolvedStoredCredential:
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="summary",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Return source-level schema counts, row totals, status, and latest errors without embedding schemas. "
+                    "Use this for source index pages; omit it when the caller needs schema details."
+                ),
+            )
+        ]
+    )
+)
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.
@@ -2058,6 +2131,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
+
+    def _is_summary_list(self) -> bool:
+        return self.action == "list" and str_to_bool(self.request.query_params.get("summary", "0"))
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         super().check_object_permissions(request, obj)
@@ -2129,7 +2205,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 span.set_attribute("data_warehouse.sources.count", len(results))
                 span.set_attribute(
                     "data_warehouse.sources.schemas.count",
-                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
+                    sum(
+                        source.get("schemas_count", len(source.get("schemas") or []))
+                        for source in results
+                        if isinstance(source, dict)
+                    ),
                 )
         return response
 
@@ -2149,6 +2229,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         context["include_columns"] = include_columns
         # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
         context["schemas_list_only"] = self.action == "list"
+        context["schemas_summary_only"] = self._is_summary_list()
         if include_columns:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
@@ -2168,13 +2249,52 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if self.action != "list":
             schema_select.append("table__credential")
 
+        queryset = queryset.select_related("created_by", "revenue_analytics_config")
+
+        if self._is_summary_list():
+            schemas = ExternalDataSchema.objects.filter(
+                team_id=self.team_id,
+                source_id=OuterRef("pk"),
+                deleted=False,
+            )
+            active_schemas = schemas.filter(Q(should_sync=True) | Q(latest_error__isnull=False))
+            synced_rows = (
+                schemas.filter(table__deleted=False)
+                .values("source_id")
+                .annotate(total=Sum("table__row_count"))
+                .values("total")[:1]
+            )
+            schema_count = schemas.values("source_id").annotate(total=Count("id")).values("total")[:1]
+            latest_error = schemas.filter(latest_error__isnull=False).order_by("name").values("latest_error")[:1]
+
+            return (
+                queryset.annotate(
+                    _summary_has_failures=Exists(
+                        schemas.filter(should_sync=True, status=ExternalDataSchema.Status.FAILED)
+                    ),
+                    _summary_has_billing_limits=Exists(
+                        schemas.filter(should_sync=True, status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+                    ),
+                    _summary_has_billing_limit_too_low=Exists(
+                        schemas.filter(should_sync=True, status=ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW)
+                    ),
+                    _summary_has_paused=Exists(active_schemas.filter(status=ExternalDataSchema.Status.PAUSED)),
+                    _summary_has_running=Exists(active_schemas.filter(status=ExternalDataSchema.Status.RUNNING)),
+                    _summary_has_completed=Exists(active_schemas.filter(status=ExternalDataSchema.Status.COMPLETED)),
+                    _summary_latest_error=Subquery(latest_error),
+                    _summary_rows_synced=Coalesce(Subquery(synced_rows), Value(0), output_field=IntegerField()),
+                    _summary_schemas_count=Coalesce(Subquery(schema_count), Value(0), output_field=IntegerField()),
+                )
+                .prefetch_related(latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"))
+                .order_by(self.ordering)
+            )
+
         return (
             queryset
             # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
             # serialization. select_related folds them into the main query instead of firing one
             # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
             # list load (up to one query, and a get_or_create write, per source).
-            .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
                 latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"),
                 # The one place schemas are read during serialization. `active_schemas` used to be a
@@ -2187,8 +2307,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     .select_related(*schema_select)
                     .order_by("name"),
                 ),
-            )
-            .order_by(self.ordering)
+            ).order_by(self.ordering)
         )
 
     @extend_schema(

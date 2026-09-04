@@ -122,9 +122,10 @@ export function ManagedSourcesTable(): JSX.Element {
                         key: 'rows_synced',
                         tooltip: 'Total number of rows synced across all schemas in this source',
                         render: (_, source) =>
-                            source.schemas
-                                .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
-                                .toLocaleString(),
+                            (
+                                source.rows_synced ??
+                                source.schemas.reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                            ).toLocaleString(),
                     },
                     ...(showMetrics
                         ? [

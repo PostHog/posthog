@@ -5901,8 +5901,14 @@ const api = {
     },
 
     externalDataSources: {
-        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
-            return await new ApiRequest().externalDataSources().get(options)
+        async list(
+            options?: ApiMethodOptions | undefined,
+            summary = false
+        ): Promise<PaginatedResponse<ExternalDataSource>> {
+            return await new ApiRequest()
+                .externalDataSources()
+                .withQueryString(summary ? { summary: true } : undefined)
+                .get(options)
         },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()

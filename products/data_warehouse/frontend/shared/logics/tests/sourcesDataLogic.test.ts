@@ -5,7 +5,7 @@ import api, { ApiError, PaginatedResponse } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
 
-import { sourcesDataLogic } from '../sourcesDataLogic'
+import { shouldLoadSourceSummaries, sourcesDataLogic } from '../sourcesDataLogic'
 
 // Stub the default `api` export but keep the real ApiError class so both the
 // test fixtures and the loader reference the same constructor — the loader's
@@ -85,7 +85,12 @@ describe('sourcesDataLogic', () => {
                 dataWarehouseSourcesLoading: false,
             })
 
-        expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
+        expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) }, false)
+    })
+
+    it('loads source summaries only on the sources list page', () => {
+        expect(shouldLoadSourceSummaries('/data-management/sources')).toBe(true)
+        expect(shouldLoadSourceSummaries('/data-management/revenue')).toBe(false)
     })
 
     it.each([

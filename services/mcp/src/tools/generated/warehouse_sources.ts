@@ -692,6 +692,7 @@ const externalDataSourcesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                summary: params.summary,
             },
         })
         return await withPostHogUrl(context, result, '/data-management/sources')
