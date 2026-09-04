@@ -3149,6 +3149,52 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert retrieved.json()["contexts"] == []
         assert foreign_name not in retrieved.content.decode()
 
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"contexts": [], "send_test_now": False},
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert (
+            SubscriptionContext.objects.for_team(self.team.id)
+            .filter(subscription_id=created.json()["id"], **context_fields)
+            .exists()
+        )
+
+    @parameterized.expand(
+        [
+            ("dashboard", lambda self: self._context_dashboard()),
+            (
+                "insight",
+                lambda self: Insight.objects.create(team=self.team, created_by=self.user, name="Deleted insight"),
+            ),
+        ]
+    )
+    def test_patch_preserves_a_soft_deleted_context(self, mock_is_cloud, mock_flag, mock_sync, _name, target_factory):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        target = target_factory(self)
+        identifier = "dashboard_id" if isinstance(target, Dashboard) else "insight_id"
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=[{identifier: target.id}], send_test_now=False),
+        )
+        target.deleted = True
+        target.save(update_fields=["deleted"])
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"contexts": [], "send_test_now": False},
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["contexts"] == []
+        assert (
+            SubscriptionContext.objects.for_team(self.team.id)
+            .filter(subscription_id=created.json()["id"], **{identifier: target.id})
+            .exists()
+        )
+
     def test_patch_omitting_contexts_preserves_them(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)

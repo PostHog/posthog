@@ -35,6 +35,23 @@ class Migration(migrations.Migration):
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
+                    "subscription",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="contexts",
+                        to="exports.subscription",
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
+                    ),
+                ),
+                (
                     "dashboard",
                     models.ForeignKey(
                         null=True,
@@ -50,23 +67,6 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="product_analytics.insight",
-                    ),
-                ),
-                (
-                    "subscription",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="contexts",
-                        to="exports.subscription",
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="+",
-                        to="posthog.team",
                     ),
                 ),
             ],

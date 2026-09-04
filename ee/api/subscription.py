@@ -1,6 +1,6 @@
 import uuid
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
@@ -542,7 +542,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         return info.name if info else None
 
     @staticmethod
-    def _context_rows(obj: Subscription) -> QuerySet[SubscriptionContext]:
+    def _context_rows(obj: Subscription) -> Iterable[SubscriptionContext]:
         cached_contexts = getattr(obj, "_prefetched_objects_cache", {}).get("contexts")
         if cached_contexts is not None:
             return cached_contexts
@@ -669,7 +669,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                     {"contexts": [f"Viewer access to this {kind} is required. Ask an admin to grant you access."]}
                 )
             if isinstance(target, Dashboard):
-                self._require_viewer_access_to_every_live_tile(target, field="contexts")
+                self._require_viewer_access_to_every_live_tile(target, error_field="contexts")
             validated_contexts.append({kind: target})
 
         return validated_contexts
@@ -1047,7 +1047,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _keeps_its_own_selection(self) -> bool:
         return self.instance is not None and self.instance.dashboard_export_insights.exists()
 
-    def _require_viewer_access_to_every_live_tile(self, dashboard: Dashboard, *, field: str = "dashboard") -> None:
+    def _require_viewer_access_to_every_live_tile(
+        self, dashboard: Dashboard, *, error_field: str = "dashboard"
+    ) -> None:
         live_tile_insights = Insight.objects.filter(
             team_id=self.context["team_id"],
             id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
@@ -1056,7 +1058,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if _blocked_target_ids(user_access_control, live_tile_insights, "insight").exists():
             raise ValidationError(
                 {
-                    field: [
+                    error_field: [
                         "Viewer access to every insight on this dashboard is required. "
                         "Ask an admin for access, or select only the insights you can view."
                     ]
@@ -1077,10 +1079,37 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 identifiers.add(("insight", context.insight_id))
         return identifiers
 
+    @classmethod
+    def _replaceable_context_identifiers(cls, instance: Subscription) -> set[tuple[str, int]]:
+        identifiers: set[tuple[str, int]] = set()
+        for context in cls._context_rows(instance):
+            if (
+                context.dashboard_id is not None
+                and context.dashboard is not None
+                and context.dashboard.team_id == instance.team_id
+                and not context.dashboard.deleted
+            ):
+                identifiers.add(("dashboard", context.dashboard_id))
+            elif (
+                context.insight_id is not None
+                and context.insight is not None
+                and context.insight.team_id == instance.team_id
+                and not context.insight.deleted
+            ):
+                identifiers.add(("insight", context.insight_id))
+        return identifiers
+
+    @staticmethod
+    def _context_refs(identifiers: set[tuple[str, int]]) -> list[str]:
+        return sorted(f"{kind}:{identifier}" for kind, identifier in identifiers)
+
     @staticmethod
     def _replace_contexts(instance: Subscription, contexts: list[dict[str, Insight | Dashboard]]) -> None:
         scoped_contexts = SubscriptionContext.objects.for_team(instance.team_id)
-        scoped_contexts.filter(subscription=instance).delete()
+        scoped_contexts.filter(subscription=instance).filter(
+            Q(dashboard__team_id=instance.team_id, dashboard__deleted=False)
+            | Q(insight__team_id=instance.team_id, insight__deleted=False)
+        ).delete()
         for context in contexts:
             scoped_contexts.create(team_id=instance.team_id, subscription=instance, **context)
         getattr(instance, "_prefetched_objects_cache", {}).pop("contexts", None)
@@ -1094,11 +1123,20 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         analytics_props: AnalyticsProps,
     ) -> tuple[Subscription, bool]:
         contexts_changed = False
+        context_change: tuple[list[str], list[str]] | None = None
         with transaction.atomic():
             if contexts_in_payload:
                 instance = Subscription.objects.select_for_update().get(pk=instance.pk)
-                contexts_changed = self._stored_context_identifiers(instance) != self._context_identifiers(contexts)
-            with attribute_subscription_saves(analytics_props):
+                stored_identifiers = self._stored_context_identifiers(instance)
+                preserved_identifiers = stored_identifiers - self._replaceable_context_identifiers(instance)
+                updated_identifiers = preserved_identifiers | self._context_identifiers(contexts)
+                contexts_changed = stored_identifiers != updated_identifiers
+                if contexts_changed:
+                    context_change = (
+                        self._context_refs(stored_identifiers),
+                        self._context_refs(updated_identifiers),
+                    )
+            with attribute_subscription_saves(analytics_props, context_change=context_change):
                 instance = super().update(instance, validated_data)
             if contexts_changed:
                 self._replace_contexts(instance, contexts)
@@ -1125,7 +1163,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         contexts = validated_data.pop("contexts", [])
         with transaction.atomic():
-            with attribute_subscription_saves(get_request_analytics_properties(request)):
+            context_identifiers = self._context_identifiers(contexts)
+            context_change = ([], self._context_refs(context_identifiers)) if context_identifiers else None
+            with attribute_subscription_saves(get_request_analytics_properties(request), context_change=context_change):
                 instance: Subscription = super().create(validated_data)
             self._replace_contexts(instance, contexts)
 
@@ -1593,13 +1633,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
 
-        context_queryset = SubscriptionContext.objects.for_team(self.team_id).select_related("dashboard", "insight")
-        queryset = queryset.prefetch_related(
-            "dashboard_export_insights",
-            Prefetch("contexts", queryset=context_queryset),
-        )
-
         if self.action == "list":
+            context_queryset = SubscriptionContext.objects.for_team(self.team_id).select_related("dashboard", "insight")
+            queryset = queryset.prefetch_related(
+                "dashboard_export_insights",
+                Prefetch("contexts", queryset=context_queryset),
+            )
             queryset = queryset.select_related("insight", "dashboard", "created_by")
 
             if "deleted" not in request_params:
@@ -2057,7 +2096,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                         {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
                     )
                 queryset = queryset.filter(status=status_param)
-        return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
+        return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id)).distinct()
 
 
 def unsubscribe(request: HttpRequest):

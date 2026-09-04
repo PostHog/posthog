@@ -18,7 +18,7 @@ from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, Y
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.utils import UUIDModel
@@ -40,15 +40,22 @@ UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 subscription_request_analytics_props: ContextVar[Optional["AnalyticsProps"]] = ContextVar(
     "subscription_request_analytics_props", default=None
 )
+subscription_context_activity_change: ContextVar[tuple[list[str], list[str]] | None] = ContextVar(
+    "subscription_context_activity_change", default=None
+)
 
 
 @contextmanager
-def attribute_subscription_saves(analytics_props: "AnalyticsProps") -> Iterator[None]:
-    token = subscription_request_analytics_props.set(analytics_props)
+def attribute_subscription_saves(
+    analytics_props: "AnalyticsProps", *, context_change: tuple[list[str], list[str]] | None = None
+) -> Iterator[None]:
+    analytics_token = subscription_request_analytics_props.set(analytics_props)
+    context_token = subscription_context_activity_change.set(context_change)
     try:
         yield
     finally:
-        subscription_request_analytics_props.reset(token)
+        subscription_context_activity_change.reset(context_token)
+        subscription_request_analytics_props.reset(analytics_token)
 
 
 # Single source of truth shared with the frontend create gate via generated schema
@@ -246,6 +253,10 @@ class Subscription(ModelActivityMixin, models.Model):
                 kwargs["update_fields"] = [*kwargs["update_fields"], "ai_query_plan"]
         super().save(*args, **kwargs)
         self._initial_prompt = self.prompt
+
+    def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
+        should_log, before_update = super()._should_log_activity_for_update(**kwargs)
+        return should_log or subscription_context_activity_change.get() is not None, before_update
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
@@ -558,6 +569,25 @@ def log_subscription_activity(
         return
 
     changes = changes_between("Subscription", previous=before_update, current=after_update)
+    context_change = subscription_context_activity_change.get()
+    if context_change is not None:
+        before_contexts, after_contexts = context_change
+        action: ChangeAction
+        if not before_contexts:
+            action = "created"
+        elif not after_contexts:
+            action = "deleted"
+        else:
+            action = "changed"
+        changes.append(
+            Change(
+                type="Subscription",
+                field="contexts",
+                action=action,
+                before=before_contexts or None,
+                after=after_contexts or None,
+            )
+        )
     try:
         log_activity(
             organization_id=instance.team.organization_id,
