@@ -348,6 +348,13 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     searchValue?: string
 
     /**
+     * Additional search terms that help users find this section and the settings inside it
+     * (e.g. ['usage', 'invoice'] on Billing). A section that is a top-level link has no settings
+     * to carry keywords of its own, so this is the only way to make it answer to a synonym.
+     */
+    keywords?: string[]
+
+    /**
      * If the setting is restricted, the resource type and minimum access level
      * that are required to access the setting
      */
