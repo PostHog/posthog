@@ -275,19 +275,21 @@ FROM {database}.{kafka_table}
 
 # ClickHouse changed the vector similarity index across the server versions PostHog supports:
 # - before 24.10 it accepts Array(Float32) columns only, so our Array(Float64) column cannot carry it
-# - before 25.4 it rejects the dimension argument
-# - before 25.8 it is experimental, and the server refuses it without the matching setting
-VECTOR_INDEX_MIN_SERVER_VERSION = Version("24.10.0")
-DIMENSION_ARGUMENT_MIN_SERVER_VERSION = Version("25.4.0")
+# - 24.10 to 25.3 want the two-argument form, and 25.4 rejects that form even when it attaches a
+#   table. A server given the two-argument form loses the table on the next upgrade inside the
+#   supported range, and the failure also breaks every query that reads system.tables. Recovery
+#   needs the server stopped and the metadata file edited. So these versions get no index.
+# - before 25.8 the index is experimental, and the server refuses it without the matching setting
+VECTOR_INDEX_MIN_SERVER_VERSION = Version("25.4.0")
 STABLE_INDEX_MIN_SERVER_VERSION = Version("25.8.0")
 
 
 @frozen
 class AddVectorIndex:
-    """Adds one vector similarity index to a sharded table, in the form the target server accepts.
+    """Adds one vector similarity index to a sharded table, with the settings the target server needs.
 
     The statement runs on the host it is dispatched to, so it can read that server version first.
-    A server too old for the index gets no index, and the migration continues.
+    A server that cannot keep the index across an upgrade gets none, and the migration continues.
     """
 
     table_name: str
@@ -298,32 +300,27 @@ class AddVectorIndex:
     @property
     def sql(self) -> str:
         """The statement for a current server. Migration tooling prints this form."""
-        return self._sql_with_arguments(f"'hnsw', '{self.distance_function}', {self.dimension}")
-
-    def _sql_with_arguments(self, arguments: str) -> str:
         return (
             f"ALTER TABLE {self.table_name} ADD INDEX IF NOT EXISTS {self.index_name} "
-            f"embedding TYPE vector_similarity({arguments})"
+            f"embedding TYPE vector_similarity('hnsw', '{self.distance_function}', {self.dimension})"
         )
 
     def __call__(self, client: Client) -> None:
         version = version_string_to_semver(client.execute("SELECT version()")[0][0])
         if version < VECTOR_INDEX_MIN_SERVER_VERSION:
             logger.warning(
-                "       Skipping index %s on %s: ClickHouse %s cannot index an Array(Float64) column",
+                "       Skipping index %s on %s: a vector index needs ClickHouse %s or later, and this host runs %s",
                 self.index_name,
                 self.table_name,
+                VECTOR_INDEX_MIN_SERVER_VERSION,
                 version,
             )
             return
 
-        arguments = f"'hnsw', '{self.distance_function}'"
-        if version >= DIMENSION_ARGUMENT_MIN_SERVER_VERSION:
-            arguments += f", {self.dimension}"
         query_settings = (
             None if version >= STABLE_INDEX_MIN_SERVER_VERSION else {"allow_experimental_vector_similarity_index": "1"}
         )
-        client.execute(self._sql_with_arguments(arguments), settings=query_settings)
+        client.execute(self.sql, settings=query_settings)
 
 
 class ModelTableDefinitions:

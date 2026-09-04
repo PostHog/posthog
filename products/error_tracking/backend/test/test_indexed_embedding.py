@@ -5,11 +5,7 @@ from parameterized import parameterized
 from products.error_tracking.backend.indexed_embedding import AddVectorIndex
 
 EXPERIMENTAL = {"allow_experimental_vector_similarity_index": "1"}
-LEGACY_SQL = (
-    "ALTER TABLE sharded_embeddings ADD INDEX IF NOT EXISTS embedding_idx_cosine "
-    "embedding TYPE vector_similarity('hnsw', 'cosineDistance')"
-)
-CURRENT_SQL = (
+INDEX_SQL = (
     "ALTER TABLE sharded_embeddings ADD INDEX IF NOT EXISTS embedding_idx_cosine "
     "embedding TYPE vector_similarity('hnsw', 'cosineDistance', 1536)"
 )
@@ -26,11 +22,11 @@ class TestAddVectorIndex(TestCase):
     @parameterized.expand(
         [
             ("24.8.14.39", None, None),
-            ("24.10.4.191", LEGACY_SQL, EXPERIMENTAL),
-            ("25.3.14.14", LEGACY_SQL, EXPERIMENTAL),
-            ("25.4.13.22", CURRENT_SQL, EXPERIMENTAL),
-            ("25.8.33.6", CURRENT_SQL, None),
-            ("26.6.2.158", CURRENT_SQL, None),
+            ("24.10.4.191", None, None),
+            ("25.3.14.14", None, None),
+            ("25.4.13.22", INDEX_SQL, EXPERIMENTAL),
+            ("25.8.33.6", INDEX_SQL, None),
+            ("26.6.2.158", INDEX_SQL, None),
         ]
     )
     def test_statement_matches_server_version(self, version, expected_sql, expected_settings):
