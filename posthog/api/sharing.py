@@ -801,9 +801,9 @@ class SharingConfigurationViewSet(
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        # Enabling always captures the build published right now, so turning sharing off and on
-        # again is how a newer publish reaches the link. A toggle-free PATCH (settings only) never
-        # moves the pin.
+        # Enabling always captures the build published right now. The share dialog's "Update public
+        # link" sends enabled=true again to move the pin to a newer publish. A toggle-free PATCH
+        # (settings only) never moves it.
         if canvas is not None and "enabled" in request.data:
             if serializer.data.get("enabled"):
                 try:

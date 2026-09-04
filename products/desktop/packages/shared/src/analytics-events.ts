@@ -1167,6 +1167,7 @@ type DashboardActionType =
   | "fork_link_copied"
   | "share_opened"
   | "public_share_toggled"
+  | "public_link_updated"
   | "delete_undo"
   | "pin"
   | "unpin";

@@ -22,7 +22,9 @@ const meta: Meta<typeof CanvasShareBodyView> = {
     isLoading: false,
     isError: false,
     isPending: false,
+    newerVersionPublished: false,
     onToggle: () => {},
+    onUpdateLink: () => {},
     onAllowForkingChange: () => {},
   },
   decorators: [
@@ -54,6 +56,20 @@ export const PublicOn: Story = {
       passwordRequired: false,
       allowForking: true,
     },
+  },
+};
+
+/** A publish landed after the link was shared, so the link can be moved to it. */
+export const NewerVersionPublished: Story = {
+  args: {
+    publicUrl: "https://us.posthog.com/shared/9f3c1b2a7d6e4f5a",
+    sharing: {
+      enabled: true,
+      accessToken: "9f3c1b2a7d6e4f5a",
+      passwordRequired: false,
+      allowForking: true,
+    },
+    newerVersionPublished: true,
   },
 };
 

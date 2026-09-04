@@ -40,6 +40,8 @@ export const dashboardRecordSchema = z.object({
   currentVersionId: z.string().nullish(),
   // The live (last successful, still-eligible) build.
   publishedBuildId: z.string().nullish(),
+  // The build the public link is pinned to; null while not shared publicly.
+  sharedBuildId: z.string().nullish(),
 });
 export type DashboardRecord = z.infer<typeof dashboardRecordSchema>;
 

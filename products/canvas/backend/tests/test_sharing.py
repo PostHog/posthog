@@ -91,26 +91,27 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         )
         assert settings_only.status_code == status.HTTP_200_OK, settings_only.json()
 
-        with team_scope(self.team.id):
-            canvas = Canvas.objects.get(id=canvas_id)
-            assert canvas.published_build_id == second.id
-            assert canvas.shared_build_id == first.id
+        detail = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/").json()
+        assert detail["published_build_id"] == str(second.id)
+        assert detail["shared_build_id"] == str(first.id)
         self.client.logout()
         with self.settings(CANVAS_ARTIFACT_ORIGIN="https://canvas.example.com"):
             payload = self._shared_payload(access_token)
         assert payload["canvas"]["published"] is True
         assert payload["canvas"]["artifact_url"] is not None
 
-    def test_turning_sharing_off_and_on_moves_the_link_to_the_latest_build(self):
+    @parameterized.expand([("after turning it off", True), ("while it is on", False)])
+    def test_enabling_again_moves_the_link_to_the_latest_build(self, _name: str, turn_off_first: bool):
         canvas_id = self._create_canvas()
         self._publish_ready(canvas_id)
         self._enable_sharing(canvas_id)
         second = self._publish_ready(canvas_id, code="export default function C() { return 2 }")
 
-        off = self.client.patch(self._sharing_url(canvas_id), {"enabled": False})
-        assert off.status_code == status.HTTP_200_OK, off.json()
-        with team_scope(self.team.id):
-            assert Canvas.objects.get(id=canvas_id).shared_build_id is None
+        if turn_off_first:
+            off = self.client.patch(self._sharing_url(canvas_id), {"enabled": False})
+            assert off.status_code == status.HTTP_200_OK, off.json()
+            with team_scope(self.team.id):
+                assert Canvas.objects.get(id=canvas_id).shared_build_id is None
         self._enable_sharing(canvas_id)
 
         with team_scope(self.team.id):

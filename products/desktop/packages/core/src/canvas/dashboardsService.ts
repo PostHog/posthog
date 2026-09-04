@@ -48,6 +48,7 @@ interface ApiCanvas {
   pinned_at: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
+  shared_build_id?: string | null;
   created_by?: {
     uuid: string;
     first_name?: string | null;
@@ -112,6 +113,7 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     pinnedAt: toEpoch(api.pinned_at),
     currentVersionId: api.current_version_id,
     publishedBuildId: api.published_build_id,
+    sharedBuildId: api.shared_build_id ?? null,
   };
 }
 

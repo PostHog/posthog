@@ -24,6 +24,8 @@ export function useCanvasSharingQuery(dashboardId: string): {
 
 export function useSetCanvasSharing(dashboardId: string): {
   setEnabled: (enabled: boolean) => Promise<CanvasSharing | null>;
+  /** Point the public link at the latest published build. */
+  updateLink: () => Promise<CanvasSharing | null>;
   setAllowForking: (allowForking: boolean) => Promise<CanvasSharing | null>;
   isPending: boolean;
 } {
@@ -36,6 +38,8 @@ export function useSetCanvasSharing(dashboardId: string): {
           trpc.dashboards.sharing.queryKey({ id: dashboardId }),
           sharing,
         );
+        // Enabling moves the pinned build, which the canvas record carries.
+        void queryClient.invalidateQueries(trpc.dashboards.get.pathFilter());
       },
       onError: (error) => {
         toast.error("Couldn't update public sharing", {
@@ -47,6 +51,10 @@ export function useSetCanvasSharing(dashboardId: string): {
   return {
     setEnabled: (enabled) =>
       mutation.mutateAsync({ id: dashboardId, enabled }).catch(() => null),
+    updateLink: () =>
+      mutation
+        .mutateAsync({ id: dashboardId, enabled: true })
+        .catch(() => null),
     setAllowForking: (allowForking) =>
       mutation.mutateAsync({ id: dashboardId, allowForking }).catch(() => null),
     isPending: mutation.isPending,

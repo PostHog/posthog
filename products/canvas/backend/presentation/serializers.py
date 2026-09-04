@@ -115,6 +115,11 @@ class CanvasSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
+    shared_build_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the build the public link serves, pinned when sharing was turned on or the link was updated. Null while the canvas is not shared publicly.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
@@ -144,6 +149,7 @@ class CanvasSerializer(serializers.ModelSerializer):
             "pinned_at",
             "current_version_id",
             "published_build_id",
+            "shared_build_id",
             "component_meta",
             "created_by",
             "created_at",

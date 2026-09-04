@@ -1,5 +1,5 @@
 import type { CanvasSharing } from "@posthog/core/canvas/dashboardSchemas";
-import { Label, Separator, Switch, Text } from "@posthog/quill";
+import { Button, Label, Separator, Switch, Text } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
@@ -27,7 +27,10 @@ export interface CanvasShareBodyViewProps {
   isError: boolean;
   isPending: boolean;
   disabledReason?: string;
+  /** A build newer than the one the public link is pinned to is published. */
+  newerVersionPublished: boolean;
   onToggle: (enabled: boolean) => void;
+  onUpdateLink: () => void;
   onAllowForkingChange: (allow: boolean) => void;
   onLinkCopied?: (success: boolean) => void;
   onForkLinkCopied?: (success: boolean) => void;
@@ -45,7 +48,9 @@ export function CanvasShareBodyView({
   isError,
   isPending,
   disabledReason,
+  newerVersionPublished,
   onToggle,
+  onUpdateLink,
   onAllowForkingChange,
   onLinkCopied,
   onForkLinkCopied,
@@ -80,11 +85,27 @@ export function CanvasShareBodyView({
             isError={isError}
             isPending={isPending}
             publicUrl={publicUrl}
-            description="Anyone with the link can view the version that was published when you turned this on. Turn it off and on again to share a newer version. Live data isn't shown."
+            description="Anyone with the link can view the version you shared. Live data isn't shown."
             disabledReason={disabledReason}
             dataAttrPrefix="share-canvas"
             onToggle={onToggle}
           >
+            <div className="flex items-center justify-between gap-3">
+              <Text size="xs" variant="muted">
+                {newerVersionPublished
+                  ? "A newer version is published. The link still shows the version you shared."
+                  : "The link shows the latest published version."}
+              </Text>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isPending || !newerVersionPublished}
+                onClick={onUpdateLink}
+                data-attr="share-canvas-update-public-link"
+              >
+                Update public link
+              </Button>
+            </div>
             <div className="flex items-start gap-3">
               <Switch
                 id={allowForkingId}
@@ -137,8 +158,12 @@ export function CanvasShareBody({
     dashboard && !dashboard.publishedBuildId && !sharing.data?.enabled
       ? "Publish the canvas before sharing it publicly."
       : undefined;
-  const { setEnabled, setAllowForking, isPending } =
+  const { setEnabled, updateLink, setAllowForking, isPending } =
     useSetCanvasSharing(dashboardId);
+  const newerVersionPublished =
+    !!sharing.data?.enabled &&
+    !!dashboard?.publishedBuildId &&
+    dashboard.sharedBuildId !== dashboard.publishedBuildId;
   const analytics = {
     surface,
     channel_id: channelId,
@@ -161,12 +186,22 @@ export function CanvasShareBody({
       isError={sharing.isError}
       isPending={isPending}
       disabledReason={disabledReason}
+      newerVersionPublished={newerVersionPublished}
       onToggle={(enabled) =>
         void setEnabled(enabled).then((result) =>
           track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
             action_type: "public_share_toggled",
             ...analytics,
             public: enabled,
+            success: result !== null,
+          }),
+        )
+      }
+      onUpdateLink={() =>
+        void updateLink().then((result) =>
+          track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+            action_type: "public_link_updated",
+            ...analytics,
             success: result !== null,
           }),
         )

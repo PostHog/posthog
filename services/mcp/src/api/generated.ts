@@ -15540,6 +15540,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly published_build_id: string | null;
+      /**
+         * Id of the build the public link serves, pinned when sharing was turned on or the link was updated. Null while the canvas is not shared publicly.
+         * @nullable
+         */
+      readonly shared_build_id: string | null;
       /** For component-kind canvases: the head version's placement contract (size, optional configSchema). Null for other kinds and unpublished components. */
       readonly component_meta: CanvasComponentMeta | null;
       readonly created_by: UserBasic;
