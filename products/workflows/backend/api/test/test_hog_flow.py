@@ -2638,6 +2638,29 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "events" in str(response.json())
 
+    def test_hog_flow_materialization_trigger_saves_without_scoping_filters(self):
+        # Unlike Slack and GitHub, "any view in this project finished" is a legitimate trigger, so
+        # the event is allowed with no property filters at all.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [{"id": "$materialization_job_finished", "type": "events"}],
+                    "properties": [],
+                },
+            },
+        }
+        hog_flow = {"name": "Materialization flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["trigger"]["filters"]["events"][0]["id"] == "$materialization_job_finished"
+
     @staticmethod
     def _github_trigger_action(properties: list[dict]) -> dict:
         return {

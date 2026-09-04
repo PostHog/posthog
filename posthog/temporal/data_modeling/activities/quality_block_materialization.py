@@ -9,6 +9,7 @@ from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
 
+from products.data_modeling.backend.facade.api import emit_materialization_job_finished
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, Node
 from products.data_quality.backend.facade import api as data_quality_facade
 
@@ -58,13 +59,14 @@ def _block_node_and_job(inputs: QualityBlockMaterializationInputs) -> None:
         )
         node.save()
 
-    job = DataModelingJob.objects.get(id=inputs.job_id)
+    job = DataModelingJob.objects.select_related("saved_query").get(id=inputs.job_id)
     if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
         return
     job.status = DataModelingJobStatus.FAILED
     job.error = error
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.save()
+    emit_materialization_job_finished(job)
 
     if job.saved_query_id and node.saved_query is not None:
         data_quality_facade.notify_materialization_blocked(

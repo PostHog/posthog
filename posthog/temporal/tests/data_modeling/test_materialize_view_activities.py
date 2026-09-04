@@ -133,6 +133,53 @@ class TestFailMaterializationActivity:
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
 
+    @pytest.mark.parametrize("cancelled,expected_status", [(False, "failed"), (True, "cancelled")])
+    async def test_emits_one_workflow_event_per_terminal_transition(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query, cancelled, expected_status
+    ):
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            error="Test error message",
+            cancelled=cancelled,
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.logic.materialization_workflow_events.produce_internal_event"
+        ) as produce:
+            await activity_environment.run(fail_materialization_activity, inputs)
+            # A retry after the job is already terminal must not start a second workflow run.
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        assert produce.call_count == 1
+        team_id, event = produce.call_args.args
+        assert team_id == ateam.pk
+        assert event.event == "$materialization_job_finished"
+        assert event.properties["status"] == expected_status
+        assert event.properties["view_name"] == asaved_query.name
+        assert event.properties["view_id"] == str(asaved_query.id)
+        assert event.properties["error"] == "Test error message"
+
+    async def test_does_not_emit_a_workflow_event_for_a_shadow_engine_job(
+        self, activity_environment, ateam, anode, ajob, adag
+    ):
+        ajob.engine = DataModelingJobEngine.DUCKGRES
+        await database_sync_to_async(ajob.save)()
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            error="Test error message",
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.logic.materialization_workflow_events.produce_internal_event"
+        ) as produce:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        produce.assert_not_called()
+
     async def test_does_not_overwrite_already_terminal_job(self, activity_environment, ateam, anode, ajob, adag):
         ajob.status = DataModelingJob.Status.COMPLETED
         await database_sync_to_async(ajob.save)()
@@ -1084,6 +1131,35 @@ class TestSucceedMaterializationActivity:
         assert ajob.status == DataModelingJob.Status.COMPLETED
         assert ajob.error is None
         assert ajob.last_run_at is not None
+
+    async def test_emits_one_workflow_event_per_terminal_transition(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query
+    ):
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1000,
+            duration_seconds=45.5,
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.logic.materialization_workflow_events.produce_internal_event"
+        ) as produce:
+            await activity_environment.run(succeed_materialization_activity, inputs)
+            # A retry after the job is already terminal must not start a second workflow run.
+            await activity_environment.run(succeed_materialization_activity, inputs)
+
+        assert produce.call_count == 1
+        team_id, event = produce.call_args.args
+        assert team_id == ateam.pk
+        assert event.event == "$materialization_job_finished"
+        assert event.distinct_id == f"saved_query:{asaved_query.id}"
+        assert event.properties["status"] == "completed"
+        assert event.properties["view_name"] == asaved_query.name
+        assert event.properties["rows_materialized"] == 1000
+        assert event.properties["duration_seconds"] == 45.5
+        assert event.properties["error"] is None
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = SucceedMaterializationInputs(

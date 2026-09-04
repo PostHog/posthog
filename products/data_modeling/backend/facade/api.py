@@ -54,6 +54,7 @@ _LAZY = {
     "suspension_reset_at": "logic.node_suspension",
     "suspension_state": "logic.node_suspension",
     "suspension_state_for_saved_query": "logic.node_suspension",
+    "emit_materialization_job_finished": "logic.materialization_workflow_events",
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",
