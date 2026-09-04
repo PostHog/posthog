@@ -235,9 +235,9 @@ from products.pulse.backend.temporal.registry import (
     ACTIVITIES as PULSE_ACTIVITIES,
     WORKFLOWS as PULSE_WORKFLOWS,
 )
-from products.reaper_hog.backend.facade.temporal import (
-    ACTIVITIES as REAPER_HOG_ACTIVITIES,
-    WORKFLOWS as REAPER_HOG_WORKFLOWS,
+from products.reaperhog.backend.facade.temporal import (
+    ACTIVITIES as REAPERHOG_ACTIVITIES,
+    WORKFLOWS as REAPERHOG_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
@@ -444,14 +444,14 @@ _task_queue_specs = [
         + CONVERSATIONS_WORKFLOWS
         + CUSTOMER_ANALYTICS_WORKFLOWS
         + REVIEW_HOG_WORKFLOWS
-        + REAPER_HOG_WORKFLOWS,
+        + REAPERHOG_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
         + CUSTOMER_ANALYTICS_ACTIVITIES
         + REVIEW_HOG_ACTIVITIES
-        + REAPER_HOG_ACTIVITIES,
+        + REAPERHOG_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,

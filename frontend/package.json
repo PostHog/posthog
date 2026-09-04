@@ -130,7 +130,7 @@
         "@posthog/products-product-analytics": "workspace:*",
         "@posthog/products-product-tours": "workspace:*",
         "@posthog/products-pulse": "workspace:*",
-        "@posthog/products-reaper-hog": "workspace:*",
+        "@posthog/products-reaperhog": "workspace:*",
         "@posthog/products-replay": "workspace:*",
         "@posthog/products-replay-vision": "workspace:*",
         "@posthog/products-revenue-analytics": "workspace:*",

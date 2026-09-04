@@ -124,7 +124,7 @@ depends_on = [
     "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
-    "products.reaper_hog",
+    "products.reaperhog",
     "products.review_hog",
     "products.signals",
     "products.skills",
@@ -1448,7 +1448,7 @@ from = [
 ]
 
 [[modules]]
-path = "products.reaper_hog"
+path = "products.reaperhog"
 depends_on = ["posthog", "products.experiments", "products.feature_flags", "products.skills", "products.tasks"]
 layer = "modules"
 
@@ -1458,5 +1458,5 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products.reaper_hog",
+    "products.reaperhog",
 ]
