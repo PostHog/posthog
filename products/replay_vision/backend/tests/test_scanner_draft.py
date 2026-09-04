@@ -32,6 +32,7 @@ from products.replay_vision.backend.scanner_draft import (
     _generate,
     _goal_entity_matches,
     _goal_terms,
+    _live_actions,
     _LlmDraft,
     _LlmDraftV2,
     _LlmEventPropertyFilter,
@@ -769,6 +770,27 @@ class TestGoalEntityMatches(_VisionAPITestCase):
 
         assert [s.survey_id for s in by_write.surveys] == [str(survey.id)]
         assert [s.survey_id for s in by_star.surveys] == [str(survey.id)]
+
+
+class TestLiveActions(_VisionAPITestCase):
+    def test_an_action_that_fires_in_no_session_never_reaches_the_briefing(self):
+        # A name match cannot tell a live action from one whose definition stopped matching years
+        # ago. An action ANDs with every other filter, so offering a dead one drafts a scanner that
+        # matches nothing.
+        live = _MatchedAction(name="Completed checkout", action_id=1)
+        dead = _MatchedAction(name="Clicked the old button", action_id=2)
+
+        with patch(f"{_MODULE}.recent_action_sessions", return_value={1: 42, 2: 0}):
+            kept = _live_actions(self.team, [live, dead])
+
+        assert [(a.name, a.recent_sessions) for a in kept] == [("Completed checkout", 42)]
+
+    def test_a_failed_measurement_keeps_every_match(self):
+        # Losing the counts must cost the ranking hint, not the actions themselves.
+        actions = [_MatchedAction(name="Completed checkout", action_id=1)]
+
+        with patch(f"{_MODULE}.recent_action_sessions", side_effect=Exception("clickhouse down")):
+            assert _live_actions(self.team, actions) == actions
 
 
 class TestV2Query:

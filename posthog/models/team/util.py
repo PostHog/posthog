@@ -60,6 +60,7 @@ actions_that_require_current_team = [
     "default_evaluation_contexts",
     "evaluation_context_suggestions",
     "logs_config",
+    "tracing_config",
 ]
 
 
