@@ -549,7 +549,7 @@ build:
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
     build:task-model-catalog:
-        bin_script: build-task-model-catalog.py
+        cmd: python products/tasks/scripts/build_model_catalog.py
         description: Generate the web and desktop views of the task run model catalog
             (runtime adapter, model, reasoning effort) from
             products/tasks/backend/model_catalog.py

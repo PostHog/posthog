@@ -513,7 +513,7 @@ jobs:
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
                         - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
                         # Generation tooling - changes here could affect output
-                        - 'bin/build-task-model-catalog.py'
+                        - 'products/tasks/scripts/build_model_catalog.py'
                         - 'tools/openapi-codegen/**/*'
                         - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'

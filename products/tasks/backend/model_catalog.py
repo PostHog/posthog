@@ -8,7 +8,7 @@ none. Every surface that offers or validates a selection derives from here:
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
 - the desktop app and its agent, through ``@posthog/shared/model-catalog``.
 
-Both TypeScript projections are emitted by ``bin/build-task-model-catalog.py`` and are
+Both TypeScript projections are emitted by ``products/tasks/scripts/build_model_catalog.py`` and are
 checked for drift by the same CI job that guards the generated OpenAPI types, so a model
 ships by editing this file and nothing else.
 
