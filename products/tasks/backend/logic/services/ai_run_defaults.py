@@ -239,6 +239,24 @@ def validate_ai_run_preferences(
     validate_model_selection(runtime_adapter, model, reasoning_effort)
 
 
+def validate_ai_run_preferences_payload(prefs: dict) -> None:
+    """Validate a raw `ai_run_preferences` payload written as a whole dict (the Django
+    admin form). API writers instead validate the triple and build the payload with
+    `build_ai_run_preferences_payload`, so unknown keys cannot occur on that path.
+
+    Raises `django.core.exceptions.ValidationError` on unknown keys, non-string
+    values, or an inconsistent triple.
+    """
+    allowed_keys = ("runtime_adapter", "model", "reasoning_effort")
+    unknown = sorted(set(prefs) - set(allowed_keys))
+    if unknown:
+        raise ValidationError(f"Unknown keys: {', '.join(unknown)}. Allowed: {', '.join(allowed_keys)}.")
+    non_strings = sorted(key for key, value in prefs.items() if not isinstance(value, str))
+    if non_strings:
+        raise ValidationError(f"Values must be strings: {', '.join(non_strings)}.")
+    validate_ai_run_preferences(prefs.get("runtime_adapter"), prefs.get("model"), prefs.get("reasoning_effort"))
+
+
 def build_ai_run_preferences_payload(
     runtime_adapter: str | None,
     model: str | None,
@@ -333,4 +351,5 @@ __all__ = [
     "update_team_ai_run_preferences",
     "update_user_ai_run_preferences",
     "validate_ai_run_preferences",
+    "validate_ai_run_preferences_payload",
 ]

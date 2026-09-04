@@ -22,6 +22,7 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   adapterForModelId,
+  PI_HARNESS_FLAG,
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -486,7 +487,7 @@ export function TaskInput({
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
     isLoadingRepos,
@@ -504,17 +505,23 @@ export function TaskInput({
     );
   }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
 
-  const { workspaceMode, setWorkspaceMode, overrideWorkspaceMode } =
-    useResolvedWorkspaceMode({
-      hasGithubIntegration,
-      isLoadingIntegrations,
-      pinCloud: !!initialCloudRepository,
-    });
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+    overrideWorkspaceMode,
+  } = useResolvedWorkspaceMode({
+    hasGithubIntegration,
+    isLoadingIntegrations,
+    pinCloud: !!initialCloudRepository,
+  });
+  const localWorkspaceReady =
+    isWorkspaceModeResolved && workspaceMode !== "cloud";
 
   const showCodexNotConnectedNotice =
     runtime !== "pi" &&
     adapter === "codex" &&
-    workspaceMode !== "cloud" &&
+    localWorkspaceReady &&
     codexSubscription.needsConnection;
 
   const showClaudeNotConnectedNotice =
@@ -550,7 +557,7 @@ export function TaskInput({
     return repositories.includes(lower) ? lower : null;
   }, [selectedRepository, repositories]);
   const { currentBranch, branchLoading, defaultBranch, busyState } =
-    useGitQueries(selectedDirectory);
+    useGitQueries(selectedDirectory, { enabled: localWorkspaceReady });
 
   const selectedGithubUserIntegrationId = selectedCloudRepository
     ? getUserIntegrationIdForRepo(selectedCloudRepository)
@@ -716,6 +723,9 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     setConfigOption,
+    resetToDefault,
+    isDefaultSelection,
+    resetToDefaultDisabled,
   } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const lastAppliedDeepLinkConfigKey = useRef<string | undefined>(undefined);
@@ -1074,7 +1084,7 @@ export function TaskInput({
     channelName,
     channelId,
     channelContextId,
-    submissionBlocked: channelContextBlocked,
+    submissionBlocked: channelContextBlocked || !isWorkspaceModeResolved,
     allowNoRepo: repoOptional,
   });
 
@@ -1355,7 +1365,7 @@ export function TaskInput({
     >
       <DropZoneOverlay isVisible={isDraggingFile} />
       <Flex height="100%" width="100%">
-        {previewFile && selectedDirectory && (
+        {localWorkspaceReady && previewFile && selectedDirectory && (
           <Box className="h-full min-w-0 flex-1 border-gray-4 border-r">
             <NewTaskFilePreview
               repoPath={selectedDirectory}
@@ -1475,7 +1485,9 @@ export function TaskInput({
                       repoPath={
                         workspaceMode === "cloud"
                           ? selectedCloudRepository
-                          : selectedDirectory
+                          : localWorkspaceReady
+                            ? selectedDirectory
+                            : null
                       }
                       currentBranch={currentBranch}
                       defaultBranch={
@@ -1485,6 +1497,7 @@ export function TaskInput({
                       }
                       disabled={
                         isCreatingTask ||
+                        !isWorkspaceModeResolved ||
                         (workspaceMode === "cloud" && !selectedCloudRepository)
                       }
                       loading={
@@ -1513,7 +1526,7 @@ export function TaskInput({
                     />
                   </ButtonGroup>
                 )}
-                {!repoOptional && workspaceMode !== "cloud" && (
+                {!repoOptional && localWorkspaceReady && (
                   <AdditionalDirectoriesButton
                     values={additionalDirectories}
                     onChange={setAdditionalDirectories}
@@ -1680,6 +1693,9 @@ export function TaskInput({
                         modelAccess={composerModelAccess}
                         showBillingMenu
                         workspaceMode={workspaceMode}
+                        isDefaultSelection={isDefaultSelection}
+                        onResetToDefault={resetToDefault}
+                        resetToDefaultDisabled={resetToDefaultDisabled}
                       />
                     )
                   }
@@ -1810,7 +1826,9 @@ export function TaskInput({
                   </AnimatePresence>
                 ) : showNewTaskSuggestions ? (
                   <NewTaskSuggestions
-                    repoPath={selectedDirectory || null}
+                    repoPath={
+                      localWorkspaceReady ? selectedDirectory || null : null
+                    }
                     workspaceMode={effectiveWorkspaceMode}
                     disabled={isCreatingTask}
                   />

@@ -119,6 +119,14 @@ class TicketMessageSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(read_only=True, allow_null=True, help_text="TipTap rich content JSON, if any.")
     author_type = serializers.CharField(read_only=True, help_text="One of: customer, support, AI.")
     author_name = serializers.CharField(read_only=True, help_text="Display name of the author.")
+    author_email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Email of the authoring PostHog user, when the message was written by one "
+            "(support replies and internal notes). Null for customer and AI messages."
+        ),
+    )
     is_private = serializers.BooleanField(
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
@@ -1371,7 +1379,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         )
 
         if comment.created_by:
-            author_name = comment.created_by.first_name or comment.created_by.email
+            author_name = (
+                f"{comment.created_by.first_name} {comment.created_by.last_name}".strip() or comment.created_by.email
+            )
         elif author_type == "AI":
             author_name = "PostHog Assistant"
         elif context_author_name:
@@ -1388,6 +1398,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "rich_content": comment.rich_content,
             "author_type": author_type,
             "author_name": author_name,
+            "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "has_full_email_content": item_context.get("has_full_email_content") is True,
             "version": comment.version,

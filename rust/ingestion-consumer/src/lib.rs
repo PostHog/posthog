@@ -1,4 +1,5 @@
 pub mod aperture;
+pub mod batcher;
 pub mod config;
 pub mod consumer;
 pub mod debug_recorder;
@@ -10,6 +11,7 @@ pub mod ledger_shadow;
 pub mod order_sentinel;
 pub mod readiness;
 pub mod routing;
+pub mod scheduler;
 pub mod stash;
 pub mod transport;
 pub mod types;

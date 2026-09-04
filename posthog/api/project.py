@@ -19,8 +19,10 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.schema import ProductKey
 
+from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 
 # These are imported from team.py for now. They are part of the legacy /api/environments/ surface and are
 # expected to move project-side (or to a neutral module) in a later PR once /api/environments/ is retired —
@@ -34,9 +36,11 @@ from posthog.api.team import (
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
     TeamCustomerAnalyticsConfigSerializer,
+    TeamFeatureFlagPolicyConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamSerializer,
+    TeamTracingConfigSerializer,
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
@@ -44,6 +48,7 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
+    handle_tracing_config,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
@@ -265,6 +270,31 @@ def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, 
 
     new_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
     capture_team_config_diff(team, "workflows_config", old_config, new_config, context=context)
+
+
+def update_team_feature_flag_policy_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
+    user_access_control = context.get("user_access_control")
+    old_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+
+    serializer = TeamFeatureFlagPolicyConfigSerializer(
+        team.feature_flag_policy_config,
+        data=validated_data,
+        partial=True,
+        context={**context, "user_access_control": user_access_control},
+    )
+    if not serializer.is_valid():
+        raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+    serializer.save()
+
+    new_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+    capture_team_config_diff(team, "feature_flag_policy_config", old_config, new_config, context=context)
 
 
 def verify_team_session_recording_retention_period(team: Team, new_retention_period: str) -> None:
@@ -531,10 +561,18 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 
 class ProjectBackwardCompatSerializer(
+    TaggedItemSerializerMixin,
     UserAccessControlSerializerMixin,
     ProjectBackwardCompatBasicSerializer,
     UserPermissionsSerializerMixin,
 ):
+    """A project and its settings, including the settings that live on its passthrough Team.
+
+    This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+    onto /api/projects/ never loses a field.
+    """
+
+    tags = project_tags.tags_field()
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
@@ -567,6 +605,7 @@ class ProjectBackwardCompatSerializer(
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -599,6 +638,7 @@ class ProjectBackwardCompatSerializer(
             "organization",
             "name",
             "product_description",
+            "tags",
             "created_at",
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer
@@ -672,6 +712,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
             "workflows_config",  # Compat with TeamSerializer
+            "feature_flag_policy_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
             "capture_dead_clicks",  # Compat with TeamSerializer
             "cookieless_server_hash_mode",  # Compat with TeamSerializer
@@ -785,6 +826,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "feature_flag_policy_config",
             "event_retention_months",
         }
 
@@ -915,6 +957,10 @@ class ProjectBackwardCompatSerializer(
     @staticmethod
     def validate_workflows_config(value):
         return TeamSerializer.validate_workflows_config(value)
+
+    @staticmethod
+    def validate_feature_flag_policy_config(value):
+        return TeamSerializer.validate_feature_flag_policy_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.passthrough_team
@@ -1064,8 +1110,11 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "feature_flag_policy_config",
         ):
             validated_data.pop(config_field, None)
+
+        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
 
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
@@ -1114,9 +1163,19 @@ class ProjectBackwardCompatSerializer(
             detail=Detail(name=str(team.name)),
         )
 
+        # Replacing tags is several inserts, deletes and an orphan cleanup. Without a transaction a
+        # failure part way through leaves the project holding a mix of old and new tags.
+        with transaction.atomic():
+            self._attempt_set_tags(tags, project)
+
         return project
 
     def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:
+        # Unlike the other taggable serializers, this update() never delegates to super().update():
+        # the passthrough loop below setattr()s everything left in validated_data onto the Project
+        # or its Team. So tags come out here and are written at the end.
+        tags = validated_data.pop("tags", None)
+
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
         project_before_update = instance.__dict__.copy()
@@ -1132,6 +1191,9 @@ class ProjectBackwardCompatSerializer(
             update_team_customer_analytics_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("workflows_config", None):
             update_team_workflows_config(team, config_data, context=config_context)
+
+        if config_data := validated_data.pop("feature_flag_policy_config", None):
+            update_team_feature_flag_policy_config(team, config_data, context=config_context)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -1290,11 +1352,18 @@ class ProjectBackwardCompatSerializer(
             team,
         )
 
+        # As in create(): the tag replacement is all-or-nothing.
+        with transaction.atomic():
+            self._attempt_set_tags(tags, instance)
+
         return instance
 
 
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
+    list=extend_schema(
+        parameters=project_tags.LIST_FILTER_PARAMETERS,
+    ),
     retrieve=extend_schema(
         description=("Retrieve a project and its settings."),
     ),
@@ -1319,7 +1388,14 @@ class ProjectViewSet(
 
     scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = ProjectBackwardCompatSerializer
-    queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
+    queryset = (
+        Project.objects.all()
+        .select_related("organization")
+        .prefetch_related(
+            "teams",
+            project_tags.prefetch(),
+        )
+    )
     lookup_field = "id"
     ordering = "-created_by"
     filter_backends = [PhraseSearchFilter]
@@ -1331,6 +1407,7 @@ class ProjectViewSet(
         queryset = queryset.filter(id__in=visible_teams_ids)
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             queryset = queryset.filter(organization_id__in=scoped_organizations)
+        queryset = project_tags.filter_queryset(queryset, self.request.query_params)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -1342,6 +1419,26 @@ class ProjectViewSet(
         super().perform_create(serializer)
         project = cast(Project, serializer.instance)
         self._notify_org_admins_of_member_project_creation(project)
+        if "tags" in serializer.initial_data:
+            project_tags.report_change(
+                user=cast(User, self.request.user),
+                project=project,
+                tags_before=set(),
+                tags_after=project_tags.current_names(project),
+            )
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        project = cast(Project, serializer.instance)
+        # Read the old names before saving: the tag write replaces the prefetch this reads from.
+        tags_before = project_tags.current_names(project) if "tags" in serializer.initial_data else None
+        super().perform_update(serializer)
+        if tags_before is not None:
+            project_tags.report_change(
+                user=cast(User, self.request.user),
+                project=project,
+                tags_before=tags_before,
+                tags_after=project_tags.current_names(project),
+            )
 
     def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""
@@ -1632,6 +1729,32 @@ class ProjectViewSet(
         resolves alongside the legacy /api/environments/:id/logs_config/ alias."""
         project = self.get_object()
         return handle_logs_config(request, project.passthrough_team)
+
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamTracingConfigSerializer,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this project's canonical environment.
+        Members can read; writing requires project admin, matching the admin-only
+        settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+        resolves alongside the legacy /api/environments/:id/tracing_config/ alias."""
+        project = self.get_object()
+        return handle_tracing_config(request, project.passthrough_team)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
