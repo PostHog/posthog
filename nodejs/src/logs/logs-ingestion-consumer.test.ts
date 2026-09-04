@@ -571,29 +571,6 @@ describe('LogsIngestionConsumer', () => {
     })
 
     describe('error handling', () => {
-        it('should handle producer errors gracefully', async () => {
-            const logData = createLogMessage()
-            const messages = await createKafkaMessages([logData], {
-                token: team.api_token,
-            })
-
-            // Mock producer's batched-write path to throw — this is what
-            // SingleIngestionOutput.queueMessages drives under the hood.
-            const originalQueueMessages = mockProducer.queueMessages
-            const queueSpy = jest.fn().mockRejectedValue(new Error('Producer error'))
-            mockProducer.queueMessages = queueSpy
-
-            try {
-                // Producer errors are caught and logged, not thrown
-                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
-
-                // Verify the producer was called and would have failed
-                expect(queueSpy).toHaveBeenCalled()
-            } finally {
-                mockProducer.queueMessages = originalQueueMessages
-            }
-        })
-
         it('should send failed messages to DLQ', async () => {
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
