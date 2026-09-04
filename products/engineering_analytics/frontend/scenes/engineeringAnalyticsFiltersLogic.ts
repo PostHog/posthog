@@ -166,7 +166,8 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
                 actions.setDateRange(dateFrom, dateTo)
             }
             const runScope = runScopeFromUrl(searchParams.run_scope, searchParams.q)
-            if (runScope !== values.runScope) {
+            // A leftover `?q=` dispatches even when the scope is unchanged, so actionToUrl strips it.
+            if (runScope !== values.runScope || searchParams.q !== undefined) {
                 actions.setRunScope(runScope)
             }
         },
