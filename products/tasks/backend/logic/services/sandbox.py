@@ -38,7 +38,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
-from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, bundled_skills_disabled
+from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -434,11 +434,14 @@ class SandboxBase(ABC):
         return False
 
     def clear_bundled_skills_if_disabled(self) -> None:
-        if not bundled_skills_disabled(self.config.environment_variables):
-            return
+        """Delete the bundled skill folders when the sandbox environment asks for it.
 
+        The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
+        vars, but the container environment still holds the value the launcher set.
+        """
         paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-        result = self.execute(f"rm -rf {paths} && mkdir -p {paths}", timeout_seconds=30)
+        command = f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+        result = self.execute(command, timeout_seconds=30)
         if result.exit_code != 0:
             raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
 

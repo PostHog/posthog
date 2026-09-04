@@ -782,9 +782,12 @@ class TestModalSandboxAgentServer:
             )
 
     def test_start_agent_server_raises_on_start_failure(self, mock_sandbox: Any):
-        mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
-        )
+        def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            if ENV_DISABLE_BUNDLED_SKILLS in command:
+                return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            return ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
+
+        mock_sandbox.execute = MagicMock(side_effect=execute)
 
         with patch.object(mock_sandbox, "_setup_agentsh"):
             with pytest.raises(SandboxExecutionError, match="Agent-server failed to start"):
@@ -797,6 +800,7 @@ class TestModalSandboxAgentServer:
     def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # bundled-skills clear
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
@@ -840,7 +844,7 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.execute.call_count == 1
 
     def test_start_agent_server_skips_relaunch_when_already_healthy(self, mock_sandbox: Any):
-        mock_sandbox.execute = MagicMock()
+        mock_sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
 
         with (
             patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
@@ -859,7 +863,8 @@ class TestModalSandboxAgentServer:
         assert health_ms == 0
         wait_for_ready.assert_not_called()
         mock_free.assert_not_called()
-        mock_sandbox.execute.assert_not_called()
+        # Only the bundled-skills clear runs before the shortcut.
+        assert [ENV_DISABLE_BUNDLED_SKILLS in call.args[0] for call in mock_sandbox.execute.call_args_list] == [True]
 
     def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -897,6 +902,7 @@ class TestModalSandboxAgentServer:
     def test_start_agent_server_frees_port_before_relaunch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # bundled-skills clear
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod

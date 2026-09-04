@@ -470,6 +470,9 @@ class TestDockerSandboxUnit:
         with (
             patch.object(sandbox, "is_running", return_value=True),
             patch.object(sandbox, "write_file"),
+            patch.object(
+                sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            ),
             patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=False),
             pytest.raises(RuntimeError, match="does not support the Pi runtime"),
         ):
