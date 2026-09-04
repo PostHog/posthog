@@ -181,6 +181,34 @@ describe('experimentLogic', () => {
                     ],
                 })
         })
+
+        it('renders the cached result while the backend recomputes, instead of waiting for the recompute', async () => {
+            logic.actions.setExperiment(experiment)
+
+            const cachedResult = {
+                kind: NodeKind.ExperimentQuery,
+                baseline: { key: 'control', number_of_samples: 100, sum: 10, sum_squares: 5 },
+                variants: [{ key: 'test', number_of_samples: 100, sum: 12, sum_squares: 6 }],
+                is_cached: true,
+                last_refresh: '2025-02-06T13:33:40.311Z',
+                query_status: { id: 'recompute-in-progress', complete: false },
+            }
+            const poll = jest.fn(() => [200, experimentMetricResultsSuccessJson])
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [200, cachedResult],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': poll,
+                },
+            })
+
+            await logic.asyncActions.loadPrimaryMetricsResults(false)
+
+            expect(logic.values.primaryMetricsResults[0]).toEqual(cachedResult)
+            expect(poll).not.toHaveBeenCalled()
+        })
     })
 
     describe('loadSecondaryMetricsResults', () => {

@@ -30,7 +30,12 @@ import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLo
 import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
 import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
-import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
+import {
+    ChartLoadingState,
+    MetricSlowLoadState,
+    SLOW_LOAD_THRESHOLD_SECONDS,
+    useElapsedSeconds,
+} from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
 import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
 import { MetricRetryState } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
@@ -218,7 +223,10 @@ function CollapsibleBreakdownSection({
                                                                     style={FIXED_HEIGHT_STYLE}
                                                                 >
                                                                     {isLoading || exposuresLoading ? (
-                                                                        <ChartLoadingState height={CELL_HEIGHT} />
+                                                                        <ChartLoadingState
+                                                                            height={CELL_HEIGHT}
+                                                                            query={query}
+                                                                        />
                                                                     ) : (
                                                                         <ChartEmptyState
                                                                             height={CELL_HEIGHT}
@@ -584,6 +592,7 @@ export function MetricRowGroup({
     const tooltipRef = useRef<HTMLDivElement>(null)
     const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const colors = useChartColors()
+    const loadingSeconds = useElapsedSeconds(!!(isLoading || exposuresLoading))
 
     const clearTooltipCloseTimer = (): void => {
         if (tooltipCloseTimerRef.current !== null) {
@@ -773,10 +782,16 @@ export function MetricRowGroup({
     if (!result && !error && (isLoading || exposuresLoading)) {
         const skeletonVariantKeys = variants.length > 0 ? variants.map((variant) => variant.key) : ['control']
         const bg = isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-        // Between failed attempts the chart column (and only it) explains the wait; every other cell keeps
-        // its skeleton. One cell spans the variant rows, so subsequent rows omit theirs.
+        // Between failed attempts, and once a load runs long, the chart column (and only it) explains the
+        // wait; every other cell keeps its skeleton. One cell spans the variant rows, so subsequent rows
+        // omit theirs.
         const metricRetry = metric.uuid ? metricRetries[metric.uuid] : undefined
-        const retryChartCell = metricRetry ? (
+        const waitExplanation = metricRetry ? (
+            <MetricRetryState retry={metricRetry} />
+        ) : loadingSeconds >= SLOW_LOAD_THRESHOLD_SECONDS ? (
+            <MetricSlowLoadState seconds={loadingSeconds} query={debugQuery} />
+        ) : undefined
+        const waitChartCell = waitExplanation ? (
             <td
                 className={clsx(
                     'p-0 align-middle text-center relative overflow-hidden',
@@ -787,7 +802,7 @@ export function MetricRowGroup({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={getScaledHeightStyle(skeletonVariantKeys.length)}
             >
-                <MetricRetryState retry={metricRetry} />
+                {waitExplanation}
             </td>
         ) : undefined
 
@@ -824,7 +839,7 @@ export function MetricRowGroup({
                     <SkeletonResultCells
                         variantKey={skeletonVariantKeys[0]}
                         className={clsx(bg, skeletonVariantKeys.length === 1 && 'border-b')}
-                        chartCell={retryChartCell}
+                        chartCell={waitChartCell}
                         detailsCell={
                             <td
                                 className={clsx(
@@ -857,7 +872,7 @@ export function MetricRowGroup({
                         <SkeletonResultCells
                             variantKey={variantKey}
                             className={clsx(bg, index === skeletonVariantKeys.length - 2 && 'border-b')}
-                            chartCell={metricRetry ? null : undefined}
+                            chartCell={waitExplanation ? null : undefined}
                         />
                     </tr>
                 ))}

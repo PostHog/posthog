@@ -376,10 +376,19 @@ const loadMetrics = async ({
                     metric: metric,
                     experiment_id: experimentId,
                 }
+                // Show the cached numbers immediately when the backend is recomputing in the
+                // background, instead of hanging on the skeleton until the recompute finishes.
                 response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
-                    getExperimentRefreshMode(featureFlags, !!refresh)
+                    getExperimentRefreshMode(featureFlags, !!refresh),
+                    undefined, // queryId
+                    undefined, // setPollResponse
+                    undefined, // filtersOverride
+                    undefined, // variablesOverride
+                    false, // pollOnly
+                    undefined, // limitContext
+                    true // acceptStaleCache
                 )
 
                 const durationMs = Math.round(performance.now() - startTime)
