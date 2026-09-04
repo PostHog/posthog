@@ -895,9 +895,10 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-# Hourly budget of bytes read by API key queries, per team. See
-# posthog/api_queries_budget.py. The free rate is 50 TB a month spread over the month. 0 disables
-# the budget.
+# Hourly budget of bytes read by API key queries, per team. See posthog/api_queries_budget.py.
+# There is no monthly limit: the bucket refills at this rate every hour and holds
+# API_QUERIES_BUDGET_CAPACITY_HOURS of refill. 70 GB an hour is the old 50 TB monthly allowance
+# divided by 720 hours, so a team reading steadily gets the same total. 0 disables the budget.
 API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
     "API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR", 70_000_000_000, type_cast=int
 )
