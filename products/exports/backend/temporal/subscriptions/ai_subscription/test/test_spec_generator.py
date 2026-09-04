@@ -889,7 +889,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
         stored = self._stored_plan()
 
         spec = build_frozen_prompt(
-            team=self.team, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
+            team=self.team, user=self.user, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
         )
 
         # Neither the event-selection model nor the planner runs on the frozen path...
@@ -906,7 +906,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
         # dropping them leaves the reuse path with a property-blind blob and a schema-blind fixer.
         stored = {**self._stored_plan(), "relevant_events": ["export created"]}
 
-        spec = build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+        spec = build_frozen_prompt(team=self.team, user=self.user, prompt="p", window=_window(7), ai_query_plan=stored)
 
         assert mock_blob.call_args.kwargs["relevant_events"] == ["export created"]
         assert spec.relevant_events == ["export created"]
@@ -931,4 +931,4 @@ class TestBuildFrozenPrompt(APIBaseTest):
         self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
     ) -> None:
         with pytest.raises(StoredPlanInvalidError, match=match):
-            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+            build_frozen_prompt(team=self.team, user=self.user, prompt="p", window=_window(7), ai_query_plan=stored)

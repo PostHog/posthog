@@ -72,16 +72,19 @@ SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
 # The cap must fit a run's real spend plus its in-flight admission holds: a cap near
 # typical spend ends runs after the work is written and before it is committed.
-# TTL 0 (the default) derives TASKS_MAX_RUN_DURATION_SECONDS + 1h so a capped run
-# never outlives its token; a positive value overrides.
+# TTL 0 (the default) derives the run-duration cap that applies to the token's own product,
+# plus 1h, so a capped run never outlives its token; a positive value overrides.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
 # Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 # Per-product per-run cap overrides as a JSON object of ai_product to dollars. A product
 # entry beats the team override and the default: run cost tracks the kind of work, and
-# implementation runs regularly outspend every other stage.
+# implementation runs regularly outspend every other stage. Each interactive cap clears its
+# observed ceiling with room for the holds, because a person is waiting and nothing retries
+# behind a cap that binds mid-run. Suggestion runs stay on the default.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
-    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", '{"signals_implementation": "15"}'
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
+    '{"signals_implementation": "15", "signals_inbox": "75", "signals_chat": "30"}',
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
@@ -175,6 +178,8 @@ TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
 # in /logs. Unset disables the direct leg (stdout emission for the collector remains).
 TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
 TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
+
+TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS: list[str] = get_list(os.getenv("TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS", ""))
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
@@ -285,3 +290,7 @@ SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
 
 # Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
 EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")
+
+# "report_only": the enrollment census logs candidates and writes nothing (default).
+# "enroll": the census also enables precomputation for qualifying teams, capped per run.
+EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE: str = os.getenv("EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE", "report_only")

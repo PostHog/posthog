@@ -95,6 +95,24 @@ describe("SessionService prompt recovery on fatal session errors", () => {
     expect(promptMutate).toHaveBeenCalledTimes(2);
   });
 
+  it("uses an accurate message for a turn that ended without a response", async () => {
+    const { service, promptMutate, recoverSpy, store } = createHarness();
+    promptMutate.mockRejectedValue(
+      new Error(
+        "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+      ),
+    );
+
+    await expect(service.sendPrompt(TASK_ID, "hello again")).rejects.toThrow(
+      /ended this turn without a response/,
+    );
+    expect(recoverSpy).not.toHaveBeenCalled();
+    expect(store.updateSession).toHaveBeenCalledWith(
+      TASK_RUN_ID,
+      expect.objectContaining({ isPromptPending: false }),
+    );
+  });
+
   it.each([
     {
       case: "recovery fails",

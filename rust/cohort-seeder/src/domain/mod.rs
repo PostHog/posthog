@@ -10,6 +10,7 @@
 pub mod aggregate;
 pub mod backoff;
 pub mod chunk;
+pub mod compare;
 pub mod completion;
 pub mod condition;
 pub mod condition_analysis;
@@ -19,6 +20,7 @@ pub mod partition;
 pub mod person;
 pub mod pinned;
 pub mod plan;
+pub mod projection;
 pub mod window;
 
 pub use aggregate::{
@@ -34,6 +36,7 @@ pub use cohort_core::seed::{
     BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
     ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
 };
+pub use compare::{diff_tiles, Divergence, DivergenceClass, TileDiff, MAX_EXEMPLARS_PER_CLASS};
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
     CommittedOffset, CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch,
@@ -63,4 +66,5 @@ pub use pinned::{
     PinnedRunSnapshot, PinnedWarning, TriggerKind, UnknownTriggerKind, ValidatedPinnedRun,
 };
 pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
+pub use projection::{BlobSource, ChunkProjection, ColumnPlan, ProjectedKeys, ScalarColumn};
 pub use window::{Boundary, DomainError, PlanCaps, SeedDomain};

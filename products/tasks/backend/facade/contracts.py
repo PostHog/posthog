@@ -374,6 +374,7 @@ class TaskCommentDetailDTO:
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 
+    id: UUID
     status: str | None
     environment: str | None
 
@@ -389,6 +390,7 @@ class TaskSummaryDTO:
     id: UUID
     title: str
     repository: str | None
+    created_by_id: int | None
     created_at: datetime
     updated_at: datetime
     origin_product: str = ""
@@ -492,6 +494,7 @@ class SlackThreadContextRunDTO:
     mention_workflow_url: str | None
     task_view_url: str
     log_url: str | None
+    admin_url: str
     repo_research: SlackThreadContextRepoResearchDTO | None = None
 
 
@@ -504,6 +507,10 @@ class SlackThreadContextThreadDTO:
     thread_ts: str
     slack_workspace_id: str | None
     mentioning_slack_user_id: str | None
+    queue_workflow_id: str | None
+    queue_workflow_url: str | None
+    # Null on the no-mapping path, where there is no row to link.
+    mapping_admin_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -517,6 +524,7 @@ class SlackThreadContextTaskDTO:
     origin_product: str
     created_at: datetime | None
     url: str
+    admin_url: str
 
 
 @dataclass(frozen=True)
@@ -658,6 +666,14 @@ class WorkflowTaskDTO:
     task_id: UUID
     run_id: UUID | None
     created: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskRateLimits:
+    """Optional per-project overrides for workflow-created AI task daily limits."""
+
+    per_workflow: int | None = Field(default=None, ge=0)
+    per_team: int | None = Field(default=None, ge=0)
 
 
 @dataclass(frozen=True, kw_only=True)

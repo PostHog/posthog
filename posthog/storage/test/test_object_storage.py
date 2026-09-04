@@ -237,6 +237,27 @@ class TestStorage(APIBaseTest):
         assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
 
 
+class TestObjectStorageStrictHead(SimpleTestCase):
+    def test_returns_none_only_for_missing_objects(self) -> None:
+        mock_client = MagicMock()
+        error_response = {
+            "Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."},
+            "ResponseMetadata": {"HTTPStatusCode": 404},
+        }
+        mock_client.head_object.side_effect = ClientError(error_response, "HeadObject")  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        assert storage.head_object_strict("test-bucket", "missing-key") is None
+
+    def test_raises_for_transient_errors(self) -> None:
+        mock_client = MagicMock()
+        mock_client.head_object.side_effect = TimeoutError("object storage timed out")
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.head_object_strict("test-bucket", "test-key")
+
+
 class TestObjectStorageClientFactory(SimpleTestCase):
     def setUp(self) -> None:
         object_storage_module._client = UnavailableStorage()

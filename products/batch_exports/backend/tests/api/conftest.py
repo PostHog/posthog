@@ -106,6 +106,21 @@ def aws_s3_integration(team, user):
 
 
 @pytest.fixture
+def aws_redshift_integration(team, user):
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_REDSHIFT,
+        integration_id="prod-redshift-role",
+        config={
+            "name": "prod-redshift-role",
+            "aws_role_arn": "arn:aws:iam::123456789012:role/posthog-batch-exports",
+            "user": "awsuser",
+        },
+        created_by=user,
+    )
+
+
+@pytest.fixture
 def s3_compatible_integration(team, user):
     return Integration.objects.create(
         team=team,
@@ -115,6 +130,27 @@ def s3_compatible_integration(team, user):
         sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
         created_by=user,
     )
+
+
+@pytest.fixture
+def s3_batch_export_data(aws_s3_integration) -> dict:
+    """Return the request body for creating a minimal AwsS3 batch export.
+
+    Function scoped, so a test may change the returned dictionary without affecting other tests.
+    """
+    return {
+        "name": "my-production-s3-bucket-destination",
+        "destination": {
+            "type": "AwsS3",
+            "integration": aws_s3_integration.id,
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+            },
+        },
+        "interval": "hour",
+    }
 
 
 def assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int):

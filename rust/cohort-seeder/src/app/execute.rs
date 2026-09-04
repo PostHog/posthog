@@ -15,8 +15,8 @@ use tracing::{info, warn};
 
 use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{
-    ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, PinnedRun,
-    ProducedChunk, RetryBackoffPolicy, ScannedChunk, StreamedChunk,
+    ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProducedChunk,
+    RetryBackoffPolicy, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
@@ -27,13 +27,14 @@ use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};
+use super::prepare::PreparedBehavioral;
 use super::settings::ProducerSettings;
 
 /// The owned inputs to one chunk's processing task, bundled so the spawn stays tidy.
 pub(super) struct ChunkTaskContext {
     pub(super) chunk: ClaimedChunk,
     pub(super) lease: LeaseHandle,
-    pub(super) run: Arc<PinnedRun>,
+    pub(super) prepared: Arc<PreparedBehavioral>,
     pub(super) store: PgChunkStore,
     pub(super) scanner: ChunkScanner,
     pub(super) producer: SeedTileProducer,
@@ -49,7 +50,7 @@ pub(super) async fn execute_chunk(
     let ChunkTaskContext {
         chunk,
         lease,
-        run,
+        prepared,
         store,
         scanner,
         producer,
@@ -60,7 +61,16 @@ pub(super) async fn execute_chunk(
     let lease_cancel = lease.cancellation_token();
 
     // PreMark: scan history into tiles.
-    let scanned = match scanner.scan(chunk, &run, &lease_cancel, &shutdown).await {
+    let scanned = match scanner
+        .scan(
+            chunk,
+            &prepared.run,
+            &prepared.analyses,
+            &lease_cancel,
+            &shutdown,
+        )
+        .await
+    {
         Ok(scanned) => scanned,
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };

@@ -74,14 +74,15 @@ def snowflake_config(database, schema) -> dict[str, str]:
     }
     if private_key:
         config["private_key"] = private_key
-        config["private_key_passphrase"] = private_key_passphrase
+        if private_key_passphrase is not None:
+            config["private_key_passphrase"] = private_key_passphrase
         config["authentication_type"] = "keypair"
     elif password:
         config["password"] = password
         config["authentication_type"] = "password"
     else:
         raise ValueError("Either password or private key must be set")
-    return config  # ty: ignore[invalid-return-type]
+    return config
 
 
 @pytest.fixture
@@ -93,7 +94,7 @@ def snowflake_cursor(snowflake_config):
         if snowflake_config.get("private_key") is None:
             raise ValueError("Private key is required for keypair authentication")
 
-        private_key = load_private_key(snowflake_config["private_key"], snowflake_config["private_key_passphrase"])
+        private_key = load_private_key(snowflake_config["private_key"], snowflake_config.get("private_key_passphrase"))
     else:
         password = snowflake_config["password"]
 

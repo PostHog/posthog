@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
+import { SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
@@ -17,12 +17,12 @@ import { urls } from 'scenes/urls'
 import { verifyEmailLogic } from './verifyEmailLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogExplorer = pngHoggie(explorerPng)
 
 const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],
     success: ['// verified', '// go explore'],
-    invalid: ['// that link expired', '// happens to the best of us'],
-    verify: ['// hold tight', '// verifying'],
+    invalid: ['// nothing to verify', "// let's start again"],
 }
 
 const CHECKLIST = [
@@ -33,8 +33,8 @@ const CHECKLIST = [
 
 function NotSeeingIt(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
-    const { requestVerificationLink } = useActions(verifyEmailLogic)
-    const { uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
+    const { requestVerificationCode } = useActions(verifyEmailLogic)
+    const { uuid, newlyRequestedVerificationCodeLoading } = useValues(verifyEmailLogic)
     const [open, setOpen] = useState(false)
     const [checked, setChecked] = useState<boolean[]>([])
     const allChecked = CHECKLIST.every((_, i) => checked[i])
@@ -80,11 +80,11 @@ function NotSeeingIt(): JSX.Element {
                                 size="large"
                                 center
                                 fullWidth
-                                loading={newlyRequestedVerificationLinkLoading}
+                                loading={newlyRequestedVerificationCodeLoading}
                                 disabledReason={gateReason}
-                                onClick={() => requestVerificationLink(uuid)}
+                                onClick={() => requestVerificationCode(uuid)}
                             >
-                                Resend email
+                                Resend code
                             </LemonButton>
                         )}
                         <LemonButton
@@ -108,7 +108,7 @@ function NotSeeingIt(): JSX.Element {
 }
 
 function VerificationCodeEntry(): JSX.Element {
-    const { verificationCode, verificationCodeError, validatedEmailTokenLoading } = useValues(verifyEmailLogic)
+    const { verificationCode, verificationCodeError, verificationResultLoading } = useValues(verifyEmailLogic)
     const { setVerificationCode, submitVerificationCode } = useActions(verifyEmailLogic)
 
     return (
@@ -119,7 +119,7 @@ function VerificationCodeEntry(): JSX.Element {
             noValidate
             onSubmit={(e) => {
                 e.preventDefault()
-                if (!validatedEmailTokenLoading) {
+                if (!verificationResultLoading) {
                     submitVerificationCode()
                 }
             }}
@@ -128,11 +128,11 @@ function VerificationCodeEntry(): JSX.Element {
                 value={verificationCode}
                 onChange={setVerificationCode}
                 onComplete={() => {
-                    if (!validatedEmailTokenLoading) {
+                    if (!verificationResultLoading) {
                         submitVerificationCode()
                     }
                 }}
-                disabled={validatedEmailTokenLoading}
+                disabled={verificationResultLoading}
                 data-attr="verify-email-code"
                 status={verificationCodeError ? 'danger' : 'default'}
             />
@@ -147,7 +147,7 @@ function VerificationCodeEntry(): JSX.Element {
                 center
                 fullWidth
                 htmlType="submit"
-                loading={validatedEmailTokenLoading}
+                loading={verificationResultLoading}
                 disabledReason={
                     isValidVerificationCode(verificationCode) ? undefined : 'Enter the 6-digit code from your email'
                 }
@@ -160,8 +160,7 @@ function VerificationCodeEntry(): JSX.Element {
 }
 
 export function VerifyEmailForm(): JSX.Element {
-    const { view, uuid, newlyRequestedVerificationLinkLoading, user } = useValues(verifyEmailLogic)
-    const { requestVerificationLink } = useActions(verifyEmailLogic)
+    const { view, uuid, user } = useValues(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const notes = NOTES[view ?? 'pending'] ?? NOTES.pending
@@ -175,7 +174,7 @@ export function VerifyEmailForm(): JSX.Element {
             <AuthScene notes={notes}>
                 <AuthSceneCard>
                     <div className="flex flex-col items-center text-center">
-                        <ExplorerHog className="block w-auto mx-auto h-32" />
+                        <HedgehogExplorer className="block w-auto mx-auto h-32" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                             You're verified, go explore!
                         </h1>
@@ -211,25 +210,15 @@ export function VerifyEmailForm(): JSX.Element {
                     <div className="flex flex-col items-center text-center">
                         <SleepingHog className="block w-auto mx-auto h-28" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
-                            This link fell asleep
+                            We don't know who to verify
                         </h1>
                         <p className="AuthScene__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
-                            Verification links last 24 hours, and this one's past its bedtime. Request a fresh one and
-                            we'll get you in.
+                            Log in with your email and password and we'll send a new code to your inbox.
                         </p>
                         <div className="flex w-full flex-col gap-2.5">
-                            {uuid && (
-                                <LemonButton
-                                    type="primary"
-                                    size="large"
-                                    center
-                                    fullWidth
-                                    loading={newlyRequestedVerificationLinkLoading}
-                                    onClick={() => requestVerificationLink(uuid)}
-                                >
-                                    Resend verification email
-                                </LemonButton>
-                            )}
+                            <LemonButton type="primary" size="large" center fullWidth to={urls.login()}>
+                                Log in
+                            </LemonButton>
                             <LemonButton
                                 size="large"
                                 center
@@ -243,21 +232,6 @@ export function VerifyEmailForm(): JSX.Element {
                                 Contact support
                             </LemonButton>
                         </div>
-                    </div>
-                </AuthSceneCard>
-            </AuthScene>
-        )
-    }
-
-    if (view === 'verify') {
-        return (
-            <AuthScene notes={notes}>
-                <AuthSceneCard>
-                    <div className="flex flex-col items-center gap-4 text-center">
-                        <Spinner className="text-4xl" />
-                        <p className="AuthScene__sub m-0 text-sm text-secondary text-center text-pretty">
-                            Verifying your email address…
-                        </p>
                     </div>
                 </AuthSceneCard>
             </AuthScene>

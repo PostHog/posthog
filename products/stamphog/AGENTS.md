@@ -93,11 +93,17 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 ## Sandbox credentials and egress
 
-- The sandbox holds NO long-lived secret. `_mint_reviewer_gateway_token` mints a per-run OAuth
-  token under the repo's connecting user with exactly `["llm_gateway:read", "internal_run:read"]`
+- The sandbox holds NO long-lived secret; `_reviewer_environment` mints a per-run credential under
+  the repo's connecting user. With the Go ai-gateway configured (`AI_GATEWAY_URL` + `AI_GATEWAY_API_KEY`
+  in the worker env) that is a `phe_` scoped token from `POST /v1/tokens`: `product=aio_stamphog`,
+  `obo=<customer team>`, `cap_usd=5`, `ttl_seconds=3600`. The worker's `phs_` mints it and never
+  enters the sandbox, and the worker revokes the token once the sandbox is destroyed. With
+  `AI_GATEWAY_URL` on the Go host and no key the run fails closed: the OAuth token below is a
+  standard credential on the Go gateway and must never be sent there. The legacy path (`AI_GATEWAY_URL` alone, on the Python gateway's
+  `/stamphog/v1` route) mints an OAuth token with exactly `["llm_gateway:read", "internal_run:read"]`
   and `include_internal_scopes=False`. Never switch to `include_internal_scopes=True` — that
   drags `task:write` into a sandbox running an LLM over untrusted PR content. The
-  `internal_run:read` marker is what satisfies the gateway route's `requires_server_credential`.
+  `internal_run:read` marker is what satisfies that route's `requires_server_credential`.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
@@ -170,12 +176,20 @@ narrow:
 
 ## Trust boundaries
 
+- The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
+  `manager` level on the `stamphog` resource, because they decide whether a pull request is reviewed
+  at all. Naming one of those fields on a create takes `manager` too. Connecting a repository
+  without them, and the digest toggle, stay at `editor`.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
-- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
-  it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
-  settings — those were configured under a verified binding.
+- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
+  and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
+  otherwise go live the moment a manager enables the row. Reinstall rebinds keep settings — those
+  were configured under a verified binding. Such a row is also kept out of the digest candidates:
+  a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
+  one placeholder silence the whole team's digest.
 - Digest routing is derived every run from the repositories and never stored, so nothing here can
   go stale silently — and nothing degrades either. A registry that cannot be read stops the whole
   team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the

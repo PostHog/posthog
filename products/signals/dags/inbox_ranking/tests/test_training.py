@@ -1,3 +1,4 @@
+import io
 import math
 import datetime
 from typing import Any
@@ -7,12 +8,15 @@ import pytest
 import numpy as np
 import pandas as pd
 import dagster
+import pyarrow as pa
 import xgboost as xgb
+import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 
 from posthog import settings
 
 from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame, feature_vector
+from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_TABLE
 from products.signals.dags.inbox_ranking.training.dag import (
     _delete_other_objects,
@@ -208,6 +212,90 @@ def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
 )
 def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
     assert dismissed_as_wrong(frame).tolist() == expected
+
+
+@pytest.mark.parametrize(
+    "head_name,frame,expected_cohort,expected_label",
+    [
+        # pr_merged: cohort is reports with a PR, label is the merge within the horizon.
+        (
+            "pr_merged",
+            pd.DataFrame({"pr_created_count": [1, 1, 0], "pr_merged_count": [1, 0, 0]}),
+            [True, True, False],
+            [True, False, False],
+        ),
+        # discuss: cohort is impressed reports, label is a discuss action.
+        (
+            "discuss",
+            pd.DataFrame({"impression_unit_count": [1, 1, 0], "discuss_count": [2, 0, 0]}),
+            [True, True, False],
+            [True, False, False],
+        ),
+        # refund: cohort is everyone, label is a refund event.
+        (
+            "refund",
+            pd.DataFrame({"refund_count": [1, 0, 0]}),
+            [True, True, True],
+            [True, False, False],
+        ),
+    ],
+)
+def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
+    head = HEADS_BY_NAME[head_name]
+    assert head.cohort(frame).tolist() == expected_cohort
+    assert head.label(frame).tolist() == expected_label
+
+
+def _parquet(frame: pd.DataFrame) -> bytes:
+    buffer = io.BytesIO()
+    pq.write_table(pa.Table.from_pandas(frame.reset_index(), preserve_index=False), buffer)
+    return buffer.getvalue()
+
+
+class _ParquetS3:
+    """Serves the state and labels parquet objects load_snapshots reads, keyed by object key."""
+
+    def __init__(self, objects: dict[str, bytes]) -> None:
+        self._objects = objects
+
+    def get_object(self, *, Bucket, Key):
+        if Key not in self._objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        return {"Body": io.BytesIO(self._objects[Key])}
+
+
+@pytest.mark.parametrize("head_name", ["pr_merged", "refund"])
+def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name):
+    # load_snapshots projects the labels parquet down to _LABEL_COLUMNS before any head sees it, so a
+    # head whose label column is missing from that list trains on all-zero labels. The cohort/label
+    # unit test hand-builds frames that already carry the columns, so it never crosses the projection.
+    # Drive the real parquet -> projection -> build_examples path and assert a positive label survives.
+    head = HEADS_BY_NAME[head_name]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    labels_now = _labels(["a"], pr_created_count=[0], pr_merged_count=[0], refund_count=[0])
+    labels_later = _labels(["a"], pr_created_count=[1], pr_merged_count=[1], refund_count=[1])
+    objects: dict[str, bytes] = {}
+    for date, labels in ((D0, labels_now), (later, labels_later)):
+        key = date.isoformat()
+        objects[partition_object_key("inbox_ranking", STATE_TABLE, key)] = _parquet(_state(["a"]))
+        objects[partition_object_key("inbox_ranking", LABELS_TABLE, key)] = _parquet(labels)
+    snapshots = load_snapshots(_ParquetS3(objects), "bucket", "inbox_ranking", [D0, later])
+    examples = build_examples(snapshots, head)
+    assert examples.set_index("report_id")["label"].to_dict() == {"a": 1}
+
+
+def test_build_examples_skips_refund_pairs_when_the_scoring_snapshot_lacks_the_column():
+    # refund_count entered the labels schema after the epoch, so a partition written before it has no
+    # such column. Without the guard _count reads the gap as zero, so the "not refunded yet" filter
+    # passes for a report already refunded before D0, and its cumulative refund in the later snapshot
+    # mints a stale future positive. The whole pair must be skipped, not scored.
+    head = HEADS_BY_NAME["refund"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    snapshots = {
+        D0: Snapshot(date=D0, state=_state(["a"]), labels=_labels(["a"])),
+        later: Snapshot(date=later, state=_state(["a"]), labels=_labels(["a"], refund_count=[1])),
+    }
+    assert build_examples(snapshots, head).empty
 
 
 def test_build_examples_skips_label_only_rows():

@@ -452,6 +452,10 @@ class QueryTags(BaseModel):
     # True on precompute READ queries served from expired-within-grace jobs (serve-stale path),
     # so query_log can compare stale-served vs fresh reads without joining Prometheus.
     precompute_stale: Optional[bool] = None
+    # Why a web analytics read skipped precompute: the `LazyPrecomputeIneligible` subclass name its
+    # gate refused it with. A live read is otherwise indistinguishable from a precompute miss.
+    # Web-only, so it carries the product prefix the shared fields above do not need.
+    web_analytics_precompute_ineligible_reason: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -474,6 +478,10 @@ class QueryTags(BaseModel):
     # DEPRECATED: alias of experiment_exposures_path, kept so external tooling keeps working.
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
     experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    # Set on a recordings-list read that narrows the exposed population to sessions carrying
+    # in-session exposure evidence, which adds a live events scan and a GLOBAL IN set on top of the
+    # population read. Separates that heavier read from a plain exposure listing in the query log.
+    experiment_exposures_in_session: Optional[bool] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"

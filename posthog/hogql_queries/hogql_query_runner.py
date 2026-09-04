@@ -10,6 +10,7 @@ from posthog.schema import (
     DateRange,
     HogQLFilters,
     HogQLQuery,
+    HogQLQueryModifiers,
     HogQLQueryResponse,
     QueryStatusResponse,
 )
@@ -31,7 +32,7 @@ from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
@@ -56,6 +57,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     ):
         self.settings = settings or HogQLGlobalSettings()
         self._direct_connection_validated = False
+        self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         super().__init__(*args, **kwargs)
 
@@ -69,6 +71,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self._direct_connection_validated and not force:
             return
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
+        direct_engine: str | None = None
         if self.query.connectionId:
             source = get_direct_connection_source(
                 self.team,
@@ -77,11 +80,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             )
             if source is None:
                 raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+            direct_engine = source.direct_engine
             if source.has_managed_warehouse_prefix:
                 managed_warehouse_sql_mode = source.managed_warehouse_sql_mode
                 if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
                     raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
+        self._direct_engine = direct_engine
         self._direct_connection_validated = True
 
     def get_cache_payload(self) -> dict:
@@ -176,7 +181,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         except Exception:
             return set()
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _parse_query(self) -> tuple[ast.SelectQuery | ast.SelectSetQuery, Optional[dict[str, ast.Expr]]]:
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
@@ -187,6 +192,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 placeholders=values,
                 cache_origin=CacheOrigin.USER,
             )
+        return parsed_select, values
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        parsed_select, values = self._parse_query()
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
@@ -247,7 +256,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 send_raw_query=True,
             )
 
-        query = self.to_query()
+        query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
 
         if self.is_query_service:
             validate_user_query(query, team=self.team)
@@ -265,14 +274,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # With a connection id the executor builds its own connection-scoped database,
             # so the shared one would be built for nothing.
             context_kwargs["context"] = self.build_hogql_context()
+        # Non-direct queries must print with the same effective modifiers that built the shared database.
+        execution_modifiers: Optional[HogQLQueryModifiers] = self.modifiers
+        if self._direct_engine == "trino":
+            # Pure compilation validates only the modifiers the caller supplied. Team defaults
+            # contain Django-only settings and must not make an otherwise pure query fail.
+            execution_modifiers = self.query.modifiers
         response = func(
             query_type="HogQLQuery",
             query=query,
             filters=self.query.filters,
-            # Print with the same modifiers the shared database was built from (self.modifiers).
-            # The shared database uses self.modifiers, so passing self.query.modifiers here would let
-            # a caller that sets both build the schema from one modifier set and print SQL for another.
-            modifiers=self.modifiers,
+            modifiers=execution_modifiers,
             team=self.team,
             user=self.user,
             user_access_control=self.user_access_control,

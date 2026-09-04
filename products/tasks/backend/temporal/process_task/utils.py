@@ -20,7 +20,9 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     InitialPermissionMode,
@@ -179,6 +181,14 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.MAX,
         ReasoningEffort.ULTRACODE,
     ),
+    "claude-fable-5-1": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
+    ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -261,6 +271,53 @@ def get_provider_for_runtime_adapter(
         return RUNTIME_PROVIDER_BY_ADAPTER[RuntimeAdapter(adapter_value)]
     except ValueError:
         return None
+
+
+def clamp_initial_permission_mode(
+    runtime_adapter: str | None,
+    initial_permission_mode: str | None,
+) -> str | None:
+    """The permission mode this adapter can launch with.
+
+    A mode the caller already chose is kept when this adapter's vocabulary offers it;
+    one named in the other runtime's terms — the caller may not know which runtime the
+    run resolves to — falls to the adapter's baseline (`auto` for Codex, so a headless
+    run doesn't stall on a prompt; `default` for Claude) rather than failing the run
+    downstream.
+    """
+    if runtime_adapter == RuntimeAdapter.CODEX.value:
+        if initial_permission_mode in CODEX_INITIAL_PERMISSION_MODE_CHOICES:
+            return initial_permission_mode
+        return "auto"
+    if (
+        runtime_adapter == RuntimeAdapter.CLAUDE.value
+        and initial_permission_mode is not None
+        and initial_permission_mode not in INITIAL_PERMISSION_MODE_CHOICES
+    ):
+        return "default"
+    return initial_permission_mode
+
+
+def apply_runtime_adapter_run_state(
+    state: dict,
+    runtime_adapter: str | None,
+    *,
+    initial_permission_mode: str | None,
+) -> str | None:
+    """Write the run-state keys a runtime adapter implies, returning the permission mode
+    to launch with.
+
+    The agent server derives the provider from the adapter, and the mode is clamped to
+    the adapter's vocabulary (see ``clamp_initial_permission_mode``). Shared so the
+    explicitly-pinned and resolved-default paths can't drift on what an adapter implies.
+    """
+    if not runtime_adapter:
+        return initial_permission_mode
+
+    provider = get_provider_for_runtime_adapter(runtime_adapter)
+    if provider is not None:
+        state["provider"] = provider.value
+    return clamp_initial_permission_mode(runtime_adapter, initial_permission_mode)
 
 
 def get_supported_reasoning_efforts(
@@ -585,7 +642,10 @@ def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
     state) so the caller keeps its current unfiltered behavior. Once a loop snapshot exists, a
     missing or malformed id list fails closed to an empty allowlist (mount nothing) — a loop that
     selected no connectors, or whose config omitted the key, must not fall back to mounting every
-    connector the owner has."""
+    connector the owner has. A workflow snapshot keys its connectors by gateway server
+    (``mcp_gateway_server_ids``) and carries no installation ids, so it lands here too: the run
+    mounts nothing through the member path, and its selection applies through
+    ``Task.mcp_gateway_server_allowlist`` on the agent path."""
     config_snapshot = (state or {}).get("config_snapshot")
     if not isinstance(config_snapshot, dict):
         return None
@@ -621,16 +681,17 @@ def get_user_mcp_server_configs(
     ``include_personal`` includes the user's personal installations when a
     ``user_id`` is provided.
 
-    ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
+    ``allowed_installation_ids`` restricts the member-path mounts to a snapshotted allowlist (a
     loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
     behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
     those installations. Without it, an unattended loop run would mount every shared team connector
     rather than only the ones its owner chose.
 
-    ``allowed_gateway_server_ids`` is the built-in agent counterpart (a scout's per-scout
-    selection, from ``Task.mcp_gateway_server_allowlist``): it narrows the agent's mounts to
-    the listed gateway servers regardless of grant scope. ``None`` leaves them unfiltered;
-    an empty list mounts nothing.
+    ``allowed_gateway_server_ids`` is the built-in agent counterpart (a scout's or workflow
+    step's selection, from ``Task.mcp_gateway_server_allowlist``): it narrows the agent's
+    mounts to the listed gateway servers regardless of grant scope. ``None`` leaves them
+    unfiltered; an empty list mounts nothing. The facade applies each allowlist on its own
+    path, so an agent run is never filtered by installation ids it does not mount by.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -647,11 +708,9 @@ def get_user_mcp_server_configs(
         task_origin=origin_product,
         task_agent_key=task_agent_key,
         credential_owner_id=credential_owner_id,
+        allowed_installation_ids=allowed_installation_ids,
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
-    if allowed_installation_ids is not None:
-        allowed = {str(i) for i in allowed_installation_ids}
-        installations = [installation for installation in installations if str(installation.id) in allowed]
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
@@ -1368,9 +1427,12 @@ def ai_gateway_env_vars(
 
     When the run's product is on the allowlist and a mint credential is
     configured, a per-run `phe_` scoped token is minted and injected as
-    ``AI_GATEWAY_TOKEN``; the agent server routes to the Go gateway only when
-    the token is present, so a missing token (mint failure, or a caller that
-    cannot supply run context) degrades the run to the Python gateway.
+    ``AI_GATEWAY_TOKEN``, with the product it is pinned to and the run's stage as
+    ``AI_GATEWAY_PRODUCT`` / ``AI_GATEWAY_AI_STAGE``; the agent routes on those and
+    treats its own task-run fetch as the fallback. The agent server routes to the
+    Go gateway only when the token is present, so a missing token (mint failure,
+    or a caller that cannot supply run context) degrades the run to the Python
+    gateway.
     """
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
         return {}
@@ -1386,6 +1448,9 @@ def ai_gateway_env_vars(
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
+                env_vars["AI_GATEWAY_PRODUCT"] = ai_product
+                if ai_stage:
+                    env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars
 
 

@@ -552,11 +552,6 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
-    build:openapi-scene-tool-context:
-        cmd: pnpm --filter=@posthog/mcp run generate-scene-tool-context
-        description: Generate per-product agent-context payloads (MCP tool summaries +
-            skill bodies) for scene-level PostHog AI integration (must run after
-            build:openapi-mcp-tools)
     build:openapi-exec-docs:
         cmd: pnpm --filter=@posthog/mcp run generate-exec-docs
         description: Render the MCP exec tool's command reference into the markdown
@@ -571,7 +566,6 @@ build:
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
-            - build:openapi-scene-tool-context
             - build:openapi-exec-docs
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
@@ -864,7 +858,10 @@ quality:
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
-        description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only, above 10)
+        description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
+    lint:size:
+        click: hogli_commands.size_lint:cmd_lint_size
+        description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
@@ -912,6 +909,9 @@ tools:
     doctor:ports:
         click: hogli_commands.doctor:doctor_ports
         description: Pre-flight check for host ports the dev stack needs
+    doctor:git:
+        click: hogli_commands.doctor:doctor_git
+        description: Report git housekeeping problems that make fetch and status slow
     doctor:migrate-volumes:
         click: hogli_commands.doctor:doctor_migrate_volumes
         description: Auto-migrate ClickHouse/ZooKeeper data to the new named docker volumes
@@ -1083,6 +1083,9 @@ owners:
     owners:who:
         click: posthog_owners.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
+    owners:census:
+        click: posthog_owners.cli:cmd_census
+        description: Count test files per owning team (optional PREFIX; --json for machine output)
     owners:unowned:
         click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)

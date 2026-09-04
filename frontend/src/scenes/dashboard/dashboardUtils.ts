@@ -69,6 +69,7 @@ export function dashboardToSaveableTemplate(
                         body: tile.text.body,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.insight) {
@@ -79,6 +80,7 @@ export function dashboardToSaveableTemplate(
                         query: tile.insight.query,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.button_tile) {
@@ -92,6 +94,7 @@ export function dashboardToSaveableTemplate(
                         },
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.widget) {
@@ -101,6 +104,7 @@ export function dashboardToSaveableTemplate(
                         config: tile.widget.config,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 throw new Error('Unknown tile type')

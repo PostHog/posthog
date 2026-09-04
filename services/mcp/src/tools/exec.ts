@@ -46,6 +46,23 @@ async function resolveConnectedSummary(
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
 const MAX_RANKED_SEARCH_RESULTS = 25
 
+const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
+
+function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
+    const availableToolNames = new Set(allTools.map((tool) => tool.name))
+    const hasMetricCatalog =
+        availableToolNames.has('metric-list') &&
+        availableToolNames.has('metric-describe') &&
+        availableToolNames.has('data-catalog-metric-run')
+    const hasDataDomainMatch = matches.some((name) =>
+        DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
+    )
+    if (!hasMetricCatalog || !hasDataDomainMatch) {
+        return undefined
+    }
+    return 'For a named business or telemetry measure, list the complete governed catalog with metric-list, inspect a candidate with metric-describe, then run an approved match with data-catalog-metric-run.'
+}
+
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
 export interface ExecInnerCallProperties {
@@ -339,6 +356,117 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     },
 }
 
+/**
+ * Detects the caller sending a required object parameter's *contents* in place of
+ * the parameter itself — `{dateRange, limit}` where `{query: {dateRange, limit}}`
+ * was wanted. Zod strips the misplaced keys, so an unwrapped payload and an empty
+ * one both surface as the same bare `missing required parameter`, and the caller
+ * has no way to tell which mistake it made.
+ *
+ * Decided by re-parsing rather than by reading the schema, so it holds for any
+ * wrapper shape: nest the input under the missing key and see whether the schema
+ * accepts it. Confident when the wrapped value either parses to something
+ * non-empty, or fails only on paths *inside* the wrapper — both mean the nested
+ * schema recognized the content. A payload of undeclared keys parses to `{}` and
+ * is correctly rejected, as is a caller that sent nothing at all.
+ */
+function looksLikeUnwrappedPayload(
+    issuePath: ReadonlyArray<PropertyKey>,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): boolean {
+    if (!schema || issuePath.length !== 1) {
+        return false
+    }
+    const key = String(issuePath[0])
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        return false
+    }
+    const keys = Object.keys(input)
+    if (keys.length === 0 || keys.includes(key)) {
+        return false
+    }
+
+    const wrapped = schema.safeParse({ [key]: input })
+    if (wrapped.success) {
+        const nested = (wrapped.data as Record<string, unknown>)[key]
+        return typeof nested === 'object' && nested !== null && Object.keys(nested).length > 0
+    }
+    // Every remaining complaint sits under the wrapper: the nested schema read the
+    // content and rejected specific fields, so the nesting itself was the mistake.
+    return wrapped.error.issues.every((issue) => issue.path.length > 1 && String(issue.path[0]) === key)
+}
+
+/**
+ * Names the top-level keys a non-strict schema dropped, so a caller told `id` is
+ * missing can see that the key it did send — `scanner_id` — was discarded rather
+ * than read. Without this the caller is told only that a parameter it never used
+ * is missing, has nothing to correct, and retries the same call.
+ *
+ * Reports only that the keys were not accepted. It deliberately does not claim
+ * one of them was meant as the missing parameter: matching `scanner_id` to a
+ * missing `id` by name holds on `vision-scanners-get`, where the value is right
+ * and only the name is wrong, but on a tool keyed by an observation id the same
+ * key carries the wrong value entirely, and advising a rename would send the
+ * caller further off course. Which key to use instead belongs in the tool's
+ * description, where it can say so per tool.
+ *
+ * Returns key names only, never values — the message is returned to the caller
+ * and recorded as the analytics error message.
+ */
+function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): string[] {
+    if (!schema || typeof input !== 'object' || input === null || Array.isArray(input)) {
+        return []
+    }
+    const declared = declaredPropertyNames(schema)
+    return Object.keys(input).filter((key) => !declared.has(key))
+}
+
+/** Bound on how many dropped keys the message names, so a caller sending a large
+ *  undeclared payload cannot inflate the analytics error message. */
+const MAX_DROPPED_KEYS_NAMED = 5
+
+/** Bound on the parameter description echoed back with a missing-parameter
+ *  rejection, so a tool with a long field description cannot inflate the
+ *  analytics error message. */
+const MAX_MISSING_PARAM_HINT = 200
+
+/**
+ * The missing parameter's own description, appended to the rejection.
+ *
+ * A bare `missing required parameter: short_id` names the field to fill but not
+ * what to fill it with, so a caller that never held the identifier retries the
+ * same empty call. The field's description already answers that — where the
+ * value comes from and what shape it takes — and this puts it in front of the
+ * caller at the moment it needs it, instead of requiring a separate `info` call.
+ *
+ * Top-level fields only: a nested path describes a field the caller has not
+ * reached yet. The text comes from the tool's own schema, never from caller
+ * input, so it is safe in the message returned to the caller and recorded as the
+ * analytics error message.
+ */
+function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+    if (!schema || path.length !== 1) {
+        return ''
+    }
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    const field = isRecord(properties) ? properties[String(path[0])] : undefined
+    const description = isRecord(field) && typeof field['description'] === 'string' ? field['description'].trim() : ''
+    if (!description) {
+        return ''
+    }
+    const capped =
+        description.length > MAX_MISSING_PARAM_HINT
+            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
+            : description
+    return ` (${capped})`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /** Turns a Zod validation failure into a short, field-named message the model
  *  can act on. Without it, a missing/`undefined` path segment slips through to
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
@@ -350,12 +478,32 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
  *  key is absent without the option, and the check degrades to the wrong-type
  *  message). `reportInput` embeds raw input values in the ZodError, including
  *  its `.message` — keep the error local; never log or capture it. */
-export function formatInputValidationError(toolName: string, error: z.ZodError): string {
+export function formatInputValidationError(
+    toolName: string,
+    error: z.ZodError,
+    input?: unknown,
+    schema?: ZodObjectAny
+): string {
+    // A strict schema rejects unknown keys instead of dropping them, and the
+    // `unrecognized_keys` branch below already names them.
+    const keysWereRejected = error.issues.some((issue) => issue.code === 'unrecognized_keys')
     const parts = error.issues.map((issue) => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
-                return `missing required parameter: ${path}`
+                const hint = missingParameterHint(issue.path, schema)
+                if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
+                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
+                }
+                const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
+                if (dropped.length) {
+                    const named = dropped
+                        .slice(0, MAX_DROPPED_KEYS_NAMED)
+                        .map((key) => `"${key}"`)
+                        .join(', ')
+                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${named}`
+                }
+                return `missing required parameter: ${path}${hint}`
             }
             return `parameter "${path}" must be of type ${issue.expected}`
         }
@@ -433,6 +581,27 @@ function normalizeDescriptorPath(segments: readonly PropertyKey[], declaredNames
 }
 
 const declaredPropertyNamesCache = new WeakMap<object, ReadonlySet<string>>()
+const inputJsonSchemaCache = new WeakMap<object, unknown>()
+
+/**
+ * The agent-facing JSON Schema for a tool, converted once per schema object.
+ *
+ * A schema that can't be converted caches `null`, so a failure costs detail once
+ * rather than being retried on every rejection.
+ */
+function inputJsonSchema(schema: z.ZodType): unknown {
+    if (inputJsonSchemaCache.has(schema)) {
+        return inputJsonSchemaCache.get(schema)
+    }
+    let converted: unknown = null
+    try {
+        converted = z.toJSONSchema(schema, { io: 'input' })
+    } catch {
+        // Neither telemetry nor an error message may break a tool call.
+    }
+    inputJsonSchemaCache.set(schema, converted)
+    return converted
+}
 
 /**
  * Every property name a tool's schema declares, at any depth. A path segment
@@ -449,11 +618,7 @@ function declaredPropertyNames(schema: z.ZodType): ReadonlySet<string> {
         return cached
     }
     const names = new Set<string>()
-    try {
-        collectDeclaredPropertyNames(z.toJSONSchema(schema, { io: 'input' }), names)
-    } catch {
-        // Telemetry must never break a tool call; an empty set only costs detail.
-    }
+    collectDeclaredPropertyNames(inputJsonSchema(schema), names)
     declaredPropertyNamesCache.set(schema, names)
     return names
 }
@@ -768,11 +933,21 @@ export function createExecTool(
                         })
                     }
                     if (truncatedFrom > 0) {
+                        const catalogHint = catalogDiscoveryHint(allTools, matches)
                         return JSON.stringify({
                             matches,
                             truncated: true,
-                            hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                            hint: [
+                                catalogHint,
+                                `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                            ]
+                                .filter(Boolean)
+                                .join(' '),
                         })
+                    }
+                    const catalogHint = catalogDiscoveryHint(allTools, matches)
+                    if (catalogHint) {
+                        return JSON.stringify({ matches, hint: catalogHint })
                     }
                     return JSON.stringify(matches)
                 }
@@ -923,7 +1098,8 @@ export function createExecTool(
                     // one: formatter-toggle tools then skip the server-side formatter (clean raw
                     // JSON, no `__formatted_results_override` duplication), and tools where the
                     // field is a real backend param (dashboard-insights-run) keep full function.
-                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                    const toolSchema = tool.schema
+                    if (useJson && schemaHasOutputFormat(toolSchema)) {
                         input.output_format = 'json'
                     }
 
@@ -931,9 +1107,9 @@ export function createExecTool(
                     // otherwise bad input reaches the HTTP layer and builds URLs like
                     // `.../actions/undefined/`, a misleading 404 that hides the offending
                     // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = tool.schema.safeParse(input, { reportInput: true })
+                    const validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const message = formatInputValidationError(tool.name, validation.error)
+                        const message = formatInputValidationError(tool.name, validation.error, input, tool.schema)
                         trackInnerCall?.(tool.name, {
                             duration_ms: 0,
                             success: false,
@@ -947,7 +1123,7 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, tool.schema)
+                            describeValidationError(validation.error, input, toolSchema)
                         )
                     }
                     input = validation.data as Record<string, unknown>

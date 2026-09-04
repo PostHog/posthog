@@ -6,6 +6,13 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
+    // Boot-time approximation of webVitalsSetupLogic - this gates only the web
+    // vitals tab, not the analytics tabs. The in-scene check stays the source of
+    // truth (it also reads the autocapture opt-in for the waiting state).
+    setupProbe: {
+        productKey: ProductKey.WEB_ANALYTICS,
+        hasDataEvents: ['$web_vitals'],
+    },
     urls: {
         webAnalytics: (): string => `/web`,
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,

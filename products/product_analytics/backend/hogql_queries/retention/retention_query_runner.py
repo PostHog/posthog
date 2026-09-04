@@ -33,14 +33,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_OTHER_STRING_LABEL,
     has_breakdown_filter,
     has_single_breakdown,
 )
-from posthog.hogql_queries.insights.utils.properties import has_cohort_property
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.properties import has_cohort_property
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule

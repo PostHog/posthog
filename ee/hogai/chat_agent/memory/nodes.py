@@ -302,7 +302,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
                 question = self._format_question(response)
                 await core_memory.aappend_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(onboarding_question=None, answers_left=None)  # ty: ignore[pydantic-discarded-extra-argument]
+        return PartialAssistantState(onboarding_question=None)
 
     @property
     def _model(self):

@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const IntegrationsListParams = /* @__PURE__ */ zod.object({
+export const IntegrationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const IntegrationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
+export const IntegrationsListQueryParams = () => zod.object({
     kind: zod
         .enum([
             'anthropic',
@@ -75,7 +75,7 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const IntegrationsRetrieveParams = /* @__PURE__ */ zod.object({
+export const IntegrationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
@@ -84,7 +84,7 @@ export const IntegrationsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const IntegrationsDestroyParams = /* @__PURE__ */ zod.object({
+export const IntegrationsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
@@ -93,7 +93,7 @@ export const IntegrationsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const IntegrationsChannelsRetrieveParams = /* @__PURE__ */ zod.object({
+export const IntegrationsChannelsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
@@ -110,7 +110,7 @@ export const integrationsChannelsRetrieveQueryOffsetMin = 0
 
 export const integrationsChannelsRetrieveQuerySearchDefault = ``
 
-export const IntegrationsChannelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
@@ -128,7 +128,7 @@ export const IntegrationsChannelsRetrieveQueryParams = /* @__PURE__ */ zod.objec
         .describe('Optional case-insensitive channel name or ID search query.'),
 })
 
-export const IntegrationsGithubReposRetrieveParams = /* @__PURE__ */ zod.object({
+export const IntegrationsGithubReposRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
@@ -145,7 +145,7 @@ export const integrationsGithubReposRetrieveQueryOffsetMin = 0
 
 export const integrationsGithubReposRetrieveQuerySearchDefault = ``
 
-export const IntegrationsGithubReposRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const IntegrationsGithubReposRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
@@ -163,7 +163,7 @@ export const IntegrationsGithubReposRetrieveQueryParams = /* @__PURE__ */ zod.ob
         .describe('Optional case-insensitive repository name search query.'),
 })
 
-export const IntegrationsJiraProjectsRetrieveParams = /* @__PURE__ */ zod.object({
+export const IntegrationsJiraProjectsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
@@ -172,7 +172,7 @@ export const IntegrationsJiraProjectsRetrieveParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const IntegrationsLinearTeamsRetrieveParams = /* @__PURE__ */ zod.object({
+export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
@@ -181,7 +181,7 @@ export const IntegrationsLinearTeamsRetrieveParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const IntegrationsUsersRetrieveParams = /* @__PURE__ */ zod.object({
+export const IntegrationsUsersRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
@@ -200,7 +200,7 @@ export const integrationsUsersRetrieveQueryOffsetMin = 0
 export const integrationsUsersRetrieveQuerySearchDefault = ``
 export const integrationsUsersRetrieveQueryUserIdDefault = ``
 
-export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const IntegrationsUsersRetrieveQueryParams = () => zod.object({
     force_refresh: zod
         .boolean()
         .default(integrationsUsersRetrieveQueryForceRefreshDefault)
@@ -234,7 +234,7 @@ export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
  * Replay an API request against the connected PostHog project. The server injects the connection's token; the response is passed through.
  * @summary Forward a request through a PostHog connection
  */
-export const PosthogConnectionsForwardCreateParams = /* @__PURE__ */ zod.object({
+export const PosthogConnectionsForwardCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -243,7 +243,7 @@ export const PosthogConnectionsForwardCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const PosthogConnectionsForwardCreateBody = /* @__PURE__ */ zod.object({
+export const PosthogConnectionsForwardCreateBody = () => zod.object({
     method: zod
         .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
         .describe('\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE')

@@ -50,6 +50,7 @@ import {
     type HogFlowSchedule,
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
+import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
 
@@ -520,10 +521,12 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1163,10 +1166,12 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1371,10 +1376,12 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -2014,10 +2021,12 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -2195,10 +2204,12 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -2572,10 +2583,12 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -4226,17 +4239,7 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflow) {
                 return
             }
-            const newWorkflow = {
-                ...workflow,
-                name: `${workflow.name} (copy)`,
-                status: 'draft' as const,
-            }
-            delete (newWorkflow as any).id
-            delete (newWorkflow as any).team_id
-            delete (newWorkflow as any).created_at
-            delete (newWorkflow as any).updated_at
-
-            const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
+            const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },

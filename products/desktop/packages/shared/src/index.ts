@@ -15,6 +15,7 @@ export type {
   AgentToolCallLocation,
   AgentToolCallStatus,
   AgentToolKind,
+  AgentTurnUsage,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
@@ -60,9 +61,12 @@ export {
   serializeCloudPrompt,
 } from "./cloud-prompt";
 export {
+  adapterForModelId,
   BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
   type CloudTaskConfigSelectOption,
   compareModelsForPicker,
   DEFAULT_CODEX_MODEL,
@@ -73,7 +77,9 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
+  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
+  isAnthropicModelId,
   isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
@@ -102,6 +108,9 @@ export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
 } from "./dismissal-reasons";
 export {
   type ArtifactSource,
@@ -134,6 +143,7 @@ export {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   type PromptFailure,
   type PromptFailureKind,
@@ -204,9 +214,11 @@ export {
   defaultEligibleModel,
   isDefaultSelectOption,
   isRestrictedModelOption,
+  modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
   restrictedModelMeta,
   selectOptionDocsUrl,
+  selectOptionHarness,
 } from "./models";
 export {
   getOauthClientIdFromRegion,
