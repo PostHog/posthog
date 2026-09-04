@@ -2354,7 +2354,7 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
     content: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are.'
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`.'
         ),
     evidence: zod
         .record(zod.string(), zod.unknown())
@@ -2364,7 +2364,7 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe(
-            'Workflow version this was authored against. Required when the proposal changes a whole list (actions, edges, variables), because approve refuses such a proposal once the workflow has moved on and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
         ),
     step_id: zod
         .string()

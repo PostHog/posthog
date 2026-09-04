@@ -60049,9 +60049,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly step_id: string | null;
-      /** Live workflow version this was authored against. Drives a staleness warning, not a block. */
+      /** Live workflow version this was authored against. Approving compares the steps this changes against that version to tell whether somebody else already changed them. */
       readonly base_version: number;
-      /** Whether the live workflow has moved on to a newer version since this was proposed. */
+      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
       readonly is_stale: boolean;
       readonly status: WorkflowProposalStatusEnum;
       /** How the proposal was created. Derived from the request, never set by the caller.
@@ -88019,7 +88019,7 @@ export namespace Schemas {
     }
 
     /**
-     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are.
+     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`.
      */
     export type WorkflowProposalCreateContent = { [key: string]: unknown };
 
@@ -88036,11 +88036,11 @@ export namespace Schemas {
       title: string;
       /** Why this change is worth making, in prose a human reads. */
       rationale: string;
-      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. */
+      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`. */
       content: WorkflowProposalCreateContent;
       /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
       evidence?: WorkflowProposalCreateEvidence;
-      /** Workflow version this was authored against. Required when the proposal changes a whole list (actions, edges, variables), because approve refuses such a proposal once the workflow has moved on and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
+      /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
       base_version?: number;
       /**
          * The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest.

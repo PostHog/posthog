@@ -3624,7 +3624,10 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
     content = WorkflowProposalContentField(read_only=True)
     evidence = WorkflowProposalEvidenceField(read_only=True)
     is_stale = serializers.SerializerMethodField(
-        help_text="Whether the live workflow has moved on to a newer version since this was proposed."
+        help_text=(
+            "Whether approving this would undo an edit made since it was proposed. False while the "
+            "workflow only changed elsewhere, because approving merges per step."
+        )
     )
 
     class Meta:
@@ -3653,7 +3656,15 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField)
     def get_is_stale(self, proposal: WorkflowProposal) -> bool:
-        return (proposal.hog_flow.version or 0) > proposal.base_version
+        if (proposal.hog_flow.version or 0) <= proposal.base_version:
+            return False
+        # One revision read per version behind, shared across the page: proposals on a list all
+        # belong to the same workflow, and stale ones usually share a base version.
+        cache = self.context.setdefault("proposal_conflicts", {})
+        key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
+        if key not in cache:
+            cache[key] = conflicting_step_ids(proposal.hog_flow, proposal)
+        return bool(cache[key])
 
 
 class WorkflowProposalCreateSerializer(serializers.Serializer):
@@ -3662,7 +3673,8 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     content = WorkflowProposalContentField(
         help_text=(
             "Only the workflow content fields this proposal changes. Approving merges them over the live "
-            "content to build the staged draft, so unrelated parts of the workflow stay as they are."
+            "content to build the staged draft, so unrelated parts of the workflow stay as they are. "
+            "In `actions`, send only the steps you change, each with its `id`."
         )
     )
     evidence = WorkflowProposalEvidenceField(
@@ -3672,10 +3684,10 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     base_version = serializers.IntegerField(
         required=False,
         help_text=(
-            "Workflow version this was authored against. Required when the proposal changes a whole "
-            "list (actions, edges, variables), because approve refuses such a proposal once the "
-            "workflow has moved on and a defaulted version would read as current however long the "
-            "producer took. Defaults to the current live version otherwise."
+            "Workflow version this was authored against. Required when the proposal changes actions, "
+            "edges or variables: it is the snapshot approve compares against to tell whether someone "
+            "edited the same steps since, and a defaulted version would read as current however long "
+            "the producer took. Defaults to the current live version otherwise."
         ),
     )
     step_id = serializers.CharField(
@@ -3745,11 +3757,15 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
             items = value[field]
             if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
                 raise exceptions.ValidationError(f"`{field}` must be a list of objects.")
+        for field in PROPOSAL_MERGE_BY_ID_FIELDS:
+            _validate_merge_keys(field, value.get(field))
         return value
 
     def validate(self, attrs: dict) -> dict:
-        changes_a_whole_list = any(field in attrs.get("content", {}) for field in PROPOSAL_WHOLE_LIST_FIELDS)
-        if changes_a_whole_list and attrs.get("base_version") is None:
+        changes_the_graph = any(
+            field in attrs.get("content", {}) for field in (*PROPOSAL_WHOLE_LIST_FIELDS, *PROPOSAL_MERGE_BY_ID_FIELDS)
+        )
+        if changes_the_graph and attrs.get("base_version") is None:
             raise exceptions.ValidationError(
                 {
                     "base_version": (
@@ -3840,16 +3856,105 @@ class ProposalAlreadyResolvedError(exceptions.APIException):
 class ProposalOutOfDateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
-        "The workflow changed since this was suggested, and the suggestion carries whole steps, so "
-        "approving it would drop the edits made since. Ask for a fresh suggestion."
+        "Someone changed this workflow where the suggestion changes it, so approving it would undo "
+        "their edit. Ask for a fresh suggestion."
     )
     default_code = "proposal_out_of_date"
 
+    def __init__(self, conflicts: list[str] | None = None) -> None:
+        # Name the steps: with per-step merging a 409 means a specific collision, and the reviewer
+        # cannot see which one from the suggestion alone.
+        detail = self.default_detail
+        if conflicts:
+            detail = f"{detail} It changes: {', '.join(conflicts)}."
+        super().__init__(detail)
+
 
 # Fields a proposal replaces wholesale: a stale copy of one of these drops whatever was added
-# since it was written. The single-value fields are absent because replacing one of those is the
-# proposal's stated purpose, not collateral.
-PROPOSAL_WHOLE_LIST_FIELDS = ("actions", "edges", "variables")
+# since it was written. `actions` is absent because steps carry stable ids, so a proposal names only
+# the steps it changes and the rest of the graph is never in the payload to lose. Edges have no id
+# (they are a from/to pair, and rewiring one changes the shape of the graph around it), and a
+# variable list is short enough that carrying it whole costs nothing.
+PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
+
+# Content fields a proposal merges into rather than replaces, keyed by the item's stable id.
+PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
+
+
+def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
+    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step,
+    so a proposal that rewrites one email leaves the rest of the graph exactly as it is now."""
+    merged = {**live_content, **proposal_content}
+    for field in PROPOSAL_MERGE_BY_ID_FIELDS:
+        if field in proposal_content:
+            merged[field] = _merge_by_id(live_content.get(field) or [], proposal_content[field] or [])
+    return merged
+
+
+def _merge_by_id(live_items: list, changed_items: list) -> list:
+    changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
+    merged = [changed_by_id.pop(item["id"], item) if _item_id(item) in changed_by_id else item for item in live_items]
+    # Anything left names a step the workflow does not have yet, so the proposal is adding it.
+    merged.extend(changed_by_id.values())
+    return merged
+
+
+def _item_id(item: Any) -> Any:
+    return item.get("id") if isinstance(item, dict) else None
+
+
+def _validate_merge_keys(field: str, items: Any) -> None:
+    """Merging is keyed on `id`, so a missing or repeated one has no defined meaning. Reject it here
+    rather than picking a winner and staging a draft the author did not write."""
+    if not isinstance(items, list):
+        return
+    seen: set[str] = set()
+    for index, item in enumerate(items):
+        item_id = _item_id(item)
+        if not isinstance(item_id, str) or not item_id:
+            raise exceptions.ValidationError(
+                f"`{field}[{index}]` needs the `id` of the step it changes. Send only the steps you change."
+            )
+        if item_id in seen:
+            raise exceptions.ValidationError(f"`{field}` names `{item_id}` twice.")
+        seen.add(item_id)
+
+
+def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
+    """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
+    names = {_item_id(item): item.get("name") for item in snapshot_flow_content(hog_flow).get("actions") or []}
+    return [names.get(step_id) or step_id for step_id in step_ids]
+
+
+def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str]:
+    """Steps the proposal changes that someone else already changed since it was written.
+
+    Merging per step means an unrelated edit elsewhere in the workflow is no longer a reason to
+    refuse, so the comparison is against the snapshot the proposal actually read: the steps it
+    names, as they were at `base_version`, against the steps as they are now."""
+    touched = {_item_id(item) for item in proposal.content.get("actions") or []} - {None}
+    changes_whole_list = any(field in proposal.content for field in PROPOSAL_WHOLE_LIST_FIELDS)
+    if hog_flow.version == proposal.base_version:
+        return []
+    if changes_whole_list:
+        # A whole-list field carries the shape of the graph around the steps it lists, so any
+        # publish since it was read can drop something. Nothing narrower to compare.
+        return sorted(touched) or ["edges"]
+    base_revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
+    if base_revision is None:
+        # Without the snapshot the proposal read, "changed since" is unanswerable. Refuse rather
+        # than stage a merge over an unknown base.
+        return sorted(touched)
+    base_actions = {_item_id(item): item for item in base_revision.content.get("actions") or []}
+    live_actions = {_item_id(item): item for item in snapshot_flow_content(hog_flow).get("actions") or []}
+    return sorted(
+        step_id
+        for step_id in touched
+        if base_actions.get(step_id) != live_actions.get(step_id)
+        # A step the proposal adds is only a conflict if that id now exists.
+        and not (step_id not in base_actions and step_id not in live_actions)
+    )
+
 
 # `trigger` and `abort_action` are read-only on the workflow serializer, so publish drops a proposed
 # value for either. A suggestion that cannot ship is worse than one that is refused.
@@ -5153,12 +5258,11 @@ class HogFlowViewSet(
         content = strip_content_secrets(dict(params["content"]))
         source_id = params.get("source_id") or None
 
-        # `actions` and `edges` replace the live list wholesale rather than merging per step, so a
-        # caller that sends only the step it edited would stage a draft with the rest of the workflow
-        # deleted — and the human reviewing the suggestion cannot see what is missing. Validate the
-        # merged graph now, at authoring time, where the error can name the mistake.
+        # A proposal is a change to a workflow, not a workflow, so the thing to validate is the
+        # workflow it would produce. Do it at authoring time, where the error can name the mistake,
+        # rather than at approval, where a human is waiting on it.
         if "actions" in content or "edges" in content:
-            merged = {**snapshot_flow_content(instance), **content}
+            merged = merge_proposal_content(snapshot_flow_content(instance), content)
             try:
                 # Warnings (the return value) are fine to ignore here; only the raised errors mean the
                 # graph could not run.
@@ -5167,9 +5271,9 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(
                     {
                         "content": [
-                            "The proposed change does not describe a runnable workflow. Note that actions and "
-                            "edges replace the whole list rather than merging per step, so send the full set "
-                            "with your edit applied.",
+                            "The proposed change does not describe a runnable workflow. Note that steps merge "
+                            "by `id` while `edges` replaces the whole list, so an edge to a step that no longer "
+                            "exists is the usual cause.",
                             *_flatten_graph_errors(error),
                         ]
                     }
@@ -5276,13 +5380,11 @@ class HogFlowViewSet(
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            # A suggestion written against an older version carries whole step lists, so staging it
-            # would put that older graph back and drop whatever was published since. The banner
-            # already tags it out of date; this is the block behind that warning.
-            if locked.version != locked_proposal.base_version and any(
-                field in locked_proposal.content for field in PROPOSAL_WHOLE_LIST_FIELDS
-            ):
-                raise ProposalOutOfDateError()
+            # A suggestion is only out of date when the steps it changes moved under it. An edit
+            # somewhere else in the workflow merges cleanly and is not a reason to refuse.
+            conflicts = conflicting_step_ids(locked, locked_proposal)
+            if conflicts:
+                raise ProposalOutOfDateError(describe_steps(locked, conflicts))
             expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
             if (
                 locked.draft
@@ -5293,9 +5395,8 @@ class HogFlowViewSet(
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             # The draft is always a full content snapshot (live content as the base, the proposal's
-            # changed fields on top), so publish stays a plain copy with no merge logic — and a
-            # proposal that only touches one step survives unrelated edits elsewhere in the workflow.
-            locked.draft = {**snapshot_flow_content(locked), **locked_proposal.content}
+            # changed steps merged in), so publish stays a plain copy with no merge logic.
+            locked.draft = merge_proposal_content(snapshot_flow_content(locked), locked_proposal.content)
             locked.draft_updated_at = timezone.now()
             # Proposal content carries no secrets (stripped on create), so the staged draft
             # re-attaches from the live encrypted_inputs on the follow-up publish.
