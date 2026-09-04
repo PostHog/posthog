@@ -228,33 +228,26 @@ async function executeQuery<N extends DataNode>(
     try {
         statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     } catch (e: any) {
-        // A hidden tab holds pollForResults at waitForPageVisible without spending its deadline,
-        // so a poll can arrive after the server has dropped the query's status. That ID can no
-        // longer become anything, and the page has nothing to show for a query the user never
-        // saw fail, so ask the question again.
-        // Not every 404 is an expired status: a managed warehouse whose connection is down answers
-        // with one too, and its message is what the user needs to see.
+        // A hidden tab holds pollForResults at waitForPageVisible without spending its deadline, so
+        // a poll can arrive after the server has dropped the query's status. Not every 404 is that
+        // case: a managed warehouse whose connection is down answers with one too, and its message
+        // is the one the user needs.
         if (retriedAfterExpiry || e?.status !== 404 || e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE) {
             throw e
         }
-        // Poll-only callers ask again too. In production the flag means "resume the recompute the
-        // server attached to these cached results" (dataNodeLogic sets it from a running query id),
-        // and that caller holds the query, so an insight or dashboard tile resuming a recompute
-        // hits this same expiry. A view that may only GET is caught below instead.
+        // Poll-only callers can resubmit because they still hold the query: dataNodeLogic sets the
+        // flag to resume a recompute the server attached to cached results. A view that may only
+        // GET is caught below.
         return await resubmit(
             queryNode,
             methodOptions,
-            // A forced run that finished has cached what it computed, so the retry reads that
-            // cache instead of paying for the same computation twice. Forcing again would
-            // recompute every card returning from a hidden tab, which is the case this retry
-            // exists for. A forced run that failed cached nothing, so its card keeps the earlier
-            // result and the time it was computed, until someone refreshes again. Every other
-            // mode consults the cache already and recomputes only what has gone stale.
+            // The first run cached what it computed, so the retry reads that cache. Forcing again
+            // would recompute every card returning from a hidden tab, which is the case this retry
+            // exists for.
             refresh === 'force_async' ? 'async' : refresh,
-            // Keep the ID the first run was filed under, so anything holding it - a cancel on
-            // abort, a query log lookup - still points at the run the user is waiting for. Safe
-            // because enqueue joins a record only while its run is going, so the expired one this
-            // retry is recovering from cannot short-circuit the new run.
+            // Keep the ID the first run was filed under, so a cancel on abort or a query log
+            // lookup still points at the run the user is waiting for. Safe because enqueue joins a
+            // record only while its run is going, so the expired one cannot short-circuit it.
             queryId,
             setPollResponse,
             filtersOverride,
