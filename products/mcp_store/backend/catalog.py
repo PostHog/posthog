@@ -121,6 +121,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="data",
         icon_domain="datadoghq.com",
+        docs_url="https://docs.datadoghq.com/mcp_server/setup/?site=eu",
     ),
     CatalogEntry(
         name="Datadog (US)",
@@ -129,6 +130,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="data",
         icon_domain="datadoghq.com",
+        docs_url="https://docs.datadoghq.com/mcp_server/setup/?site=us",
     ),
     CatalogEntry(
         name="dbt Labs",
