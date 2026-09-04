@@ -13,6 +13,13 @@ from posthog.clickhouse.client import sync_execute
 from posthog.errors import ExposedCHQueryError
 
 
+def _service_filter_group(service: str, shape: str) -> list | dict:
+    leaf = {"key": "service_name", "type": "log", "operator": "exact", "value": [service]}
+    if shape == "flat":
+        return [leaf]
+    return {"type": "AND", "values": [{"type": "AND", "values": [leaf]}]}
+
+
 class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -121,32 +128,47 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the service the values live under", "argo-rollouts", True),
-            ("another service", "cdp-api", False),
+            ("nested group, the service the values live under", "nested", "argo-rollouts", True),
+            ("nested group, another service", "nested", "cdp-api", False),
+            ("flat list, the service the values live under", "flat", "argo-rollouts", True),
+            ("flat list, another service", "flat", "cdp-api", False),
         ]
     )
-    def test_log_values_query_scoped_by_service_in_group(self, _name, service, expects_results):
+    def test_log_values_query_scoped_by_service_in_group(self, _name, shape, service, expects_results):
         # The viewer keeps its service selection in filterGroup, so these suggestions have to read it
         # from there: otherwise a scoped viewer offers values that exist only in other services.
+        # The browser sends the nested group; MCP sends the flat array the query serializer documents.
         query_params = {
             "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
             "key": "level",
             "attribute_type": "log",
             "value": "DE",
-            "filterGroup": json.dumps(
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "service_name", "type": "log", "operator": "exact", "value": [service]}],
-                        }
-                    ],
-                }
-            ),
+            "filterGroup": json.dumps(_service_filter_group(service, shape)),
         }
 
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results) > 0, expects_results)
+
+    @parameterized.expand(
+        [
+            ("the service the attribute lives under", "argo-rollouts", True),
+            ("another service", "cdp-api", False),
+        ]
+    )
+    def test_log_attributes_query_scoped_by_flat_service_filter(self, _name, service, expects_results):
+        # The attributes endpoint parses filterGroup through the same helper, so the flat array must
+        # narrow the scan here too rather than offer every service's keys.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "log",
+            "search": "rollout",
+            "filterGroup": json.dumps(_service_filter_group(service, "flat")),
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]

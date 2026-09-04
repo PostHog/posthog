@@ -1187,6 +1187,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return None
         if not parsed:
             return None
+        # The query serializers document a flat array, which is what MCP callers send, so wrap it
+        # like the POST actions do. A dict comes from the browser and already has the nested shape.
+        if isinstance(parsed, list):
+            parsed = self._normalize_filter_group(parsed)
         try:
             return self.get_model(parsed, PropertyGroupFilter)
         except ParseError:
