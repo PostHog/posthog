@@ -27,6 +27,14 @@ _LOW_CARDINALITY_PROVIDER_ERROR_CODES = frozenset(
 )
 
 
+# Modal, Baseten, and Cloudflare are OpenAI-compatible servers that the gateway calls through
+# litellm's `openai/` prefix, so litellm reports `openai` as the provider for their failures.
+# The routed provider that the caller supplies names the real backend, so it wins for these three.
+# Every other route can carry a `<provider>/<model>` id the caller chose, where litellm knows the
+# true upstream and the routed provider is only the endpoint the request came in on.
+_OPENAI_COMPATIBLE_BACKENDS = frozenset({"baseten", "cloudflare", "modal"})
+
+
 def _ensure_initialized() -> bool:
     global _initialized
     if _initialized:
@@ -50,7 +58,11 @@ def _provider_error_fingerprint(error: Exception, properties: dict[str, Any]) ->
     an unsupported parameter must not share an issue. Returns None for a failure
     that did not come from a provider call, which keeps the default grouping.
     """
-    provider = getattr(error, "llm_provider", None) or properties.get("provider")
+    routed_provider = properties.get("provider")
+    if routed_provider in _OPENAI_COMPATIBLE_BACKENDS:
+        provider = routed_provider
+    else:
+        provider = getattr(error, "llm_provider", None) or routed_provider
     status = getattr(error, "status_code", None)
     if not provider or status is None:
         return None

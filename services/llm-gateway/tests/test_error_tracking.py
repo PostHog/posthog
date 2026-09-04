@@ -97,6 +97,13 @@ class TestCaptureException:
         assert _fingerprint(openai_error, "openai") != _fingerprint(openrouter_error, "openai")
         assert ":openrouter:" in _fingerprint(openrouter_error, "openai")
 
+    @pytest.mark.parametrize("backend", ["baseten", "cloudflare", "modal"])
+    def test_names_the_gateway_backend_behind_the_openai_prefix(self, backend: str) -> None:
+        error = _litellm_authentication_error("openai", "invalid_api_key")
+
+        assert f":{backend}:" in _fingerprint(error, backend)
+        assert _fingerprint(error, backend) != _fingerprint(error, "openai")
+
     def test_keeps_one_failure_in_one_issue_across_models(self):
         error = _ProviderError(401, code="invalid_organization")
 
