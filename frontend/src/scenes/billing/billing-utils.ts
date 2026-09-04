@@ -831,6 +831,40 @@ const formatUnitPrice = (unitAmountUsd: string, product: BillingProductV2Type | 
 const quotesAPrice = (plan: BillingPlanType): boolean =>
     plan.flat_rate ? !!plan.unit_amount_usd : (plan.tiers ?? []).some((tier) => parseFloat(tier.unit_amount_usd) > 0)
 
+const flatRatePricing = (
+    plan: BillingPlanType,
+    product: BillingProductV2Type | BillingProductV2AddonType,
+    unit: string | null
+): ProductUpgradePricing | null =>
+    plan.unit_amount_usd
+        ? {
+              freeAllocation: null,
+              unitAmountUsd: formatUnitPrice(plan.unit_amount_usd, product),
+              unit,
+              flatRate: true,
+          }
+        : null
+
+const tieredPricing = (
+    plan: BillingPlanType,
+    product: BillingProductV2Type | BillingProductV2AddonType,
+    unit: string | null
+): ProductUpgradePricing | null => {
+    const tiers = plan.tiers ?? []
+    const firstPaidTier = tiers.find((tier) => parseFloat(tier.unit_amount_usd) > 0)
+    if (!firstPaidTier) {
+        return null
+    }
+    const freeTier = tiers.find((tier) => parseFloat(tier.unit_amount_usd) === 0)
+
+    return {
+        freeAllocation: freeTier?.up_to ?? plan.free_allocation ?? null,
+        unitAmountUsd: formatUnitPrice(firstPaidTier.unit_amount_usd, product),
+        unit: (hasDisplayFormatting(product) && product.display_unit) || unit,
+        flatRate: false,
+    }
+}
+
 /**
  * What a paid plan for this product costs, ready to show on an upgrade prompt.
  * Returns null when the payload carries no price to quote.
@@ -845,30 +879,7 @@ export const getProductUpgradePricing = (
     }
     const unit = paidPlan.unit ?? product.unit ?? null
 
-    if (paidPlan.flat_rate) {
-        return paidPlan.unit_amount_usd
-            ? {
-                  freeAllocation: null,
-                  unitAmountUsd: formatUnitPrice(paidPlan.unit_amount_usd, product),
-                  unit,
-                  flatRate: true,
-              }
-            : null
-    }
-
-    const tiers = paidPlan.tiers ?? []
-    const firstPaidTier = tiers.find((tier) => parseFloat(tier.unit_amount_usd) > 0)
-    if (!firstPaidTier) {
-        return null
-    }
-    const freeTier = tiers.find((tier) => parseFloat(tier.unit_amount_usd) === 0)
-
-    return {
-        freeAllocation: freeTier?.up_to ?? paidPlan.free_allocation ?? null,
-        unitAmountUsd: formatUnitPrice(firstPaidTier.unit_amount_usd, product),
-        unit: (hasDisplayFormatting(product) && product.display_unit) || unit,
-        flatRate: false,
-    }
+    return paidPlan.flat_rate ? flatRatePricing(paidPlan, product, unit) : tieredPricing(paidPlan, product, unit)
 }
 
 /** One sentence a person can read on a paywall, saying what the product costs. */
