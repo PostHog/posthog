@@ -50,6 +50,14 @@ class TestFetchSourceUnresolved(BaseTest):
         assert record["query"] is None
         search_mock.assert_not_called()
 
+    def test_a_rendered_url_with_an_empty_host_is_not_fetched(self):
+        spec = _fetch_spec(template="https:///pricing")
+        with patch(f"{_SOURCES_MODULE}.scrape") as scrape:
+            record = fetch_source(self.organization.id, spec, domain="acme.example", name=None)
+
+        assert record["error"] == "unresolved"
+        scrape.assert_not_called()
+
 
 class TestFetchSourceFetch(BaseTest):
     def test_a_successful_scrape_yields_markdown_at_the_rendered_url(self):
@@ -68,12 +76,13 @@ class TestFetchSourceFetch(BaseTest):
             priority=Priority.BATCH,
         )
 
-    def test_the_markdown_is_truncated_to_the_cap(self):
-        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="x" * (MAX_INPUT_VALUE_CHARS + 500))
+    def test_the_full_markdown_is_returned_untruncated(self):
+        markdown = "x" * (MAX_INPUT_VALUE_CHARS + 500)
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown=markdown)
         with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped):
             record = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
 
-        assert len(record["markdown"]) == MAX_INPUT_VALUE_CHARS
+        assert record["markdown"] == markdown
 
     @parameterized.expand(
         [

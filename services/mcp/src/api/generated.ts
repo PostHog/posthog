@@ -18632,8 +18632,9 @@ export namespace Schemas {
 
     export interface Source {
       /**
-         * Column prefix this source contributes, e.g. 'pricing'.
+         * Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, letters/digits/underscore only.
          * @maxLength 32
+         * @pattern ^[a-z][a-z0-9_]{0,31}$
          */
       key: string;
       /** 'fetch' scrapes one url; 'search' runs a web search.

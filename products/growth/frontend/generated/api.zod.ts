@@ -33,6 +33,7 @@ export const growthAiEnrichmentRunCreateBodyModelMax = 128
 
 export const growthAiEnrichmentRunCreateBodySourcesItemKeyMax = 32
 
+export const growthAiEnrichmentRunCreateBodySourcesItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]{0,31}$')
 export const growthAiEnrichmentRunCreateBodySourcesItemUrlMax = 2048
 
 export const growthAiEnrichmentRunCreateBodySourcesItemQueryMax = 500
@@ -77,7 +78,10 @@ export const GrowthAiEnrichmentRunCreateBody = /* @__PURE__ */ zod.object({
                 key: zod
                     .string()
                     .max(growthAiEnrichmentRunCreateBodySourcesItemKeyMax)
-                    .describe("Column prefix this source contributes, e.g. 'pricing'."),
+                    .regex(growthAiEnrichmentRunCreateBodySourcesItemKeyRegExp)
+                    .describe(
+                        "Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, letters\/digits\/underscore only."
+                    ),
                 kind: zod
                     .enum(['fetch', 'search'])
                     .describe('\* `fetch` - fetch\n\* `search` - search')
@@ -163,6 +167,7 @@ export const growthAiEnrichmentSaveCreateBodyModelMax = 128
 
 export const growthAiEnrichmentSaveCreateBodySourcesItemKeyMax = 32
 
+export const growthAiEnrichmentSaveCreateBodySourcesItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]{0,31}$')
 export const growthAiEnrichmentSaveCreateBodySourcesItemUrlMax = 2048
 
 export const growthAiEnrichmentSaveCreateBodySourcesItemQueryMax = 500
@@ -209,7 +214,10 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
                 key: zod
                     .string()
                     .max(growthAiEnrichmentSaveCreateBodySourcesItemKeyMax)
-                    .describe("Column prefix this source contributes, e.g. 'pricing'."),
+                    .regex(growthAiEnrichmentSaveCreateBodySourcesItemKeyRegExp)
+                    .describe(
+                        "Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, letters\/digits\/underscore only."
+                    ),
                 kind: zod
                     .enum(['fetch', 'search'])
                     .describe('\* `fetch` - fetch\n\* `search` - search')

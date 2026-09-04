@@ -13,6 +13,7 @@ from django.test import SimpleTestCase
 import openai
 from parameterized import parameterized
 
+from posthog.egress.firecrawl.client import FirecrawlScrape
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.growth.backend.enrichment.labels import (
@@ -35,11 +36,13 @@ from products.growth.backend.enrichment.labels import (
     source_inputs,
     validate_sources,
 )
+from products.growth.backend.enrichment.sources import fetch_source
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_SOURCES_MODULE = "products.growth.backend.enrichment.sources"
 
 
 def _mock_llm_client(
@@ -207,11 +210,31 @@ class TestParseSourcesRejections(SimpleTestCase):
                 "too_many_sources",
                 [{"key": f"s{i}", "kind": "fetch", "url": "https://{domain}"} for i in range(MAX_SOURCES + 1)],
             ),
+            ("fetch_authority_is_bare_name", [{"key": "pricing", "kind": "fetch", "url": "https://{name}/"}]),
+            (
+                "fetch_authority_name_as_subdomain",
+                [{"key": "pricing", "kind": "fetch", "url": "https://{name}.example.com/pricing"}],
+            ),
+            (
+                "fetch_authority_name_appended_to_host",
+                [{"key": "pricing", "kind": "fetch", "url": "https://acme.com{name}/"}],
+            ),
         ]
     )
     def test_rejects_a_malformed_source(self, _name, sources):
         with self.assertRaises(PromptConfigError):
             parse_sources(self._config(sources))
+
+    @parameterized.expand(
+        [
+            ("domain_only_authority", "https://{domain}/pricing"),
+            ("name_in_the_path_not_the_authority", "https://example.com/{name}"),
+        ]
+    )
+    def test_accepts_a_fetch_template_with_a_permitted_authority(self, _name, url):
+        config = self._config(sources=[{"key": "pricing", "kind": "fetch", "url": url}])
+
+        parse_sources(config)  # does not raise
 
     def test_rejects_when_input_fields_plus_sources_exceed_the_column_budget(self):
         config = self._config(
@@ -300,6 +323,14 @@ class TestRenderTemplate(SimpleTestCase):
     def test_a_template_with_no_variables_renders_unchanged_even_without_context(self):
         assert render_template("https://acme.example", domain=None, name=None) == "https://acme.example"
 
+    def test_a_name_with_a_slash_and_spaces_is_percent_encoded_with_quote_values(self):
+        rendered = render_template("https://{domain}/{name}", domain="acme.example", name="a/b c", quote_values=True)
+
+        assert rendered == "https://acme.example/a%2Fb%20c"
+
+    def test_a_name_with_a_slash_and_spaces_is_left_alone_without_quote_values(self):
+        assert render_template('"{name}" AI', domain=None, name="a/b c") == '"a/b c" AI'
+
 
 class TestSourceInputs(SimpleTestCase):
     def test_a_successful_fetch_contributes_its_url_and_markdown(self):
@@ -344,6 +375,27 @@ class TestPresentedUrls(SimpleTestCase):
         assert presented_urls(sources) == set()
 
 
+class TestBuildMessagesSourceDisclaimer(SimpleTestCase):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="v1",
+            prompt_text="judge it.",
+            model="gpt-5-mini",
+            output_fields=[{"key": "flag", "type": "boolean", "description": ""}],
+        )
+
+    def test_a_source_input_column_adds_the_untrusted_data_warning(self):
+        messages = build_messages(self._config(), {"sources.pricing.markdown": "Plans."}, None)
+
+        assert "unverified" in messages[1]["content"]
+
+    def test_no_source_input_column_omits_the_warning(self):
+        messages = build_messages(self._config(), {"name": "Acme"}, None)
+
+        assert "unverified" not in messages[1]["content"]
+
+
 class TestClassifyPayloadSources(SimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
@@ -382,6 +434,45 @@ class TestClassifyPayloadSources(SimpleTestCase):
 
         assert result["is_ai"] == UNKNOWN
         client.chat.completions.create.assert_not_called()
+
+
+class TestClassifyPayloadFetchedSourceBounding(BaseTest):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="v1",
+            prompt_text="judge it. Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name"],
+            sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "evidence_url", "type": "string", "description": ""},
+            ],
+        )
+
+    def test_a_fetched_markdown_over_the_cap_is_truncated_with_a_marker_and_flagged(self):
+        config = self._config()
+        markdown = "x" * (MAX_INPUT_VALUE_CHARS + 500)
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown=markdown)
+        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped):
+            source_record = fetch_source(
+                self.organization.id,
+                SourceSpec(key="pricing", kind="fetch", template="https://{domain}/pricing"),
+                domain="acme.example",
+                name=None,
+            )
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = json.dumps({"is_ai": True, "evidence_url": "https://acme.example"})
+        client.chat.completions.create.return_value = response
+
+        result = classify_payload(config, {"name": "Acme"}, "example.com", client, sources={"pricing": source_record})
+
+        stored = result["inputs"]["fields"]["sources.pricing.markdown"]
+        assert stored.endswith("…")
+        assert len(stored) == MAX_INPUT_VALUE_CHARS + 1
+        assert "sources.pricing.markdown" in result["meta"]["bounded"]["truncated"]
 
 
 class TestClassifyPayloadEvidenceUrlValidation(SimpleTestCase):

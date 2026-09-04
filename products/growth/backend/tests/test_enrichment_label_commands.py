@@ -690,6 +690,40 @@ class TestSourceDeferral(_BatchCommandTestCase):
         assert "sources_deferred 3" in out.getvalue()
         assert "failed 0" in out.getvalue()
 
+    def test_deferred_orgs_are_excluded_from_the_success_rate_denominator(self) -> None:
+        self._sources_config()
+        good_org = _org_with_domain("good", "good.example")
+        self._fetch(organization=good_org)
+        busy_orgs = [_org_with_domain(f"busy-{i}", f"busy-{i}.example") for i in range(3)]
+        for org in busy_orgs:
+            self._fetch(organization=org)
+        client = _mock_llm_client()
+        # _sources_config's schema requires evidence_url; the default _good_response omits it.
+        client.chat.completions.create.return_value = _response(
+            json.dumps({"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://good.example"})
+        )
+        out = StringIO()
+
+        def _scrape(url: str, **kwargs: Any) -> MagicMock:
+            if "good.example" not in url:
+                raise FirecrawlEgressBudgetExhausted("boom")
+            scraped = MagicMock()
+            scraped.status_code = 200
+            scraped.markdown = "ok"
+            return scraped
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_SOURCES_MODULE}.scrape", side_effect=_scrape),
+        ):
+            # A 3-of-4 raw success rate would fail --min-success-rate 0.9; the 3 deferred orgs
+            # must drop out of the denominator so this run succeeds on the 1 org actually tried.
+            call_command("enrichment_label_batch", label="test_label", workers=1, min_success_rate=0.9, stdout=out)
+
+        assert EnrichmentLabelResult.objects.count() == 1
+        assert "succeeded 1" in out.getvalue()
+        assert "sources_deferred 3" in out.getvalue()
+
 
 class TestBatchRunReportEvent(_BatchCommandTestCase):
     def test_emits_one_event_with_the_run_counts(self):

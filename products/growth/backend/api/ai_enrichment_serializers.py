@@ -20,6 +20,7 @@ from products.growth.backend.enrichment.labels import (
     OUTPUT_FIELD_KEY_RE,
     OUTPUT_FIELD_TYPES,
     RESERVED_OUTPUT_FIELD_KEYS,
+    SOURCE_KEY_RE,
     SOURCE_KINDS,
     PromptConfigError,
     validate_input_fields,
@@ -82,7 +83,12 @@ class OutputFieldSerializer(serializers.Serializer):
 
 
 class SourceSerializer(serializers.Serializer):
-    key = serializers.CharField(max_length=32, help_text="Column prefix this source contributes, e.g. 'pricing'.")
+    key = serializers.RegexField(
+        SOURCE_KEY_RE,
+        max_length=32,
+        help_text="Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, "
+        "letters/digits/underscore only.",
+    )
     kind = serializers.ChoiceField(
         choices=[(value, value) for value in SOURCE_KINDS],
         help_text="'fetch' scrapes one url; 'search' runs a web search.",

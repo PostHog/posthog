@@ -23,6 +23,7 @@ from products.growth.backend.enrichment.labels import (
     MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
     MAX_OUTPUT_FIELDS,
     MAX_PROMPT_TEXT_CHARS,
+    MAX_SOURCES,
 )
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -425,6 +426,42 @@ class TestAIEnrichmentAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(EnrichmentPromptConfig.objects.filter(name="bad_kind_label").count(), 0)
+
+    def test_save_rejects_a_source_with_an_invalid_key(self):
+        response = self.client.post(
+            "/api/growth_ai_enrichment/save/",
+            {
+                "label": "bad_source_key_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "sources": [{"key": "Pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+                "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["attr"], "sources")
+        self.assertIn("key", body["detail"])
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="bad_source_key_label").count(), 0)
+
+    def test_save_rejects_too_many_sources(self):
+        response = self.client.post(
+            "/api/growth_ai_enrichment/save/",
+            {
+                "label": "too_many_sources_label",
+                "prompt_text": "x",
+                "model": "gpt-5-mini",
+                "sources": [
+                    {"key": f"source_{i}", "kind": "fetch", "url": "https://{domain}/pricing"}
+                    for i in range(MAX_SOURCES + 1)
+                ],
+                "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(EnrichmentPromptConfig.objects.filter(name="too_many_sources_label").count(), 0)
 
     def test_save_rejects_sources_without_an_evidence_url_output_field(self):
         response = self.client.post(
