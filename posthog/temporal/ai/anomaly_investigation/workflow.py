@@ -24,6 +24,7 @@ from temporalio.common import RetryPolicy
 from posthog.models import Team, User
 from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT, dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
+from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
@@ -152,6 +153,16 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     insight = alert.insight
     metric_description = insight.name or f"Insight {insight.short_id}"
     detector_type = (alert.detector_config or {}).get("type") or "threshold"
+    series_index = (alert.config or {}).get("series_index", 0)
+
+    # Measured up front rather than left to a tool call: without it the agent has only the
+    # event's name to go on, and an opaque name invites it to invent the machinery behind it.
+    event = alerted_series_event(insight.query, series_index=series_index)
+    event_provenance = ""
+    if event:
+        event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
+            team=team, event=event
+        )
 
     anomaly_context_text = build_anomaly_context(
         alert_name=alert.name or "Unnamed alert",
@@ -162,9 +173,8 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         calculated_value=alert_check.calculated_value,
         interval=alert_check.interval,
         # The alerted series, not series 0 — matching how the check and the chart pick it.
-        metric_definition=describe_metric_definition(
-            insight.query, series_index=(alert.config or {}).get("series_index", 0)
-        ),
+        metric_definition=describe_metric_definition(insight.query, series_index=series_index),
+        event_provenance=event_provenance,
     )
 
     # Render a chart of the metric with the detector's anomaly points marked and
