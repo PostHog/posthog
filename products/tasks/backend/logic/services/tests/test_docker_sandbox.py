@@ -8,6 +8,7 @@ from parameterized import parameterized
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX
 from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
 
@@ -86,12 +87,19 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
 
 def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
+
+    def execute(command: str, **kwargs) -> ExecutionResult:
+        # Only the launch fails; the bundled-skills clear that precedes it succeeds.
+        if ENV_DISABLE_BUNDLED_SKILLS in command:
+            return ExecutionResult(stdout="", stderr="", exit_code=0)
+        return failed
+
     with (
         patch.object(sandbox, "is_running", return_value=True),
         patch.object(sandbox, "write_file"),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server") as build_command,
         patch.object(sandbox, "agent_server_supports_exec_permission_regex", return_value=True),
-        patch.object(sandbox, "execute", return_value=failed),
+        patch.object(sandbox, "execute", side_effect=execute),
         patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
         pytest.raises(SandboxExecutionError),
     ):

@@ -573,6 +573,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
     )
     def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
         from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
         from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
@@ -585,6 +586,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
                 launched.append(command)
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if "chmod" in command:  # gh shim install
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if ENV_DISABLE_BUNDLED_SKILLS in command:  # bundled-skills clear
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             self.assertIn("grep", command)
             return ExecutionResult(stdout="", stderr="", exit_code=0 if supported else 1)
