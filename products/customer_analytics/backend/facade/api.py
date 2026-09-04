@@ -4070,10 +4070,12 @@ def list_account_meetings(
     offset: int = 0,
     limit: int = 100,
     search: str | None = None,
+    include_gong_urls: bool = True,
 ) -> tuple[list[contracts.MeetingView], int] | None:
     """Synced calendar meetings for an accessible account, newest first, optionally
     filtered by ``search`` (title or attendee email/name). None when the account isn't
-    accessible (→ 404)."""
+    accessible (→ 404). ``gong_url`` is a warehouse read, so callers that cannot reach
+    external data sources pass ``include_gong_urls=False`` and every ``gong_url`` is None."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
@@ -4086,14 +4088,18 @@ def list_account_meetings(
     count = queryset.count()
     meetings = list(queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit])
 
-    from products.customer_analytics.backend.logic.gong import (  # noqa: PLC0415 — keeps HogQL off the facade import path
-        get_gong_urls_by_meeting_id,
-    )
+    gong_urls_by_meeting_id: dict[UUID, str] = {}
+    if include_gong_urls:
+        from products.customer_analytics.backend.logic.gong import (  # noqa: PLC0415 — keeps HogQL off the facade import path
+            get_gong_urls_by_meeting_id,
+        )
 
-    team = user_access_control.team
-    if team is None or team.id != team_id:
-        team = Team.objects.get(id=team_id)
-    gong_urls_by_meeting_id = get_gong_urls_by_meeting_id(team=team, user=user_access_control.user, meetings=meetings)
+        team = user_access_control.team
+        if team is None or team.id != team_id:
+            team = Team.objects.get(id=team_id)
+        gong_urls_by_meeting_id = get_gong_urls_by_meeting_id(
+            team=team, user=user_access_control.user, meetings=meetings
+        )
 
     views = [
         contracts.MeetingView(

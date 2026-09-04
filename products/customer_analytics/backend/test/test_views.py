@@ -3472,6 +3472,57 @@ class TestAccountReadScopes(APIBaseTest):
         )
         assert response.status_code == expected, response.content
 
+    @parameterized.expand(
+        [
+            ("account_only", ["account:read"], None),
+            ("with_source_read", ["account:read", "external_data_source:read"], "https://app.gong.io/call?id=123"),
+        ]
+    )
+    @patch("products.customer_analytics.backend.logic.gong.execute_hogql_query")
+    def test_gong_url_needs_external_data_source_scope(self, _name, scopes, expected, mock_execute_hogql_query):
+        # gong_url is warehouse content behind an account-authorized endpoint. The scope-gated
+        # access control cannot catch it, because the Gong lookup is a HogQL read keyed by team and
+        # never reaches an object access check.
+        meeting = Meeting.objects.unscoped().create(
+            team=self.team,
+            account=self.account,
+            ical_uid="calendar-event@google.com",
+            start_time="2026-08-03T15:00:00Z",
+            title="Review",
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="gong-source",
+            connection_id="gong-connection",
+            status="Completed",
+            source_type="Gong",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="gong_calls",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://example.com/gong_calls/*",
+            external_data_source=source,
+            columns={"calendar_event_id": {}, "url": {}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, table=table, name="calls", should_sync=True, status="Completed"
+        )
+        mock_execute_hogql_query.return_value.results = [
+            ["calendar-event@google.com", "https://app.gong.io/call?id=123"]
+        ]
+
+        token = self._token(scopes)
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/accounts/{self.account.id}/meetings/",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        result = response.json()["results"][0]
+        assert result["id"] == str(meeting.id)
+        assert result["gong_url"] == expected
+
     def test_ticket_content_still_needs_ticket_read(self):
         token = self._token(["account:read"])
         response = self.client.get(
