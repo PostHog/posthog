@@ -22,6 +22,32 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
 
 
 @receiver(post_save, sender=Integration)
+def record_slack_product_intent_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
+    """First Slack connection in a team -> record product intent for PostHog in Slack, so the product
+    push card stops advertising it and any active campaign closes as adopted. Re-auth uses
+    update_or_create (created=False), so this fires once per install. Best-effort — never break the
+    install if intent capture fails."""
+    if not created or instance.kind != "slack" or instance.created_by is None:
+        return
+
+    # Deferred: this receiver is wired from AppConfig.ready(), so keep model/schema imports lazy.
+    from posthog.models.product_intent.product_intent import ProductIntent  # noqa: PLC0415
+    from posthog.schema_enums import ProductIntentContext, ProductKey  # noqa: PLC0415
+
+    try:
+        ProductIntent.register(
+            team=instance.team,
+            product_type=ProductKey.POSTHOG_SLACK,
+            context=ProductIntentContext.SLACK_APP_CONNECTED,
+            user=instance.created_by,
+        )
+    except Exception:
+        import structlog  # noqa: PLC0415
+
+        structlog.get_logger(__name__).warning("slack_app_product_intent_failed", exc_info=True)
+
+
+@receiver(post_save, sender=Integration)
 def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
     """Fresh Slack install -> enqueue the #posthog-inbox onboarding Temporal workflow on commit (the
     enqueue runs inline; the workflow itself runs on a Temporal worker). Gated on ``channels:manage``.

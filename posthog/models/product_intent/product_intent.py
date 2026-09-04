@@ -253,6 +253,21 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         # At least one workflow needs to be active (not just drafted)
         return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
 
+    # Growth surfaces (Desktop, Slack, GitHub, Self-driving) are org-wide: one connection,
+    # acceptance, or acted-on report anywhere in the org means the whole org has adopted it.
+    # So these check org state rather than the single team behind this intent row.
+    def has_activated_posthog_slack(self) -> bool:
+        return organization_has_slack_app(self.team.organization_id)
+
+    def has_activated_posthog_github(self) -> bool:
+        return organization_has_github(self.team.organization_id)
+
+    def has_activated_posthog_desktop(self) -> bool:
+        return organization_accepted_desktop_beta_terms(self.team.organization_id)
+
+    def has_activated_self_driving(self) -> bool:
+        return organization_acted_on_signal(self.team.organization_id)
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         # If the intent is already activated, we don't need to check again
         if self.activated_at:
@@ -348,6 +363,56 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return product_intent
 
 
+# Org-wide adoption signals for the growth surfaces promoted by the product push card.
+# Local imports keep these product/model dependencies off the import path this module
+# loads during django.setup() (via posthog.models), the same reason the error-tracking
+# check defers its facade import.
+
+
+def organization_has_slack_app(organization_id: str | int) -> bool:
+    from posthog.models.integration.model import Integration  # noqa: PLC0415 — off the django.setup import path
+
+    return Integration.objects.filter(
+        team__organization_id=organization_id, kind=Integration.IntegrationKind.SLACK
+    ).exists()
+
+
+def organization_has_github(organization_id: str | int) -> bool:
+    from posthog.models.integration.model import Integration  # noqa: PLC0415 — off the django.setup import path
+
+    return Integration.objects.filter(
+        team__organization_id=organization_id, kind=Integration.IntegrationKind.GITHUB
+    ).exists()
+
+
+def organization_accepted_desktop_beta_terms(organization_id: str | int) -> bool:
+    # Through the facade: the acceptance model lives in the tasks product.
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — off the django.setup import path
+
+    return tasks_facade.get_desktop_beta_terms_acceptance(organization_id).is_desktop_beta_terms_accepted
+
+
+def organization_acted_on_signal(organization_id: str | int) -> bool:
+    # Through the facade: the report model lives in the signals product.
+    from products.signals.backend.facade import (
+        api as signals_facade,  # noqa: PLC0415 — off the django.setup import path
+    )
+
+    return signals_facade.organization_acted_on_report(organization_id)
+
+
+# Maps each growth-surface ProductKey to the org-wide check that decides whether the org
+# has adopted it. Consumed directly (by org id) where callers have no ProductIntent row —
+# e.g. product push selection, which must exclude orgs that adopted a surface before this
+# shipped and so have no intent row yet.
+SURFACE_ADOPTION_CHECKS: dict[str, Callable[[str | int], bool]] = {
+    ProductKey.POSTHOG_SLACK.value: organization_has_slack_app,
+    ProductKey.POSTHOG_GITHUB.value: organization_has_github,
+    ProductKey.POSTHOG_DESKTOP.value: organization_accepted_desktop_beta_terms,
+    ProductKey.SELF_DRIVING.value: organization_acted_on_signal,
+}
+
+
 # Dispatch for `check_and_update_activation`. Module-level so other systems can tell
 # which product keys have a concrete activation criterion (vs. intent-existence only)
 # without duplicating this list.
@@ -363,6 +428,10 @@ ACTIVATION_CHECKS: dict[str, Callable[[ProductIntent], bool]] = {
     "mcp_analytics": ProductIntent.has_activated_mcp_analytics,
     "metrics": ProductIntent.has_activated_metrics,
     "workflows": ProductIntent.has_activated_workflows,
+    ProductKey.POSTHOG_SLACK.value: ProductIntent.has_activated_posthog_slack,
+    ProductKey.POSTHOG_GITHUB.value: ProductIntent.has_activated_posthog_github,
+    ProductKey.POSTHOG_DESKTOP.value: ProductIntent.has_activated_posthog_desktop,
+    ProductKey.SELF_DRIVING.value: ProductIntent.has_activated_self_driving,
 }
 
 ACTIVATION_CHECK_PRODUCT_KEYS: frozenset[str] = frozenset(ACTIVATION_CHECKS)

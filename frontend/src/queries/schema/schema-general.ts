@@ -10112,11 +10112,15 @@ export enum ProductKey {
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     POSTHOG_AI_ONBOARDING = 'posthog_ai_onboarding',
+    POSTHOG_DESKTOP = 'posthog_desktop',
+    POSTHOG_GITHUB = 'posthog_github',
+    POSTHOG_SLACK = 'posthog_slack',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     PULSE = 'pulse',
     REVENUE_ANALYTICS = 'revenue_analytics',
     REVIEW_HOG = 'review_hog',
+    SELF_DRIVING = 'self_driving',
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
@@ -10261,6 +10265,12 @@ export enum ProductIntentContext {
 
     // Nav Panel Advertisement
     NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
+
+    // Growth surfaces (Desktop, Slack, GitHub, Self-driving) promoted by the product push card
+    SLACK_APP_CONNECTED = 'slack_app_connected',
+    GITHUB_INTEGRATION_CONNECTED = 'github_integration_connected',
+    DESKTOP_BETA_TERMS_ACCEPTED = 'desktop_beta_terms_accepted',
+    SIGNAL_REPORT_ACTED_ON = 'signal_report_acted_on',
 
     // Feature previews
     FEATURE_PREVIEW_ENABLED = 'feature_preview_enabled',

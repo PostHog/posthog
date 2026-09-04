@@ -27,4 +27,29 @@ class DesktopBetaTermsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, **kwargs) -> Response:
         user = cast(User, request.user)
         acceptance = tasks_facade.accept_desktop_beta_terms(self.organization.id, user.id)
+        self._record_desktop_product_intent(user)
         return Response(DesktopBetaTermsAcceptanceSerializer(acceptance).data)
+
+    def _record_desktop_product_intent(self, user: User) -> None:
+        """Record product intent for PostHog Desktop, so growth's product push stops advertising it
+        and closes an active Desktop campaign as adopted. Acceptance is org-wide; attribute the
+        intent to any team in the org (the growth surface check is org-scoped). Best-effort."""
+        from posthog.models.product_intent.product_intent import (
+            ProductIntent,  # noqa: PLC0415 — off the model import path
+        )
+        from posthog.schema_enums import ProductIntentContext, ProductKey  # noqa: PLC0415
+
+        team = self.organization.teams.first()
+        if team is None:
+            return
+        try:
+            ProductIntent.register(
+                team=team,
+                product_type=ProductKey.POSTHOG_DESKTOP,
+                context=ProductIntentContext.DESKTOP_BETA_TERMS_ACCEPTED,
+                user=user,
+            )
+        except Exception:
+            import structlog  # noqa: PLC0415
+
+            structlog.get_logger(__name__).warning("desktop_beta_product_intent_failed", exc_info=True)

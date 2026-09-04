@@ -10,19 +10,24 @@ import { navPanelProductPushAdLogic } from './navPanelProductPushAdLogic'
 
 export function NavPanelProductPushAd({ campaign }: { campaign: ProductPushCampaignApi }): JSX.Element | null {
     const logic = navPanelProductPushAdLogic({ campaign })
-    const { productInfo, display, shouldRender } = useValues(logic)
+    const { display, shouldRender, destination, label } = useValues(logic)
     const { reportAdClicked, reportAdDismissed } = useActions(logic)
 
-    if (!shouldRender || !productInfo) {
+    if (!shouldRender || !destination) {
         return null
     }
 
     return (
         <div className="w-full">
-            <Link to={productInfo.href} className="text-primary" onClick={() => reportAdClicked()}>
+            <Link
+                to={destination}
+                target={display.external ? '_blank' : undefined}
+                className="text-primary"
+                onClick={() => reportAdClicked()}
+            >
                 <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: `product-push-${campaign.id}` }}>
                     <AdvertisementCard
-                        title={productInfo.displayLabel ?? productInfo.path}
+                        title={label ?? ''}
                         text={campaign.reason_text || display.tagline}
                         hero={display}
                         onClose={() => reportAdDismissed()}

@@ -5048,6 +5048,11 @@
                 "label_replay_vision_observation",
                 "analyze_replay_vision_impact",
                 "suggest_replay_vision_tags",
+                "read_replay_vision_actions",
+                "update_replay_vision_action",
+                "delete_replay_vision_action",
+                "run_replay_vision_action",
+                "create_replay_vision_action",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -17266,60 +17271,6 @@
                 "ZAR",
                 "ZMW"
             ],
-            "type": "string"
-        },
-        "CustomBotDefinition": {
-            "additionalProperties": false,
-            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
-            "properties": {
-                "category": {
-                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "key": {
-                    "$ref": "#/definitions/CustomBotField",
-                    "description": "The event property this rule reads."
-                },
-                "matcher": {
-                    "$ref": "#/definitions/CustomBotMatcher"
-                },
-                "name": {
-                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
-                    "type": "string"
-                },
-                "pattern": {
-                    "description": "Matched against the property named by `key`.",
-                    "type": "string"
-                }
-            },
-            "required": ["name", "key", "pattern", "matcher", "id"],
-            "type": "object"
-        },
-        "CustomBotField": {
-            "description": "The event properties a project's own bot rule can match on.",
-            "enum": [
-                "$raw_user_agent",
-                "$ip",
-                "$lib",
-                "$host",
-                "$pathname",
-                "$current_url",
-                "$browser",
-                "$os",
-                "$browser_language",
-                "$screen_width",
-                "$screen_height",
-                "$geoip_country_code",
-                "$referrer",
-                "$referring_domain"
-            ],
-            "type": "string"
-        },
-        "CustomBotMatcher": {
-            "enum": ["contains", "regex", "cidr"],
             "type": "string"
         },
         "CustomChannelCondition": {
@@ -29792,12 +29743,6 @@
                 "convertToProjectTimezone": {
                     "type": "boolean"
                 },
-                "customBotDefinitions": {
-                    "items": {
-                        "$ref": "#/definitions/CustomBotDefinition"
-                    },
-                    "type": "array"
-                },
                 "customChannelTypeRules": {
                     "items": {
                         "$ref": "#/definitions/CustomChannelRule"
@@ -32253,10 +32198,6 @@
                         "type": "string"
                     },
                     "type": "array"
-                },
-                "sessionId": {
-                    "description": "Show logs for a given session ID",
-                    "type": "string"
                 },
                 "severityLevels": {
                     "items": {
@@ -40139,6 +40080,10 @@
                 "customer_analytics_viewed",
                 "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
+                "slack_app_connected",
+                "github_integration_connected",
+                "desktop_beta_terms_accepted",
+                "signal_report_acted_on",
                 "feature_preview_enabled",
                 "workflow_created",
                 "data_pipeline_created",
@@ -40213,7 +40158,6 @@
                 "llm_analytics",
                 "alerts",
                 "annotations",
-                "business_knowledge",
                 "cohorts",
                 "comments",
                 "conversations",
@@ -40251,12 +40195,15 @@
                 "pipeline_destinations",
                 "pipeline_transformations",
                 "platform_and_support",
-                "posthog_ai_onboarding",
+                "posthog_desktop",
+                "posthog_github",
+                "posthog_slack",
                 "product_analytics",
                 "product_tours",
                 "pulse",
                 "revenue_analytics",
                 "review_hog",
+                "self_driving",
                 "session_replay",
                 "replay_vision",
                 "site_apps",
@@ -49773,10 +49720,6 @@
                 "experiment_id": {
                     "$ref": "#/definitions/integer",
                     "description": "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
-                },
-                "in_session": {
-                    "description": "Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward.",
-                    "type": "boolean"
                 },
                 "variant": {
                     "description": "Narrow to persons exposed to this variant. Defaults to all of the experiment's variants.",

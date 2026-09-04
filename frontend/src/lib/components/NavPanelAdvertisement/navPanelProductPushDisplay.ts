@@ -13,8 +13,11 @@ import * as robot from '@posthog/brand/hoggies/png/robot'
 import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import * as wizard from '@posthog/brand/hoggies/png/wizard-1'
 import * as workflows from '@posthog/brand/hoggies/png/workflows'
+import { IconAI, IconGithub, IconLogomark } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { IconSlack } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -136,6 +139,39 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         Hoggie: HedgehogWorkflows,
         accentColor: 'var(--color-product-workflows-light)',
         tagline: 'Automate messages and actions triggered by what users actually do in your product.',
+    },
+    // Growth surfaces: not products in the catalog, so they carry their own label, destination, and
+    // logo (instead of a hoggie). See BLESSED/FALLBACK order in product_push/selection.py.
+    [ProductKey.SELF_DRIVING]: {
+        Icon: IconAI,
+        accentColor: 'var(--color-accent)',
+        tagline:
+            'Let PostHog watch your data and surface what needs attention - findings land in your inbox, ready to act on.',
+        label: 'PostHog Self-driving',
+        href: urls.inbox(),
+    },
+    [ProductKey.POSTHOG_SLACK]: {
+        Icon: IconSlack,
+        accentColor: 'var(--color-accent)',
+        tagline: 'Ask questions and get answers where your team already works. Add the PostHog app to Slack.',
+        label: 'PostHog in Slack',
+        href: 'https://posthog.com/slack',
+        external: true,
+    },
+    [ProductKey.POSTHOG_GITHUB]: {
+        Icon: IconGithub,
+        accentColor: 'var(--color-text-primary)',
+        tagline: 'Connect GitHub to tie commits, pull requests, and issues to what happens in your product.',
+        label: 'Connect GitHub',
+        href: urls.settings('environment-integrations', 'integration-github'),
+    },
+    [ProductKey.POSTHOG_DESKTOP]: {
+        Icon: IconLogomark,
+        accentColor: 'var(--color-accent)',
+        tagline: 'PostHog on your desktop - build, review, and ship with your product data right beside you.',
+        label: 'PostHog Desktop',
+        href: 'https://posthog.com/desktop',
+        external: true,
     },
 }
 

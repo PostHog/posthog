@@ -58,14 +58,24 @@ export interface HoggieOffset {
 }
 
 export interface ProductPushDisplay {
-    /** Hoggie illustration shown at the bottom of the promo card (a PNG, via `pngHoggie`) */
-    Hoggie: React.ComponentType<AssetSvgProps>
+    /** Hoggie illustration shown at the bottom of the promo card (a PNG, via `pngHoggie`). Mutually
+     * exclusive with `Icon` — a card shows one or the other. */
+    Hoggie?: React.ComponentType<AssetSvgProps>
+    /** Brand/product icon shown centered instead of a Hoggie. Growth surfaces (Desktop, Slack,
+     * GitHub, Self-driving) use their own logo rather than a hoggie. */
+    Icon?: React.ComponentType<{ className?: string }>
     /** Product brand color, used for the title and - mixed down - its highlight */
     accentColor: string
     /** Default promo copy, used when the campaign has no custom reason text */
     tagline: string
     /** Overrides the default framing of `Hoggie`, for illustrations that sit off-balance in their own bounds */
     hoggieOffset?: HoggieOffset
+    /** Card title for a growth surface, which has no product catalog entry to resolve a name from */
+    label?: string
+    /** Destination the card links to. Absolute URL for external surfaces, in-app path otherwise. */
+    href?: string
+    /** When true, `href` is external and the card opens it in a new tab */
+    external?: boolean
 }
 
 const DEFAULT_HOGGIE_OFFSET: Required<HoggieOffset> = { x: 50, y: 22 }
@@ -108,16 +118,23 @@ export function ProductHogHero({
                 {topRight}
             </div>
             <p className="mb-0 text-secondary">{text}</p>
-            {/* Pulled out of the card's horizontal padding so `x` is a share of the full card width */}
-            <div className="relative -mx-2 -mt-1 h-32">
-                {/* Oversized rather than nudged down, so the part `y` hides below the edge does not
-                    open an equal gap above the hog. */}
-                <hero.Hoggie
-                    className="absolute top-0 w-auto max-w-none"
-                    style={{ left: `${x}%`, height: `${100 / (1 - y / 100)}%`, transform: 'translateX(-50%)' }}
-                    aria-hidden="true"
-                />
-            </div>
+            {hero.Icon ? (
+                // Growth surfaces show their own logo centered instead of a hoggie running off the edge.
+                <div className="-mx-2 mt-1 flex h-20 items-center justify-center" aria-hidden="true">
+                    <hero.Icon className="text-[52px]" />
+                </div>
+            ) : hero.Hoggie ? (
+                // Pulled out of the card's horizontal padding so `x` is a share of the full card width
+                <div className="relative -mx-2 -mt-1 h-32">
+                    {/* Oversized rather than nudged down, so the part `y` hides below the edge does not
+                        open an equal gap above the hog. */}
+                    <hero.Hoggie
+                        className="absolute top-0 w-auto max-w-none"
+                        style={{ left: `${x}%`, height: `${100 / (1 - y / 100)}%`, transform: 'translateX(-50%)' }}
+                        aria-hidden="true"
+                    />
+                </div>
+            ) : null}
         </div>
     )
 }

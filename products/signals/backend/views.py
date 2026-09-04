@@ -61,9 +61,11 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -180,6 +182,10 @@ from products.tasks.backend.facade.repo_selection_types import RepoSelectionResu
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
+
+# Report states that mean a person deliberately acted on a Self-driving report (resolved it or
+# dismissed it). Reaching one records product intent for Self-driving.
+_SELF_DRIVING_ACTED_ON_STATES = ("resolved", "suppressed")
 tracer = trace.get_tracer(__name__)
 
 # `available_reviewers` returns every eligible org member in a single unpaginated payload.
@@ -2238,6 +2244,9 @@ class SignalReportViewSet(
             dismissal_note=data.get("dismissal_note"),
         )
 
+        if data["state"] in _SELF_DRIVING_ACTED_ON_STATES:
+            self._record_self_driving_intent(request)
+
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @extend_schema(
@@ -2442,6 +2451,24 @@ class SignalReportViewSet(
             content=content,
             attribution=self._request_attribution(),
         )
+
+    def _record_self_driving_intent(self, request: Request) -> None:
+        """Record product intent for Self-driving once a person acts on a report, so growth's product
+        push stops advertising it and closes an active Self-driving campaign as adopted. Called
+        outside the transition's atomic block because `register` emits analytics on the spot.
+        Best-effort — never fail the request over it."""
+        user = request.user
+        if not isinstance(user, User):
+            return
+        try:
+            ProductIntent.register(
+                team=self.team,
+                product_type=ProductKey.SELF_DRIVING,
+                context=ProductIntentContext.SIGNAL_REPORT_ACTED_ON,
+                user=user,
+            )
+        except Exception:
+            logger.warning("self_driving_product_intent_failed", exc_info=True)
 
     def _transition_report_state(
         self,
@@ -2669,6 +2696,9 @@ class SignalReportViewSet(
             dismissal_reason=dismissal_reason,
             dismissal_note=dismissal_note,
         )
+
+        if transitioned and target in _SELF_DRIVING_ACTED_ON_STATES:
+            self._record_self_driving_intent(request)
 
         return Response(
             {
