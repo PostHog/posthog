@@ -559,7 +559,9 @@ def _slack_actions(
 ) -> SlackActions | None:
     if destination.integration_id is None:
         return None
-    return SlackActions(integration_id=destination.integration_id, issue_id=inputs.issue_id)
+    return SlackActions(
+        integration_id=destination.integration_id, issue_id=inputs.issue_id, fingerprint=inputs.fingerprint
+    )
 
 
 def _maybe_edit_root(
