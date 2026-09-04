@@ -127,8 +127,8 @@ describe('scoutSuggestionsLogic', () => {
     let logic: ReturnType<typeof scoutSuggestionsLogic.build>
 
     function setSuggestionsFlag(enabled: boolean): void {
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS] : [], {
-            [FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS]: enabled,
+        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI] : [], {
+            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: enabled,
         })
     }
 

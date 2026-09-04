@@ -412,7 +412,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         // resolved per user, so two people on the same project can see different scouts tabs.
         suggestionsEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI],
         ],
         // A project that has never been scanned has nothing to show and no refresh worth offering,
         // so the roster and the empty state stay exactly as they were.

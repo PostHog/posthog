@@ -17,7 +17,7 @@ import { ScoutSuggestButton } from './ScoutSuggestButton'
 export function ScoutsRosterActions(): JSX.Element {
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const suggestionsEnabled = !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS]
+    const suggestionsEnabled = !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]
     return (
         <>
             <AskAboutScoutsMenu />
@@ -61,7 +61,7 @@ function AskAboutScoutsMenu(): JSX.Element {
     // Authoring a scout ends in a skill write, so it keeps the editor gate the standalone button had.
     const creationDisabledReason = useScoutCreateDisabledReason()
     const prompts: { label: string; chatType: ScoutChatType; disabledReason?: string }[] = [
-        ...(featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS]
+        ...(featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]
             ? [
                   {
                       label: 'Suggest a scout',
