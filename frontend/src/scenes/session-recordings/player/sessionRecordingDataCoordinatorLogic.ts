@@ -149,7 +149,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     AIEvents: RecordingEventType[] // eventsLogic
     sessionEventsData: RecordingEventType[] | null // eventsLogic
     sessionEventsDataLoading: boolean // eventsLogic
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined // eventsLogic
+    viewportForTimestamp: (timestamp: number, windowId?: number) => ViewportResolution | undefined // eventsLogic
     webVitalsEvents: RecordingEventType[] // eventsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     annotations: AnnotationType[] // metaLogic
