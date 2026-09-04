@@ -2,25 +2,19 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
 
-if TYPE_CHECKING:
-    from markdown_to_mrkdwn import SlackMarkdownConverter
-
-_SLACK_MRKDWN_CONVERTER: SlackMarkdownConverter | None = None
 SLACK_SECTION_TEXT_MAX_LEN = 2900
-
-# Matches a converter-emitted Slack angle token: `<dest>` or `<dest|label>`. Input `<`/`>`
-# are escaped before conversion, so any literal angle bracket here was produced by the converter.
-_SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
+# A Slack `markdown` block takes Markdown directly, and Slack budgets 12,000 characters across
+# every markdown block in one message. A message carries one, and the headroom covers the blocks
+# around it.
+SLACK_MARKDOWN_TEXT_MAX_LEN = 11500
 
 # A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack cannot
-# place an image mid-sentence and degrades the link badly either way: the mrkdwn converter emits a
-# `<chart:id|label>` token that `_defang_unsafe_slack_tokens` escapes into visible `&lt;…&gt;`, and
-# the excerpt path shows the raw `[label](chart:id)` syntax. So the link is reduced to its label
-# first; report delivery renders the charts as image blocks after the prose instead.
+# place an image mid-sentence, and the link degrades badly if left alone: `chart:` is no scheme a
+# reader can follow, so the label becomes a dead link in the prose. So the link is reduced to its
+# label first; report delivery renders the charts as image blocks after the prose instead.
 #
 # The shapes matched are the ones the inbox's markdown parse resolves and therefore draws a chart
 # for: any target rather than the id charset (a typo is just as unrenderable), all three CommonMark
@@ -78,7 +72,12 @@ def strip_chart_references(text: str) -> str:
 
 
 def escape_slack_mrkdwn(text: str) -> str:
-    """Neutralize Slack control syntax so untrusted text cannot inject mentions or links."""
+    """Neutralize Slack control syntax so untrusted text cannot inject mentions or links.
+
+    Safe to run over Markdown that Slack will render itself: the three control characters carry no
+    Markdown meaning, so emphasis, links, and tables come through untouched. Escaping `&` is what
+    stops an author writing `&lt;!here&gt;` and having the entity decode back into a live token.
+    A `>` blockquote does not survive, which is the price of the same rule."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -91,39 +90,11 @@ def is_safe_slack_http_url(value: object) -> bool:
     return not any(char in value for char in ("<", ">", "|"))
 
 
-def _defang_unsafe_slack_tokens(text: str) -> str:
-    """Render converter-created non-URL angle tokens as inert literal text."""
-
-    def _replace(match: re.Match[str]) -> str:
-        if is_safe_slack_http_url(match.group(1)):
-            return match.group(0)
-        return match.group(0).replace("<", "&lt;").replace(">", "&gt;")
-
-    return _SLACK_ANGLE_TOKEN_RE.sub(_replace, text)
-
-
-def _get_slack_mrkdwn_converter() -> SlackMarkdownConverter:
-    """Lazily import and cache the converter so it stays off the django.setup() path."""
-    global _SLACK_MRKDWN_CONVERTER
-    if _SLACK_MRKDWN_CONVERTER is None:
-        from markdown_to_mrkdwn import (
-            SlackMarkdownConverter,  # noqa: PLC0415 — keeps the dep off the app-registry startup path
-        )
-
-        _SLACK_MRKDWN_CONVERTER = SlackMarkdownConverter()
-    return _SLACK_MRKDWN_CONVERTER
-
-
-def markdown_to_slack_mrkdwn(text: str) -> str:
-    """Convert untrusted Markdown to Slack mrkdwn without allowing mention injection."""
-    return _defang_unsafe_slack_tokens(_get_slack_mrkdwn_converter().convert(escape_slack_mrkdwn(text)))
-
-
-def truncate_slack_section(text: str) -> str:
-    """Keep mrkdwn below Slack's 3000-character section limit with headroom."""
-    if len(text) <= SLACK_SECTION_TEXT_MAX_LEN:
+def truncate_slack_section(text: str, limit: int = SLACK_SECTION_TEXT_MAX_LEN) -> str:
+    """Keep text below the block's character limit with headroom."""
+    if len(text) <= limit:
         return text
-    return text[: SLACK_SECTION_TEXT_MAX_LEN - 1].rstrip() + "…"
+    return text[: limit - 1].rstrip() + "…"
 
 
 # A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
@@ -308,29 +279,29 @@ def _line_break_index(line: str, limit: int) -> int:
     return hard_cut if hard_cut > 0 else limit
 
 
-def chunk_slack_mrkdwn(text: str) -> list[str]:
-    """Split converted mrkdwn into chunks that each fit one Slack section, breaking on line ends.
+def chunk_slack_text(text: str, limit: int = SLACK_SECTION_TEXT_MAX_LEN) -> list[str]:
+    """Split text into chunks that each fit one Slack block, breaking on line ends.
 
     A line longer than the limit on its own breaks at the best boundary `_line_break_index` finds,
     so a report written as unbroken prose still reads as sentences. Returns no empty chunks, so the
-    tail of a long report reaches the channel instead of being clipped at the section cap."""
+    tail of a long report reaches the channel instead of being clipped at the block's cap."""
     text = text.strip()
     if not text:
         return []
-    if len(text) <= SLACK_SECTION_TEXT_MAX_LEN:
+    if len(text) <= limit:
         return [text]
     chunks: list[str] = []
     current = ""
     for line in text.split("\n"):
-        while len(line) > SLACK_SECTION_TEXT_MAX_LEN:
+        while len(line) > limit:
             if current:
                 chunks.append(current.rstrip())
                 current = ""
-            cut = _line_break_index(line, SLACK_SECTION_TEXT_MAX_LEN)
+            cut = _line_break_index(line, limit)
             chunks.append(line[:cut].rstrip())
             line = line[cut:]
         candidate = f"{current}\n{line}" if current else line
-        if len(candidate) > SLACK_SECTION_TEXT_MAX_LEN:
+        if len(candidate) > limit:
             if current:
                 chunks.append(current.rstrip())
             current = line
