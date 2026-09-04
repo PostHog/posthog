@@ -120,8 +120,9 @@ describe('PlayerSidebarExperimentsSection', () => {
         }
 
         const before = await exposureLink('Before start')
-        // A real anchor, not the grey span the out-of-window case used to render.
-        expect(before.tagName).toBe('A')
+        // An interactive control, not the grey span the out-of-window case used to render. Link with
+        // an onClick and no `to` renders a button.
+        expect(before.tagName).toBe('BUTTON')
         expect(before.textContent).toMatch(/^-\d/)
         expect((await exposureLink('Inside window')).textContent).toMatch(/^\d/)
         expect((await exposureLink('After end')).textContent).toMatch(/^\+\d/)
