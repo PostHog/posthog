@@ -1558,9 +1558,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 row_filters=inputs.row_filters,
                 # xmin state is read straight off the schema here (the generic `SourceInputs` stays
                 # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
+                # A reset deletes the Delta table before this read, so the cursor has to go with it:
+                # kept, the read covers only the window since the last run, and the overwrite
+                # collapses the table to that slice. The activity drops the incremental cursor on a
+                # reset for the same reason; the xmin cursor is dropped here because it is read here.
                 is_xmin=schema.is_xmin,
-                xmin_last_value=schema.xmin_last_value,
-                xmin_num_wraparound=schema.xmin_num_wraparound,
+                xmin_last_value=None if inputs.reset_pipeline else schema.xmin_last_value,
+                xmin_num_wraparound=None if inputs.reset_pipeline else schema.xmin_num_wraparound,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
             )
