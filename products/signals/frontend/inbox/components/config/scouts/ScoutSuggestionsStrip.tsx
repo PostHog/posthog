@@ -135,11 +135,10 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
     return (
         <div
             className={cn(
-                'grid grid-cols-1 gap-2 @2xl:grid-cols-2',
-                columns === 3 && '@3xl:grid-cols-3',
+                'grid grid-cols-1 gap-2',
                 // One card in a three-across grid stretches to a third of the row and reads as a
-                // gap where the other two should be, so a short batch keeps its cards narrow.
-                suggestions.length === 1 && 'max-w-md'
+                // gap where the other two should be, so a lone card keeps a single narrow column.
+                suggestions.length === 1 ? 'max-w-md' : ['@2xl:grid-cols-2', columns === 3 && '@3xl:grid-cols-3']
             )}
         >
             {suggestions.map((item) => (
