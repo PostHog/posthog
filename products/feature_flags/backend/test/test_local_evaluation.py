@@ -1097,6 +1097,38 @@ class TestLocalEvaluationBatch(BaseTest):
         assert str(referenced_cohort.pk) in results[team.id]["cohorts"]
         assert str(unreferenced_cohort.pk) not in results[team.id]["cohorts"]
 
+    @parameterized.expand(
+        [
+            ("active", {}, True),
+            ("disabled", {"active": False}, False),
+        ]
+    )
+    def test_batch_blanks_targeting_and_skips_cohorts_of_flags_an_sdk_cannot_evaluate(
+        self, name: str, flag_state: dict, evaluable: bool
+    ) -> None:
+        # The entry itself has to stay either way: a live flag depending on this one resolves it
+        # to false, and dropping it collapses that dependency chain instead.
+        team = self._create_team_with_project(f"Blanking Team {name}")
+        cohort = Cohort.objects.create(
+            team=team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+            name=f"cohort-of-{name}-flag",
+        )
+        targeting = {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]}
+        flag = FeatureFlag.objects.create(team=team, key=f"{name}-flag", filters=targeting, **flag_state)
+
+        results = _get_flags_response_for_local_evaluation_batch([team])
+
+        by_key = {f["key"]: f for f in results[team.id]["flags"]}
+        assert flag.key in by_key
+        assert by_key[flag.key]["filters"] == (targeting if evaluable else {"groups": []})
+        assert (str(cohort.pk) in results[team.id]["cohorts"]) is evaluable
+
     def test_batch_static_cohort_excluded(self):
         """Static cohorts cannot be locally evaluated and should not appear in the response."""
         team = self._create_team_with_project("Static Cohort Team")

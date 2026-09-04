@@ -840,13 +840,14 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict, *, tolerate_blanked_f
     tolerate. See plans/verify-flags-cache-loose-comparison.md.
 
     ``tolerate_blanked_filters`` exempts ``filters`` when both sides agree the flag
-    is unevaluable. Only the ``flags.json`` writers blank those filters, and entries
+    is unevaluable. The ``flags.json`` writers blank those filters, and entries
     predating that still hold the full blob while the two writers deploy
     independently, so the blob and ``{"groups": []}`` both occur and the matcher
     ignores either one. It is opt-in because ``local_evaluation`` shares this
-    function for ``flags_with_cohorts.json``, which has a single writer and no
-    blanking: there any ``filters`` difference is real drift worth repairing. A
-    disagreement about ``active`` itself is reported in both modes.
+    function for ``flags_with_cohorts.json``, which blanks too but has a single
+    writer: there a full blob is either real drift or an entry predating the
+    blanking, and repairing it is what we want either way. A disagreement about
+    ``active`` itself is reported in both modes.
     """
     field_diffs = []
 
