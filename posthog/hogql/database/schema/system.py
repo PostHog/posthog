@@ -1025,20 +1025,39 @@ autoresearch_pipelines: PostgresTable = PostgresTable(
     name="autoresearch_pipelines",
     postgres_table_name="autoresearch_autoresearchpipeline",
     access_scope="autoresearch",
+    description="Autoresearch pipelines; one row per standing prediction question (a target event, a population, and a horizon).",
     fields={
-        "id": UUIDDatabaseField(name="id"),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "name": StringDatabaseField(name="name"),
-        "description": StringDatabaseField(name="description"),
-        "target_event": StringDatabaseField(name="target_event"),
-        "horizon_days": IntegerDatabaseField(name="horizon_days"),
-        "status": StringDatabaseField(name="status"),
-        "iteration_budget": IntegerDatabaseField(name="iteration_budget"),
-        "iteration_budget_remaining": IntegerDatabaseField(name="iteration_budget_remaining"),
-        "output_person_property": StringDatabaseField(name="output_person_property"),
-        "last_scored_at": DateTimeDatabaseField(name="last_scored_at", nullable=True),
-        "created_at": DateTimeDatabaseField(name="created_at"),
-        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "id": UUIDDatabaseField(name="id", description="Pipeline UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", description="Team the pipeline belongs to."),
+        "name": StringDatabaseField(name="name", description="Human-readable name."),
+        "description": StringDatabaseField(name="description", description="Free-text description; blank when unset."),
+        "target_event": StringDatabaseField(
+            name="target_event", description="Event the pipeline predicts, for example '$pageview'."
+        ),
+        "horizon_days": IntegerDatabaseField(
+            name="horizon_days", description="Number of days ahead the prediction looks for the target event."
+        ),
+        "status": StringDatabaseField(
+            name="status",
+            description="One of draft, bootstrapping, running, converged, paused, archived.",
+        ),
+        "iteration_budget": IntegerDatabaseField(
+            name="iteration_budget", description="Maximum training iterations the agent loop may spend."
+        ),
+        "iteration_budget_remaining": IntegerDatabaseField(
+            name="iteration_budget_remaining",
+            nullable=True,
+            description="Training iterations still available to spend (NULL when unset).",
+        ),
+        "output_person_property": StringDatabaseField(
+            name="output_person_property",
+            description="Person property the champion model's score is written to; blank when unset.",
+        ),
+        "last_scored_at": DateTimeDatabaseField(
+            name="last_scored_at", nullable=True, description="When inference last ran (NULL before the first run)."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the pipeline was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the pipeline was last modified."),
     },
 )
 
