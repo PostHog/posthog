@@ -509,6 +509,33 @@ class TestExternalTicketAPI(BaseTest):
 
         self.assertEqual(self._get_first_customer_message_text(), expected)
 
+    @parameterized.expand([("email",), ("slack",), ("teams",)])
+    def test_get_ticket_first_message_keeps_backslashes_for_non_widget_channels(self, channel_source):
+        # Only the widget editor escapes the customer's punctuation on input. On other channels a
+        # backslash is the customer's own, so a regex or a UNC path must survive the preview intact.
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id=f"user-{channel_source}-1",
+            channel_source=channel_source,
+            status=Status.NEW,
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Match \\. and path \\\\server\\share",
+            item_context={"author_type": "customer"},
+        )
+
+        response = self.client.get(
+            f"/api/conversations/external/ticket/{ticket.id}",
+            {"include_first_customer_message_text": "true"},
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_customer_message_text"], "Match \\. and path \\\\server\\share")
+
     def test_get_ticket_first_message_keeps_bracketed_prose_in_a_body_long_enough_to_cut(self):
         # Only a body past the scan window reaches the severed-attachment strip, so a shorter
         # message cannot show whether that strip leaves a customer's own brackets alone.
