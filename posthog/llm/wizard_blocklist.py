@@ -16,6 +16,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
+from posthog.models.team.team import Team
 from posthog.scopes import PRIVILEGED_SCOPES
 
 logger = structlog.get_logger(__name__)
@@ -117,9 +118,21 @@ def _match_contexts(organization_ids: Iterable[str], team_ids: Iterable[int]) ->
         return [(organization_id, team_id) for team_id in teams] or [(organization_id, None)]
     if not teams:
         return [(organization_id, None) for organization_id in organizations]
-    # Which team sits in which organization is not on the credential, so ask about
-    # each alone rather than inventing a pair the credential never granted.
-    return [(organization_id, None) for organization_id in organizations] + [("", team_id) for team_id in teams]
+    # Which team sits in which organization is not on the credential, so read it
+    # rather than pairing every organization with every team, which would ban a
+    # combination the credential never granted.
+    owners = _team_organizations(teams)
+    contexts = [(owners.get(team_id, ""), team_id) for team_id in teams]
+    paired = {organization_id for organization_id, _ in contexts}
+    return contexts + [(organization_id, None) for organization_id in organizations if organization_id not in paired]
+
+
+def _team_organizations(team_ids: list[int]) -> dict[int, str]:
+    """The organization owning each team, so a condition naming both still matches."""
+    return {
+        team_id: str(organization_id)
+        for team_id, organization_id in Team.objects.filter(id__in=team_ids).values_list("id", "organization_id")
+    }
 
 
 def wizard_identity_blocked(

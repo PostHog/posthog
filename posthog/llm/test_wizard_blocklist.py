@@ -1,7 +1,15 @@
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.llm.wizard_blocklist import blocklist_flag_defined, blocklist_properties, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import (
+    _team_organizations,
+    blocklist_flag_defined,
+    blocklist_properties,
+    wizard_identity_blocked,
+)
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 
 
 class TestBlocklistProperties:
@@ -201,25 +209,47 @@ class TestMatchContexts:
 
         assert blocked is True
 
-    def test_several_organizations_and_teams_ask_each_alone(self):
-        # Which team belongs to which organization is not on the credential, so no
-        # pair it never granted is invented.
+    def test_several_organizations_and_teams_pair_each_team_with_its_owner(self):
+        # A condition naming an organization and a team together only matches while
+        # they arrive in one question, and the cartesian would ban a combination the
+        # credential never granted.
         seen = []
 
         def record(_flag, _distinct_id, *, person_properties, **_kwargs):
             seen.append((person_properties["organization_id"], person_properties["team_id"]))
             return False
 
-        with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=record):
-            wizard_identity_blocked(
-                distinct_id="d1",
-                email="22@example.com",
-                organization_ids=["org_1", "org_2"],
-                team_ids=[7, 8],
-                surface="revoke_sweep",
-            )
+        with patch("posthog.llm.wizard_blocklist._team_organizations", return_value={7: "org_1", 8: "org_2"}):
+            with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=record):
+                wizard_identity_blocked(
+                    distinct_id="d1",
+                    email="22@example.com",
+                    organization_ids=["org_1", "org_2"],
+                    team_ids=[7, 8],
+                    surface="revoke_sweep",
+                )
 
-        assert seen == [("org_1", ""), ("org_2", ""), ("", "7"), ("", "8")]
+        assert seen == [("org_1", "7"), ("org_2", "8")]
+
+    def test_an_organization_no_team_accounts_for_is_still_asked_about(self):
+        seen = []
+
+        def record(_flag, _distinct_id, *, person_properties, **_kwargs):
+            seen.append((person_properties["organization_id"], person_properties["team_id"]))
+            return False
+
+        with patch("posthog.llm.wizard_blocklist._team_organizations", return_value={7: "org_1"}):
+            with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=record):
+                wizard_identity_blocked(
+                    distinct_id="d1",
+                    email="22@example.com",
+                    organization_ids=["org_1", "org_2"],
+                    team_ids=[7, 8],
+                    surface="revoke_sweep",
+                )
+
+        # org_2 is reachable through the credential but owns no scoped team.
+        assert seen == [("org_1", "7"), ("", "8"), ("org_2", "")]
 
     def test_one_outcome_is_recorded_per_check_not_per_context(self):
         with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", return_value=False):
@@ -246,3 +276,18 @@ class TestImmutableMatchKey:
             )
 
         assert blocked is True
+
+
+class TestTeamOrganizations(APIBaseTest):
+    def test_each_team_resolves_to_the_organization_that_owns_it(self):
+        # The pairing is only correct while this reads real ownership; a credential
+        # carries the teams but never says which organization each one sits in.
+        other_organization = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_organization, name="Other team")
+
+        owners = _team_organizations([self.team.id, other_team.id])
+
+        assert owners == {
+            self.team.id: str(self.team.organization_id),
+            other_team.id: str(other_organization.id),
+        }
