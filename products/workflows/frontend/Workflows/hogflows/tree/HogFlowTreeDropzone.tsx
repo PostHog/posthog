@@ -34,7 +34,7 @@ export function HogFlowTreeDropzone({
             {!active || isNoOpTarget ? (
                 showConnector && (
                     <svg
-                        className="h-full w-4 text-muted-foreground"
+                        className="h-full w-4 text-muted-foreground opacity-60"
                         viewBox="0 0 16 28"
                         fill="none"
                         aria-hidden="true"
