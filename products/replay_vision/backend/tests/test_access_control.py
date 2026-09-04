@@ -410,8 +410,8 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
 
     def test_dock_read_scopes_every_observation_query_to_the_session(self) -> None:
         # The experiment-access lookup runs before the row read, so it must carry the session_id
-        # predicate too. If it doesn't, it scans the team's whole observation history and
-        # rlo_team_session_idx can't serve it. Assert every observation-table read is session-scoped.
+        # predicate too. If it doesn't, it scans the team's whole observation history.
+        # Assert every observation-table read is session-scoped.
         self._set_resource_default("replay_scanner", "editor")
         self._set_resource_default("session_recording", "editor")
         scanner = self._create_scanner(name="dock")

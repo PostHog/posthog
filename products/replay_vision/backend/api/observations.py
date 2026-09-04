@@ -1212,9 +1212,9 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # retargeted scanner can't surface historical rows the caller can't access.
         readable_scanner_ids = readable_observation_scanner_ids(self.user_access_control, self.team_id)
         queryset = queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
-        # Scope to the session before the experiment gate runs: the replay page always has a session, and
-        # filtering session_id first lets both the access lookup and the row read probe rlo_team_session_idx
-        # instead of scanning the team's observation history. A bare list would scan that whole history.
+        # Scope to the session before the experiment gate runs: the replay page always has a session, so
+        # filtering session_id first keeps the access lookup off the team's whole observation history.
+        # A bare list would scan that history.
         if self.action == "list":
             session_id = self.request.query_params.get("session_id")
             if not session_id:
