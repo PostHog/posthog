@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconClock, IconCopy, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
@@ -9,6 +9,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -53,6 +54,13 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                 {!isNewCohort && cohortIdNumber !== undefined && (
                     <>
                         <SceneMenuBarSubMenu label="Create">
+                            <SceneMenuBarItem
+                                onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
+                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
+                            >
+                                <IconSend />
+                                Message this cohort
+                            </SceneMenuBarItem>
                             <SceneMenuBarAddToNotebook
                                 dataAttrKey={RESOURCE_TYPE}
                                 notebookSelectButtonProps={{
