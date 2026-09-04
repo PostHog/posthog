@@ -940,6 +940,17 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    signal_report_discussion_question = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        max_length=4_000,
+        help_text=(
+            "Question to forward to the signal report's scout when creating a discussion task. "
+            "Send an empty string when there is no question. Omit only for older clients that embed "
+            "the question in the task description. Not persisted on the task."
+        ),
+    )
     naming_source = serializers.CharField(
         required=False,
         allow_blank=True,

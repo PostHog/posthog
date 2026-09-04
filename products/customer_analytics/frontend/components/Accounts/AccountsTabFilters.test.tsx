@@ -114,7 +114,31 @@ describe('AccountsTabFilters', () => {
     it('renders the "Assigned to" picker with its default label', () => {
         renderFilters()
 
-        expect(screen.getByText('Assigned to anyone')).toBeInTheDocument()
+        // Default shows every account regardless of assignment.
+        expect(screen.getByText('All accounts')).toBeInTheDocument()
+    })
+
+    it('the assignment dropdown offers the three mutually exclusive statuses', () => {
+        renderFilters()
+
+        fireEvent.click(screen.getByText('All accounts'))
+
+        const labels = ['Unassigned only', 'Assigned to anyone', 'All assignment statuses']
+        for (const label of labels) {
+            expect(screen.getByText(label)).toBeInTheDocument()
+        }
+    })
+
+    it.each([
+        ['Unassigned only', 'unassigned'],
+        ['Assigned to anyone', 'assigned'],
+    ])('selecting "%s" sets the canonical assignment status', (label, status) => {
+        renderFilters()
+
+        fireEvent.click(screen.getByText('All accounts'))
+        fireEvent.click(screen.getByText(label))
+
+        expect(logic.values.assignmentStatus).toBe(status)
     })
 
     // Regression: the picker must summarize a URL-restored filter from the id count
@@ -125,14 +149,14 @@ describe('AccountsTabFilters', () => {
         renderFilters()
 
         expect(screen.getByText('Assigned to 2 people')).toBeInTheDocument()
-        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+        expect(screen.queryByText('All accounts')).not.toBeInTheDocument()
     })
 
-    it('labels the assigned-to picker "Unassigned" when unassigned-only is active', () => {
-        logic.actions.setAllRolesUnassigned(true)
+    it('labels the assigned-to picker "Unassigned only" when that status is active', () => {
+        logic.actions.setAssignmentStatus('unassigned')
         renderFilters()
 
-        expect(screen.getByText('Unassigned')).toBeInTheDocument()
-        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+        expect(screen.getByText('Unassigned only')).toBeInTheDocument()
+        expect(screen.queryByText('All accounts')).not.toBeInTheDocument()
     })
 })
