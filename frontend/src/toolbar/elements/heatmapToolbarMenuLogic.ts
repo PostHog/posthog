@@ -19,14 +19,18 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { createSliceYielder } from 'lib/utils/async'
 import { createVersionChecker } from 'lib/utils/semver'
 
 import {
     DOMIndex,
     buildDOMIndex,
+    chainConsistencyProperties,
     hasNonToolbarShadowRoots,
     matchEventToElementUsingIndex,
     matchEventToElementUsingSelectors,
+    matchIsChainConsistent,
 } from '~/toolbar/elements/domElementIndex'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -259,18 +263,6 @@ export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
 // the server re-runs the full aggregation for any offset, so one big scan costs the same as
 // a page and can't miss rows that shifted across page boundaries between scans
 const ELEMENT_STATS_AUTO_LOAD_LIMIT = 50000
-
-function yieldToMain(): Promise<void> {
-    return new Promise((resolve) => {
-        if ('scheduler' in window && typeof (window as any).scheduler?.yield === 'function') {
-            ;(window as any).scheduler.yield().then(resolve)
-        } else if (typeof (window as any).requestIdleCallback === 'function') {
-            ;(window as any).requestIdleCallback(() => resolve(), { timeout: 50 })
-        } else {
-            setTimeout(resolve, 0)
-        }
-    })
-}
 
 export type ClickmapProcessingTrigger = 'initial' | 'auto-load' | 'pagination' | 'refresh' | 'toggle'
 
@@ -1056,7 +1048,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         processElements: async ({ trigger }, breakpoint) => {
-            const SLICE_BUDGET_MS = 10
             const startedAt = performance.now()
 
             const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, heatmapAreaFilter } =
@@ -1084,16 +1075,19 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 cache as ElementProcessingCache,
                 href
             )
+            const useDiscriminators = !!toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_CLICKMAP_DISCRIMINATORS)
             const eventsToProcess = elementStats.results
             const totalEvents = eventsToProcess.length
 
             const matchedElementByIdentity = (cache as ElementProcessingCache).matchedElementByIdentity
             const allTrimmedElements: CountedHTMLElement[] = []
+            let consistentClicks = 0
+            let inconsistentClicks = 0
             let indexMatchedCount = 0
             let fallbackMatchedCount = 0
             let matchCacheHitCount = 0
             let completed = false
-            let sliceStart = performance.now()
+            const maybeYield = createSliceYielder()
 
             try {
                 for (let i = 0; i < totalEvents; i++) {
@@ -1117,7 +1111,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                               }
                             : null
                     } else {
-                        matched = matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex)
+                        matched = matchEventToElementUsingIndex(event, domIndex, {
+                            dataAttributes,
+                            matchLinksByHref,
+                            useDiscriminators,
+                        })
                         if (matched) {
                             indexMatchedCount += 1
                         } else {
@@ -1139,6 +1137,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     if (matched) {
+                        if (matchIsChainConsistent(matched.element, event.elements, domIndex)) {
+                            consistentClicks += event.count
+                        } else {
+                            inconsistentClicks += event.count
+                        }
                         const trimmed = trimElement(matched.element, { cursorPointerCache })
                         // the server already filters chains by the area selector, but chains can
                         // match DOM nodes outside the chosen area (stale markup, repeated
@@ -1155,11 +1158,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         }
                     }
 
-                    if (performance.now() - sliceStart > SLICE_BUDGET_MS) {
-                        actions.setProcessingProgress(i + 1, totalEvents)
-                        await yieldToMain()
+                    if (await maybeYield(() => actions.setProcessingProgress(i + 1, totalEvents))) {
                         breakpoint()
-                        sliceStart = performance.now()
                     }
                 }
 
@@ -1183,6 +1183,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     trigger,
                     cache_hit: cacheHit,
                     completed,
+                    ...chainConsistencyProperties({
+                        useDiscriminators,
+                        consistentClicks,
+                        inconsistentClicks,
+                        matchedClicks: allTrimmedElements.reduce((total, element) => total + element.count, 0),
+                        totalClicks: eventsToProcess.reduce((total, row) => total + row.count, 0),
+                    }),
                 })
             }
         },

@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 from rest_framework import status
 
 from posthog.models.team import Team
+from posthog.test.insight_queries import default_pageview_query
 
 from products.dashboards.backend.widget_registry import DashboardWidgetType
 
@@ -149,8 +150,9 @@ class DashboardAPI:
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data and "query" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        # Writing an insight needs a query, so a test with nothing to say about the definition
+        # still gets one.
+        data.setdefault("query", default_pageview_query())
 
         response = self.client.post(
             f"/api/projects/{team_id}/insights",

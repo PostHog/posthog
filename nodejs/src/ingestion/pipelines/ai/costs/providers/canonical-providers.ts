@@ -1,10 +1,11 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-02 10:05:31 UTC
+// Generated at: 2026-09-03 20:02:47 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'aion-labs'
     | 'akashml-bf16'
+    | 'akashml-fp4'
     | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-fast'
@@ -73,7 +74,6 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -124,7 +124,6 @@ export type CanonicalProvider =
     | 'morph-fast'
     | 'morph-fp4'
     | 'morph-fp8'
-    | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi'

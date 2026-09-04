@@ -80,7 +80,7 @@ jest.mock('scenes/urls', () => ({
     ...jest.requireActual('scenes/urls'),
     urls: {
         ...jest.requireActual('scenes/urls').urls,
-        dashboardTextTile: () => '/dashboard/5/text/1',
+        dashboardTile: () => '/dashboard/5/tiles/1/text',
     },
 }))
 
@@ -114,7 +114,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
     },
 }))
 
-jest.mock('./items/DashboardTextItem', () => ({
+jest.mock('products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem', () => ({
     DashboardTextItem: ({ tile, showResizeHandles }: { tile: { id: number }; showResizeHandles: boolean }) => (
         <div
             data-attr="text-card"

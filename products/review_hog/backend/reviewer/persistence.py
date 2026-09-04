@@ -27,6 +27,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -46,7 +47,16 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.constants import ReviewArm, draw_review_arm, resolve_review_arm
+from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_REVIEW_ARM,
+    HUMAN_TRIGGER_SOURCES,
+    REVIEW_ARMS_BY_TIER,
+    ReviewArm,
+    ReviewTier,
+    is_below_human_tier,
+    resolve_review_arm,
+    select_review_tier,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
@@ -54,6 +64,7 @@ from products.review_hog.backend.reviewer.models.perspective_selection import Pe
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
+from products.signals.backend.enums import ReportPriority
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +77,8 @@ def upsert_review_report(
     pr_metadata: PRMetadata,
     signal_report_id: str | None = None,
     trigger_source: str | None = None,
+    signal_priority: ReportPriority | None = None,
+    lift_tier_on_human_trigger: bool = False,
 ) -> str:
     """Create or fetch the living report for this review target and return its id.
 
@@ -77,6 +90,14 @@ def upsert_review_report(
     turn. Provenance (`signal_report_id`, `trigger_source`) is stamped on create; on update
     `signal_report_id` is only filled when missing and `trigger_source` is never overwritten — a
     label re-trigger of an inbox PR must not erase where the report came from, nor vice versa.
+
+    The review tier (and with it the reviewer arm) is decided on create from the same provenance:
+    a report created with a Signals link is an agent PR and routes by `signal_priority`; anything
+    else is a person's PR. It stays for the report's life with one exception: a person's trigger
+    (`HUMAN_TRIGGER_SOURCES`) on a report in a cheaper tier lifts it to the human tier, for that
+    turn and every later one. Never the other way round. Only a review turn asks for the lift
+    (`lift_tier_on_human_trigger`): the resolution stage upserts the same row under the person's
+    trigger too, and a resolve-only request buys nobody a stronger review.
     Goes through `for_team` because the orchestrator runs outside request context and `ReviewReport`
     is fail-closed.
     """
@@ -87,9 +108,14 @@ def upsert_review_report(
             qs, repository=repository, pr_number=pr_number, head_branch=pr_metadata.head_branch
         )
         if report is None:
-            # The experiment arm is drawn exactly once, here: the update path below never touches
-            # these fields, so every later turn of the report reviews on the same model.
-            arm = draw_review_arm()
+            tier = select_review_tier(agent_pr=signal_report_id is not None, signal_priority=signal_priority)
+            if tier is ReviewTier.AGENT_UNPRIORITIZED:
+                logger.warning(
+                    "Signal report %s has no readable priority judgment; reviewing %s#%s at full strength",
+                    signal_report_id,
+                    repository,
+                    pr_number,
+                )
             create_kwargs: dict[str, object] = {
                 "team_id": team_id,
                 "repository": repository,
@@ -100,10 +126,8 @@ def upsert_review_report(
                 "author_login": pr_metadata.author or None,
                 "status": ReviewReport.Status.ACTIVE,
                 "signal_report_id": signal_report_id,
-                "review_runtime_adapter": arm.runtime_adapter.value,
-                "review_model": arm.model,
-                "review_reasoning_effort": arm.reasoning_effort.value,
-                "review_initial_permission_mode": arm.initial_permission_mode,
+                "review_signal_priority": signal_priority.value if signal_priority is not None else None,
+                **_review_tier_fields(team_id, tier),
             }
             if trigger_source is not None:
                 create_kwargs["trigger_source"] = trigger_source
@@ -136,8 +160,74 @@ def upsert_review_report(
             updates["author_login"] = pr_metadata.author
         if report.signal_report_id is None and signal_report_id is not None:
             updates["signal_report_id"] = signal_report_id
+        persisted_tier = _parse_persisted_tier(report.review_tier)
+        if (
+            lift_tier_on_human_trigger
+            and trigger_source in HUMAN_TRIGGER_SOURCES
+            and persisted_tier is not None
+            and is_below_human_tier(persisted_tier)
+        ):
+            # Accepted cost of the lift: this turn treats the cheap turn's findings as already
+            # covered, the same as any re-turn. Rare enough (a person asking about an agent PR)
+            # that quality for the person wins over a clean re-review.
+            updates.update(_review_tier_fields(team_id, ReviewTier.HUMAN))
         qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
+
+
+def _parse_persisted_tier(value: str | None) -> ReviewTier | None:
+    """The stored tier as a `ReviewTier`, or None if it is empty or a value this deploy doesn't know.
+
+    A tier a newer deploy wrote must not crash an older deploy's upsert, so an unparseable value
+    degrades to None with a warning instead of raising — the same degrade-don't-crash contract the
+    arm read (`resolve_review_arm`) and the artefact reads (`load_chunk_set`, `_load_working_state`)
+    already follow. This read runs on every update-path upsert, so a raise would fail the turn (and
+    its retries) before the review starts. Degrading to None only skips the human-trigger lift for
+    that turn; the persisted tier column is left untouched.
+    """
+    if not value:
+        return None
+    try:
+        return ReviewTier(value)
+    except ValueError:
+        logger.warning("Unknown persisted review tier %r; skipping the human-trigger lift this turn", value)
+        return None
+
+
+def lift_review_tier_for_joined_trigger(*, team_id: int, repository: str, pr_number: int) -> bool:
+    """Lift a report in a cheaper tier to `human` when a person's trigger joins its running review.
+
+    A same-id start joins the in-flight turn (`USE_EXISTING`), so the trigger's source never reaches
+    the fetch upsert and the in-turn lift cannot fire. Written directly instead: the turn's remaining
+    units load the arm per unit, so they already run at human strength, and every later turn does.
+    Returns whether a lift happened.
+    """
+    qs = ReviewReport.objects.for_team(team_id)
+    report = qs.filter(repository__iexact=repository, pr_number=pr_number).first()
+    if report is None:
+        return False
+    persisted_tier = _parse_persisted_tier(report.review_tier)
+    if persisted_tier is None or not is_below_human_tier(persisted_tier):
+        return False
+    qs.filter(pk=report.pk).update(**_review_tier_fields(team_id, ReviewTier.HUMAN))
+    return True
+
+
+def _review_tier_fields(team_id: int, tier: ReviewTier) -> dict[str, object]:
+    """The tier column plus the arm bundle a report placed in `tier` reviews on.
+
+    Tiered arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfood gate. Other teams
+    keep the single default arm but still record their tier, so the label stays truthful and the
+    tiers can be compared on their traffic before the rollout widens.
+    """
+    arm = REVIEW_ARMS_BY_TIER[tier] if team_id in settings.REVIEWHOG_TEAM_IDS else DEFAULT_REVIEW_ARM
+    return {
+        "review_tier": tier.value,
+        "review_runtime_adapter": arm.runtime_adapter.value,
+        "review_model": arm.model,
+        "review_reasoning_effort": arm.reasoning_effort.value,
+        "review_initial_permission_mode": arm.initial_permission_mode,
+    }
 
 
 def load_review_arm(*, team_id: int, report_id: str) -> ReviewArm:

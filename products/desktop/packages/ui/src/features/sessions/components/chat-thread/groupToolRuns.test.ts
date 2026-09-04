@@ -1,3 +1,4 @@
+import { posthogToolMeta } from "@posthog/shared";
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { describe, expect, it } from "vitest";
 import { groupToolRuns } from "./ChatThread";
@@ -75,5 +76,49 @@ describe("groupToolRuns", () => {
       "session_update",
       "session_update",
     ]);
+  });
+
+  it.each([
+    ["Claude initial call", true],
+    ["Pi resolved call", false],
+  ])("keeps action buttons visible from the %s metadata", (_, initial) => {
+    const action = toolItem("action", {
+      ...(initial
+        ? {
+            _meta: {
+              claudeCode: {
+                toolName: "mcp__posthog-code-tools__show_actions",
+              },
+            },
+          }
+        : {}),
+    });
+    if (!initial) {
+      action.turnContext.toolCalls.set("action", {
+        toolCallId: "action",
+        title: "action",
+        kind: "execute",
+        status: "completed",
+        _meta: posthogToolMeta({
+          toolName: "mcp__posthog-code-tools__show_actions",
+          mcp: { server: "posthog-code-tools", tool: "show_actions" },
+        }),
+      });
+    }
+
+    const out = groupToolRuns([
+      toolItem("before-1"),
+      toolItem("before-2"),
+      action,
+      toolItem("after-1"),
+      toolItem("after-2"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+      "tool_group",
+    ]);
+    expect(out[1]).toMatchObject({ id: "action" });
   });
 });

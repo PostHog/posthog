@@ -105,7 +105,7 @@ export interface TaskInputNavigationOptions {
   initialContent?: EditorContent;
   /** Pending-prompt record key being recovered; the composer clears it once applied. */
   recoveredFromKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   /**
@@ -145,7 +145,7 @@ export function openTaskInput(
     !!options.initialPrompt ||
     !!options.initialContent ||
     !!options.recoveredFromKey ||
-    !!options.initialCloudRepository ||
+    options.initialCloudRepository !== undefined ||
     !!options.initialModel ||
     !!options.initialMode ||
     !!options.reportAssociation;
