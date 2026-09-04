@@ -84,7 +84,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
             <LemonDivider className="my-0" />
             <div className="flex flex-col gap-3 py-4" data-attr="account-rail-properties">
                 <div className="flex items-center gap-2 px-4">
-                    <span className="text-xxs font-semibold uppercase tracking-wider text-secondary">Properties</span>
+                    <span className="secondary text-secondary">Properties</span>
                     {!configurationLoading && !configurationLoadFailed && pinnedPropertyCount > 0 ? (
                         <LemonButton
                             size="xsmall"
