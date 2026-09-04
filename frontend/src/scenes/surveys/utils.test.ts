@@ -1184,6 +1184,37 @@ describe('survey utils', () => {
             expect(query!.match(/argMaxIf\(q0_raw/g)).toHaveLength(1)
         })
 
+        it.each([
+            ['rating', { id: 'q-rating', type: SurveyQuestionType.Rating, question: 'How was it?' }],
+            ['open', { id: 'q-open', type: SurveyQuestionType.Open, question: 'Why?' }],
+            [
+                'required single choice',
+                {
+                    id: 'q-choice',
+                    type: SurveyQuestionType.SingleChoice,
+                    question: 'Pick one',
+                    choices: ['a', 'b'],
+                },
+            ],
+        ])('unrolls a lone %s question without concatenating a single array', (_type, question) => {
+            const survey = { ...buildSurvey(true), questions: [question] } as Survey
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            // HogQL rejects `arrayConcat` with one argument before the query runs, so these
+            // one-question surveys used to break the results tab with an arity error.
+            expect(query).not.toContain('arrayConcat')
+            expect(query).toContain('arrayJoin(if(isNotNull(q0_answer)')
+        })
+
+        it('still concatenates when the questions emit more than one entry', () => {
+            const survey = buildSurvey(true)
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            expect(query).toContain('arrayJoin(arrayConcat(')
+        })
+
         it('does not alias the merged timestamp back onto the column the merge orders by', () => {
             const survey = buildSurvey(true)
 
