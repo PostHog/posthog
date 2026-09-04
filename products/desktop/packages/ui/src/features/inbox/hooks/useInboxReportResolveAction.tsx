@@ -43,6 +43,9 @@ export function useInboxReportResolveAction(
   const [initialReason, setInitialReason] =
     useState<ResolveReasonOptionValue>();
   const [initialNote, setInitialNote] = useState("");
+  const draftGeneration = useInboxReportActionDraftStore(
+    (state) => state.generation,
+  );
   const retryDraft = useInboxReportActionDraftStore(
     (state) => state.resolve[report.id],
   );
@@ -57,7 +60,7 @@ export function useInboxReportResolveAction(
   const mutation = useAuthenticatedMutation<
     SignalReport,
     Error,
-    ResolveReportDialogResult,
+    ResolveReportDialogResult & { draftGeneration: number },
     { cacheSnapshot: InboxReportCacheSnapshot }
   >(
     (client, result: ResolveReportDialogResult) =>
@@ -85,23 +88,26 @@ export function useInboxReportResolveAction(
           ),
         };
       },
-      onSuccess: (updatedReport) => {
+      onSuccess: (updatedReport, result) => {
         updateInboxReportCaches(queryClient, [updatedReport]);
-        setRetryDraft(report.id, undefined);
+        setRetryDraft(result.draftGeneration, report.id, undefined);
         setInitialReason(undefined);
         setInitialNote("");
         if (startedAtRef.current !== null) {
           trackResult("resolve", "succeeded", startedAtRef.current);
         }
       },
-      onError: (error, _result, context) => {
+      onError: (error, result, context) => {
         if (context) {
           restoreInboxReportCaches(queryClient, context.cacheSnapshot);
         }
         const draft =
           useInboxReportActionDraftStore.getState().resolve[report.id];
         if (draft) {
-          setRetryDraft(report.id, { ...draft, reopen: true });
+          setRetryDraft(result.draftGeneration, report.id, {
+            ...draft,
+            reopen: true,
+          });
         }
         if (startedAtRef.current !== null) {
           trackResult(
@@ -146,26 +152,35 @@ export function useInboxReportResolveAction(
       inFlightRef.current = true;
       startedAtRef.current = Date.now();
       fireAction("resolve", { dismissal_reason: reason });
-      setRetryDraft(report.id, { reason, note, reopen: false });
+      setRetryDraft(draftGeneration, report.id, {
+        reason,
+        note,
+        reopen: false,
+      });
       setInitialReason(reason);
       setInitialNote(note);
       setOpen(false);
-      void mutation.mutateAsync({ reason, note }).catch(() => {
+      void mutation.mutateAsync({ reason, note, draftGeneration }).catch(() => {
         const draft =
           useInboxReportActionDraftStore.getState().resolve[report.id];
         if (draft) {
-          setRetryDraft(report.id, { ...draft, reopen: true });
+          setRetryDraft(draftGeneration, report.id, {
+            ...draft,
+            reopen: true,
+          });
         }
       });
     },
-    [fireAction, mutation, report.id, setRetryDraft],
+    [draftGeneration, fireAction, mutation, report.id, setRetryDraft],
   );
   const dialog = open ? (
     <ResolveReportDialog
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setRetryDraft(report.id, undefined);
+        if (!next) {
+          setRetryDraft(draftGeneration, report.id, undefined);
+        }
       }}
       report={report}
       isSubmitting={mutation.isPending}

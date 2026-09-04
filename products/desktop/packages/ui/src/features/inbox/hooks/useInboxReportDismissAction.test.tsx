@@ -86,7 +86,11 @@ async function enterDismissal(user: ReturnType<typeof userEvent.setup>) {
 describe("useInboxReportDismissAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useInboxReportActionDraftStore.setState({ dismiss: {}, resolve: {} });
+    useInboxReportActionDraftStore.setState({
+      generation: 0,
+      dismiss: {},
+      resolve: {},
+    });
   });
 
   it("reopens a failed dismissal with its typed note", async () => {

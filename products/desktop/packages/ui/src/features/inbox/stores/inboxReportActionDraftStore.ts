@@ -11,6 +11,7 @@ export interface InboxReportActionDraft<Reason> {
 }
 
 interface InboxReportActionDraftState {
+  generation: number;
   dismiss: Record<
     string,
     InboxReportActionDraft<DismissalReasonOptionValue> | undefined
@@ -20,10 +21,12 @@ interface InboxReportActionDraftState {
     InboxReportActionDraft<ResolveReasonOptionValue> | undefined
   >;
   setDismiss: (
+    generation: number,
     reportId: string,
     draft: InboxReportActionDraft<DismissalReasonOptionValue> | undefined,
   ) => void;
   setResolve: (
+    generation: number,
     reportId: string,
     draft: InboxReportActionDraft<ResolveReasonOptionValue> | undefined,
   ) => void;
@@ -40,24 +43,37 @@ function withoutReport<T>(
 
 export const useInboxReportActionDraftStore =
   create<InboxReportActionDraftState>((set) => ({
+    generation: 0,
     dismiss: {},
     resolve: {},
-    setDismiss: (reportId, draft) =>
-      set((state) => ({
-        dismiss:
-          draft === undefined
-            ? withoutReport(state.dismiss, reportId)
-            : { ...state.dismiss, [reportId]: draft },
-      })),
-    setResolve: (reportId, draft) =>
-      set((state) => ({
-        resolve:
-          draft === undefined
-            ? withoutReport(state.resolve, reportId)
-            : { ...state.resolve, [reportId]: draft },
-      })),
+    setDismiss: (generation, reportId, draft) =>
+      set((state) =>
+        state.generation === generation
+          ? {
+              dismiss:
+                draft === undefined
+                  ? withoutReport(state.dismiss, reportId)
+                  : { ...state.dismiss, [reportId]: draft },
+            }
+          : state,
+      ),
+    setResolve: (generation, reportId, draft) =>
+      set((state) =>
+        state.generation === generation
+          ? {
+              resolve:
+                draft === undefined
+                  ? withoutReport(state.resolve, reportId)
+                  : { ...state.resolve, [reportId]: draft },
+            }
+          : state,
+      ),
   }));
 
 export function resetInboxReportActionDrafts(): void {
-  useInboxReportActionDraftStore.setState({ dismiss: {}, resolve: {} });
+  useInboxReportActionDraftStore.setState((state) => ({
+    generation: state.generation + 1,
+    dismiss: {},
+    resolve: {},
+  }));
 }

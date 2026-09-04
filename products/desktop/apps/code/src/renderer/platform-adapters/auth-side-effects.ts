@@ -26,6 +26,7 @@ export class RendererAuthSideEffects implements IAuthSideEffects {
   ) {}
 
   onAuthSuccess(region: CloudRegion, projectId: number | null): void {
+    resetInboxReportActionDrafts();
     void refreshAuthStateQuery();
     useAuthUiStateStore.getState().clearStaleRegion();
     track(ANALYTICS_EVENTS.USER_LOGGED_IN, {

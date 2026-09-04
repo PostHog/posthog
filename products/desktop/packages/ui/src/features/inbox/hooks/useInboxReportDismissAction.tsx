@@ -44,6 +44,9 @@ export function useInboxReportDismissAction(
   const [initialReason, setInitialReason] =
     useState<DismissalReasonOptionValue>();
   const [initialNote, setInitialNote] = useState("");
+  const draftGeneration = useInboxReportActionDraftStore(
+    (state) => state.generation,
+  );
   const retryDraft = useInboxReportActionDraftStore(
     (state) => state.dismiss[report.id],
   );
@@ -71,18 +74,26 @@ export function useInboxReportDismissAction(
     async (reason: DismissalReasonOptionValue, note = "") => {
       const result = { reason, note } satisfies DismissReportDialogResult;
       const isSnooze = isDismissalReasonSnooze(reason);
-      setRetryDraft(report.id, { reason, note, reopen: false });
+      setRetryDraft(draftGeneration, report.id, {
+        reason,
+        note,
+        reopen: false,
+      });
       setOpen(false);
       const ok = isSnooze
         ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
       if (ok) {
-        setRetryDraft(report.id, undefined);
+        setRetryDraft(draftGeneration, report.id, undefined);
       } else {
-        setRetryDraft(report.id, { reason, note, reopen: true });
+        setRetryDraft(draftGeneration, report.id, {
+          reason,
+          note,
+          reopen: true,
+        });
       }
     },
-    [bulkActions, report.id, setRetryDraft],
+    [bulkActions, draftGeneration, report.id, setRetryDraft],
   );
   const handleConfirm = useCallback(
     (result: DismissReportDialogResult) =>
@@ -117,7 +128,9 @@ export function useInboxReportDismissAction(
       onOpenChange={(next) => {
         if (!isPending) {
           setOpen(next);
-          if (!next) setRetryDraft(report.id, undefined);
+          if (!next) {
+            setRetryDraft(draftGeneration, report.id, undefined);
+          }
         }
       }}
       report={report}

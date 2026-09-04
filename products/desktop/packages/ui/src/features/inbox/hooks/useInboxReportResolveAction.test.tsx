@@ -93,7 +93,11 @@ function ResolveActionHarness(): React.JSX.Element {
 describe("useInboxReportResolveAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useInboxReportActionDraftStore.setState({ dismiss: {}, resolve: {} });
+    useInboxReportActionDraftStore.setState({
+      generation: 0,
+      dismiss: {},
+      resolve: {},
+    });
   });
 
   it("tracks triage outcomes and blocks overlapping resolve requests", async () => {
