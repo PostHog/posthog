@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
+import { DashboardFilterViews } from './DashboardFilterViews'
 import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
@@ -74,6 +75,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
+                        <DashboardFilterViews />
                         <DashboardEditActions />
                     </div>
                 </div>

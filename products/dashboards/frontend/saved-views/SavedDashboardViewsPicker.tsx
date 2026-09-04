@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { IconCheck, IconChevronDown, IconPeople, IconPlus, IconUser } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
 
+import { SavedViewsList } from 'lib/components/SavedViews/SavedViewsList'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import type {
@@ -29,6 +30,7 @@ export interface SavedDashboardViewsPickerProps {
     onSelectView: (view: DashboardListSavedView) => void
     onManageViews: () => void
     onLoadMore: (scope: DashboardSavedViewScope) => void
+    onOpen: () => void
     onRetryLoad: () => void
 }
 
@@ -50,6 +52,7 @@ export function SavedDashboardViewsPicker({
     onSelectView,
     onManageViews,
     onLoadMore,
+    onOpen,
     onRetryLoad,
 }: SavedDashboardViewsPickerProps): JSX.Element {
     const [scope, setScope] = useState<DashboardSavedViewScope>(activeSavedView?.scope ?? 'private')
@@ -172,33 +175,15 @@ export function SavedDashboardViewsPicker({
                                 ]}
                             />
                             <div className="max-h-64 overflow-y-auto">
-                                {selectedSavedViews.length === 0 ? (
-                                    <div className="px-3 py-3 text-sm text-secondary">{emptyScopeMessage}</div>
-                                ) : (
-                                    selectedSavedViews.map((view) => (
-                                        <LemonButton
-                                            key={view.id}
-                                            fullWidth
-                                            size="small"
-                                            type="tertiary"
-                                            className="justify-start rounded-none px-3 hover:!bg-fill-secondary"
-                                            sideIcon={
-                                                activeSavedView?.id === view.id ? (
-                                                    <IconCheck className="text-success" />
-                                                ) : null
-                                            }
-                                            onClick={() => {
-                                                onSelectView(view)
-                                                closePicker()
-                                            }}
-                                            tooltip={
-                                                activeSavedView?.id === view.id ? 'Clear selected view' : undefined
-                                            }
-                                        >
-                                            <span className="truncate">{view.name}</span>
-                                        </LemonButton>
-                                    ))
-                                )}
+                                <SavedViewsList
+                                    views={selectedSavedViews}
+                                    activeViewId={activeSavedView?.id}
+                                    emptyMessage={emptyScopeMessage}
+                                    onSelect={(view) => {
+                                        onSelectView(view)
+                                        closePicker()
+                                    }}
+                                />
                                 {hasMore && (
                                     <div className="border-t p-2">
                                         <LemonButton
@@ -247,6 +232,9 @@ export function SavedDashboardViewsPicker({
                 onClick={() => {
                     if (!visible && activeSavedView) {
                         setScope(activeSavedView.scope ?? 'team')
+                    }
+                    if (!visible) {
+                        onOpen()
                     }
                     setVisible(!visible)
                 }}

@@ -452,6 +452,8 @@ export const LayoutCompactionEnumApi = {
     Stable: 'stable',
 } as const
 
+export type DashboardCustomizationApiFilterViewsItem = { [key: string]: unknown }
+
 export interface DashboardCustomizationApi {
     /** Named tile density preset.
      *
@@ -467,6 +469,8 @@ export interface DashboardCustomizationApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /** Named dashboard filter sets available to dashboard viewers. */
+    filter_views?: DashboardCustomizationApiFilterViewsItem[]
 }
 
 /**
