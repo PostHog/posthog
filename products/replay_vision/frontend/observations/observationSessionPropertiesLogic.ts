@@ -85,12 +85,12 @@ export interface observationSessionPropertiesLogicActions {
     }
     loadSessionPropertiesSuccess: (
         sessionProperties: {
-            [k: string]: any
+            [k: string]: string | null
         } | null,
         payload?: any
     ) => {
         sessionProperties: {
-            [k: string]: any
+            [k: string]: string | null
         } | null
         payload?: any
     }
