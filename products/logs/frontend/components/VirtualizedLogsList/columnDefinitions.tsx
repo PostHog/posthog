@@ -10,6 +10,7 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
 
 import {
     LOGS_COLUMN_REGISTRY,
@@ -155,6 +156,11 @@ function IdentityCell({
             attributeKey={match?.key ?? configuredKeys?.[0] ?? IDENTITY_FALLBACK_KEYS[type][0]}
             cellKey={`identity:${type}`}
             value={match?.value ?? ''}
+            filterType={
+                match?.source === 'resource_attribute'
+                    ? PropertyFilterType.LogResourceAttribute
+                    : PropertyFilterType.LogAttribute
+            }
             width={width}
             timestamp={log.timestamp}
         />
