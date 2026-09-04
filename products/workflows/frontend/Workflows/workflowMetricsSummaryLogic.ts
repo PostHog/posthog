@@ -370,8 +370,9 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
     email_suspended: { search: 'Skipping send', levels: ['WARN'] },
-    // A per-workflow pause logs "Skipping send: email sending is paused …" at WARN (EmailService).
-    email_paused: { search: 'Skipping send', levels: ['WARN'] },
+    // A per-workflow pause logs "Skipping send: … paused …" at ERROR (EmailService). The search
+    // term stays generic because the staff and automatic pauses word the line differently.
+    email_paused: { search: 'Skipping send', levels: ['ERROR'] },
 }
 
 // Build the router search params that point the Invocations tab at the runs behind the given email

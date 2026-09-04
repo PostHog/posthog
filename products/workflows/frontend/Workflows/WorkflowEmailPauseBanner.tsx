@@ -5,8 +5,13 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { workflowLogic } from './workflowLogic'
 
 export function WorkflowEmailPauseBanner(): JSX.Element | null {
-    const { emailSendingPaused, emailSendingPausedReason, emailSendingPausedByStaff, resumeEmailSendingPending } =
-        useValues(workflowLogic)
+    const {
+        emailSendingPaused,
+        emailSendingPausedReason,
+        emailSendingPausedByStaff,
+        resumeEmailSendingPending,
+        hasUnsavedChanges,
+    } = useValues(workflowLogic)
     const { resumeEmailSending } = useActions(workflowLogic)
 
     if (!emailSendingPaused) {
@@ -32,6 +37,9 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
                 onClick: resumeEmailSending,
                 // LemonButton disables itself while loading, so this is also the double-submit guard.
                 loading: resumeEmailSendingPending,
+                // Resuming reloads the workflow from the server, which resets the editor and would
+                // drop whatever the form still holds.
+                disabledReason: hasUnsavedChanges ? 'Save your changes first' : undefined,
                 'data-attr': 'workflow-email-paused-resume',
             }}
         >
