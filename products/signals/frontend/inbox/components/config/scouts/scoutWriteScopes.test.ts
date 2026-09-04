@@ -6,8 +6,8 @@ import { scoutWriteAccessDisabledReason, scoutWriteScopeLabels } from './scoutWr
 
 const OWNER = { uuid: 'ada-uuid', first_name: 'Ada', email: 'ada@example.com' } as UserBasicType
 
-function config(owners: UserBasicType[]): SignalScoutConfigApi {
-    return { owners } as SignalScoutConfigApi
+function config(owners: UserBasicType[]): Pick<SignalScoutConfigApi, 'owners'> {
+    return { owners }
 }
 
 describe('scoutWriteScopes', () => {

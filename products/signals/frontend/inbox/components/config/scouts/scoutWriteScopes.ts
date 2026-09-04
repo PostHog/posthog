@@ -65,7 +65,7 @@ export function scoutWriteScopeLabels(scopes: readonly string[] | undefined): st
  * disabled, which keeps the disabled state from lying.
  */
 export function scoutWriteAccessDisabledReason(
-    config: SignalScoutConfig,
+    config: Pick<SignalScoutConfig, 'owners'>,
     { isProjectAdmin, currentUserUuid }: { isProjectAdmin: boolean; currentUserUuid?: string }
 ): string | undefined {
     const owners = (config.owners ?? []) as UserBasicType[]
