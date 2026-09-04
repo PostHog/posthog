@@ -22,25 +22,19 @@ def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
     return resolve_authoring_skill_names(team_id, [report_id]).get(report_id, "")
 
 
-def resolve_touching_scout_skills(team_id: int, report_id: str) -> set[str]:
-    """Every scout whose runs emitted or edited one report.
+def resolve_touching_scout_skills(team_id: int, report_id: str) -> list[str]:
+    """Every scout whose runs emitted or edited one report, emitting scouts first.
 
     The single-owner resolution below prefers the author, but a report's stored reviewers follow
     whichever scout last wrote them — possibly a later editor. Callers that exclude skill owners
-    from autostart identity need the owners of every scout that could have produced the stored
-    reviewers, so this returns the union of touching skills. Deleted skills are kept: their owner
-    rows and stored picks can outlive the skill row, and over-exclusion is the safe direction.
-    """
-    return set(resolve_touching_scout_skills_in_order(team_id, report_id))
+    from autostart identity, or that address each router of the report, need every touching skill,
+    so this returns their union. Deleted skills are kept: their owner rows and stored picks can
+    outlive the skill row, and over-exclusion is the safe direction for autostart. A caller that
+    writes to the skills filters them itself.
 
-
-def resolve_touching_scout_skills_in_order(team_id: int, report_id: str) -> list[str]:
-    """The same union, emitting scouts before scouts that only edited the report.
-
-    A caller that addresses each touching scout separately has to cap the list, so the order
-    decides who is dropped. The scout that filed the report is the one a reader is judging, so it
-    goes first, and each group is sorted so the same report resolves the same way every time.
-    Deleted skills are kept here too; a caller that needs live ones filters them itself.
+    A caller that addresses each scout separately has to cap the list, so the order decides who is
+    dropped: the scouts that filed the report come first, and each group is sorted, so the same
+    report always resolves the same way.
     """
     # `for_team`, not an ambient-scope filter: the autostart caller runs in a Temporal activity,
     # which sets no team scope, and the fail-closed manager raises there.

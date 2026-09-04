@@ -50,7 +50,7 @@ from posthog.models import Team, User
 from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, principal_may_steer_scouts
 from products.signals.backend.models import SignalReport, SignalScoutNote
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
-from products.signals.backend.scout_authorship import resolve_touching_scout_skills_in_order
+from products.signals.backend.scout_authorship import resolve_touching_scout_skills
 from products.signals.backend.scout_harness.tools.notes import leave_note
 from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad_naming
 from products.skills.backend.models.skills import LLMSkill
@@ -259,7 +259,7 @@ def _resolve_targets(team_id: int, report_id: str, removed_logins: Sequence[str]
     the fleet-wide target ("") that dismissals use — but only when no holder resolved, because a run
     reads the fleet-wide notes alongside its own and a holder would hear the same edit twice.
     """
-    touching = _live_skills(team_id, resolve_touching_scout_skills_in_order(team_id, report_id))
+    touching = _live_skills(team_id, resolve_touching_scout_skills(team_id, report_id))
     holders = _memory_holders(team_id, removed_logins)
     targets = [*touching, *(name for name in holders if name not in touching)]
     return targets[:MAX_NOTE_TARGETS] if targets else [""]

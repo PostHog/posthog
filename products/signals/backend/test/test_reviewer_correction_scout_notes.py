@@ -226,8 +226,10 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         report = self._create_report()
         self._create_run(emitted_report_ids=[str(report.id)])
         self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
-        for skill_name in (SCOUT_SKILL, OTHER_SCOUT_SKILL):
-            self._remember(key="reviewer:products/logs", content="octocat owns the logs path", skill_name=skill_name)
+        for index, skill_name in enumerate((SCOUT_SKILL, OTHER_SCOUT_SKILL)):
+            self._remember(
+                key=f"reviewer:products/logs{index}", content="octocat owns the logs path", skill_name=skill_name
+            )
 
         self._forward(report, removed=("octocat",))
 
