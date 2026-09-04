@@ -458,16 +458,18 @@ mod tests {
         assert_eq!(service.client_names(), vec![Some(PRODUCER_ID.to_string())]);
     }
 
-    // `internal` and `cancelled` are how a connection that went away underneath the call
-    // reaches us, not something the service decided. Dropping them loses usage the service
-    // never saw.
+    // The last three are how a connection that went away underneath the call reaches us,
+    // not something the service decided. Dropping them loses usage the service never saw.
+    // Each case fails twice, so the whole budget runs rather than one attempt of it.
     #[rstest]
     #[case::draining_pod(Code::Unavailable)]
     #[case::goaway_at_max_connection_age(Code::Internal)]
     #[case::reset_stream(Code::Cancelled)]
+    #[case::unrecognised_transport_error(Code::Unknown)]
     #[tokio::test]
     async fn retries_a_transient_failure_with_the_same_record_id(#[case] code: Code) {
         let service = RecordingIngestion::default();
+        service.fail_next(code);
         service.fail_next(code);
         let reporter = reporter_for(serve(service.clone()).await).await;
 
@@ -475,10 +477,10 @@ mod tests {
         reporter.shutdown(std::time::Duration::from_secs(5)).await;
 
         let requests = service.requests();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), SEND_ATTEMPTS as usize);
         // Reusing the ID is what makes the retry safe: the service deduplicates on it, so a
         // batch Kafka took only part of does not bill twice.
-        assert_eq!(requests[0][0].record_id, requests[1][0].record_id);
+        assert_eq!(requests[0][0].record_id, requests[2][0].record_id);
     }
 
     /// Counter totals by name, captured while the reporter ran. The recorder is
@@ -548,6 +550,34 @@ mod tests {
         });
 
         assert_eq!(totals, vec![(FLAGS_USAGE_RECORDS_SENT.to_string(), 2)]);
+    }
+
+    // A chunk the budget could not save is lost, so it has to read as one drop on the failed
+    // counter and not once per attempt.
+    #[test]
+    fn a_chunk_that_exhausts_its_attempts_counts_as_failed_once() {
+        let totals = counted(|runtime| {
+            runtime.block_on(async {
+                let service = RecordingIngestion::default();
+                for _ in 0..SEND_ATTEMPTS {
+                    service.fail_next(Code::Internal);
+                }
+                let reporter = reporter_for(serve(service.clone()).await).await;
+
+                reporter.report(&[(key(7, None), 1)], 1_700_000_000_000);
+                reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+                assert_eq!(service.requests().len(), SEND_ATTEMPTS as usize);
+            });
+        });
+
+        assert_eq!(
+            totals,
+            vec![
+                (FLAGS_USAGE_RECORDS_FAILED.to_string(), 1),
+                (FLAGS_USAGE_RETRIES.to_string(), 2),
+            ]
+        );
     }
 
     #[tokio::test]
