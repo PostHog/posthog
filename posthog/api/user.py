@@ -1727,7 +1727,7 @@ def _user_can_access_toolbar(user: User, team: Team) -> bool:
     return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
 
 
-def _domain_not_authorized_context(app_url: str, error_message: str) -> dict[str, Any]:
+def domain_not_authorized_context(app_url: str, error_message: str) -> dict[str, Any]:
     # A URL with no parseable hostname would otherwise print a placeholder such as "null" as
     # the domain to authorize, which sends the user to fix something that is not their domain.
     try:
@@ -1794,7 +1794,7 @@ def toolbar_oauth_authorize(request):
             return render_template(
                 "toolbar_oauth_error.html",
                 request,
-                context=_domain_not_authorized_context(
+                context=domain_not_authorized_context(
                     redirect_url,
                     "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
                 ),
@@ -2077,7 +2077,7 @@ def redirect_to_site(request):
         return render_template(
             "toolbar_oauth_error.html",
             request,
-            context=_domain_not_authorized_context(
+            context=domain_not_authorized_context(
                 app_url,
                 "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
             ),

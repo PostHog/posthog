@@ -182,6 +182,17 @@ class TestUrls(APIBaseTest):
         #     "Do you want to give the PostHog Toolbar on <strong>https://domain.com/sdf</strong> access to your PostHog data?",
         # )
 
+    def test_authorize_and_redirect_error_page_stays_generic_without_a_hostname(self):
+        self.team.app_urls = ["https://domain.com"]
+        self.team.save()
+
+        response = self.client.get("/authorize_and_redirect/?redirect=null", headers={"referer": "https://domain.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        content = response.content.decode()
+        self.assertNotIn("The hostname", content)
+        self.assertIn("Add the domain of this site to your project", content)
+
 
 class TestRegionHostFromCurrentInstance(SimpleTestCase):
     @parameterized.expand(
