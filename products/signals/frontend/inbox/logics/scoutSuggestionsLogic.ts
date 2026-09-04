@@ -27,6 +27,7 @@ import {
     ScoutSuggestionKind,
     ScoutSuggestionSurface,
 } from '../inboxAnalytics'
+import type { ScoutChatType } from '../inboxAnalytics'
 import { scoutFleetLogic } from './scoutFleetLogic'
 import type { SignalScoutConfig } from './scoutFleetLogic'
 
@@ -42,6 +43,7 @@ const suggestionKind = (item: ScoutSuggestionItemApi): ScoutSuggestionKind =>
 export interface scoutSuggestionsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     aiConsentDisabledReason: string | null // scoutFleetLogic
+    runningChatType: ScoutChatType | null // scoutFleetLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
     currentTeamId: number | null // teamLogic
     batchAgeHours: number | null
@@ -79,6 +81,12 @@ export interface scoutSuggestionsLogicActions {
         chatType: import('../inboxAnalytics').ScoutChatType
         suggestionId: string | undefined
         taskLabel: string
+    } // scoutFleetLogic
+    startScoutChatTaskFailure: () => {
+        value: true
+    } // scoutFleetLogic
+    startScoutChatTaskSuccess: () => {
+        value: true
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,
@@ -213,7 +221,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
     connect(() => ({
         values: [
             scoutFleetLogic,
-            ['scoutConfigs', 'aiConsentDisabledReason'],
+            ['scoutConfigs', 'aiConsentDisabledReason', 'runningChatType'],
             teamLogic,
             ['currentTeamId'],
             featureFlagLogic,
@@ -221,7 +229,13 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         ],
         actions: [
             scoutFleetLogic,
-            ['updateScoutConfig', 'loadScoutConfigs', 'startScoutChatTask'],
+            [
+                'updateScoutConfig',
+                'loadScoutConfigs',
+                'startScoutChatTask',
+                'startScoutChatTaskSuccess',
+                'startScoutChatTaskFailure',
+            ],
             featureFlagLogic,
             ['setFeatureFlags'],
         ],
@@ -382,12 +396,14 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         ],
         // A project that has never been scanned has nothing to show and no refresh worth offering,
         // so the roster and the empty state stay exactly as they were.
+        // A scan that found nothing still counts: it has a `generated_at`, and the person needs
+        // the strip's "nothing left" line and its Refresh to ask again once data arrives.
         hasBatch: [
             (s) => [s.suggestionSet, s.suggestionsEnabled],
             (suggestionSet: ScoutSuggestionSetApi | null, suggestionsEnabled: boolean): boolean =>
                 suggestionsEnabled &&
                 suggestionSet !== null &&
-                (suggestionSet.status !== 'empty' || suggestionSet.items.length > 0),
+                (suggestionSet.generated_at !== null || suggestionSet.items.length > 0),
         ],
         collapsed: [
             (s) => [s.collapsedOverride],
@@ -397,11 +413,6 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         dismissSuggestion: async ({ item, surface }) => {
-            captureScoutSuggestionDismissed({
-                kind: suggestionKind(item),
-                skillName: item.skill_name,
-                surface,
-            })
             const teamId = values.currentTeamId
             if (!teamId) {
                 actions.suggestionActionFinished(item.id)
@@ -409,6 +420,12 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             }
             try {
                 await signalsScoutSuggestionsDismiss(String(teamId), item.id)
+                // Reported once the server holds it, so a failed dismissal is not counted as one.
+                captureScoutSuggestionDismissed({
+                    kind: suggestionKind(item),
+                    skillName: item.skill_name,
+                    surface,
+                })
             } catch (error) {
                 // A dismissal has no undo, so a failed one has to come back rather than quietly
                 // disappear until the next read tells the person it was never hidden.
@@ -437,8 +454,19 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 return
             }
             // `updateScoutConfig` owns the optimistic patch, the toast on failure, and the retry, so
-            // the switch on the roster row and this button behave identically.
-            actions.updateScoutConfig(config.id, { enabled: true, emit: item.proposed_config.emit })
+            // the switch on the roster row and this button behave identically. The card shows the
+            // proposed cadence, so a pick that names one applies it; the disabled config's own
+            // schedule stays when the pick leaves it to the default.
+            const { emit, run_cron_schedule, run_interval_minutes } = item.proposed_config
+            actions.updateScoutConfig(config.id, {
+                enabled: true,
+                emit,
+                ...(run_cron_schedule
+                    ? { run_cron_schedule }
+                    : run_interval_minutes
+                      ? { run_cron_schedule: null, run_interval_minutes }
+                      : {}),
+            })
             actions.suggestionCreated(item, surface)
             actions.suggestionActionFinished(item.id)
         },
@@ -450,15 +478,22 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 surface,
             })
             // The server builds the primed first turn from the stored draft, so the chat opens on
-            // this suggestion instead of re-scanning the project from scratch.
+            // this suggestion instead of re-scanning the project from scratch. The card stays busy
+            // until the task request settles, so a slow request cannot mint a second task.
+            cache.refiningSuggestionId = item.id
             actions.startScoutChatTask('author_scout', 'scout authoring task', item.id)
-            captureScoutSuggestionCreated({
-                kind: suggestionKind(item),
-                skillName: item.skill_name,
-                via: 'chat',
-                surface,
-            })
-            actions.suggestionActionFinished(item.id)
+        },
+        startScoutChatTaskSuccess: () => {
+            if (cache.refiningSuggestionId) {
+                actions.suggestionActionFinished(cache.refiningSuggestionId)
+                cache.refiningSuggestionId = null
+            }
+        },
+        startScoutChatTaskFailure: () => {
+            if (cache.refiningSuggestionId) {
+                actions.suggestionActionFinished(cache.refiningSuggestionId)
+                cache.refiningSuggestionId = null
+            }
         },
         openCreateFromSuggestion: ({ item, surface }) => {
             captureScoutSuggestionClicked({
@@ -470,7 +505,8 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         suggestionCreated: ({ item, surface }) => {
             // Both one-click paths land here — turning a canonical scout on, and a custom draft
-            // coming back from the create modal. The chat path reports itself when its task starts.
+            // coming back from the create modal. A refinement chat only opens on the draft, so it
+            // is a click, not a creation.
             captureScoutSuggestionCreated({
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
@@ -522,6 +558,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         startRefreshPolling: () => {
             const generatedAtBefore = values.suggestionSet?.generated_at ?? null
+            const statusBefore = values.suggestionSet?.status ?? null
             const startedAt = Date.now()
             cache.disposables.add(() => {
                 const id = setInterval(() => {
@@ -534,16 +571,18 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 return () => clearInterval(id)
             }, 'suggestionsRefreshPoll')
             cache.refreshBaselineGeneratedAt = generatedAtBefore
+            cache.refreshBaselineStatus = statusBefore
         },
         loadSuggestionsSuccess: ({ suggestionSet }) => {
             if (!values.isRefreshing) {
                 return
             }
             // A scan that produced nothing still lands as a `failed` row, so treat any conclusion as
-            // the end of the wait rather than watching only for new items.
+            // the end of the wait rather than watching only for new items. A row that was already
+            // `failed` before the refresh is the old failure, not the new scan settling.
             const settled =
                 (suggestionSet?.generated_at ?? null) !== cache.refreshBaselineGeneratedAt ||
-                suggestionSet?.status === 'failed'
+                (suggestionSet?.status === 'failed' && cache.refreshBaselineStatus !== 'failed')
             if (settled) {
                 actions.refreshFinished()
             }

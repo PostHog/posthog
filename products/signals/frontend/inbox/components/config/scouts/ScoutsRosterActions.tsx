@@ -10,6 +10,7 @@ import type { ScoutChatType } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { ScoutCreateButton } from './ScoutCreateButton'
+import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
 
 /** Actions for the roster, lifted into the scene header so they sit in one predictable place. */
@@ -57,9 +58,17 @@ function AskAboutScoutsMenu(): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const prompts: { label: string; chatType: ScoutChatType }[] = [
+    // Authoring a scout ends in a skill write, so it keeps the editor gate the standalone button had.
+    const creationDisabledReason = useScoutCreateDisabledReason()
+    const prompts: { label: string; chatType: ScoutChatType; disabledReason?: string }[] = [
         ...(featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS]
-            ? [{ label: 'Suggest a scout', chatType: 'author_scout' as ScoutChatType }]
+            ? [
+                  {
+                      label: 'Suggest a scout',
+                      chatType: 'author_scout' as ScoutChatType,
+                      disabledReason: creationDisabledReason ?? undefined,
+                  },
+              ]
             : []),
         { label: 'How is my scout troop performing?', chatType: 'fleet_overview' },
         { label: 'What signals were emitted recently?', chatType: 'recent_signals' },
@@ -71,14 +80,14 @@ function AskAboutScoutsMenu(): JSX.Element {
 
     return (
         <LemonMenu
-            items={prompts.map(({ label, chatType }) => ({
+            items={prompts.map(({ label, chatType, disabledReason }) => ({
                 label,
                 onClick: () => startScoutChatTask(chatType, label),
                 disabledReason: anotherTaskIsStarting
                     ? 'Starting another task…'
                     : isStarting
                       ? 'Starting a task…'
-                      : (aiConsentDisabledReason ?? undefined),
+                      : (disabledReason ?? aiConsentDisabledReason ?? undefined),
             }))}
         >
             <LemonButton

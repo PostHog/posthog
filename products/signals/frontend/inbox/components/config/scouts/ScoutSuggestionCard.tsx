@@ -4,6 +4,7 @@ import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
 import type { ScoutSuggestionItemApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -88,24 +89,42 @@ function SuggestionTags({ item }: { item: ScoutSuggestionItemApi }): JSX.Element
 
 /** The card's primary action, which depends on its kind, next to the chat that refines it. */
 function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps & { isBusy: boolean }): JSX.Element {
-    const { aiConsentDisabledReason } = useValues(scoutSuggestionsLogic)
+    const { aiConsentDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
     const { enableCanonicalSuggestion, refineSuggestionWithAi, openCreateFromSuggestion } =
         useActions(scoutSuggestionsLogic)
+    // Turning an existing scout on is a config write, the same as the roster's switch, so only
+    // the paths that author a skill carry the editor gate.
     const creationDisabledReason = useScoutCreateDisabledReason()
+    const chatDisabledReason = isBusy
+        ? 'Starting a task…'
+        : runningChatType !== null
+          ? 'Starting another task…'
+          : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
 
     return (
         <div className="flex flex-wrap items-center gap-1.5">
             {item.kind === 'canonical' ? (
-                <LemonButton
-                    type="primary"
-                    size="xsmall"
-                    loading={isBusy}
-                    disabledReason={creationDisabledReason ?? undefined}
-                    onClick={() => enableCanonicalSuggestion(item, surface)}
-                    data-attr="scout-suggestion-turn-on"
-                >
-                    Turn on
-                </LemonButton>
+                <>
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        loading={isBusy}
+                        onClick={() => enableCanonicalSuggestion(item, surface)}
+                        data-attr="scout-suggestion-turn-on"
+                    >
+                        Turn on
+                    </LemonButton>
+                    {/* The scout already exists on the project, so its own page is the place to
+                        read what it does and how it ran before deciding. */}
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        to={urls.inboxScout(item.skill_name)}
+                        data-attr="scout-suggestion-view"
+                    >
+                        View scout
+                    </LemonButton>
+                </>
             ) : (
                 <LemonButton
                     type="primary"
@@ -121,9 +140,7 @@ function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps &
                 type="secondary"
                 size="xsmall"
                 icon={<IconSparkles />}
-                disabledReason={
-                    isBusy ? 'Starting a task…' : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
-                }
+                disabledReason={chatDisabledReason}
                 onClick={() => refineSuggestionWithAi(item, surface)}
                 data-attr="scout-suggestion-refine"
             >

@@ -1,5 +1,9 @@
+import time
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.core.cache import cache
 
 from parameterized import parameterized
 from rest_framework import status
@@ -141,3 +145,5 @@ class TestScoutChatFromSuggestion(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).exists())
         mock_workflow.assert_not_called()
+        # A rejected draft spends none of the day's attempts.
+        self.assertIsNone(cache.get(f"signals_scout_chat_attempts:{self.user.id}:{int(time.time()) // 86400}"))

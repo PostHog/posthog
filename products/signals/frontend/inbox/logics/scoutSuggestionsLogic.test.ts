@@ -167,10 +167,15 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.hasBatch).toBe(true)
     })
 
-    it('shows nothing for a project that has never been scanned', async () => {
-        await mountWithBatch(suggestionSet({ status: 'empty', generated_at: null, items: [] }))
+    // A scan that found nothing has a `generated_at`; only an unscanned project has none. The first
+    // still needs the strip, for its "nothing left" line and the Refresh that asks again.
+    it.each([
+        ['never scanned', null, false],
+        ['scanned and found nothing', '2026-09-01T00:00:00Z', true],
+    ])('shows the strip only once the project was scanned: %s', async (_name, generatedAt, expected) => {
+        await mountWithBatch(suggestionSet({ status: 'empty', generated_at: generatedAt, items: [] }))
 
-        expect(logic.values.hasBatch).toBe(false)
+        expect(logic.values.hasBatch).toBe(expected)
     })
 
     it('keeps a stale batch visible, because its picks are still valid', async () => {
@@ -206,7 +211,13 @@ describe('scoutSuggestionsLogic', () => {
         logic.actions.enableCanonicalSuggestion(CANONICAL_ITEM, 'strip')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockConfigUpdate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), CONFIG.id, { enabled: true, emit: true })
+        // The card promised the proposed cadence, so the write carries it.
+        expect(mockConfigUpdate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), CONFIG.id, {
+            enabled: true,
+            emit: true,
+            run_cron_schedule: null,
+            run_interval_minutes: 1440,
+        })
 
         // The roster rolls a failed write back, and the offer has to come back with it.
         scoutFleetLogic.actions.loadScoutConfigsSuccess([CONFIG])
@@ -234,6 +245,18 @@ describe('scoutSuggestionsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isRefreshing).toBe(false)
+    })
+
+    it('keeps waiting when the row was already failed before the refresh', async () => {
+        await mountWithBatch(suggestionSet({ status: 'failed' }))
+
+        logic.actions.requestRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The unchanged old failure is not the new scan settling.
+        expect(logic.values.isRefreshing).toBe(true)
     })
 
     it('stops waiting once the scan produces a newer batch', async () => {

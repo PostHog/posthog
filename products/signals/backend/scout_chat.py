@@ -9,7 +9,7 @@ the origin from API callers). See ``task_exempt_from_code_access`` in the tasks 
 """
 
 import time
-from typing import Any
+from typing import Any, cast
 
 from django.core.cache import cache
 
@@ -23,11 +23,14 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.suggestions import find_suggestion
+from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import usage_limit_response
 
@@ -173,7 +176,9 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    # A chat primed on a suggestion reads the canonical project's batch, so membership and token
+    # scope are checked against that team too, the same as the suggestions endpoint.
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "task"
     serializer_class = ScoutChatTaskSerializer
     pagination_class = None
@@ -206,17 +211,25 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
-        if not consume_daily_attempt("signals_scout_chat_attempts", request.user.id, SCOUT_CHAT_DAILY_ATTEMPT_CAP):
-            raise exceptions.Throttled(detail="You've reached today's limit for scout chats. Try again tomorrow.")
-
         title, prompt = SCOUT_CHAT_TEMPLATES[request.validated_data["chat_type"]]
+        # The draft is resolved before an attempt is spent, so a card that went stale between
+        # render and click costs a 400, not one of the day's chats.
         if suggestion_id := request.validated_data.get("suggestion_id"):
             canonical_team = self.team.parent_team or self.team
+            # The batch is `signal_scout` data on the canonical project; a member whose access to
+            # it is "none" must not read its evidence into a task of their own.
+            if not UserAccessControl(
+                user=cast(User, request.user), team=canonical_team, organization_id=self.organization_id
+            ).check_access_level_for_resource("signal_scout", "viewer"):
+                raise exceptions.PermissionDenied("You don't have access to this project's scout suggestions.")
             record = find_suggestion(canonical_team.id, suggestion_id)
             if record is None:
                 raise exceptions.ValidationError({"suggestion_id": "That suggestion is no longer in this project."})
             title = record.get("title") or title
             prompt = SCOUT_REFINE_SUGGESTION_PROMPT.format(suggestion=_suggestion_block(record))
+
+        if not consume_daily_attempt("signals_scout_chat_attempts", request.user.id, SCOUT_CHAT_DAILY_ATTEMPT_CAP):
+            raise exceptions.Throttled(detail="You've reached today's limit for scout chats. Try again tomorrow.")
         # Repo-less on purpose: these chats read PostHog data over MCP and never touch code.
         # create_pr=False marks the session non-PR-opening, and the pending user message is
         # self-delivered by the agent server on boot so the interactive run has a first turn.
