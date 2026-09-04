@@ -211,8 +211,8 @@ database "posthog" {
       granularity = 1
     }
     index "bloom_filter_$session_id" {
-      expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
-      type        = "bloom_filter"
+      expr        = "`$session_id`"
+      type        = "bloom_filter(0.01)"
       granularity = 1
     }
     engine "replicated_replacing_merge_tree" {
