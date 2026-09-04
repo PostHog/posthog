@@ -2,7 +2,6 @@ from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any
 
-import posthoganalytics
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
@@ -360,21 +359,6 @@ class CreateFeatureFlagTool(MaxTool):
     def _get_default_evaluation_contexts(self) -> list[str]:
         """Return the project's default evaluation context names, if defaults are enabled."""
         if not self._team.default_evaluation_contexts_enabled:
-            return []
-
-        # Mirror the web UI, which applies defaults only when this gate is also on (featureFlagLogic.ts).
-        organization = self._user.organization
-        distinct_id = self._user.distinct_id
-        if organization is None or distinct_id is None:
-            return []
-        if not posthoganalytics.feature_enabled(
-            "default-evaluation-environments",
-            distinct_id,
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        ):
             return []
 
         return list(
