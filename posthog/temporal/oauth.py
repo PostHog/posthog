@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -283,18 +283,20 @@ RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
 
 def scout_scope_posture(
     preset: ScoutScopePreset,
-    extra_write_scopes: Iterable[str] = (),
+    extra_write_scopes: object = (),
 ) -> ScoutScopePosture:
     """Build the scope posture one scout run is dispatched with.
 
-    Callers pass whatever the scout's stored grant holds. Anything outside
-    `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected, because a person is
-    told their input was invalid where they entered it, not at dispatch. A scope removed from
-    the allowlist after it was granted therefore stops reaching new runs with no data migration.
+    Callers pass whatever the scout's stored grant holds, in whatever shape the JSON column holds
+    it. Anything outside `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected,
+    because a person is told their input was invalid where they entered it, not at dispatch. A
+    scope removed from the allowlist after it was granted therefore stops reaching new runs with no
+    data migration. The value is handed to `_grantable_write_scopes` unshaped: `list()` on a stray
+    JSON object would yield its keys, and `{"dashboard:write": false}` would become a grant.
     """
     return {
         "preset": preset,
-        "extra_write_scopes": _grantable_write_scopes(list(extra_write_scopes)),
+        "extra_write_scopes": _grantable_write_scopes(extra_write_scopes),
     }
 
 
@@ -306,7 +308,7 @@ def _grantable_write_scopes(raw: object) -> list[str]:
     built, because an unhashable entry makes `set(raw)` raise and aborts the run that a
     malformed grant is supposed to degrade safely.
     """
-    if not isinstance(raw, list):
+    if not isinstance(raw, list | tuple):
         return []
     return sorted({scope for scope in raw if isinstance(scope, str)} & SCOUT_GRANTABLE_WRITE_SCOPES)
 

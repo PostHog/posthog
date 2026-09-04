@@ -1205,9 +1205,24 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
             team=self.team, skill_name="signals-scout-hygiene", user=user
         )
 
+    def _authored_by(self, user: User) -> None:
+        LLMSkill.objects.create(team=self.team, name="signals-scout-hygiene", description="", body="", created_by=user)
+
+    def _other_member(self) -> User:
+        return User.objects.create_and_join(self.organization, "other@example.com", None)
+
     def _become_admin(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        return raw
 
     def test_patch_persists_a_grant_and_read_surfaces_it(self) -> None:
         # Wiring guard for the serializer matrix below: the viewset routes `write_scopes` through
@@ -1245,20 +1260,22 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A member who neither owns the scout nor administers the project must not widen what
-            # the scout's runs can change in this project.
-            ("plain_member", False, False, status.HTTP_403_FORBIDDEN),
-            ("scout_owner", True, False, status.HTTP_200_OK),
-            ("project_admin", False, True, status.HTTP_200_OK),
+            # A member who neither authored the scout nor administers the project must not widen
+            # what the scout's runs can change in this project.
+            ("plain_member", False, False, False, status.HTTP_403_FORBIDDEN),
+            # Any skill editor can rewrite a skill's owner list, so being on it must not be enough:
+            # otherwise a member appoints themselves an owner and grants the scout from there.
+            ("skill_owner_only", True, False, False, status.HTTP_403_FORBIDDEN),
+            # The runs act as whoever authored the scout body, so that person may widen them.
+            ("scout_author", False, True, False, status.HTTP_200_OK),
+            ("project_admin", False, False, True, status.HTTP_200_OK),
         ]
     )
-    def test_granting_write_access_requires_owner_or_admin(
-        self, _name: str, is_owner: bool, is_admin: bool, expected: int
+    def test_granting_write_access_requires_the_acting_user_or_an_admin(
+        self, _name: str, is_owner: bool, is_author: bool, is_admin: bool, expected: int
     ) -> None:
         config = self._config()
-        # A second owner, so the scout is owned by somebody in every case — an ownerless scout
-        # falls back to its author, which is the case below.
-        self._own_the_scout(User.objects.create_and_join(self.organization, "owner@example.com", None))
+        self._authored_by(self.user if is_author else self._other_member())
         if is_owner:
             self._own_the_scout(self.user)
         if is_admin:
@@ -1274,27 +1291,11 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else [])
 
-    def test_the_author_of_an_unowned_scout_may_grant(self) -> None:
-        # Nobody is recorded as an owner, so the gate falls back to the identity the runs act as:
-        # whoever wrote the scout body. Otherwise a scout could only ever be granted by an admin.
-        LLMSkill.objects.create(
-            team=self.team, name="signals-scout-hygiene", description="", body="", created_by=self.user
-        )
-        config = self._config()
-
-        response = self.client.patch(
-            self._detail_url(str(config.id)),
-            data={"write_scopes": ["dashboard:write"]},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-
-    def test_a_non_owner_may_still_edit_other_fields_and_resend_the_grant(self) -> None:
+    def test_a_non_author_may_still_edit_other_fields_and_resend_the_grant(self) -> None:
         # Clients resend whole config objects, so an unchanged `write_scopes` must not turn an
         # ordinary schedule edit into a permission error.
         config = self._config(write_scopes=["dashboard:write"])
-        self._own_the_scout(User.objects.create_and_join(self.organization, "owner@example.com", None))
+        self._authored_by(self._other_member())
 
         response = self.client.patch(
             self._detail_url(str(config.id)),
@@ -1308,15 +1309,49 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
     def test_revoking_write_access_needs_the_same_claim(self) -> None:
         # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
-        # cannot rewrite the field at all, so nobody can flip a scout's access behind its owners.
+        # cannot rewrite the field at all, so nobody can flip a scout's access behind its author.
         config = self._config(write_scopes=["dashboard:write"])
-        self._own_the_scout(User.objects.create_and_join(self.organization, "owner@example.com", None))
+        self._authored_by(self._other_member())
 
         response = self.client.patch(self._detail_url(str(config.id)), data={"write_scopes": []}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         config.refresh_from_db()
         assert config.write_scopes == ["dashboard:write"]
+
+    @parameterized.expand(
+        [
+            # A key minted with only the config scope must not turn into `dashboard:write` on the
+            # scout's next run; the person narrowed that credential on purpose.
+            ("narrow_key_cannot_grant", ["signal_scout:write"], [], ["dashboard:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "key_carrying_the_scope_can_grant",
+                ["signal_scout:write", "dashboard:write"],
+                [],
+                ["dashboard:write"],
+                status.HTTP_200_OK,
+            ),
+            # Revoking adds nothing to the credential, so the narrow key may still do it.
+            ("narrow_key_can_revoke", ["signal_scout:write"], ["dashboard:write"], [], status.HTTP_200_OK),
+        ]
+    )
+    def test_a_scoped_api_key_must_carry_each_scope_it_grants(
+        self, _name: str, key_scopes: list[str], current: list[str], requested: list[str], expected: int
+    ) -> None:
+        self._become_admin()
+        config = self._config(write_scopes=current)
+        raw = self._personal_api_key(key_scopes)
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": requested},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.write_scopes == (requested if expected == status.HTTP_200_OK else current)
 
 
 class TestWriteScopesValidation(SimpleTestCase):

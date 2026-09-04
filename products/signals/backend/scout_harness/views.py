@@ -169,7 +169,6 @@ from products.signals.backend.scout_report import InvalidScoutReportError
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     create_skill,
-    resolve_skill_owners,
     resolve_skill_owners_for_names,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -1861,16 +1860,23 @@ def create_scout_for_source(
             skill_created = False
 
         tunables = dict(config_options)
-        if tunables.get("write_scopes"):
+        if "write_scopes" in tunables:
             # Creating the scout in this request makes the requester its author, which is who its
-            # runs act as. Reusing an existing name adopts someone else's scout, so that path asks
-            # for the same owner-or-admin claim a config edit does.
-            assert_can_grant_scout_write_scopes(
-                user=user,
-                team=team,
-                skill_name=name,
-                authored_by_requester=skill_created,
-            )
+            # runs act as. Reusing an existing name adopts someone else's scout and its config, so
+            # that path asks for the same claim a config edit does. Compared against the stored
+            # grant, because the create form sends an empty list by default and applying that to an
+            # existing scout is a revocation, not a no-op.
+            existing_config = SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).first()
+            current_scopes = list(existing_config.write_scopes or []) if existing_config else []
+            if sorted(set(tunables["write_scopes"])) != sorted(current_scopes):
+                assert_can_grant_scout_write_scopes(
+                    request=request,
+                    team=team,
+                    skill_name=name,
+                    config=existing_config,
+                    added_scopes=_added_write_scopes(tunables["write_scopes"], current=current_scopes),
+                    authored_by_requester=skill_created,
+                )
         if source_product and source_id:
             # Reusing a name adopts the existing config, and the source pair is what the owning
             # product's report route trusts — so adopting an unowned scout would expose everything it
@@ -1974,43 +1980,59 @@ def _requested_write_scopes_change(request: Request, *, current: list[str] | Non
     return sorted({scope for scope in requested if isinstance(scope, str)}) != sorted(current or [])
 
 
+def _added_write_scopes(requested: object, *, current: list[str] | None) -> set[str]:
+    """The scopes a request would add to a scout's grant. Tolerates a raw, unvalidated body."""
+    if not isinstance(requested, list):
+        return set()
+    return {scope for scope in requested if isinstance(scope, str)} - set(current or [])
+
+
 def assert_can_grant_scout_write_scopes(
     *,
-    user: User,
+    request: Request,
     team: Team,
     skill_name: str,
+    config: SignalScoutConfig | None,
+    added_scopes: set[str],
     authored_by_requester: bool = False,
 ) -> None:
     """Gate on changing what one scout may write in the project.
 
     Write access is the config field that decides what an unattended agent can change, and the run
     holds it as the scout's resolved acting user rather than as the person editing the config. So it
-    asks for a stronger claim on the scout than tuning its schedule does: an owner of the scout, or a
-    project admin. A scout with no owners recorded falls back to the identity its runs act as, which
-    is the person who authored the scout body, and `authored_by_requester` covers the same person
-    creating the scout and its grant in one request.
+    asks for a stronger claim on the scout than tuning its schedule does: the person the runs act
+    as, or a project admin. The acting user comes from `resolve_scout_acting_user_id`, which only
+    reads identity sources the person set themselves (the version-history creator, then who
+    enabled or created the config). `LLMSkillOwner` is deliberately not consulted: any skill editor
+    can rewrite the owner list, so it would let an editor appoint themselves and pass this gate.
+    `authored_by_requester` covers the same person creating the scout and its grant in one request,
+    before a version row exists to resolve.
+
+    A scoped credential must also carry each scope it adds. A personal API key or OAuth token minted
+    with only `signal_scout:write` is a deliberate narrowing, and letting it configure a run that
+    mints `dashboard:write` would widen that credential through the next run. Session callers carry
+    no API scopes and skip that leg.
 
     Every other config field keeps the plain `signal_scout:write` bar.
     """
+    user = cast(User, request.user)
+    token_scopes = get_authenticator_scopes(request.successful_authenticator)
+    if token_scopes is not None and "*" not in token_scopes:
+        missing = sorted(added_scopes - set(token_scopes))
+        if missing:
+            raise exceptions.PermissionDenied(
+                f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout."
+            )
     level = UserPermissions(user=user, team=team).current_team.effective_membership_level
     if level is not None and level >= OrganizationMembership.Level.ADMIN:
         return
     if authored_by_requester:
         return
-    owners = resolve_skill_owners(team, skill_name)
-    if any(owner.pk == user.pk for owner in owners):
+    if resolve_scout_acting_user_id(team, skill_name, config) == user.pk:
         return
-    if not owners and resolve_scout_acting_user_id(team, skill_name, None) == user.pk:
-        return
-    if owners:
-        named = ", ".join(owner.first_name or owner.email for owner in owners)
-        detail = f"Only this scout's owners ({named}) or a project admin can change its write access."
-    else:
-        detail = (
-            "Only the person who authored this scout or a project admin can change its write access. "
-            "Add yourself as an owner of the scout's skill to change it."
-        )
-    raise exceptions.PermissionDenied(detail)
+    raise exceptions.PermissionDenied(
+        "Only the person who authored this scout or a project admin can change its write access."
+    )
 
 
 def scout_config_context(team: Team, skill_names: list[str], request: Request) -> dict[str, Any]:
@@ -2246,8 +2268,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Upsert, so the grant is compared against whatever row already exists — registering a
         # config for an existing scout is the same widening as patching one.
         existing = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, skill_name=skill_name).first()
-        if _requested_write_scopes_change(request, current=existing.write_scopes if existing else []):
-            assert_can_grant_scout_write_scopes(user=cast(User, request.user), team=team, skill_name=skill_name)
+        current_scopes = list(existing.write_scopes or []) if existing else []
+        if _requested_write_scopes_change(request, current=current_scopes):
+            assert_can_grant_scout_write_scopes(
+                request=request,
+                team=team,
+                skill_name=skill_name,
+                config=existing,
+                added_scopes=_added_write_scopes(request.data.get("write_scopes"), current=current_scopes),
+            )
         if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
             raise exceptions.ValidationError(
                 {"skill_name": "No skill with this name exists on this project. Author the skill first."}
@@ -2298,7 +2327,13 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if config is None:
             raise exceptions.NotFound()
         if _requested_write_scopes_change(request, current=config.write_scopes):
-            assert_can_grant_scout_write_scopes(user=cast(User, request.user), team=team, skill_name=config.skill_name)
+            assert_can_grant_scout_write_scopes(
+                request=request,
+                team=team,
+                skill_name=config.skill_name,
+                config=config,
+                added_scopes=_added_write_scopes(request.data.get("write_scopes"), current=config.write_scopes),
+            )
         serializer = SignalScoutConfigUpdateSerializer(
             config,
             data=request.data,

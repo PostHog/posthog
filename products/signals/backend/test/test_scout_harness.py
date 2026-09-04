@@ -1317,7 +1317,18 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(ateam, aerrors_skill):
+@pytest.mark.parametrize(
+    "emit,expected_grant",
+    [
+        pytest.param(True, ["dashboard:write"], id="live_run_holds_the_grant"),
+        # Dry run is how a person previews a scout before trusting it, so a dry run that could
+        # edit dashboards would do the thing they wanted to look at first.
+        pytest.param(False, [], id="dry_run_holds_no_grant"),
+    ],
+)
+async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
+    ateam, aerrors_skill, emit, expected_grant
+):
     # The grant is what the run's token carries, so a composition that loses it leaves a scout
     # unable to do the job it was granted for, and one that passes the column through unfiltered
     # would let a stored scope the allowlist has since dropped reach the token.
@@ -1328,6 +1339,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
         SignalScoutConfig.objects.unscoped().create(
             team_id=ateam.id,
             skill_name="signals-scout-errors",
+            emit=emit,
             write_scopes=["dashboard:write", "feature_flag:write"],
         )
 
@@ -1354,14 +1366,14 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 
     posture = captured["context"].posthog_mcp_scopes
     assert posture["preset"] == "signals_scout"
-    assert posture["extra_write_scopes"] == ["dashboard:write"]
+    assert posture["extra_write_scopes"] == expected_grant
     # Stamped at run creation, because the config's grant can be widened or revoked afterwards and
     # would otherwise rewrite what past runs are recorded as having been able to change.
     metadata = await database_sync_to_async(
         lambda: SignalScoutRun.objects.unscoped().filter(team_id=ateam.id).latest("created_at").metadata or {},
         thread_sensitive=False,
     )()
-    assert metadata["write_scopes"] == ["dashboard:write"]
+    assert metadata.get("write_scopes", []) == expected_grant
 
 
 @pytest.mark.asyncio

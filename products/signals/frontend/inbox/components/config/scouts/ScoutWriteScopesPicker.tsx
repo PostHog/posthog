@@ -1,7 +1,7 @@
 import { IconCheck } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { SCOUT_ALWAYS_GRANTED_ROWS, SCOUT_WRITE_SCOPE_ROWS } from './scoutWriteScopes'
+import { offeredScoutWriteScopes, SCOUT_ALWAYS_GRANTED_ROWS, SCOUT_WRITE_SCOPE_ROWS } from './scoutWriteScopes'
 
 interface ScoutWriteScopesPickerProps {
     /** Scopes this scout currently holds (`write_scopes`). */
@@ -25,7 +25,10 @@ export function ScoutWriteScopesPicker({
 }: ScoutWriteScopesPickerProps): JSX.Element {
     const groups = [...new Set(SCOUT_WRITE_SCOPE_ROWS.map((row) => row.group))]
     const toggleScope = (scope: string, granted: boolean): void => {
-        onChange(granted ? [...selectedScopes, scope] : selectedScopes.filter((held) => held !== scope))
+        // A stored scope with no row here would ride along into the save and get the whole update
+        // rejected by the API, with no switch to clear it. The token already drops it at mint time.
+        const held = offeredScoutWriteScopes(selectedScopes)
+        onChange(granted ? [...held, scope] : held.filter((offered) => offered !== scope))
     }
 
     return (
@@ -69,8 +72,9 @@ export function ScoutWriteScopesPicker({
             {selectedScopes.length > 0 && (
                 <p className="text-[11.5px] text-warning mb-0">
                     Write access covers the whole project. A scout that can write dashboards can change or delete any
-                    dashboard here, not only ones it created. Deleted dashboards, insights, and annotations can be
-                    restored. Deleted alerts cannot. Changes apply from the scout's next run.
+                    dashboard here, not only ones it created. Annotations also include organization-wide ones that other
+                    projects see. Deleted dashboards, insights, and annotations can be restored. Deleted alerts cannot.
+                    Changes apply from the scout's next run.
                 </p>
             )}
         </div>

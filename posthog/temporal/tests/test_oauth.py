@@ -194,13 +194,22 @@ class TestResolveScopes(SimpleTestCase):
         posture = cast(ScoutScopePosture, {"preset": "signals_scout", "extra_write_scopes": raw})
         assert set(resolve_scopes(posture)) == set(resolve_scopes("signals_scout")) | expected_extra
 
-    def test_scout_scope_posture_drops_ungrantable_scopes(self) -> None:
+    @parameterized.expand(
+        [
+            ("ungrantable_scope", ["dashboard:write", "feature_flag:write"], ["dashboard:write"]),
+            # A hand-edited column can hold an object. `list()` on it yields its keys, which would
+            # turn a value that grants nothing into a grant of everything it names.
+            ("json_object", {"dashboard:write": False}, []),
+            ("json_string", "dashboard:write", []),
+        ]
+    )
+    def test_scout_scope_posture_drops_ungrantable_scopes(self, _name: str, raw: object, expected: list[str]) -> None:
         # The build-time gate. What this returns is both the mint request and the record of
         # what a run was dispatched with, so a builder that passed its input through would widen
         # the token and describe it wrongly at the same time.
-        assert scout_scope_posture("signals_scout", ["dashboard:write", "feature_flag:write"]) == {
+        assert scout_scope_posture("signals_scout", raw) == {
             "preset": "signals_scout",
-            "extra_write_scopes": ["dashboard:write"],
+            "extra_write_scopes": expected,
         }
 
     def test_scout_posture_survives_a_json_round_trip(self) -> None:

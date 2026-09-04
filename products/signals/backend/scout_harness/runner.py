@@ -557,9 +557,20 @@ def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
 
     Read through `scout_scope_posture` rather than off the column, so the prompt, the run row, and
     the analytics events can never name a scope the token drops — a grant made before the allowlist
-    narrowed stops reaching all four at once.
+    narrowed stops reaching all four at once. A dry run (`emit=False`) holds no grant at all: dry
+    run exists so a person can watch what a scout would do before it reaches the inbox, and a
+    dry run that edits dashboards has already done the thing they wanted to preview.
     """
-    return scout_scope_posture("signals_scout", config.write_scopes or [])["extra_write_scopes"]
+    return scout_scope_posture("signals_scout", _write_scopes_for_run(config))["extra_write_scopes"]
+
+
+def _write_scopes_for_run(config: SignalScoutConfig) -> object:
+    """The stored grant as the posture builder should see it, or nothing for a dry run.
+
+    Returns the column value unshaped so that the posture builder's own type check is what decides
+    what a malformed value grants. Coercing here would turn a stray JSON object into its keys.
+    """
+    return config.write_scopes if config.emit else []
 
 
 def _mcp_server_names_for_run(team: Team, user_id: int, config: SignalScoutConfig) -> list[str]:
@@ -630,10 +641,10 @@ async def _spawn_and_run(
     # scout asked to maintain dashboards can change them. Everything else about the posture is
     # identical across the fleet. Composed once here, because the token, the prompt, and the run row
     # all have to read the same grant — `scout_scope_posture` drops anything the allowlist no longer
-    # holds, and mint time intersects it again.
+    # holds, and mint time intersects it again. A dry run gets no grant (see `_write_scopes_for_run`).
     scope_posture = scout_scope_posture(
         "signals_scout_reports" if report_channel else "signals_scout",
-        config.write_scopes or [],
+        _write_scopes_for_run(config),
     )
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
     # team's GitHub integration to every task, so without this request a repo-less scout run on a

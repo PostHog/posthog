@@ -1,4 +1,3 @@
-import { IconPencil } from '@posthog/icons'
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -8,7 +7,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { ScoutGroupKey, scoutSubtitle } from '../../../utils/scoutGroups'
 import { prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
-import { scoutWriteScopeLabels } from './scoutWriteScopes'
+import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
 const SUBTITLE_TONE_CLASS = {
     danger: 'text-danger',
@@ -26,22 +25,13 @@ export function ScoutNameCell({
     rollup: ScoutRollup | undefined
 }): JSX.Element {
     const subtitle = scoutSubtitle(config, rollup, new Date())
-    // Only for a scout that holds write access. Every other scout reads the project, so a chip on
-    // those would label the norm and hide the exception in the noise.
-    const writeLabels = scoutWriteScopeLabels(config.write_scopes)
     return (
         <div className="flex flex-col gap-0.5 py-0.5">
             <div className="flex items-center gap-2">
                 <Link to={urls.inboxScout(config.skill_name)} subtle className="truncate text-sm font-medium">
                     {prettifyScoutSkillName(config.skill_name)}
                 </Link>
-                {writeLabels.length > 0 && (
-                    <Tooltip title={`This scout can write ${writeLabels.join(', ').toLowerCase()} in this project`}>
-                        <LemonTag size="small" type="option" icon={<IconPencil />}>
-                            {writeLabels.join(', ')}
-                        </LemonTag>
-                    </Tooltip>
-                )}
+                <ScoutWriteAccessTag writeScopes={config.write_scopes} />
                 {config.auto_pause_exempt && group === 'watching' && (
                     <Tooltip title="Exempt from auto-pause — this scout is supposed to stay quiet">
                         <LemonTag size="small">Quiet by design</LemonTag>

@@ -42,9 +42,9 @@ describe('ScoutWriteAccessSection', () => {
     })
     afterEach(cleanup)
 
-    const openSection = (): jest.Mock => {
+    const openSection = (writeScopes: string[] = []): jest.Mock => {
         const onUpdate = jest.fn()
-        render(<ScoutWriteAccessSection config={CONFIG} onUpdate={onUpdate} />)
+        render(<ScoutWriteAccessSection config={{ ...CONFIG, write_scopes: writeScopes }} onUpdate={onUpdate} />)
         fireEvent.click(screen.getByText('Write access'))
         return onUpdate
     }
@@ -58,10 +58,15 @@ describe('ScoutWriteAccessSection', () => {
         expect(screen.queryByText('Read only')).not.toBeInTheDocument()
     })
 
-    it('stages a toggle and saves only on the save button', () => {
+    it.each([
+        ['a read-only scout', []],
+        // A stored scope the allowlist dropped has no switch, so the save must not resend it or the
+        // API rejects the whole update and the person has no way to clear it.
+        ['a scout holding a scope the picker no longer offers', ['cohort:write']],
+    ])('stages a toggle and saves only on the save button, for %s', (_name, stored) => {
         // The whole reason this section has a save button: a stray click must not widen what an
         // unattended agent can change in the project.
-        const onUpdate = openSection()
+        const onUpdate = openSection(stored)
 
         fireEvent.click(screen.getByLabelText('Let this scout write dashboards'))
         expect(onUpdate).not.toHaveBeenCalled()

@@ -1,17 +1,13 @@
-import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
-
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { scoutWriteAccessDisabledReason, scoutWriteScopeLabels } from './scoutWriteScopes'
+import { scoutWriteScopeLabels } from './scoutWriteScopes'
 import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
 
 /**
@@ -21,6 +17,10 @@ import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
  * The only control in this form that does not save on change. Widening what an unattended agent can
  * change in the project should take a deliberate save, not a stray click, so the switches stage a
  * draft and the save button commits it.
+ *
+ * The switches stay live for everyone. Only the person the scout's runs act as or a project admin
+ * may save, and the client cannot resolve the former, so the API refuses and its message names who
+ * can.
  */
 export function ScoutWriteAccessSection({
     config,
@@ -31,8 +31,6 @@ export function ScoutWriteAccessSection({
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
     updating?: boolean
 }): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
     const saved = [...(config.write_scopes ?? [])]
     // Null until something is toggled, so the saved grant stays the truth — including after a
     // rejected save, which must leave the row where the server has it rather than where it was left.
@@ -40,11 +38,7 @@ export function ScoutWriteAccessSection({
     const selected = draft ?? saved
     const changed = [...selected].sort().join() !== [...saved].sort().join()
     const heldLabels = scoutWriteScopeLabels(saved)
-    const disabledReason =
-        scoutWriteAccessDisabledReason(config, {
-            isProjectAdmin: !!isAdminOrOwner,
-            currentUserUuid: user?.uuid,
-        }) ?? (updating ? 'Saving scout settings' : undefined)
+    const disabledReason = updating ? 'Saving scout settings' : undefined
 
     return (
         <div className="border-t border-primary pt-2">

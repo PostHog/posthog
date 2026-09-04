@@ -1,7 +1,3 @@
-import type { UserBasicType } from '~/types'
-
-import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
-
 /** One row in the write access picker. `scope` is the string the API stores and the token carries. */
 export interface ScoutWriteScopeRow {
     scope: string
@@ -13,10 +9,11 @@ export interface ScoutWriteScopeRow {
 
 /**
  * The scopes a person may grant one scout, mirroring `SCOUT_GRANTABLE_WRITE_SCOPES` in
- * `posthog/temporal/oauth.py`. A scope the backend drops from the allowlist keeps working here as a
- * stored value the picker shows unticked, and a scope added there needs a row added here to be
- * offered. Descriptions say what the scope reaches, because each one covers update and delete of
- * every object of its kind in the project, not only the ones the scout made.
+ * `posthog/temporal/oauth.py`. A scope the backend drops from the allowlist may still be stored on
+ * old configs: the picker shows nothing for it and drops it from the next save, since the API would
+ * reject it. A scope added there needs a row added here to be offered. Descriptions say what the
+ * scope reaches, because each one covers update and delete of every object of its kind in the
+ * project, not only the ones the scout made.
  */
 export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
     {
@@ -35,7 +32,7 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         scope: 'annotation:write',
         group: 'Analytics',
         label: 'Annotations',
-        description: 'Add, edit, and remove annotations on charts',
+        description: 'Add, edit, and remove annotations, including organization-wide ones shared with other projects',
     },
     {
         scope: 'alert:write',
@@ -56,25 +53,7 @@ export function scoutWriteScopeLabels(scopes: readonly string[] | undefined): st
     return SCOUT_WRITE_SCOPE_ROWS.filter((row) => scopes?.includes(row.scope)).map((row) => row.label)
 }
 
-/**
- * Whether this viewer is known not to be allowed to change a scout's write access.
- *
- * The API accepts the change from a scout owner or a project admin, and from the person who
- * authored a scout that has no owners recorded. The last one can't be answered here, so an
- * unanswerable case stays enabled and the API gets to refuse it. Only a case we can prove is
- * disabled, which keeps the disabled state from lying.
- */
-export function scoutWriteAccessDisabledReason(
-    config: Pick<SignalScoutConfig, 'owners'>,
-    { isProjectAdmin, currentUserUuid }: { isProjectAdmin: boolean; currentUserUuid?: string }
-): string | undefined {
-    const owners = (config.owners ?? []) as UserBasicType[]
-    if (isProjectAdmin || owners.length === 0) {
-        return undefined
-    }
-    if (currentUserUuid && owners.some((owner) => owner.uuid === currentUserUuid)) {
-        return undefined
-    }
-    const names = owners.map((owner) => owner.first_name || owner.email).join(', ')
-    return `Only this scout's owners (${names}) or a project admin can change its write access`
+/** The scopes the picker offers a row for, in row order. Anything else stored on a config is stale. */
+export function offeredScoutWriteScopes(scopes: readonly string[]): string[] {
+    return SCOUT_WRITE_SCOPE_ROWS.filter((row) => scopes.includes(row.scope)).map((row) => row.scope)
 }
