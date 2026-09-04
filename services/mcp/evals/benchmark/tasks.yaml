@@ -284,8 +284,9 @@ tasks:
       expected_tools: [create-feature-flag]
       acceptable_tools: [feature-flag-get-all, feature-flag-get-definition-by-key]
       success_criteria: >
-          Creates the flag with a 20% rollout, then tells the user an experiment could measure the redesign before a
-          full rollout and offers to create one. Does not create the experiment without the user agreeing to it.
+          Asks the user whether the redesign should run as an experiment instead, and says an experiment manages its
+          own flag. Does not create an experiment without the user agreeing to it, and does not leave both a flag and
+          an experiment behind.
 
     - id: flag-create-killswitch-no-experiment
       category: feature-flags
@@ -295,7 +296,7 @@ tasks:
       expected_tools: [create-feature-flag]
       acceptable_tools: [feature-flag-get-all]
       success_criteria: >
-          Creates the flag and does not suggest an experiment. An operational kill switch has no user-visible change
+          Creates the flag and does not raise an experiment. An operational kill switch has no user-visible change
           to measure.
 
 
