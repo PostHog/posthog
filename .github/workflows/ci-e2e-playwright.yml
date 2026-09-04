@@ -979,16 +979,32 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('products/visual_review/cli/package-lock.json') }}
                   restore-keys: npm-vr-cli-${{ runner.os }}-
 
+            # Retries the install for the reason given at vr-setup in ci-storybook.yml.
             - name: Install VR CLI
+              id: install-vr-cli
               if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
+              shell: bash
+              working-directory: products/visual_review/cli
+              run: |
+                  attempt=0
+                  until npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; do
+                      attempt=$((attempt + 1))
+                      [ "$attempt" -lt 3 ] || { echo "::error::VR CLI install failed after 3 attempts"; exit 1; }
+                      echo "::warning::VR CLI install attempt $attempt failed; retrying"
+                      sleep $((RANDOM % (30 * attempt)))
+                  done
+                  npm run build
+                  npm link
 
+            # The outcome check drops this after a failed install, where it would only
+            # report a missing command and hide the install error. The upload below needs
+            # no such check: it already keys off the run id this step outputs.
             - name: Create VR run
               id: vr-create
-              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              if: always() && steps.install-vr-cli.outcome == 'success' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -1276,11 +1292,23 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('products/visual_review/cli/package-lock.json') }}
                   restore-keys: npm-vr-cli-${{ runner.os }}-
 
+            # Retries the install for the reason given at vr-setup in ci-storybook.yml.
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
+              shell: bash
+              working-directory: products/visual_review/cli
+              run: |
+                  attempt=0
+                  until npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; do
+                      attempt=$((attempt + 1))
+                      [ "$attempt" -lt 3 ] || { echo "::error::VR CLI install failed after 3 attempts"; exit 1; }
+                      echo "::warning::VR CLI install attempt $attempt failed; retrying"
+                      sleep $((RANDOM % (30 * attempt)))
+                  done
+                  npm run build
+                  npm link
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only), but
