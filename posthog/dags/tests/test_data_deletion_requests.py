@@ -20,6 +20,7 @@ from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
     PersonRemovalContext,
+    _json_event_property_removal_expr,
     _property_removal_where,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
@@ -54,6 +55,7 @@ from posthog.models.deletion_targets import (
     UnreachableTargetError,
     placement_for,
 )
+from posthog.models.event.sql import json_property_presence_expr
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.test.persons import create_person
 
@@ -2440,3 +2442,18 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
     assert "event IN" not in sql
     assert "events" not in params
+
+
+def test_json_feature_property_removal_targets_feature_flags_map():
+    sql, params = _json_event_property_removal_expr(["$feature/checkout.test", "secret"])
+
+    assert "JSONDropKeys(%(keys)s)(toJSONString(properties))" in sql
+    assert "properties.`$feature_flags`" in sql
+    assert params == {"keys": ["secret", "$feature_flags"], "feature_flag_keys": ["checkout.test"]}
+    assert json_property_presence_expr("properties", "$feature/checkout.test") == (
+        "mapContains(properties.`$feature_flags`, 'checkout.test')"
+    )
+
+    sql, params = _json_event_property_removal_expr(["$feature_flags", "$feature/checkout"])
+    assert "mapFilter" not in sql
+    assert params == {"keys": ["$feature_flags", "$feature/checkout"]}

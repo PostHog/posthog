@@ -570,8 +570,33 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
+        restricted_feature_flags = sorted(
+            key.removeprefix("$feature/") for key in keys_to_drop if key.startswith("$feature/")
+        )
+        filter_native_feature_flags = (
+            self.context.uses_new_events_schema()
+            and resolved_field.name == "properties"
+            and isinstance(type.table_type, ast.BaseTableType)
+            and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
+            and bool(restricted_feature_flags)
+            and "$feature_flags" not in keys_to_drop
+        )
+        if filter_native_feature_flags:
+            keys_to_drop = {key for key in keys_to_drop if not key.startswith("$feature/")} | {"$feature_flags"}
+
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
+        stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
+        if not filter_native_feature_flags:
+            return stripped
+
+        feature_keys_placeholder = self.context.add_sensitive_value(restricted_feature_flags)
+        physical_field = super().visit_field_type(type)
+        feature_flags = f"{physical_field}.{escape_clickhouse_identifier('$feature_flags')}"
+        filtered_feature_flags = (
+            f"mapFilter((key, value) -> not(has({feature_keys_placeholder}, key)), {feature_flags})"
+        )
+        feature_flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_feature_flags}), '}}')"
+        return f"if(empty({filtered_feature_flags}), {stripped}, JSONMergePatch({stripped}, {feature_flags_patch}))"
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""

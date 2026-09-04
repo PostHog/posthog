@@ -395,6 +395,8 @@ def _json_source_physical_type(
         return ast.StringType(nullable=True)
     if table_name != "events" or field_name is None or property_name is None:
         return ast.StringType(nullable=True)
+    if field_name == "properties" and property_name == "$active_feature_flags":
+        return ast.ArrayType(item_type=ast.StringType(nullable=False), nullable=False)
 
     subcolumns = {
         "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
