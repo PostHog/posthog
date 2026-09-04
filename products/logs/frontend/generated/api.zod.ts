@@ -750,7 +750,7 @@ export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
  * The plural key lists exist because attribute facets all read the same rollup with the same
  * WHERE, so a rail full of them costs one query instead of one per facet. What they give up is
  * the per-facet part: a key's own filter is not excluded and facetSearch does not apply, so a
- * facet needing either goes on a single-target field. See LogAttributeFacetValuesBatchQueryRunner.
+ * facet needing either goes on a single-target field. See LogFacetValuesQueryRunner.
  */
 export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
     query: zod

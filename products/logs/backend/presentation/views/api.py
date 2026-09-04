@@ -2,7 +2,6 @@ import re
 import json
 import base64
 import datetime as dt
-from typing import Any
 
 from django.db import models
 from django.utils import timezone
@@ -57,7 +56,6 @@ from products.logs.backend.log_attributes_query_runner import LogAttributesQuery
 from products.logs.backend.log_facet_values_query_runner import (
     FACET_FIELDS,
     MAX_BATCH_FACETS,
-    LogAttributeFacetValuesBatchQueryRunner,
     LogFacetValuesQueryRunner,
 )
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
@@ -1445,7 +1443,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         The plural key lists exist because attribute facets all read the same rollup with the same
         WHERE, so a rail full of them costs one query instead of one per facet. What they give up is
         the per-facet part: a key's own filter is not excluded and facetSearch does not apply, so a
-        facet needing either goes on a single-target field. See LogAttributeFacetValuesBatchQueryRunner.
+        facet needing either goes on a single-target field. See LogFacetValuesQueryRunner.
         """
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
@@ -1490,43 +1488,22 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
-        runner: LogFacetValuesQueryRunner | LogAttributeFacetValuesBatchQueryRunner
-        if batched_keys:
-            runner = LogAttributeFacetValuesBatchQueryRunner(
-                team=self.team,
-                query=query,
-                facet_resource_attributes=[str(key) for key in resource_keys],
-                facet_attributes=[str(key) for key in attribute_keys],
-            )
-        else:
-            runner = LogFacetValuesQueryRunner(
-                team=self.team,
-                query=query,
-                facet_field=facet_field or None,
-                facet_resource_attribute=facet_resource_attribute or None,
-                facet_attribute=facet_attribute or None,
-                facet_search=query_data.get("facetSearch"),
-            )
+        runner = LogFacetValuesQueryRunner(
+            team=self.team,
+            query=query,
+            facet_field=facet_field or None,
+            facet_resource_attribute=facet_resource_attribute or None,
+            facet_attribute=facet_attribute or None,
+            facet_resource_attributes=[str(key) for key in resource_keys],
+            facet_attributes=[str(key) for key in attribute_keys],
+            facet_search=query_data.get("facetSearch"),
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
         )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
-
-        # One response shape whichever path ran, so a caller reads the same fields either way. A
-        # single-target request comes back as a one-entry list under the field it asked on.
-        results: dict[str, Any]
-        if batched_keys:
-            results = response.results
-        else:
-            results = {"facetField": [], "facetResourceAttributes": [], "facetAttributes": []}
-            if facet_field:
-                results["facetField"] = response.results
-            else:
-                group = "facetResourceAttributes" if facet_resource_attribute else "facetAttributes"
-                key = facet_resource_attribute or facet_attribute
-                results[group] = [{"key": key, "values": response.results}]
-        return Response({"results": results}, status=status.HTTP_200_OK)
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
