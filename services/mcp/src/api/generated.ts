@@ -8980,6 +8980,11 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    /**
+     * Warnings raised while running the query behind this insight, in the same shape the query API returns.
+     */
+    export type InsightWarnings = (DataWarehouseSyncWarning | AccessControlFilterWarning | EventsScanWarning)[];
+
     export interface TileFilters {
       breakdown_filter?: BreakdownFilter | null;
       date_from?: string | null;
@@ -9016,8 +9021,6 @@ export namespace Schemas {
       readonly date_from?: string;
       readonly date_to?: string;
     } | null;
-
-    export type InsightWarningsItem = { [key: string]: unknown };
 
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -9120,8 +9123,8 @@ export namespace Schemas {
       readonly types: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range: InsightResolvedDateRange;
-      /** @nullable */
-      readonly warnings: readonly InsightWarningsItem[] | null;
+      /** Warnings raised the last time this insight ran, such as a data warehouse source that failed to sync or a SQL query that reads the events table without a filter the sort key can use. Null on shared insights. */
+      readonly warnings: InsightWarnings | null;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -63483,8 +63486,6 @@ export namespace Schemas {
       readonly date_to?: string;
     } | null;
 
-    export type PatchedInsightWarningsItem = { [key: string]: unknown };
-
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
      */
@@ -63586,8 +63587,8 @@ export namespace Schemas {
       readonly types?: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
-      /** @nullable */
-      readonly warnings?: readonly PatchedInsightWarningsItem[] | null;
+      /** Warnings raised the last time this insight ran, such as a data warehouse source that failed to sync or a SQL query that reads the events table without a filter the sort key can use. Null on shared insights. */
+      readonly warnings?: InsightWarnings | null;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
