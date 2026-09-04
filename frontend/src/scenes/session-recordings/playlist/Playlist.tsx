@@ -590,7 +590,7 @@ const UnusableEventsWarning = ({ unusableEventsInFilter }: { unusableEventsInFil
                     mobile SDKs
                 </Link>{' '}
                 add this property automatically. For other events, read how to{' '}
-                <Link to="https://posthog.com/docs/data/sessions#automatically-sending-session-ids" target="_blank">
+                <Link to="https://posthog.com/docs/data/sessions#server-sdks-and-sessions" target="_blank">
                     send session IDs with your events
                 </Link>
                 .
