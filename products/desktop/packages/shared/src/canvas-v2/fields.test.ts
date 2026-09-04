@@ -58,6 +58,36 @@ function typeInto(
 }
 
 describe("canvas v2 fields", () => {
+  it.each([null, { k: null, v: "A" }, { k: 1, v: "A" }])(
+    "keeps valid text and edits when a stored entry is %j",
+    (bad) => {
+      const value: unknown = {
+        __field: "text",
+        entries: { bad, good: { k: "a1", v: "B" } },
+        removed: [],
+      };
+      if (!isField(value)) throw new Error("the field container is valid");
+      expect(materializeText(value)).toEqual({ text: "B", ids: ["good"] });
+      const { ops } = diffTextToOps({
+        base: "AB",
+        baseIds: ["bad", "good"],
+        next: "AXB",
+        field: value,
+        key: "note",
+        clientId: "test",
+        counterStart: 0,
+      });
+      let snapshot: CanvasV2Snapshot = {
+        ...emptyCanvasV2Snapshot(),
+        state: { note: value },
+      };
+      for (const op of ops) snapshot = applyOp(snapshot, op);
+      const next = snapshot.state.note;
+      if (!isField(next)) throw new Error("the edit did not keep the field");
+      expect(materializeText(next).text).toBe("XB");
+    },
+  );
+
   it("keeps inserts from sessions with the same short prefix", () => {
     let snapshot = emptyCanvasV2Snapshot();
     for (const [clientId, value] of [

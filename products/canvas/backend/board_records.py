@@ -202,7 +202,7 @@ class BoardRecords:
             ):
                 return op
             entries = dict(field["entries"])
-            removed = dict.fromkeys(field["removed"])
+            removed = dict.fromkeys(entry_id for entry_id in field["removed"] if isinstance(entry_id, str))
             for entry_id in cast(list[str], op.get("remove", [])):
                 removed[entry_id] = None
                 entries.pop(entry_id, None)

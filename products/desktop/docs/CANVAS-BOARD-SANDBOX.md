@@ -95,6 +95,9 @@ in parallel. Cache files use compact JSON, and failed writes remove their
 temporary files.
 
 The server checks operation and snapshot fields before it stores them.
+State values with the reserved `__field` marker must contain valid entries and
+removed-entry IDs. Reads and edits skip invalid entries in older stored fields.
+These checks use the existing entry loop and do not copy the full field.
 An open board stream checks access before it sends each group of events.
 The stream closes if the board is deleted or moves to a space the user cannot read.
 

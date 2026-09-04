@@ -15822,7 +15822,7 @@ export namespace Schemas {
       codeRef: string;
     };
 
-    export type CanvasBoardReadSnapshotState = { [key: string]: unknown };
+    export type CanvasBoardReadSnapshotState = {[key: string]: unknown};
 
     export interface CanvasBoardReadSnapshot {
       schemaVersion: CanvasLayoutSchemaVersionEnum;
@@ -15988,7 +15988,7 @@ export namespace Schemas {
       surface?: 'card' | 'plain';
       hidden?: boolean;
     })[];
-      state?: { [key: string]: unknown };
+      state?: {[key: string]: unknown};
     };
       toSeq: number;
     } | {
@@ -16135,7 +16135,7 @@ export namespace Schemas {
       hidden?: boolean;
     };
 
-    export type CanvasBoardSnapshotState = { [key: string]: unknown };
+    export type CanvasBoardSnapshotState = {[key: string]: unknown};
 
     export interface CanvasBoardSnapshot {
       schemaVersion: CanvasLayoutSchemaVersionEnum;

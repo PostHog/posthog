@@ -26,6 +26,7 @@ import {
   estimateJsonBytes,
   fieldOrder,
   isField,
+  isFieldEntry,
   isReservedStateKey,
   keyBetween,
   materializeList,
@@ -295,7 +296,7 @@ function listOps(
   for (const change of readRecords(input.update)) {
     const id = typeof change.id === "string" ? change.id : "";
     const entry = field.entries[id];
-    if (entry === undefined) continue;
+    if (!isFieldEntry(entry)) continue;
     insert.push({ id, k: entry.k, v: change.value });
   }
 

@@ -47,13 +47,26 @@ export function isField(value: unknown): value is CanvasV2Field {
   if (kind !== "text" && kind !== "list") return false;
   const entries = candidate.entries;
   if (typeof entries !== "object" || entries === null) return false;
-  return Array.isArray(candidate.removed);
+  return !Array.isArray(entries) && Array.isArray(candidate.removed);
+}
+
+export function isFieldEntry(value: unknown): value is CanvasV2FieldEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Partial<CanvasV2FieldEntry>;
+  return (
+    typeof entry.k === "string" &&
+    entry.k.length > 0 &&
+    entry.k.length <= CANVAS_V2_FIELD_KEY_MAX_CHARS &&
+    "v" in entry
+  );
 }
 
 export function fieldOrder(field: CanvasV2Field): CanvasV2FieldRow[] {
-  const rows: CanvasV2FieldRow[] = Object.entries(field.entries).map(
-    ([id, entry]) => ({ id, entry }),
-  );
+  const rows: CanvasV2FieldRow[] = [];
+  for (const id of Object.keys(field.entries)) {
+    const entry = field.entries[id];
+    if (isFieldEntry(entry)) rows.push({ id, entry });
+  }
   rows.sort((a, b) => {
     if (a.entry.k !== b.entry.k) return a.entry.k < b.entry.k ? -1 : 1;
     if (a.id === b.id) return 0;
@@ -353,7 +366,7 @@ function neighborKey(
 ): string | null {
   for (let i = from; i >= 0 && i < ids.length; i += step) {
     const entry = field.entries[ids[i]];
-    if (entry !== undefined) return entry.k;
+    if (isFieldEntry(entry)) return entry.k;
   }
   return null;
 }

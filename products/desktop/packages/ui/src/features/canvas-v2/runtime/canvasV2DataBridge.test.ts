@@ -12,7 +12,7 @@ import {
   handleCanvasV2DataRequest,
 } from "./canvasV2DataBridge";
 
-it.each(["remote edit", "restore"])(
+it.each(["remote edit", "restore", "invalid stored entry"])(
   "keeps current field data after %s",
   async (change) => {
     let snapshot = emptyCanvasV2Snapshot();
@@ -42,6 +42,12 @@ it.each(["remote edit", "restore"])(
         snapshot: saved,
         toSeq: 1,
       });
+    } else if (change === "invalid stored entry") {
+      snapshot = applyOp(snapshot, {
+        type: "set_state",
+        key: "items",
+        value: { ...field, entries: { ...field.entries, bad: null } },
+      });
     } else {
       snapshot = applyOp(snapshot, {
         type: "edit_field",
@@ -50,10 +56,13 @@ it.each(["remote edit", "restore"])(
         insert: [{ id, k: field.entries[id].k, v: "remote" }],
       });
     }
-    const answer = await edit({ insert: [{ afterId: id, value: "addition" }] });
+    const answer = await edit({
+      update: [{ id: "bad", value: "ignored" }],
+      insert: [{ afterId: id, value: "addition" }],
+    });
     const items = materializeList(snapshot.state.items as CanvasV2Field);
     expect(items.map((item) => item.value)).toEqual([
-      change === "restore" ? "initial" : "remote",
+      change === "remote edit" ? "remote" : "initial",
       "addition",
     ]);
     expect(answer).toEqual({ items });

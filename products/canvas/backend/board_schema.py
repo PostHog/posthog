@@ -12,6 +12,29 @@ STATE_KEY_SCHEMA = {
     "maxLength": 128,
     "not": {"type": "string", "enum": ["__proto__", "constructor", "prototype"]},
 }
+FIELD_ID_SCHEMA = {"type": "string", "maxLength": 64}
+FIELD_KIND_SCHEMA = {"type": "string", "enum": ["text", "list"]}
+FIELD_ENTRY_PROPERTIES = {"k": {"type": "string", "minLength": 1, "maxLength": 64}, "v": {}}
+STATE_VALUE_SCHEMA = {
+    "if": {"type": "object", "required": ["__field"]},
+    "then": {
+        "type": "object",
+        "required": ["__field", "entries", "removed"],
+        "properties": {
+            "__field": FIELD_KIND_SCHEMA,
+            "entries": {
+                "type": "object",
+                "propertyNames": FIELD_ID_SCHEMA,
+                "additionalProperties": {
+                    "type": "object",
+                    "required": ["k", "v"],
+                    "properties": FIELD_ENTRY_PROPERTIES,
+                },
+            },
+            "removed": {"type": "array", "items": FIELD_ID_SCHEMA},
+        },
+    },
+}
 FRAGMENT_PROPERTIES = {
     "id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9-_]*$"},
     "title": {"type": "string", "maxLength": 120},
@@ -34,7 +57,7 @@ FRAGMENT_SCHEMA = {
 SNAPSHOT_PROPERTIES = {
     "schemaVersion": {"type": "integer", "enum": [1]},
     "fragments": {"type": "array", "items": FRAGMENT_SCHEMA},
-    "state": {"type": "object", "propertyNames": STATE_KEY_SCHEMA, "additionalProperties": True},
+    "state": {"type": "object", "propertyNames": STATE_KEY_SCHEMA, "additionalProperties": STATE_VALUE_SCHEMA},
 }
 SNAPSHOT_SCHEMA = {
     "type": "object",
@@ -76,25 +99,21 @@ OP_PROPERTIES: dict[str, dict[str, Any]] = {
     },
     "remove_fragment": {"id": {"type": "string"}},
     "bring_to_front": {"id": {"type": "string"}},
-    "set_state": {"key": STATE_KEY_SCHEMA, "value": {}},
+    "set_state": {"key": STATE_KEY_SCHEMA, "value": STATE_VALUE_SCHEMA},
     "restore": {"snapshot": SNAPSHOT_SCHEMA, "toSeq": {"type": "integer"}},
     "edit_field": {
         "key": STATE_KEY_SCHEMA,
-        "kind": {"type": "string", "enum": ["text", "list"]},
+        "kind": FIELD_KIND_SCHEMA,
         "insert": {
             "type": "array",
             "maxItems": 2000,
             "items": {
                 "type": "object",
                 "required": ["id", "k", "v"],
-                "properties": {
-                    "id": {"type": "string", "maxLength": 64},
-                    "k": {"type": "string", "minLength": 1, "maxLength": 64},
-                    "v": {},
-                },
+                "properties": {"id": FIELD_ID_SCHEMA, **FIELD_ENTRY_PROPERTIES},
             },
         },
-        "remove": {"type": "array", "maxItems": 2000, "items": {"type": "string", "maxLength": 64}},
+        "remove": {"type": "array", "maxItems": 2000, "items": FIELD_ID_SCHEMA},
     },
 }
 OP_SCHEMAS = {

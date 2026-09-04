@@ -146,7 +146,11 @@ class TestCanvasBoardLog(BaseTest):
     def test_legacy_snapshot_and_log_migrate_without_trusting_a_stale_client(self) -> None:
         channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
         fragment = {"id": "one", "x": 0, "y": 0, "w": 360, "h": 240, "code": "export default () => null"}
-        legacy = {"schemaVersion": 1, "fragments": [fragment], "state": {"plain": True}}
+        legacy = {
+            "schemaVersion": 1,
+            "fragments": [fragment],
+            "state": {"plain": True, "text": {"__field": "text", "entries": {}, "removed": [{}, "gone"]}},
+        }
         board = CanvasBoard.objects.for_team(self.team.id).create(
             team_id=self.team.id, channel=channel, name="Test board", snapshot=legacy, snapshot_seq=1, head_seq=2
         )
@@ -185,7 +189,7 @@ class TestCanvasBoardLog(BaseTest):
         assert result["server_snapshots"] is True
         assert result["snapshot"]["state"] == {
             "plain": True,
-            "text": {"__field": "text", "entries": {"b": {"k": "b", "v": "B"}}, "removed": ["a"]},
+            "text": {"__field": "text", "entries": {"b": {"k": "b", "v": "B"}}, "removed": ["gone", "a"]},
         }
         assert result["snapshot"]["fragments"][0] == {
             **fragment,

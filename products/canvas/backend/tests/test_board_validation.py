@@ -36,6 +36,33 @@ class TestCanvasBoardValidation(SimpleTestCase):
             ("invalid_restore", {"type": "restore", "toSeq": 0, "snapshot": {"schemaVersion": 2}}),
             ("invalid_field", {"type": "edit_field", "key": "note", "kind": "text", "insert": [{}]}),
             ("large_field_edit", {"type": "edit_field", "key": "note", "kind": "text", "remove": ["a"] * 2001}),
+            (
+                "null_field_entry",
+                {
+                    "type": "set_state",
+                    "key": "note",
+                    "value": {"__field": "text", "entries": {"bad": None}, "removed": []},
+                },
+            ),
+            (
+                "invalid_field_key",
+                {
+                    "type": "set_state",
+                    "key": "note",
+                    "value": {"__field": "list", "entries": {"bad": {"k": 1, "v": "item"}}, "removed": []},
+                },
+            ),
+            (
+                "invalid_removed_id",
+                {
+                    "type": "restore",
+                    "toSeq": 0,
+                    "snapshot": {
+                        "schemaVersion": 1,
+                        "state": {"note": {"__field": "text", "entries": {}, "removed": [{}]}},
+                    },
+                },
+            ),
         ]
     )
     def test_invalid_operation_is_rejected(self, _name: str, op: dict[str, Any]) -> None:
@@ -48,6 +75,10 @@ class TestCanvasBoardValidation(SimpleTestCase):
             ("missing_version", {}),
             ("invalid_fragment", {"schemaVersion": 1, "fragments": [{"id": "note"}]}),
             ("invalid_state", {"schemaVersion": 1, "state": []}),
+            (
+                "invalid_field_entries",
+                {"schemaVersion": 1, "state": {"note": {"__field": "text", "entries": [], "removed": []}}},
+            ),
         ]
     )
     def test_invalid_checkpoint_is_rejected(self, _name: str, snapshot: dict[str, Any]) -> None:
@@ -64,6 +95,11 @@ class TestCanvasBoardValidation(SimpleTestCase):
             {"type": "set_state", "key": "note", "value": None},
             {"type": "restore", "toSeq": 0, "snapshot": SNAPSHOT},
             {"type": "edit_field", "key": "note", "kind": "list", "insert": [{"id": "1", "k": "a", "v": None}]},
+            {
+                "type": "set_state",
+                "key": "note",
+                "value": {"__field": "list", "entries": {"one": {"k": "a0", "v": None}}, "removed": ["old"]},
+            },
         ]
         payload = append_payload(
             {}, ops=[{"op_id": str(index), "op": op} for index, op in enumerate(ops)], snapshot=SNAPSHOT
