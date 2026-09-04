@@ -424,17 +424,19 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
                 code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
             )
-        query_status_response = QueryStatusResponse(query_status=query_status)
-
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
             if query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+                # The worker withholds the raw error text from non-staff users, so the client would
+                # otherwise get a failure with no message to show. Give it a generic one instead.
+                query_status.error_message = "There was an internal error running this query. Please try again."
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
+        query_status_response = QueryStatusResponse(query_status=query_status)
         return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
