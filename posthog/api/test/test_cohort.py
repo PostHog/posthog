@@ -3747,6 +3747,36 @@ email@example.org,
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_rename_static_cohort_holding_single_element_list_value(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        person_filter = {"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}
+        stored_filters = CohortFilters.model_validate(
+            {"properties": {"type": "OR", "values": [person_filter]}}, context={"team": self.team}
+        ).model_dump(exclude_none=True)
+        # A row written before the unwrap shipped. HogQL builds the same bytecode either way.
+        stored_filters["properties"]["values"][0]["value"] = ["@example.com"]
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=stored_filters,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data={
+                "name": "renamed static cohort",
+                "filters": stored_filters,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        static_cohort.refresh_from_db()
+        self.assertEqual(static_cohort.name, "renamed static cohort")
+
     @parameterized.expand([("with_filters", True), ("without_filters", False)])
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -4401,6 +4431,7 @@ email@example.org,
             ("ends_with_single_list", "ends_with", [".com"], ".com"),
             ("not_ends_with_single_list", "not_ends_with", [".com"], ".com"),
             ("is_date_after_single_list", "is_date_after", ["-7d"], "-7d"),
+            ("is_date_before_single_list", "is_date_before", ["-7d"], "-7d"),
             ("icontains_multi_list_kept", "icontains", ["@a.com", "@b.com"], ["@a.com", "@b.com"]),
             ("icontains_plain_string_kept", "icontains", "@example.com", "@example.com"),
             ("icontains_empty_list_kept", "icontains", [], []),

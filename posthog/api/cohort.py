@@ -329,13 +329,15 @@ DATE_OPERATORS = ("is_date_after", "is_date_before")
 # Operators that compare against exactly one value. A multi-value list is meaningful for
 # `icontains`/`not_icontains` in HogQL, which turns it into multiSearchAnyCaseInsensitive, so
 # only the single-element case is unwrapped here.
-SINGLE_VALUE_STRING_OPERATORS = (
+SINGLE_VALUE_OPERATORS = (
     "icontains",
     "not_icontains",
-    "is_date_after",
-    "is_date_before",
     *STRING_PREFIX_SUFFIX_OPERATORS,
+    *DATE_OPERATORS,
 )
+
+# Filter variants that inherit PersonValueValidationMixin, and so store an unwrapped value.
+SINGLE_VALUE_FILTER_TYPES = ("person", "person_metadata")
 
 
 def _single_value_operator_value(operator: str | None, value: Any) -> Any:
@@ -346,12 +348,34 @@ def _single_value_operator_value(operator: str | None, value: Any) -> Any:
     stringifies it and searches for the literal text `["x"]`, so the flag never matches. Storing
     the unwrapped string is what both readers already agree on.
     """
-    if operator in SINGLE_VALUE_STRING_OPERATORS and isinstance(value, list) and len(value) == 1:
-        # Only a string element unwraps. A `[None]` value would otherwise become `None` and fail
-        # the missing-value check below, which rejects a payload that saved before.
+    if operator in SINGLE_VALUE_OPERATORS and isinstance(value, list) and len(value) == 1:
+        # Unwrapping `[None]` gives `None`, which the missing-value check below rejects. That
+        # payload saves today, so leave a non-string element wrapped.
         if isinstance(value[0], str):
             return value[0]
     return value
+
+
+def _coerce_stored_filter_values(filters: Any) -> Any:
+    """Apply the single-value unwrap to a stored filters dict, without re-running validation.
+
+    `update()` compares the incoming filters against the stored ones to decide whether the
+    criteria changed. Incoming filters have already been unwrapped by `validate_filters`, so a row
+    written before the unwrap existed would compare unequal on a save that touched no criteria,
+    and a static cohort holding such a value would become uneditable.
+    """
+    if isinstance(filters, list):
+        return [_coerce_stored_filter_values(item) for item in filters]
+    if not isinstance(filters, dict):
+        return filters
+
+    coerced = {
+        key: _coerce_stored_filter_values(value) if key in ("properties", "values") else value
+        for key, value in filters.items()
+    }
+    if coerced.get("type") in SINGLE_VALUE_FILTER_TYPES:
+        coerced["value"] = _single_value_operator_value(coerced.get("operator"), coerced.get("value"))
+    return coerced
 
 
 class PersonValueValidationMixin(BaseModel):
@@ -364,7 +388,7 @@ class PersonValueValidationMixin(BaseModel):
     value: Any | None = None  # mostly likely it's list[str], str, or None
 
     @model_validator(mode="after")
-    def _coerce_single_value_list(self):
+    def _coerce_single_value_list(self) -> "PersonValueValidationMixin":
         # Runs before the date check below so that check sees the unwrapped value.
         self.value = _single_value_operator_value(self.operator, self.value)
         return self
@@ -1301,7 +1325,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
-        filters_changed = "filters" in validated_data and validated_data.get("filters") != cohort.filters
+        filters_changed = "filters" in validated_data and validated_data.get("filters") != _coerce_stored_filter_values(
+            cohort.filters
+        )
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:
