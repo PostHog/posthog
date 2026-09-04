@@ -27,8 +27,9 @@ from products.feature_flags.backend.session_recording_links import replay_linked
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
-# `last_called_at` exists and predates the stale threshold.
-EVIDENCE_NOT_EVALUATED_RECENTLY = "not_evaluated_recently"
+# `last_called_at` exists and predates the stale threshold. The column only records received
+# `$feature_flag_called` events, so it says nothing about evaluations that send no event.
+EVIDENCE_NOT_CALLED_RECENTLY = "not_called_recently"
 # No call evidence at all; the flag is old enough and its configuration serves a fixed
 # result. This says nothing about whether SDKs still evaluate the flag.
 EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA = "fully_rolled_out_without_usage_data"
@@ -91,11 +92,11 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # Flag keys and names are project data; keep interpolated text bounded.
         flag_key = str(payload.get("flag_key") or "unknown")[:200]
         days = payload.get("days_since_evidence")
-        if payload.get("evidence_class") == EVIDENCE_NOT_EVALUATED_RECENTLY:
+        if payload.get("evidence_class") == EVIDENCE_NOT_CALLED_RECENTLY:
             evidence_text = (
-                f"This flag has not been evaluated in {days} days"
+                f"PostHog has not received a call for this flag in {days} days"
                 if isinstance(days, int)
-                else "This flag has not been evaluated recently"
+                else "PostHog has not received a call for this flag recently"
             )
         else:
             evidence_text = "This flag has no usage data and its configuration serves a fixed result"
@@ -187,7 +188,7 @@ def _build_result(flag: FeatureFlag, now: datetime) -> HealthCheckResult:
     rollout_state, winning_variant = rollout_state_and_variant(flag, checker, summary)
 
     if flag.last_called_at is not None:
-        evidence_class = EVIDENCE_NOT_EVALUATED_RECENTLY
+        evidence_class = EVIDENCE_NOT_CALLED_RECENTLY
         evidence_date = flag.last_called_at
     else:
         evidence_class = EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA

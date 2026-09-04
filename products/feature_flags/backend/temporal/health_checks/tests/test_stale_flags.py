@@ -24,7 +24,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA,
-    EVIDENCE_NOT_EVALUATED_RECENTLY,
+    EVIDENCE_NOT_CALLED_RECENTLY,
     ROLLOUT_FULLY_ROLLED_OUT,
     ROLLOUT_NOT_ROLLED_OUT,
     ROLLOUT_PARTIAL,
@@ -161,7 +161,7 @@ class TestStaleFlagsDetect(BaseTest):
                     "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]},
                 },
                 {
-                    "evidence_class": EVIDENCE_NOT_EVALUATED_RECENTLY,
+                    "evidence_class": EVIDENCE_NOT_CALLED_RECENTLY,
                     "rollout_state": ROLLOUT_NOT_ROLLED_OUT,
                     "days_since_evidence": 45,
                 },
@@ -169,7 +169,7 @@ class TestStaleFlagsDetect(BaseTest):
             (
                 "partial_by_usage",
                 stale_by_usage(),
-                {"evidence_class": EVIDENCE_NOT_EVALUATED_RECENTLY, "rollout_state": ROLLOUT_PARTIAL},
+                {"evidence_class": EVIDENCE_NOT_CALLED_RECENTLY, "rollout_state": ROLLOUT_PARTIAL},
             ),
             (
                 "targeted_full_rollout_is_partial",
@@ -346,14 +346,14 @@ class TestStaleFlagsContract(SimpleTestCase):
                 {
                     "flag_id": 42,
                     "flag_key": "checkout-v2",
-                    "evidence_class": EVIDENCE_NOT_EVALUATED_RECENTLY,
+                    "evidence_class": EVIDENCE_NOT_CALLED_RECENTLY,
                     "days_since_evidence": 45,
                     "rollout_state": ROLLOUT_FULLY_ROLLED_OUT,
                 }
             )
         )
         assert content.title == "Feature flag 'checkout-v2' may be ready for cleanup"
-        assert "has not been evaluated in 45 days" in content.summary
+        assert "PostHog has not received a call for this flag in 45 days" in content.summary
         assert "fully rolled out" in content.summary
         assert "Review code references" in content.summary
         assert content.link == "/feature_flags/42"
@@ -364,7 +364,7 @@ class TestStaleFlagsContract(SimpleTestCase):
                 {
                     "flag_id": 1,
                     "flag_key": "k" * 400,
-                    "evidence_class": EVIDENCE_NOT_EVALUATED_RECENTLY,
+                    "evidence_class": EVIDENCE_NOT_CALLED_RECENTLY,
                 }
             )
         )
