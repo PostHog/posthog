@@ -4,12 +4,12 @@ use chrono::Utc;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use property_defs_rs::{
     batch_ingestion::PropertyDefinitionsBatch,
-    metrics_consts::{CACHE_EVICTIONS, CACHE_HITS, CACHE_MISSES},
+    metrics_consts::{CACHE_EVICTIONS, CACHE_HITS, CACHE_MISSES, CACHE_REPLACEMENTS},
     types::{
         EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType,
         PropertyValueType, Update,
     },
-    update_cache::Cache,
+    update_cache::{Cache, InsertOutcome},
 };
 use rstest::rstest;
 
@@ -245,7 +245,7 @@ fn test_propdef_type_variants_collapse_to_one_entry() {
     let typed = make_prop_def_typed("plan", Some(PropertyValueType::String));
     let retyped = make_prop_def_typed("plan", Some(PropertyValueType::DateTime));
 
-    cache.insert(untyped.clone());
+    assert_eq!(cache.insert(untyped.clone()), InsertOutcome::Inserted);
     assert!(
         cache.contains_key(&untyped),
         "untyped resend cannot change the row"
@@ -255,7 +255,7 @@ fn test_propdef_type_variants_collapse_to_one_entry() {
         "typed sighting must upgrade the untyped row"
     );
 
-    cache.insert(typed.clone());
+    assert_eq!(cache.insert(typed.clone()), InsertOutcome::Replaced);
     assert_eq!(cache.propdefs_len(), 1, "variants must share one entry");
     assert!(cache.contains_key(&typed));
     assert!(
@@ -267,10 +267,66 @@ fn test_propdef_type_variants_collapse_to_one_entry() {
         "the upsert never overwrites a non-null type"
     );
 
-    cache.insert(untyped);
-    assert!(
-        cache.contains_key(&typed),
+    assert_eq!(
+        cache.insert(untyped),
+        InsertOutcome::Unchanged,
         "a racing untyped insert cannot downgrade the cached type"
+    );
+    assert!(cache.contains_key(&typed));
+
+    // Only the read filter inserts a differing non-null type, and it carries
+    // the type Postgres stored, so the cache follows it.
+    assert_eq!(cache.insert(retyped.clone()), InsertOutcome::Replaced);
+    assert_eq!(cache.insert(retyped), InsertOutcome::Unchanged);
+    assert_eq!(cache.propdefs_len(), 1);
+}
+
+// A re-insert of state the cache already holds must not reach quick_cache: an
+// insert over a resident key takes the shard write lock and fires the eviction
+// hook, so the read filter refreshing every dropped row would show up as
+// eviction churn while the cache sits far below capacity.
+#[rstest]
+#[case::eventdefs(make_event_def("unchanged_eventdefs"))]
+#[case::eventprops(make_event_prop("unchanged_eventprops_evt", "unchanged_eventprops_prop"))]
+#[case::propdefs(make_prop_def("unchanged_propdefs"))]
+fn test_reinsert_of_covered_update_is_unchanged(#[case] update: Update) {
+    let cache = Cache::new(10, 10, 10);
+
+    assert_eq!(cache.insert(update.clone()), InsertOutcome::Inserted);
+    assert_eq!(cache.insert(update.clone()), InsertOutcome::Unchanged);
+    assert!(cache.contains_key(&update));
+    assert_eq!(
+        cache.eventdefs_len() + cache.eventprops_len() + cache.propdefs_len(),
+        1
+    );
+}
+
+// The eviction counter includes in-place replacements, because quick_cache
+// fires its eviction hook for them. The replacement counter is what lets a
+// dashboard subtract them back out.
+#[test]
+fn test_replacement_advances_replacement_and_eviction_metrics() {
+    // Recorder install must precede Cache::new; see assert_miss_then_hit.
+    let pre_replaced = counter_value(CACHE_REPLACEMENTS, "eventdefs");
+    let pre_evicted = counter_value(CACHE_EVICTIONS, "eventdefs");
+
+    let cache = Cache::new(64, 64, 64);
+    let t1 = Utc::now();
+    cache.insert(make_event_def_at("replace_metric_evt", t1));
+    cache.insert(make_event_def_at(
+        "replace_metric_evt",
+        t1 + chrono::Duration::hours(2),
+    ));
+
+    let post_replaced = counter_value(CACHE_REPLACEMENTS, "eventdefs");
+    let post_evicted = counter_value(CACHE_EVICTIONS, "eventdefs");
+    assert!(
+        post_replaced > pre_replaced,
+        "replacements did not advance ({pre_replaced} -> {post_replaced})",
+    );
+    assert!(
+        post_evicted > pre_evicted,
+        "evictions did not advance on replace ({pre_evicted} -> {post_evicted})",
     );
 }
 
@@ -296,14 +352,14 @@ fn test_eventdef_bucket_rollover_replaces_entry() {
     let bucket1 = make_event_def_at("checkout", t1);
     let bucket2 = make_event_def_at("checkout", t2);
 
-    cache.insert(bucket1.clone());
+    assert_eq!(cache.insert(bucket1.clone()), InsertOutcome::Inserted);
     assert!(cache.contains_key(&bucket1));
     assert!(
         !cache.contains_key(&bucket2),
         "a new bucket must re-issue the write"
     );
 
-    cache.insert(bucket2.clone());
+    assert_eq!(cache.insert(bucket2.clone()), InsertOutcome::Replaced);
     assert_eq!(
         cache.eventdefs_len(),
         1,
@@ -315,11 +371,12 @@ fn test_eventdef_bucket_rollover_replaces_entry() {
         "an in-flight older bucket is covered by the newer cached one"
     );
 
-    cache.insert(bucket1);
-    assert!(
-        cache.contains_key(&bucket2),
+    assert_eq!(
+        cache.insert(bucket1),
+        InsertOutcome::Unchanged,
         "a racing older insert cannot replace the newer bucket"
     );
+    assert!(cache.contains_key(&bucket2));
 }
 
 // quick_cache enforces a minimum of 32 items per shard (`sync.rs` ~134:

@@ -5,13 +5,20 @@ use metrics::Counter;
 use quick_cache::{sync, DefaultHashBuilder, Equivalent, Lifecycle, UnitWeighter};
 
 use crate::{
-    metrics_consts::{CACHE_EVICTIONS, CACHE_HITS, CACHE_MISSES, UPDATES_CACHE},
+    metrics_consts::{
+        CACHE_EVICTIONS, CACHE_HITS, CACHE_MISSES, CACHE_REPLACEMENTS, UPDATES_CACHE,
+    },
     types::{EventProperty, GroupType, PropertyParentType, PropertyValueType, Update},
 };
 
 // Per-subcache eviction observer. The `stats` feature of quick_cache is not
 // enabled, so all cache hit/miss/eviction signal in this service comes from
 // explicit metrics emitted here and in `contains_key`.
+//
+// quick_cache also calls `on_evict` with the old entry when `insert` finds the
+// key already resident, so this counter includes the in-place replacements
+// `Cache::insert` makes on purpose. Those are counted separately as
+// CACHE_REPLACEMENTS; capacity evictions are the difference.
 //
 // Counter handles are resolved once at construction and reused: these paths run
 // per update (and `on_evict` runs under the shard write lock), so a registry
@@ -38,6 +45,26 @@ struct SubCacheEntry<K: Eq + Hash + Clone, V: Clone> {
     cache: SubCache<K, V>,
     hits: Counter,
     misses: Counter,
+    replacements: Counter,
+}
+
+impl<K: Eq + Hash + Clone, V: Clone> SubCacheEntry<K, V> {
+    fn replace(&self, key: K, value: V) -> InsertOutcome {
+        self.replacements.increment(1);
+        self.cache.insert(key, value);
+        InsertOutcome::Replaced
+    }
+}
+
+/// What `Cache::insert` did with an update.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InsertOutcome {
+    /// The row identity was not cached and is now.
+    Inserted,
+    /// The identity was cached with older state and the value moved forward.
+    Replaced,
+    /// The cached state already covers the update, so nothing was written.
+    Unchanged,
 }
 
 fn build_subcache<K: Eq + Hash + Clone, V: Clone>(
@@ -57,6 +84,7 @@ fn build_subcache<K: Eq + Hash + Clone, V: Clone>(
         cache,
         hits: metrics::counter!(CACHE_HITS, &[("cache", label)]),
         misses: metrics::counter!(CACHE_MISSES, &[("cache", label)]),
+        replacements: metrics::counter!(CACHE_REPLACEMENTS, &[("cache", label)]),
     }
 }
 
@@ -255,7 +283,13 @@ impl Cache {
     // cached fresher state; replacing that state would make the next sighting
     // miss and re-issue a write Postgres treats as a no-op. The peek-then-insert
     // pairs below race too, but losing that race costs one redundant upsert.
-    pub fn insert(&self, key: Update) {
+    //
+    // An update the cached state already covers returns Unchanged without
+    // touching quick_cache. A quick_cache insert over a resident key takes the
+    // shard write lock and fires `on_evict`, so a no-op re-insert (the read
+    // filter refreshing a type the cache already holds, or a racing producer)
+    // would cost lock time and inflate the eviction counter for nothing.
+    pub fn insert(&self, key: Update) -> InsertOutcome {
         match key {
             Update::Event(def) => {
                 let lookup = EventDefKeyRef {
@@ -263,22 +297,28 @@ impl Cache {
                     project_id: def.project_id,
                     name: &def.name,
                 };
-                if self
-                    .eventdefs
-                    .cache
-                    .peek(&lookup)
-                    .is_some_and(|bucket| bucket >= def.last_seen_at)
-                {
-                    return;
+                let cached = self.eventdefs.cache.peek(&lookup);
+                if cached.is_some_and(|bucket| bucket >= def.last_seen_at) {
+                    return InsertOutcome::Unchanged;
                 }
                 let key = EventDefKey {
                     team_id: def.team_id,
                     project_id: def.project_id,
                     name: def.name,
                 };
+                if cached.is_some() {
+                    return self.eventdefs.replace(key, def.last_seen_at);
+                }
                 self.eventdefs.cache.insert(key, def.last_seen_at);
+                InsertOutcome::Inserted
             }
-            Update::EventProperty(ep) => self.eventprops.cache.insert(ep, ()),
+            Update::EventProperty(ep) => {
+                if self.eventprops.cache.peek(&ep).is_some() {
+                    return InsertOutcome::Unchanged;
+                }
+                self.eventprops.cache.insert(ep, ());
+                InsertOutcome::Inserted
+            }
             Update::Property(def) => {
                 let lookup = PropDefKeyRef {
                     team_id: def.team_id,
@@ -287,14 +327,13 @@ impl Cache {
                     event_type: def.event_type,
                     group_name: def.group_type_index.as_ref().map(group_name),
                 };
-                if def.property_type.is_none()
-                    && self
-                        .propdefs
-                        .cache
-                        .peek(&lookup)
-                        .is_some_and(|cached| cached.is_some())
-                {
-                    return;
+                let cached = self.propdefs.cache.peek(&lookup);
+                let covered = match &cached {
+                    Some(cached) => *cached == def.property_type || def.property_type.is_none(),
+                    None => false,
+                };
+                if covered {
+                    return InsertOutcome::Unchanged;
                 }
                 let key = PropDefKey {
                     team_id: def.team_id,
@@ -305,7 +344,11 @@ impl Cache {
                         GroupType::Unresolved(name) | GroupType::Resolved(name, _) => name,
                     }),
                 };
+                if cached.is_some() {
+                    return self.propdefs.replace(key, def.property_type);
+                }
                 self.propdefs.cache.insert(key, def.property_type);
+                InsertOutcome::Inserted
             }
         }
     }
