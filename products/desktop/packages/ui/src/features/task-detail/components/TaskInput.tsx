@@ -13,6 +13,7 @@ import {
   harnessForModelValue,
   isValidConfigValue,
   modelOptionForHarness,
+  resolveAgentRuntime,
   syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
@@ -22,6 +23,7 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   adapterForModelId,
+  PI_HARNESS_FLAG,
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -38,6 +40,7 @@ import {
   useTaskRepositoryDraftStore,
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useDefaultAgentHarness } from "@posthog/ui/features/feature-flags/useDefaultAgentHarness";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import {
   subscriptionModelAccess,
@@ -486,7 +489,8 @@ export function TaskInput({
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
+  const defaultHarness = useDefaultAgentHarness();
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
     isLoadingRepos,
@@ -500,9 +504,19 @@ export function TaskInput({
     }
     didResolveRuntimeRef.current = true;
     setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
+      resolveAgentRuntime(
+        lastUsedAgentRuntime,
+        defaultHarness,
+        piHarnessEnabled,
+      ),
     );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
+  }, [
+    flagsLoaded,
+    lastUsedAgentRuntime,
+    piHarnessEnabled,
+    defaultHarness,
+    settingsHydrated,
+  ]);
 
   const {
     workspaceMode,

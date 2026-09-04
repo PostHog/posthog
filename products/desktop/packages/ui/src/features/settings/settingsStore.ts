@@ -142,7 +142,12 @@ export interface SettingsStore {
   lastUsedRunMode: "local" | "cloud";
   lastUsedLocalWorkspaceMode: LocalWorkspaceMode;
   lastUsedWorkspaceMode: WorkspaceMode;
-  lastUsedAgentRuntime: AgentRuntime;
+  /**
+   * The user's explicit harness choice, or null when they haven't overridden
+   * the fleet default (see useDefaultAgentHarness). Set only by an explicit
+   * harness switch, never by resolving what a composer actually runs.
+   */
+  lastUsedAgentRuntime: AgentRuntime | null;
   lastUsedAdapter: AgentAdapter;
   lastUsedModel: string | null;
   lastUsedPiModel: string | null;
@@ -170,6 +175,7 @@ export interface SettingsStore {
   setLastUsedRunMode: (mode: "local" | "cloud") => void;
   setLastUsedLocalWorkspaceMode: (mode: LocalWorkspaceMode) => void;
   setLastUsedWorkspaceMode: (mode: WorkspaceMode) => void;
+  /** Records an explicit harness switch, overriding the fleet default until called again. */
   setLastUsedAgentRuntime: (runtime: AgentRuntime) => void;
   setLastUsedAdapter: (adapter: AgentAdapter) => void;
   setLastUsedModel: (model: string | null) => void;
@@ -374,7 +380,7 @@ export const useSettingsStore = create<SettingsStore>()(
       lastUsedRunMode: "local",
       lastUsedLocalWorkspaceMode: "local",
       lastUsedWorkspaceMode: DEFAULT_WORKSPACE_MODE,
-      lastUsedAgentRuntime: "acp",
+      lastUsedAgentRuntime: null,
       lastUsedAdapter: "claude",
       lastUsedModel: null,
       lastUsedPiModel: null,
@@ -643,9 +649,15 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: "settings-storage",
       storage: electronStorage,
-      version: 1,
+      version: 2,
       // v1 ships the merged model/reasoning control: bust everyone's saved
       // selection state once so all users start on the new defaults.
+      // v2 makes the fleet default (useDefaultAgentHarness) apply to everyone
+      // who never explicitly chose a harness. Pre-v2, "acp" was both the
+      // implicit initial value and the only other option, so a stored "acp"
+      // cannot be told apart from "never touched" — it is cleared so the fleet
+      // default takes over. A stored "pi" only ever came from an explicit
+      // switch (the old default was always "acp"), so it survives untouched.
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Record<string, unknown>;
         if (version < 1) {
@@ -653,6 +665,9 @@ export const useSettingsStore = create<SettingsStore>()(
           state.lastUsedReasoningEffort = null;
           state.lastUsedContextWindow = null;
           state.lastUsedFastMode = null;
+        }
+        if (version < 2 && state.lastUsedAgentRuntime !== "pi") {
+          state.lastUsedAgentRuntime = null;
         }
         return state;
       },

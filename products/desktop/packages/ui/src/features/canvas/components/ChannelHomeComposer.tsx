@@ -4,9 +4,14 @@ import type {
 } from "@posthog/core/pi-runtime/piSessionController";
 import {
   isValidConfigValue,
+  resolveAgentRuntime,
   syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
-import { type AgentRuntime, adapterForModelId } from "@posthog/shared";
+import {
+  type AgentRuntime,
+  adapterForModelId,
+  PI_HARNESS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   subscriptionModelAccess,
@@ -25,6 +30,7 @@ import { toast } from "../../../primitives/toast";
 import { spendStopMessage, useSpendStop } from "../../billing/useSpendStop";
 import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
+import { useDefaultAgentHarness } from "../../feature-flags/useDefaultAgentHarness";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
@@ -134,7 +140,8 @@ export const ChannelHomeComposer = forwardRef<
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
+  const defaultHarness = useDefaultAgentHarness();
   const flagsLoaded = useFeatureFlagsLoaded();
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");
@@ -151,9 +158,13 @@ export const ChannelHomeComposer = forwardRef<
 
     didResolveRuntimeRef.current = true;
     setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
+      resolveAgentRuntime(
+        lastUsedAgentRuntime,
+        defaultHarness,
+        piHarnessEnabled,
+      ),
     );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled]);
+  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, defaultHarness]);
 
   const { hasGithubIntegration, isLoadingIntegrations } =
     useUserRepositoryIntegration();
