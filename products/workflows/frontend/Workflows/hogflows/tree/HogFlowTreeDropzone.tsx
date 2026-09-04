@@ -31,6 +31,30 @@ export function HogFlowTreeDropzone({
     const [highlighted, setHighlighted] = useState(false)
     const isNoOpTarget =
         !!draggedActionId && (edge.to === draggedActionId || (!isBranchJoin && edge.from === draggedActionId))
+    const handleDragOver = (event: DragEvent<HTMLElement>): void => {
+        setHighlighted(true)
+        onDragOver(event)
+    }
+    const handleDrop = (event: DragEvent<HTMLElement>): void => {
+        setHighlighted(false)
+        if (draggedActionId) {
+            const action = workflow.actions.find((action) => action.id === draggedActionId)
+            if (!action || !isBranchingAction(action)) {
+                moveNodeToEdge(draggedActionId, edge, isBranchJoin)
+            } else {
+                const newEdges = computeMoveTreeBranchEdges(workflow, draggedActionId, edge, isBranchJoin)
+                if (newEdges) {
+                    setWorkflowInfo({ actions: workflow.actions, edges: newEdges })
+                    setSelectedNodeId(draggedActionId)
+                }
+            }
+        } else if (isBranchJoin) {
+            setHighlightedDropzoneNodeId(`dropzone_target_${edge.to}_branch_join`)
+            onDrop(event)
+        } else {
+            onDrop(event, edge)
+        }
+    }
 
     return (
         <div className={cn('flex w-full items-center justify-center', compact && !active ? 'h-2' : 'h-7')}>
@@ -46,46 +70,29 @@ export function HogFlowTreeDropzone({
                     </svg>
                 )
             ) : (
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className={cn('w-full border-dashed text-muted-foreground', highlighted && 'bg-fill-selected')}
-                    onDragOver={(event: DragEvent<HTMLButtonElement>) => {
-                        setHighlighted(true)
-                        onDragOver(event)
-                    }}
-                    onDragLeave={() => setHighlighted(false)}
-                    onDrop={(event: DragEvent<HTMLButtonElement>) => {
-                        setHighlighted(false)
-                        if (draggedActionId) {
-                            const action = workflow.actions.find((action) => action.id === draggedActionId)
-                            if (!action || !isBranchingAction(action)) {
-                                moveNodeToEdge(draggedActionId, edge, isBranchJoin)
-                            } else {
-                                const newEdges = computeMoveTreeBranchEdges(
-                                    workflow,
-                                    draggedActionId,
-                                    edge,
-                                    isBranchJoin
-                                )
-                                if (newEdges) {
-                                    setWorkflowInfo({ actions: workflow.actions, edges: newEdges })
-                                    setSelectedNodeId(draggedActionId)
-                                }
-                            }
-                        } else if (isBranchJoin) {
-                            setHighlightedDropzoneNodeId(`dropzone_target_${edge.to}_branch_join`)
-                            onDrop(event)
-                        } else {
-                            onDrop(event, edge)
-                        }
-                    }}
-                    data-attr="workflow-tree-dropzone"
-                >
-                    <IconPlus />
-                    Drop step here
-                </Button>
+                <div className="relative flex h-full w-full items-center">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={cn('w-full border-dashed text-muted-foreground', highlighted && 'bg-fill-selected')}
+                        onDragOver={handleDragOver}
+                        onDragLeave={() => setHighlighted(false)}
+                        onDrop={handleDrop}
+                        data-attr="workflow-tree-dropzone"
+                    >
+                        <IconPlus />
+                        Drop step here
+                    </Button>
+                    <div
+                        aria-hidden="true"
+                        className="absolute -inset-y-3 inset-x-0 z-10"
+                        onDragOver={handleDragOver}
+                        onDragLeave={() => setHighlighted(false)}
+                        onDrop={handleDrop}
+                        data-workflow-tree-dropzone-hit-area
+                    />
+                </div>
             )}
         </div>
     )

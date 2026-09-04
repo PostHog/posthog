@@ -90,11 +90,13 @@ export function HogFlowTreeNode({
                 step
             ) : (
                 <Collapsible variant="folder" open={branchesOpen} onOpenChange={setBranchesOpen}>
-                    <CollapsibleHeader>{step}</CollapsibleHeader>
-                    <div className="flex">
-                        <CollapsibleTrigger className="ms-10 -mt-px h-6 w-auto rounded-t-none border border-border bg-card px-2 text-xxs">
-                            {`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
-                        </CollapsibleTrigger>
+                    <div className="sticky top-0 z-20 bg-background">
+                        <CollapsibleHeader>{step}</CollapsibleHeader>
+                        <div className="flex">
+                            <CollapsibleTrigger className="ms-10 -mt-px h-6 w-auto rounded-t-none border border-border bg-card px-2 text-xxs">
+                                {`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
+                            </CollapsibleTrigger>
+                        </div>
                     </div>
                     <CollapsibleContent className="flex flex-col gap-3 pt-2">
                         {visibleBranches.map((branch, index) => {
