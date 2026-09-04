@@ -1778,11 +1778,12 @@ mod tests {
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
-    /// Builds a matcher that knows about a single group type ("organization" at index 0)
-    /// and, optionally, has that group supplied in the request context. Group-property DB
-    /// prep is deliberately never run, so `group_properties_pending(0)` holds.
+    /// Builds a matcher that knows about a single group type ("organization" at index 0).
+    /// Group-property DB prep is deliberately never run, so `group_properties_pending(0)`
+    /// holds unless the caller marks the index fetched.
     async fn group_matcher_without_group_prep(
         with_group_key: bool,
+        mapping_failed: bool,
     ) -> (TestContext, FeatureFlagMatcher) {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
@@ -1790,6 +1791,7 @@ mod tests {
             None,
             None,
         ));
+        let organization_at_zero = HashMap::from([("organization".to_string(), 0)]);
         let groups =
             with_group_key.then(|| HashMap::from([("organization".to_string(), json!("acme"))]));
         let mut matcher = FeatureFlagMatcher::new(
@@ -1798,15 +1800,13 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache,
-            mock_group_type_cache(HashMap::from([("organization".to_string(), 0)])),
+            mock_group_type_cache(organization_at_zero.clone()),
             groups,
         );
-        // Populated in production by `initialize_group_type_mappings_if_needed`, which a
-        // bare `is_condition_match` test doesn't reach.
-        matcher.set_group_type_mapping_for_test(GroupTypeMapping::new(HashMap::from([(
-            "organization".to_string(),
-            0,
-        )])));
+        // Set in production by `initialize_group_type_mappings_if_needed`, which a bare
+        // `is_condition_match` test doesn't reach. A failed lookup leaves the mapping unset.
+        let mapping = (!mapping_failed).then(|| GroupTypeMapping::new(organization_at_zero));
+        matcher.set_group_type_mapping_for_test(mapping, mapping_failed);
         (context, matcher)
     }
 
@@ -1828,89 +1828,69 @@ mod tests {
         }
     }
 
-    /// Regression test: the group-property analogue of the person `Pending` guard. When
-    /// group-property DB prep never ran for a group type the request *does* supply a key
-    /// for, a negative operator like `is_not` must not read the resulting empty map as
-    /// "this group has no tier" — that would grant the flag to precisely the enterprise
-    /// organizations the condition excludes, purely because of a fetch miss.
+    /// Regression test: the group-property analogue of the person `Pending` guard. A
+    /// negative operator must not read an unfetched group property map as "this group has
+    /// no tier", which would grant the flag to precisely the enterprise organizations the
+    /// condition excludes. The other cases pin the deliberate limits of that guard.
+    #[rstest::rstest]
+    #[case::pending_fails_closed(
+        true,
+        false,
+        false,
+        false,
+        "an unfetched group property must not satisfy is_not"
+    )]
+    #[case::fetched_empty_matches(
+        true,
+        true,
+        false,
+        true,
+        "a fetched and genuinely empty group has no tier, so is_not should match"
+    )]
+    #[case::no_group_key_matches(
+        false,
+        false,
+        false,
+        true,
+        "no group context should keep pre-existing behavior rather than fail closed"
+    )]
+    #[case::mapping_failure_fails_closed(
+        true,
+        false,
+        true,
+        false,
+        "a failed mapping lookup knows nothing about the group, so it must not satisfy is_not"
+    )]
     #[tokio::test]
-    async fn test_is_condition_match_group_is_not_fails_closed_when_group_properties_pending() {
-        let (_context, matcher) = group_matcher_without_group_prep(true).await;
+    async fn test_is_condition_match_group_is_not_honors_group_property_fetch_state(
+        #[case] with_group_key: bool,
+        #[case] mark_fetched: bool,
+        #[case] mapping_failed: bool,
+        #[case] expected_match: bool,
+        #[case] scenario: &str,
+    ) {
+        let (_context, mut matcher) =
+            group_matcher_without_group_prep(with_group_key, mapping_failed).await;
         let flag = mock!(FeatureFlag);
-        assert!(matcher.flag_evaluation_state.group_properties_pending(0));
-
-        // Mirrors what the lazy loader caches for an unfetched index: an empty map.
-        let empty_groups = HashMap::from([(0, HashMap::new())]);
-        let ctx = PropertyContext {
-            person_properties: None,
-            group_properties: &empty_groups,
-            aggregation: None,
-        };
-        let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &organization_tier_is_not_condition(),
-                &ctx,
-                None,
-                &None,
-            )
-            .unwrap();
-        assert!(
-            !is_match,
-            "an unfetched group property must not satisfy is_not"
+        if mark_fetched {
+            matcher
+                .flag_evaluation_state
+                .mark_group_properties_fetched(0);
+        }
+        assert_eq!(
+            matcher.flag_evaluation_state.group_properties_pending(0),
+            !mark_fetched
         );
-        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
-    }
 
-    /// Companion to the test above: once group-property prep has run, an empty property map
-    /// is authoritative — the group simply has no `posthog_group` row, or no `tier` — so
-    /// `is_not` must evaluate normally and match. The fail-closed handling for the pending
-    /// case must not swallow this legitimate path.
-    #[tokio::test]
-    async fn test_is_condition_match_group_is_not_matches_when_group_properties_fetched_empty() {
-        let (_context, mut matcher) = group_matcher_without_group_prep(true).await;
-        let flag = mock!(FeatureFlag);
-        matcher
-            .flag_evaluation_state
-            .mark_group_properties_fetched(0);
-        assert!(!matcher.flag_evaluation_state.group_properties_pending(0));
-
-        let empty_groups = HashMap::from([(0, HashMap::new())]);
-        let ctx = PropertyContext {
-            person_properties: None,
-            group_properties: &empty_groups,
-            aggregation: None,
+        // Mirrors what the lazy loader caches for an index with no fetched properties.
+        let group_properties = if with_group_key {
+            HashMap::from([(0, HashMap::new())])
+        } else {
+            HashMap::new()
         };
-        let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &organization_tier_is_not_condition(),
-                &ctx,
-                None,
-                &None,
-            )
-            .unwrap();
-        assert!(
-            is_match,
-            "a fetched-and-genuinely-empty group has no tier, so is_not should match"
-        );
-        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
-    }
-
-    /// When the request supplies no key for the filter's group type there is no group
-    /// context at all, which is a different situation from a fetch miss: the caller never
-    /// claimed to be in an organization. Failing closed there would stop matching for every
-    /// caller that doesn't send `groups`, so this deliberately keeps the existing behavior.
-    #[tokio::test]
-    async fn test_is_condition_match_group_is_not_matches_when_no_group_key_supplied() {
-        let (_context, matcher) = group_matcher_without_group_prep(false).await;
-        let flag = mock!(FeatureFlag);
-        assert!(matcher.flag_evaluation_state.group_properties_pending(0));
-
-        let empty_groups = HashMap::new();
         let ctx = PropertyContext {
             person_properties: None,
-            group_properties: &empty_groups,
+            group_properties: &group_properties,
             aggregation: None,
         };
         let (is_match, _) = matcher
@@ -1922,10 +1902,7 @@ mod tests {
                 &None,
             )
             .unwrap();
-        assert!(
-            is_match,
-            "no group context should keep pre-existing behavior rather than fail closed"
-        );
+        assert_eq!(is_match, expected_match, "{scenario}");
     }
 
     /// Regression test: a group filter carrying its own `group_type_index` must be counted

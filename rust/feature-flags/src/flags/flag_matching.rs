@@ -339,6 +339,11 @@ pub struct FeatureFlagMatcher {
     group_type_cache: Arc<GroupTypeCacheManager>,
     /// Lazily populated mapping for the current team (fetched via group_type_cache)
     group_type_mapping: Option<GroupTypeMapping>,
+    /// True when the group type mapping lookup failed for this request. The mapping is
+    /// what resolves a group type index to the name the request keys its groups by, so
+    /// without it there is no way to tell "the caller sent no group of this type" from
+    /// "the lookup failed". Group filters fail closed in that case.
+    group_type_mapping_failed: bool,
     /// State maintained during flag evaluation, including cached DB lookups
     pub(crate) flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
@@ -437,6 +442,7 @@ impl FeatureFlagMatcher {
             cohort_cache,
             group_type_cache,
             group_type_mapping: None,
+            group_type_mapping_failed: false,
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
             cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
@@ -1802,11 +1808,17 @@ impl FeatureFlagMatcher {
         )
     }
 
-    /// Seeds the group type mapping that `initialize_group_type_mappings_if_needed` loads
-    /// in production, for tests that exercise matching without running DB prep.
+    /// Seeds the outcome that `initialize_group_type_mappings_if_needed` produces in
+    /// production, for tests that exercise matching without running DB prep. Passing
+    /// `None` with `failed` set reproduces a mapping lookup error.
     #[cfg(test)]
-    pub(crate) fn set_group_type_mapping_for_test(&mut self, mapping: GroupTypeMapping) {
-        self.group_type_mapping = Some(mapping);
+    pub(crate) fn set_group_type_mapping_for_test(
+        &mut self,
+        mapping: Option<GroupTypeMapping>,
+        failed: bool,
+    ) {
+        self.group_type_mapping = mapping;
+        self.group_type_mapping_failed = failed;
     }
 
     /// Whether the request supplied a usable group key for this group type. Without one
@@ -1845,6 +1857,13 @@ impl FeatureFlagMatcher {
         let Some(gti) = filter.group_type_index.or(property_context.aggregation) else {
             return false;
         };
+
+        // A failed mapping lookup makes `has_group_key` answer false for every index, which
+        // would read as "no group context" and skip the guard exactly when the properties
+        // are certainly unfetched. Nothing is known about the group here, so fail closed.
+        if self.group_type_mapping_failed {
+            return true;
+        }
 
         // No group key means no group context whatsoever — the request never claimed to be
         // in a group of this type. Failing closed there would silently stop matching for
@@ -2364,17 +2383,29 @@ impl FeatureFlagMatcher {
     /// index, so omitting it from the fetch would silently resolve the filter against an
     /// empty map instead of the group's real properties.
     pub(crate) fn referenced_group_type_indexes(flag: &FeatureFlag) -> HashSet<GroupTypeIndex> {
-        let mut indexes: HashSet<GroupTypeIndex> = HashSet::new();
-        indexes.extend(flag.get_group_type_index());
-        for condition in flag.get_conditions() {
-            indexes.extend(condition.aggregation_group_type_index.flatten());
-            for prop in condition.properties.iter().flatten() {
-                if prop.prop_type == PropertyType::Group {
-                    indexes.extend(prop.group_type_index);
-                }
-            }
-        }
-        indexes
+        Self::group_type_index_refs(flag).collect()
+    }
+
+    /// True when the flag references any group type. Answers the same question as
+    /// `referenced_group_type_indexes` without building a set, for the per-flag gate.
+    fn references_any_group_type(flag: &FeatureFlag) -> bool {
+        Self::group_type_index_refs(flag).next().is_some()
+    }
+
+    fn group_type_index_refs(flag: &FeatureFlag) -> impl Iterator<Item = GroupTypeIndex> + '_ {
+        flag.get_group_type_index()
+            .into_iter()
+            .chain(flag.get_conditions().iter().flat_map(|condition| {
+                condition
+                    .aggregation_group_type_index
+                    .flatten()
+                    .into_iter()
+                    .chain(condition.properties.iter().flatten().filter_map(|prop| {
+                        (prop.prop_type == PropertyType::Group)
+                            .then_some(prop.group_type_index)
+                            .flatten()
+                    }))
+            }))
     }
 
     fn prepare_group_data(
@@ -2583,8 +2614,7 @@ impl FeatureFlagMatcher {
         // filter case must be included: without the mapping, `prepare_group_data` returns
         // an empty map and those filters evaluate against no properties at all.
         let has_type_indexes = flags.iter().any(|flag| {
-            !self.filtered_out_flag_ids.contains(&flag.id)
-                && !Self::referenced_group_type_indexes(flag).is_empty()
+            !self.filtered_out_flag_ids.contains(&flag.id) && Self::references_any_group_type(flag)
         });
 
         if !has_type_indexes {
@@ -2600,12 +2630,15 @@ impl FeatureFlagMatcher {
                 // Empty mappings are not an error — the team simply has no group types configured.
                 // Group-based flags won't match, but person flags in the same batch should succeed
                 // without surfacing errorsWhileComputingFlags to the client.
+                self.group_type_mapping_failed = false;
             }
             Ok(mapping) => {
                 self.group_type_mapping = Some(mapping);
+                self.group_type_mapping_failed = false;
             }
             Err(_) => {
                 errors_while_computing_flags = true;
+                self.group_type_mapping_failed = true;
             }
         }
 
