@@ -126,6 +126,7 @@ Additional requirements:
 - Show SQL-variable controls before the advanced-options ellipsis.
 - Keep the status visible at narrow dashboard widths.
 - Move actions into a dropdown at the defined narrow container breakpoint.
+- Change Preview to Previewing while the dashboard refresh runs.
 - Show save and discard labels that describe dashboard configuration changes.
 
 ## Required regression checks
@@ -175,6 +176,7 @@ Use one local dashboard with at least two working insight tiles and three SQL va
 - Keep stories for saved configurations, user edits, and URL overrides shown as unsaved changes.
 - Do not add a separate temporary treatment story.
 - Keep stories for layout editing with an unsaved configuration and for the manual-preview dashboard size.
+- Keep a story for the preview loading state above the automatic-preview threshold.
 - Keep a story with several SQL variables. Confirm that they appear before the advanced-options ellipsis.
 - Do not create a dashboard filter-bar story for embedded context when the embedding surface owns that context.
 

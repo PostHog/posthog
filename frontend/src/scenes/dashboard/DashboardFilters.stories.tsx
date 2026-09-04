@@ -13,7 +13,15 @@ import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
 import { encodeURLFilters, SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
-type FilterBarState = 'saved' | 'unsaved' | 'url-overrides' | 'layout' | 'narrow' | 'large' | 'sql-overrides'
+type FilterBarState =
+    | 'saved'
+    | 'unsaved'
+    | 'url-overrides'
+    | 'layout'
+    | 'narrow'
+    | 'large'
+    | 'previewing'
+    | 'sql-overrides'
 
 const DASHBOARD_ID = 955
 
@@ -87,7 +95,7 @@ const sqlVariablesDashboard: DashboardType<QueryBasedInsightModel> = {
 
 function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Element {
     let storyDashboard = dashboard
-    if (state === 'large') {
+    if (state === 'large' || state === 'previewing') {
         storyDashboard = largeDashboard
     }
     if (state === 'sql-overrides') {
@@ -117,9 +125,13 @@ function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Elem
         )
     }
 
-    if (state === 'unsaved' || state === 'narrow' || state === 'large') {
+    if (state === 'unsaved' || state === 'narrow' || state === 'large' || state === 'previewing') {
         logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
         logic.actions.setDates('-7d', null)
+    }
+
+    if (state === 'previewing') {
+        logic.actions.previewDashboardChanges()
     }
 
     if (state === 'layout') {
@@ -182,6 +194,10 @@ export const NarrowUnsavedFilters: Story = {
 
 export const LargeDashboardUnsavedFilters: Story = {
     args: { state: 'large' },
+}
+
+export const LargeDashboardPreviewingFilters: Story = {
+    args: { state: 'previewing' },
 }
 
 export const SqlOverridesBeforeAdvancedOptions: Story = {

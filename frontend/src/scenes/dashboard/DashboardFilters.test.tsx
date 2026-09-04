@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -104,6 +105,32 @@ describe('DashboardFilterBar', () => {
         expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-edit-mode-discard"]')).toBeInTheDocument()
 
+        logic.unmount()
+    })
+
+    it('shows Previewing while a large dashboard preview loads', async () => {
+        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+        const logic = renderFilterBar(DashboardEventSource.DashboardFilters)
+
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-7d', null)
+        }).toFinishAllListeners()
+
+        expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Preview')
+
+        await expectLogic(logic, () => {
+            logic.actions.previewDashboardChanges()
+        }).toMatchValues({ loadingPreview: true })
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Previewing')
+            expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveAttribute(
+                'aria-disabled',
+                'true'
+            )
+        })
+
+        payloadSpy.mockRestore()
         logic.unmount()
     })
 

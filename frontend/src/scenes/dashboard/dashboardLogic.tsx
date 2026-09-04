@@ -1965,6 +1965,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 applyFilters: () => true,
+                previewDashboardChanges: () => true,
             },
         ],
         cancellingPreview: [

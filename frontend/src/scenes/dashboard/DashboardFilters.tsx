@@ -71,11 +71,11 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                                 data-attr="dashboard-apply-filters"
                                 type="tertiary"
                                 size="small"
-                                loading={loadingPreview}
+                                disabledReason={loadingPreview ? 'Dashboard preview in progress' : undefined}
                                 tooltip="Update the dashboard data with these unsaved filters. This does not save them."
                                 onClick={previewDashboardChanges}
                             >
-                                Preview
+                                {loadingPreview ? 'Previewing' : 'Preview'}
                             </LemonButton>
                             <span className="h-4 border-l border-warning" />
                         </>
@@ -101,7 +101,8 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                     ...(showApplyFiltersBanner && !layoutEditMode
                         ? [
                               {
-                                  label: 'Preview',
+                                  label: loadingPreview ? 'Previewing' : 'Preview',
+                                  disabledReason: loadingPreview ? 'Dashboard preview in progress' : undefined,
                                   onClick: previewDashboardChanges,
                               },
                           ]
@@ -117,7 +118,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                     className="@min-lg/dashboard-filters:hidden"
                     type="tertiary"
                     size="small"
-                    loading={dashboardFiltersSaving || loadingPreview}
+                    loading={dashboardFiltersSaving}
                 >
                     Actions
                 </LemonButton>
