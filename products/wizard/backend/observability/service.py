@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Callable
+from functools import partial
 from uuid import UUID
 
 from kombu.exceptions import OperationalError
@@ -19,95 +21,100 @@ logger = logging.getLogger(__name__)
 
 
 class WizardObservability:
+    def _observe(
+        self,
+        *,
+        name: str,
+        context: dict[str, object],
+        metric: Callable[[], None] | None = None,
+        event: Callable[[], None] | None = None,
+        metric_error: str | None = None,
+        event_error: str | None = None,
+        level: int | None = logging.INFO,
+    ) -> None:
+        if metric is not None:
+            try:
+                metric()
+            except ValueError:
+                logger.exception(metric_error or f"{name}_metric_failed", extra=context)
+
+        if event is not None:
+            try:
+                event()
+            except OperationalError:
+                logger.exception(event_error or f"{name}_event_failed", extra=context)
+
+        if level is not None:
+            logger.log(level, name, extra=context)
+
     def run_created(self, run: WizardRunDTO) -> None:
-        try:
-            metrics.report_run_created(run)
-        except ValueError:
-            logger.exception("wizard_run_created_metric_failed", extra=self._run_context(run))
-
-        try:
-            events.enqueue_run_created(run)
-        except OperationalError:
-            logger.exception("wizard_run_created_event_failed", extra=self._run_context(run))
-
-        logger.info("wizard_run_created", extra=self._run_context(run))
+        self._observe(
+            name="wizard_run_created",
+            context=self._run_context(run),
+            metric=partial(metrics.report_run_created, run),
+            event=partial(events.enqueue_run_created, run),
+        )
 
         if run.stage is not None:
             self.stage_entered(run)
 
     def dispatch_finished(self, run: WizardRunDTO, outcome: WizardRunDispatchOutcome) -> None:
-        try:
-            metrics.report_dispatch_finished(outcome)
-        except ValueError:
-            logger.exception("wizard_run_dispatch_metric_failed", extra=self._run_context(run))
-
-        try:
-            events.enqueue_dispatch_finished(run, outcome)
-        except OperationalError:
-            logger.exception("wizard_run_dispatch_event_failed", extra=self._run_context(run))
-
-        logger.info(
-            "wizard_run_dispatch_finished",
-            extra={**self._run_context(run), "outcome": outcome.value},
+        self._observe(
+            name="wizard_run_dispatch_finished",
+            context={**self._run_context(run), "outcome": outcome.value},
+            metric=partial(metrics.report_dispatch_finished, outcome),
+            event=partial(events.enqueue_dispatch_finished, run, outcome),
+            metric_error="wizard_run_dispatch_metric_failed",
+            event_error="wizard_run_dispatch_event_failed",
         )
 
     def stage_entered(self, run: WizardRunDTO) -> None:
         if run.stage is None:
             return
 
-        try:
-            metrics.report_stage_entered(run.stage)
-        except ValueError:
-            logger.exception("wizard_run_stage_metric_failed", extra=self._run_context(run))
-
-        try:
-            events.enqueue_stage_entered(run, run.stage)
-        except OperationalError:
-            logger.exception("wizard_run_stage_event_failed", extra=self._run_context(run))
-
-        logger.info(
-            "wizard_run_stage_entered",
-            extra={**self._run_context(run), "stage": run.stage.value},
+        self._observe(
+            name="wizard_run_stage_entered",
+            context={**self._run_context(run), "stage": run.stage.value},
+            metric=partial(metrics.report_stage_entered, run.stage),
+            event=partial(events.enqueue_stage_entered, run, run.stage),
+            metric_error="wizard_run_stage_metric_failed",
+            event_error="wizard_run_stage_event_failed",
         )
 
     def stage_changed(self, previous: WizardRunDTO, current: WizardRunDTO) -> None:
         self.stage_entered(current)
 
-        try:
-            metrics.report_run_stage_changed(previous, current)
-        except ValueError:
-            logger.exception("wizard_run_stage_active_metric_failed", extra=self._run_context(current))
+        self._observe(
+            name="wizard_run_stage_active",
+            context=self._run_context(current),
+            metric=partial(metrics.report_run_stage_changed, previous, current),
+            level=None,
+        )
 
     def run_transitioned(self, previous: WizardRunDTO, current: WizardRunDTO) -> None:
         if previous.status != current.status:
-            try:
-                metrics.report_run_status_changed(previous, current)
-            except ValueError:
-                logger.exception("wizard_run_status_active_metric_failed", extra=self._run_context(current))
+            self._observe(
+                name="wizard_run_status_active",
+                context=self._run_context(current),
+                metric=partial(metrics.report_run_status_changed, previous, current),
+                level=None,
+            )
 
         event = self._terminal_event(current.status)
 
         if event is None or previous.status == current.status:
             return
 
-        try:
-            metrics.report_run_finished(current, previous.stage)
-        except ValueError:
-            logger.exception("wizard_run_finished_metric_failed", extra=self._run_context(current))
-
-        try:
-            events.enqueue_run_finished(current, previous.stage, event)
-        except OperationalError:
-            logger.exception("wizard_run_finished_event_failed", extra=self._run_context(current))
-
-        logger.info(
-            "wizard_run_finished",
-            extra={
+        self._observe(
+            name="wizard_run_finished",
+            context={
                 **self._run_context(current),
                 "status": current.status.value,
                 "error_code": current.error_code,
                 "failure_stage": previous.stage.value if previous.stage is not None else None,
             },
+            metric=partial(metrics.report_run_finished, current, previous.stage),
+            event=partial(events.enqueue_run_finished, current, previous.stage, event),
         )
 
     def worker_usage_recorded(self, run: WizardRunDTO, telemetry: WizardWorkerTelemetry) -> None:
@@ -117,19 +124,9 @@ class WizardObservability:
             logger.exception("wizard_worker_usage_mapping_failed", extra=self._run_context(run))
             return
 
-        try:
-            metrics.report_worker_usage(usage)
-        except ValueError:
-            logger.exception("wizard_worker_usage_metric_failed", extra=self._run_context(run))
-
-        try:
-            events.enqueue_worker_usage(run, usage)
-        except OperationalError:
-            logger.exception("wizard_worker_usage_event_failed", extra=self._run_context(run))
-
-        logger.info(
-            "wizard_worker_usage_recorded",
-            extra={
+        self._observe(
+            name="wizard_worker_usage_recorded",
+            context={
                 **self._run_context(run),
                 "lifetime_seconds": usage.lifetime_seconds,
                 "cpu_cores": usage.cpu_cores,
@@ -138,59 +135,47 @@ class WizardObservability:
                 "cpu_usage_seconds": usage.cpu_usage_seconds,
                 "billed_cpu_usage_seconds": usage.billed_cpu_usage_seconds,
             },
+            metric=partial(metrics.report_worker_usage, usage),
+            event=partial(events.enqueue_worker_usage, run, usage),
+            metric_error="wizard_worker_usage_metric_failed",
+            event_error="wizard_worker_usage_event_failed",
         )
 
     def git_diff_omitted(self, run: WizardRunDTO, size_bytes: int) -> None:
-        try:
-            metrics.report_git_diff_omitted(run)
-        except ValueError:
-            logger.exception("wizard_git_diff_omitted_metric_failed", extra=self._run_context(run))
-
-        logger.warning(
-            "wizard_git_diff_omitted",
-            extra={**self._run_context(run), "size_bytes": size_bytes},
+        self._observe(
+            name="wizard_git_diff_omitted",
+            context={**self._run_context(run), "size_bytes": size_bytes},
+            metric=partial(metrics.report_git_diff_omitted, run),
+            level=logging.WARNING,
         )
 
     def handoff_body_fallback(self, team_id: int, run_id: UUID) -> None:
-        try:
-            metrics.report_handoff_body_fallback()
-        except ValueError:
-            logger.exception(
-                "wizard_handoff_body_fallback_metric_failed",
-                extra={"team_id": team_id, "run_id": str(run_id)},
-            )
-
-        logger.warning(
-            "wizard_handoff_body_fallback",
-            extra={"team_id": team_id, "run_id": str(run_id)},
+        self._observe(
+            name="wizard_handoff_body_fallback",
+            context={"team_id": team_id, "run_id": str(run_id)},
+            metric=metrics.report_handoff_body_fallback,
+            level=logging.WARNING,
         )
 
     def artifact_created(self, run: WizardRunDTO, artifact: WizardRunArtifactDTO) -> None:
-        try:
-            metrics.report_artifact_created(artifact)
-        except ValueError:
-            logger.exception("wizard_artifact_metric_failed", extra=self._run_context(run))
-
-        logger.info(
-            "wizard_artifact_created",
-            extra={**self._run_context(run), "artifact_type": artifact.artifact_type.value},
+        self._observe(
+            name="wizard_artifact_created",
+            context={**self._run_context(run), "artifact_type": artifact.artifact_type.value},
+            metric=partial(metrics.report_artifact_created, artifact),
+            metric_error="wizard_artifact_metric_failed",
         )
 
     def pull_request_created(self, run: WizardRunDTO, artifact: WizardRunPullRequestArtifactDTO) -> None:
         self.artifact_created(run, artifact)
 
-        try:
-            events.enqueue_pull_request_created(run)
-        except OperationalError:
-            logger.exception("wizard_pull_request_created_event_failed", extra=self._run_context(run))
-
-        logger.info(
-            "wizard_pull_request_created",
-            extra={
+        self._observe(
+            name="wizard_pull_request_created",
+            context={
                 **self._run_context(run),
                 "repository": artifact.repository,
                 "pull_request_number": artifact.number,
             },
+            event=partial(events.enqueue_pull_request_created, run),
         )
 
     def worker_cleanup_finished(
@@ -199,26 +184,21 @@ class WizardObservability:
         run_id: UUID,
         outcome: WizardWorkerCleanupOutcome,
     ) -> None:
-        try:
-            metrics.report_worker_cleanup(outcome)
-        except ValueError:
-            logger.exception(
-                "wizard_worker_cleanup_metric_failed",
-                extra={"team_id": team_id, "run_id": str(run_id), "outcome": outcome.value},
-            )
-
-        logger.info(
-            "wizard_worker_cleanup_finished",
-            extra={"team_id": team_id, "run_id": str(run_id), "outcome": outcome.value},
+        self._observe(
+            name="wizard_worker_cleanup_finished",
+            context={"team_id": team_id, "run_id": str(run_id), "outcome": outcome.value},
+            metric=partial(metrics.report_worker_cleanup, outcome),
+            metric_error="wizard_worker_cleanup_metric_failed",
         )
 
     def run_past_deadline(self, run: WizardRunDTO) -> None:
-        try:
-            metrics.report_run_past_deadline(run)
-        except ValueError:
-            logger.exception("wizard_run_deadline_metric_failed", extra=self._run_context(run))
-
-        logger.warning("wizard_run_past_deadline", extra=self._run_context(run))
+        self._observe(
+            name="wizard_run_past_deadline",
+            context=self._run_context(run),
+            metric=partial(metrics.report_run_past_deadline, run),
+            metric_error="wizard_run_deadline_metric_failed",
+            level=logging.WARNING,
+        )
 
     @staticmethod
     def _terminal_event(status: WizardRunStatus) -> str | None:
