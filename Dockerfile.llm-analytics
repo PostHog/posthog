@@ -51,6 +51,16 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=tools/owners,target=tools/owners \
     uv sync --locked --no-dev --no-editable --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
 
+# Copy project files
+COPY manage.py manage.py
+COPY common/esbuilder common/esbuilder
+COPY common/hogvm common/hogvm/
+COPY common/migration_utils common/migration_utils/
+COPY posthog posthog/
+COPY products/ products/
+COPY ee ee/
+COPY bin/temporal-django-worker bin/temporal-django-worker
+
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime \
     POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model \
@@ -129,17 +139,6 @@ print(f'  smoke test passed: positive={labels[\"positive\"]:.4f}')
 print(f'Model baked into {cache_dir}')
 "
 BAKE_MODEL
-
-# Copy project files. Must stay below the tiktoken pre-warm and the model bake, which read
-# nothing from the repo; moving it above them invalidates both layers on every source-only commit.
-COPY manage.py manage.py
-COPY common/esbuilder common/esbuilder
-COPY common/hogvm common/hogvm/
-COPY common/migration_utils common/migration_utils/
-COPY posthog posthog/
-COPY products/ products/
-COPY ee ee/
-COPY bin/temporal-django-worker bin/temporal-django-worker
 
 RUN chmod +x bin/temporal-django-worker
 
