@@ -1728,10 +1728,7 @@ class TestDuckgresBackfillOptions:
     """
 
     def test_enabled_requests_small_colocated_worker(self):
-        with (
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True),
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", ""),
-        ):
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True):
             assert (
                 _duckgres_backfill_options()
                 == "-c duckgres.colocate=true -c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
@@ -1739,30 +1736,8 @@ class TestDuckgresBackfillOptions:
 
     def test_disabled_returns_empty_string(self):
         # Disabled → no startup options → falls back to the default exclusive worker.
-        with (
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False),
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", ""),
-        ):
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False):
             assert _duckgres_backfill_options() == ""
-
-    def test_idle_timeout_requested_when_configured(self):
-        with (
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True),
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", "30m"),
-        ):
-            assert _duckgres_backfill_options() == (
-                "-c duckgres.idle_timeout=30m -c duckgres.colocate=true "
-                "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
-            )
-
-    def test_idle_timeout_survives_disabled_worker_profile(self):
-        # The idle reap is a property of the connection, not the worker shape —
-        # turning the profile off must not silently drop the requested timeout.
-        with (
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False),
-            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", "30m"),
-        ):
-            assert _duckgres_backfill_options() == "-c duckgres.idle_timeout=30m"
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
     def test_never_sets_statement_timeout(self, _label, enabled):
