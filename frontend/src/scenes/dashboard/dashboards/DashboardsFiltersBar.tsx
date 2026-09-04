@@ -53,15 +53,27 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                         onClickOutside={() => setShowTagPopover(false)}
                         overlay={
                             <div className="max-w-100 deprecated-space-y-2">
-                                <LemonInput
-                                    type="search"
-                                    placeholder="Search tags"
-                                    autoFocus
-                                    value={tagSearch}
-                                    onChange={setTagSearch}
-                                    fullWidth
-                                    className="max-w-full"
-                                />
+                                <div className="flex items-center gap-2">
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search tags"
+                                        autoFocus
+                                        value={tagSearch}
+                                        onChange={setTagSearch}
+                                        fullWidth
+                                        className="max-w-full"
+                                    />
+                                    {(filters.tags?.length || 0) > 0 && (
+                                        <LemonButton
+                                            data-attr="dashboard-tags-clear-selection"
+                                            size="small"
+                                            onClick={() => setFilters({ tags: [] })}
+                                            type="tertiary"
+                                        >
+                                            Clear
+                                        </LemonButton>
+                                    )}
+                                </div>
                                 <div
                                     ref={tagListScrollRef}
                                     className="max-h-80 overflow-y-auto"
@@ -108,20 +120,6 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                         ) : null}
                                     </ul>
                                 </div>
-                                {(filters.tags?.length || 0) > 0 && (
-                                    <>
-                                        <div className="my-1 border-t" />
-                                        <LemonButton
-                                            fullWidth
-                                            role="menuitem"
-                                            size="small"
-                                            onClick={() => setFilters({ tags: [] })}
-                                            type="tertiary"
-                                        >
-                                            Clear selection
-                                        </LemonButton>
-                                    </>
-                                )}
                             </div>
                         }
                     >
