@@ -206,7 +206,16 @@ _GOAL_STOPWORDS = frozenset(
 
 
 class DraftError(Exception):
-    """Raised when the model call fails or returns nothing usable."""
+    """Raised when the model call fails or returns nothing usable.
+
+    `reason` is a stable slug carried into telemetry. The user-facing 503 is deliberately generic,
+    so it is the only thing that tells a provider outage apart from a draft the model got wrong.
+    """
+
+    def __init__(self, reason: str = "unknown", detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
 
 
 class _LlmDraft(BaseModel):
@@ -536,7 +545,7 @@ def _generate(
     except Exception as e:
         # A missing or malformed API key raises at construction. Wrap it so the API returns
         # the friendly 503 instead of a 500.
-        raise DraftError("model client unavailable") from e
+        raise DraftError("model_client_unavailable") from e
     config = GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
@@ -571,14 +580,14 @@ def _generate(
             response = call_model()
         except Exception as e:
             logger.exception("replay_vision.scanner_draft.generate_failed", team_id=team_id)
-            raise DraftError("model call failed") from e
+            raise DraftError("model_call_failed") from e
 
     if not response.text:
-        raise DraftError("empty response")
+        raise DraftError("empty_response")
     try:
         return response_model.model_validate_json(response.text)
     except Exception as e:
-        raise DraftError("invalid response") from e
+        raise DraftError("invalid_response") from e
 
 
 def _grounded(proposed: list[str], allowed: Sequence[str], cap: int) -> list[str]:
@@ -642,7 +651,7 @@ def _normalized_config(parsed: _LlmDraft) -> dict[str, Any]:
     # (e.g. a classifier whose tags all slugified away).
     error = scanner_config_error(ScannerType(parsed.scanner_type), scanner_config)
     if error:
-        raise DraftError(f"draft config invalid: {error}")
+        raise DraftError("config_invalid", str(error))
     return scanner_config
 
 
@@ -656,7 +665,7 @@ def _finalize(
     """Normalize the model output into a draft the wizard form (and later the create endpoint) will accept."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
-        raise DraftError("draft missing name or prompt")
+        raise DraftError("missing_name_or_prompt")
     scanner_config = _normalized_config(parsed)
 
     screens = _grounded(
@@ -1344,7 +1353,7 @@ def _finalize_v2(
     """Normalize the v2 model output; costing is applied by the caller."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
-        raise DraftError("draft missing name or prompt")
+        raise DraftError("missing_name_or_prompt")
     scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
     # The briefing shows each page as "/billing (10)" for ranking, but the prompt tells the model to
