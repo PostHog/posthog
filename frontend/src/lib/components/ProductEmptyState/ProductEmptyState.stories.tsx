@@ -378,10 +378,7 @@ export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStor
     mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
 })
 
-// Heatmaps detection counts saved heatmaps on mount - answer "none yet".
-export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup', {
-    mocks: { get: { '/api/projects/:team_id/saved/': [200, { count: 0, results: [] }] } },
-})
+export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup')
 
 // Data warehouse detection lists sources and tables on mount - answer "none yet".
 export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(

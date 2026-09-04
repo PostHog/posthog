@@ -48,6 +48,7 @@
 
     &__head {
         display: flex;
+        flex-wrap: wrap;
         gap: 0.5rem;
         align-items: center;
         padding: 0.5rem 0.75rem;
