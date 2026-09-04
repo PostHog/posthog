@@ -26,6 +26,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
+from posthog.exceptions import CurrentTeamNotFound
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -435,16 +436,20 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
 
     @cached_property
+    def _user_current_team(self) -> Team:
+        team = cast(User, self.request.user).team
+        if team is None:
+            raise CurrentTeamNotFound()
+        return team
+
+    @cached_property
     def team_id(self) -> int:
         if self._is_project_view:
             team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
         elif team_from_token := self._get_team_from_request():
             team_id = team_from_token.id
         elif self.param_derived_from_user_current_team == "team_id":
-            user = cast(User, self.request.user)
-            team = user.team
-            assert team is not None
-            team_id = team.id
+            team_id = self._user_current_team.id
         else:
             team_id = self.parents_query_dict["team_id"]
         tag_queries(team_id=team_id)
@@ -459,9 +464,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
         elif self.param_derived_from_user_current_team == "team_id":
-            user = cast(User, self.request.user)
-            assert user.team is not None
-            team = user.team
+            team = self._user_current_team
         else:
             try:
                 team = Team.objects.select_related("organization").get(id=self.team_id)
@@ -479,10 +482,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             project_id = team_from_token.project_id
 
         elif self.param_derived_from_user_current_team == "project_id":
-            user = cast(User, self.request.user)
-            team = user.team
-            assert team is not None
-            project_id = team.project_id
+            project_id = self._user_current_team.project_id
         else:
             project_id = self.parents_query_dict["project_id"]
 
@@ -492,11 +492,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def project(self) -> Project:
         if self.param_derived_from_user_current_team == "project_id":
-            user = cast(User, self.request.user)
-            team = user.team
-            assert team is not None
-            assert team.project is not None
-            return team.project
+            return self._user_current_team.project
         try:
             # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
