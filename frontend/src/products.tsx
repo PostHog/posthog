@@ -1361,7 +1361,6 @@ export const productUrls = {
     metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
-    canvas: (): string => `/canvas`,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>

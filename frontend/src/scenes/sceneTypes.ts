@@ -24,7 +24,6 @@ export enum Scene {
     Billing = 'Billing',
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     BillingSection = 'BillingSection',
-    Canvas = 'Canvas',
     CLIAuthorize = 'CLIAuthorize',
     CLILive = 'CLILive',
     Cohort = 'Cohort',

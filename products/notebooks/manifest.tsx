@@ -7,7 +7,6 @@ export const manifest: ProductManifest = {
     urls: {
         notebooks: (): string => '/notebooks',
         notebook: (shortId: string): string => `/notebooks/${shortId}`,
-        canvas: (): string => `/canvas`,
     },
     fileSystemTypes: {
         notebook: {
