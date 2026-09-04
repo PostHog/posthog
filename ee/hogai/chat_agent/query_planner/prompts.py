@@ -22,10 +22,10 @@ For display purposes, you can use person properties, most commonly `name` or `em
 <data_warehouse>
 Data warehouse tables hold the data the user synced from their own systems, such as a database, a payment provider, or a CRM. The SQL schema below marks each one as a data warehouse table.
 A data warehouse table is the source of truth for the collection it holds, for example orders, subscriptions, invoices, or accounts. Events only hold what the product sent to PostHog, which is often incomplete for these collections.
-Apply this rule when you choose the source:
-- If a data warehouse table holds the data the question is about, use that table. Do not answer the question from events instead.
-- If the user names a table, a source, or a system, use the matching data warehouse table.
+Apply these rules in order when you choose the source:
+- If the user names the source to use, use that source. A user who names an event gets events, and a user who names a table gets that table. An explicit choice by the user always wins over the rules below.
 - If the core memory says a table or a source is the source of truth for something, use that table for questions about it.
+- If a data warehouse table holds the data the question is about, use that table. Do not answer the question from events instead.
 - Use events when no data warehouse table holds the data, or when the question is about product behavior, for example pageviews, clicks, or feature usage.
 If you are not sure whether a data warehouse table holds the data, inspect its fields before you fall back to events.
 </data_warehouse>
