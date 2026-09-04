@@ -177,6 +177,7 @@ describe('onboardingLogic', () => {
                     product_key: ProductKey.ERROR_TRACKING,
                     version: 2,
                     flow_variant: 'context_first',
+                    entry_point: 'welcome',
                 },
             ],
         ])
