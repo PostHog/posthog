@@ -29,7 +29,8 @@ saved settings
 → user draft
 ```
 
-- Freeze the initial URL override after the dashboard opens.
+- Freeze the initial URL override against the URL writes that the filter and variable controls make after the dashboard opens.
+- Browser history is the exception. On a `POP`, rebuild the draft from the saved settings and the popped URL. Read `query_filters` and `query_variables` together. A `POP` that carries neither parameter restores the saved settings.
 - Do not infer settings state from `dashboardMode`, `hasIntermittentFilters`, or `filterEditModeActive`.
 - Do not combine separate temporary-filter and temporary-variable conditions in UI components.
 - Keep embedded context and tile overrides outside this configuration.
@@ -174,7 +175,7 @@ Also check these separate boundaries:
 - Embedded contextual filters never enter dashboard configuration changes.
 - Tile overrides never enter dashboard configuration changes.
 - Shared, public, export, feature-flag, DataOps, group, and built-in placements match their override support.
-- Browser history and direct URL edits resolve to the correct effective configuration.
+- Browser history and direct URL edits resolve to the correct effective configuration. Cover a filter-only, a variable-only, and a combined history entry.
 - Search for every removed or renamed selector across dashboard items, menus, panels, exports, and tests.
 - Run TypeScript after selector changes. Do not stop after the logic tests pass.
 - Check the insight-colors modal. Its cancel and save paths must not change the settings draft.
