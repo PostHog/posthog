@@ -3,7 +3,7 @@ import { Properties } from '~/plugin-scaffold'
 
 import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
-import type { ModelCost, ModelCostRow, ResolvedModelCost } from './providers/types'
+import type { ModelCostByProvider, ModelCostRow, ResolvedModelCost } from './providers/types'
 
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
@@ -71,57 +71,66 @@ const resolveBedrockInferenceProfileProvider = (
     return regionalProviders.length === 1 ? regionalProviders[0] : provider
 }
 
-/**
- * OpenAI bills the flex service tier at half the standard rates, uniformly across its
- * flex-capable models (https://developers.openai.com/api/docs/pricing?latest-pricing=flex);
- * other service_tier values ("auto", "default", "priority") price as standard. The served tier
- * arrives two ways: an explicit $ai_service_tier (gateway emitters), which wins, and the
- * service_tier the @posthog/ai SDK records inside $ai_model_parameters from the provider's
- * response.
- */
-const applyServiceTierPricing = (result: CostModelResult, properties: Properties): CostModelResult => {
+const aiProvider = (properties: Properties): string | undefined => {
     const provider: unknown = properties['$ai_provider']
+
+    return provider ? String(provider).toLowerCase() : undefined
+}
+
+// The tier the provider served, recorded by the SDK from the response. A requested tier can be
+// refused, so pricing never reads request-side properties.
+const servedServiceTier = (properties: Properties): unknown => {
     const modelParameters: unknown = properties['$ai_model_parameters']
-    const serviceTier: unknown =
-        properties['$ai_service_tier'] ??
-        (modelParameters && typeof modelParameters === 'object'
-            ? (modelParameters as Record<string, unknown>)['service_tier']
-            : undefined)
 
-    if (serviceTier === 'flex' && provider && resolveProviderAliases(String(provider).toLowerCase()) === 'openai') {
-        // Halving every rate also halves the per-search web tool fee, which OpenAI does not
-        // discount on flex; accepted, the error is half a cent per search.
-        const cost: ModelCost = { ...result.cost.cost }
-        for (const field of Object.keys(cost) as (keyof ModelCost)[]) {
-            const rate = cost[field]
-            if (typeof rate === 'number') {
-                cost[field] = rate / 2
-            }
+    return modelParameters && typeof modelParameters === 'object'
+        ? (modelParameters as Record<string, unknown>)['service_tier']
+        : undefined
+}
+
+// Service tiers that the cost book carries as per-model provider-key variants
+// (openai-flex at 0.5x, openai-fast at 2x today), synced from OpenRouter.
+const SERVICE_TIER_KEY_SUFFIX: Record<string, string> = {
+    flex: '-flex',
+    priority: '-fast',
+}
+
+/**
+ * Resolve a cost row honoring the served service tier. Both eligibility and price come from the
+ * synced book: a model whose row lacks the tier key prices at its standard row. The tier lookup
+ * is a direct key check because resolveModelCostForProvider falls back to the `default` key,
+ * which can carry promotional pricing.
+ */
+const resolveTieredModelCost = (
+    providerCosts: ModelCostByProvider,
+    provider: string | undefined,
+    serviceTier: unknown,
+    model: string
+): ResolvedModelCost | undefined => {
+    const suffix = typeof serviceTier === 'string' ? SERVICE_TIER_KEY_SUFFIX[serviceTier] : undefined
+
+    if (suffix && provider) {
+        const tierKey = `${resolveProviderAliases(provider)}${suffix}`
+        const tierCost = providerCosts[tierKey]
+
+        if (tierCost) {
+            return { model, provider: tierKey, cost: tierCost }
         }
-
-        return { ...result, cost: { ...result.cost, cost } }
     }
 
-    return result
+    return resolveModelCostForProvider(providerCosts, provider, model)
 }
 
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
-    const match = matchCostModel(model, properties)
-
-    return match ? applyServiceTierPricing(match, properties) : undefined
-}
-
-const matchCostModel = (model: string, properties: Properties): CostModelResult | undefined => {
-    const providerProperty: unknown = properties['$ai_provider']
-
-    const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
+    const provider = aiProvider(properties)
+    const serviceTier = servedServiceTier(properties)
 
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
     const resolvedManualMatch: ResolvedModelCost | undefined = manualMatch
-        ? resolveModelCostForProvider(
+        ? resolveTieredModelCost(
               manualMatch.cost,
               resolveBedrockInferenceProfileProvider(model, manualMatch.cost, provider),
+              serviceTier,
               manualMatch.model
           )
         : undefined
@@ -133,9 +142,10 @@ const matchCostModel = (model: string, properties: Properties): CostModelResult 
     const openRouterMatch: ModelCostRow | undefined = searchModelInCosts(model, openRouterCostsByModel)
 
     const resolvedOpenRouterMatch: ResolvedModelCost | undefined = openRouterMatch
-        ? resolveModelCostForProvider(
+        ? resolveTieredModelCost(
               openRouterMatch.cost,
               resolveBedrockInferenceProfileProvider(model, openRouterMatch.cost, provider),
+              serviceTier,
               openRouterMatch.model
           )
         : undefined

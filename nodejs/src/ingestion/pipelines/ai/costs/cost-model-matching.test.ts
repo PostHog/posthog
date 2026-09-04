@@ -15,7 +15,9 @@ jest.mock('./providers', () => {
             model: 'openai/gpt-4o-mini',
             cost: {
                 default: { prompt_token: 0.0000002, completion_token: 0.0000007 },
-                openai: { prompt_token: 0.00000015, completion_token: 0.0000006 },
+                openai: { prompt_token: 0.00000015, completion_token: 0.0000006, web_search: 0.01 },
+                'openai-flex': { prompt_token: 0.000000075, completion_token: 0.0000003, web_search: 0.01 },
+                'openai-fast': { prompt_token: 0.0000003, completion_token: 0.0000012 },
             },
         },
         'anthropic/claude-3.5-sonnet': {
@@ -139,40 +141,60 @@ jest.mock('./providers', () => {
     }
 })
 
-describe('flex service tier pricing', () => {
-    it('halves the token rates for openai flex events', () => {
-        const result = findCostFromModel('gpt-4o-mini', { $ai_provider: 'openai', $ai_service_tier: 'flex' })
-        // Silently pricing flex at standard rates overstates every flex call 2x.
-        expect(result?.cost.cost.prompt_token).toBe(0.000000075)
-        expect(result?.cost.cost.completion_token).toBe(0.0000003)
-    })
-
-    it('leaves non-openai providers untouched even when the tier says flex', () => {
-        const result = findCostFromModel('claude-3.5-sonnet', { $ai_provider: 'anthropic', $ai_service_tier: 'flex' })
-        expect(result?.cost.cost.prompt_token).toBe(0.000003)
-    })
-
-    it.each(['auto', 'default', 'priority', 'fast', undefined])('prices tier %p at standard rates', (tier) => {
-        const result = findCostFromModel('gpt-4o-mini', { $ai_provider: 'openai', $ai_service_tier: tier })
-        expect(result?.cost.cost.prompt_token).toBe(0.00000015)
-    })
-
-    it('reads the served tier the SDK records inside $ai_model_parameters', () => {
-        // Without this fallback the fix is dead for @posthog/ai traffic, which is the only
-        // emitter of the tier today.
+describe('service tier pricing', () => {
+    it('prices a served flex tier from the openai-flex row', () => {
         const result = findCostFromModel('gpt-4o-mini', {
             $ai_provider: 'openai',
             $ai_model_parameters: { temperature: 1, service_tier: 'flex' },
         })
+        // Silently pricing flex at standard rates overstates every flex call 2x.
+        expect(result?.cost.provider).toBe('openai-flex')
         expect(result?.cost.cost.prompt_token).toBe(0.000000075)
+        // The flex row keeps the undiscounted per-search fee, which a blanket multiplier could not.
+        expect(result?.cost.cost.web_search).toBe(0.01)
     })
 
-    it('prefers an explicit $ai_service_tier over the model parameters', () => {
+    it('prices a served priority tier from the openai-fast row', () => {
         const result = findCostFromModel('gpt-4o-mini', {
             $ai_provider: 'openai',
-            $ai_service_tier: 'default',
+            $ai_model_parameters: { service_tier: 'priority' },
+        })
+        // Priority is a 2x surcharge; pricing it standard underreports every token cost by half.
+        expect(result?.cost.provider).toBe('openai-fast')
+        expect(result?.cost.cost.prompt_token).toBe(0.0000003)
+    })
+
+    it('falls back to the standard row, not default, when the tier key is missing', () => {
+        const result = findCostFromModel('gpt-4', {
+            $ai_provider: 'openai',
             $ai_model_parameters: { service_tier: 'flex' },
         })
+        // The default key can carry promotional pricing, so a missing tier key must not reach it.
+        expect(result?.cost.provider).toBe('openai')
+        expect(result?.cost.cost.prompt_token).toBe(0.00003)
+    })
+
+    it('leaves providers without tier rows untouched', () => {
+        const result = findCostFromModel('claude-3.5-sonnet', {
+            $ai_provider: 'anthropic',
+            $ai_model_parameters: { service_tier: 'flex' },
+        })
+        expect(result?.cost.cost.prompt_token).toBe(0.000003)
+    })
+
+    it.each(['auto', 'default', undefined])('prices tier %p at standard rates', (tier) => {
+        const result = findCostFromModel('gpt-4o-mini', {
+            $ai_provider: 'openai',
+            $ai_model_parameters: { service_tier: tier },
+        })
+        expect(result?.cost.provider).toBe('openai')
+        expect(result?.cost.cost.prompt_token).toBe(0.00000015)
+    })
+
+    it('ignores request-side tier properties', () => {
+        // A requested tier can be refused; only the served tier the SDK records may price.
+        const result = findCostFromModel('gpt-4o-mini', { $ai_provider: 'openai', $ai_service_tier: 'flex' })
+        expect(result?.cost.provider).toBe('openai')
         expect(result?.cost.cost.prompt_token).toBe(0.00000015)
     })
 })
