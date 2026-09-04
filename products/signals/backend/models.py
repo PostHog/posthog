@@ -39,6 +39,20 @@ from products.signals.backend.enums import SignalSourceProduct, signal_source_pr
 logger = logging.getLogger(__name__)
 
 
+class SignalActorKind(models.TextChoices):
+    USER = "user", "User"
+    TASK = "task", "Task"
+    AGENT = "agent", "Agent"
+    SYSTEM = "system", "System"
+
+
+class SignalReportWorkState(models.TextChoices):
+    UNCLAIMED = "unclaimed", "Unclaimed"
+    WORKING = "working", "Working"
+    IN_REVIEW = "in_review", "In review"
+    DONE = "done", "Done"
+
+
 def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(SignalSourceConfig.SourceType.choices)
@@ -706,6 +720,7 @@ class SignalReport(UUIDModel):
                         task_id=task_id, run_id=None, product=product, type=run_type
                     ).model_dump_json(),
                     created_at=report_task.created_at,
+                    actor_kind=SignalActorKind.TASK,
                     task_id=report_task.task_id,
                 )
             )
@@ -730,7 +745,16 @@ class SignalReport(UUIDModel):
             report_id=report_ref, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__isnull=False
         ).values("task_id")
         legacy_task_ids = SignalReportTask.objects.filter(report_id=report_ref).values("task_id")
-        return models.Q(task_id__in=artefact_task_ids) | models.Q(task_id__in=legacy_task_ids)
+        assignment_task_ids = SignalReportAssignment.all_teams.filter(
+            report_id=report_ref,
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id__isnull=False,
+        ).values("actor_task_id")
+        return (
+            models.Q(task_id__in=artefact_task_ids)
+            | models.Q(task_id__in=legacy_task_ids)
+            | models.Q(task_id__in=assignment_task_ids)
+        )
 
     @staticmethod
     def reports_for_task_filter(task_id: Any) -> "models.Q":
@@ -746,7 +770,15 @@ class SignalReport(UUIDModel):
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
         ).values("report_id")
         legacy_report_ids = SignalReportTask.objects.filter(task_id=task_id).values("report_id")
-        return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
+        assignment_report_ids = SignalReportAssignment.all_teams.filter(
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id=task_id,
+        ).values("report_id")
+        return (
+            models.Q(id__in=artefact_report_ids)
+            | models.Q(id__in=legacy_report_ids)
+            | models.Q(id__in=assignment_report_ids)
+        )
 
     @staticmethod
     def reports_for_task_ids_filter(task_ids: Any, *, team_id: int | None = None) -> "models.Q":
@@ -768,10 +800,68 @@ class SignalReport(UUIDModel):
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
         )
         legacy_rows = SignalReportTask.objects.filter(task_id__in=task_ids)
+        assignment_rows = SignalReportAssignment.all_teams.filter(
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id__in=task_ids,
+        )
         if team_id is not None:
             artefact_rows = artefact_rows.filter(team_id=team_id)
             legacy_rows = legacy_rows.filter(team_id=team_id)
-        return models.Q(id__in=artefact_rows.values("report_id")) | models.Q(id__in=legacy_rows.values("report_id"))
+            assignment_rows = assignment_rows.filter(team_id=team_id)
+        return (
+            models.Q(id__in=artefact_rows.values("report_id"))
+            | models.Q(id__in=legacy_rows.values("report_id"))
+            | models.Q(id__in=assignment_rows.values("report_id"))
+        )
+
+
+class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
+    class PrState(models.TextChoices):
+        UNKNOWN = "unknown", "Unknown"
+        DRAFT = "draft", "Draft"
+        OPEN = "open", "Open"
+        CLOSED = "closed", "Closed"
+        MERGED = "merged", "Merged"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="assignment")
+
+    actor_kind = models.CharField(max_length=10, choices=SignalActorKind, null=True, blank=True)
+    actor_user = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    actor_task_id = models.UUIDField(null=True, blank=True)
+    actor_agent = models.CharField(max_length=200, null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+
+    pr_url = models.TextField(null=True, blank=True)
+    repository = models.CharField(max_length=200, null=True, blank=True)
+    pr_number = models.PositiveBigIntegerField(null=True, blank=True)
+    pr_state = models.CharField(max_length=10, choices=PrState, null=True, blank=True)
+    pr_merged = models.BooleanField(default=False, db_default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["repository", "pr_number", "team"], name="signals_assign_pr_identity"),
+            models.Index(fields=["team", "actor_kind", "actor_user", "actor_agent"], name="signals_assign_actor_idx"),
+            models.Index(fields=["team", "actor_kind", "actor_task_id"], name="signals_assign_task_idx"),
+        ]
+
+    @property
+    def work_state(self) -> SignalReportWorkState:
+        if self.report.status == SignalReport.Status.RESOLVED:
+            return SignalReportWorkState.DONE
+        if self.pr_url and self.pr_state in {self.PrState.UNKNOWN, self.PrState.DRAFT, self.PrState.OPEN}:
+            return SignalReportWorkState.IN_REVIEW
+        if self.actor_kind:
+            return SignalReportWorkState.WORKING
+        return SignalReportWorkState.UNCLAIMED
 
 
 class SignalEmissionRecord(UUIDModel):
@@ -874,6 +964,8 @@ class SignalReportArtefact(UUIDModel):
     # because legacy rows (and explicit system writes) legitimately carry NULLs in both.
     # SET_NULL: deleting a user/task degrades attribution to "system/unknown" rather than
     # destroying the report's work log.
+    actor_kind = models.CharField(max_length=10, choices=SignalActorKind, null=True, blank=True)
+    actor_agent = models.CharField(max_length=200, null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     channel = models.ForeignKey(
@@ -923,6 +1015,8 @@ class SignalReportArtefact(UUIDModel):
             report_id=report_id,
             type=artefact_type_for(content),
             content=content.model_dump_json(),
+            actor_kind=attribution.kind,
+            actor_agent=attribution.agent_name,
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
             channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
@@ -1994,9 +2088,13 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     Most entries are durable, so `expires_at` is nullable and unset by default. It
     exists for the memories that are true only for a while — a cooldown, a window to
     watch — which a scout would otherwise have to come back and `forget` by hand.
-    Expiry hides a row from `search_scratchpad`, it does not delete it: the key stays
-    taken (so the upsert keeps working) and a human auditing the fleet's memory can
-    still read it back with `include_expired`.
+    Expiry first hides a row from `search_scratchpad`: the key stays taken (so the
+    upsert keeps working) and a human auditing the fleet's memory can still read it
+    back with `include_expired`. Then, once its expiry is more than
+    `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, the daily
+    `prune_expired_scratchpad_entries` janitor hard-deletes the row, so a lapsed
+    memory cannot pile up forever. A durable entry (`expires_at` NULL) is never
+    swept.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -2062,7 +2160,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
 
-    Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
+    Four more writers derive rows from inbox activity, each re-checking the RBAC leg of this gate
     themselves (the actions behind them need only `task:write`) against the canonical project whose
     scouts read the row. They differ on the key-scope leg, because they differ on whether this note is
     the only way the text reaches a scout:
@@ -2078,9 +2176,15 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       a discussion the note is the only path the text takes to a scout (the rating otherwise lands only
       on a product-analytics event), so the full gate applies too. Forwarded only for a report with a
       resolvable authoring scout, since the feedback is a verdict on that scout's own report.
+    - `REPORT_REVIEWER_CORRECTION` — adding or removing a suggested reviewer on a report, see
+      `reviewer_correction_notes.py`. Like a dismissal the logins it names already reach scouts by
+      another path (the report's reviewers artefact, and the project profile's recent corrections), so
+      the key scopes aren't required on top. It is the only derived kind addressed to more than the
+      authoring scout: a removed login is also sent to every scout whose `reviewer:` memory names it,
+      because those are the scouts still routing on it.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
-    on one report, a discussion as a question to weigh, and feedback as a reader's rating — rather than
-    fleet-level steering.
+    on one report, a discussion as a question to weigh, feedback as a reader's rating, and a reviewer
+    correction as a trigger to revisit routing memory — rather than fleet-level steering.
     """
 
     class Origin(models.TextChoices):
@@ -2088,6 +2192,18 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
         REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
+        REPORT_REVIEWER_CORRECTION = "report_reviewer_correction", "Derived from an inbox reviewer correction"
+
+    @classmethod
+    def derived_origins(cls) -> tuple[str, ...]:
+        """Every origin but `HUMAN`: the rows derived from inbox activity, which quote report content.
+
+        Readers that withhold derived rows — the notes list gate, and the implementation-run steering
+        loader — read this rather than listing the kinds, so a new origin is withheld from the moment
+        it exists. Naming the kinds instead leaves a deploy window where a reader that predates the
+        newest one hands it to a caller who may not read reports.
+        """
+        return tuple(origin for origin in cls.Origin.values if origin != cls.Origin.HUMAN)
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

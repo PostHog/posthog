@@ -8,7 +8,6 @@ from products.data_warehouse.backend.presentation.views import (
     data_warehouse,
     expression,
     managed_viewset,
-    modeling,
     query_tab_state,
     saved_query,
     saved_query_column_annotation,
@@ -75,12 +74,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"data_warehouse", data_warehouse.DataWarehouseViewSet, "project_data_warehouse", ["team_id"]
-    )
-    routers.projects.register(
-        r"warehouse_dag", modeling.DataWarehouseModelDagViewSet, "project_warehouse_dag", ["team_id"]
-    )
-    routers.projects.register(
-        r"warehouse_model_paths", modeling.DataWarehouseModelPathViewSet, "project_warehouse_model_paths", ["team_id"]
     )
     routers.projects.register(
         r"query_tab_state", query_tab_state.QueryTabStateViewSet, "project_query_tab_state", ["project_id"]

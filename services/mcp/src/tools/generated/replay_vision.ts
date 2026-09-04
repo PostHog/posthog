@@ -161,6 +161,8 @@ const visionObservationsSearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/search/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 limit: params.limit,
                 max_score: params.max_score,
                 min_score: params.min_score,
