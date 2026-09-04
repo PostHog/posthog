@@ -748,19 +748,84 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
-    it('round-trips multiline string component props', () => {
-        const markdown = `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`
+    it.each([
+        [
+            'escaped line breaks',
+            `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`,
+            'SummaryCard',
+            { id: TEST_AI_CONVERSATION_ID, summary: '## Summary\nDone' },
+        ],
+        [
+            'literal line breaks',
+            `<PythonV2 title="Event galaxy" code="import pandas as pd
+
+points = pd.DataFrame()" />`,
+            'PythonV2',
+            { title: 'Event galaxy', code: 'import pandas as pd\n\npoints = pd.DataFrame()' },
+        ],
+    ])('round-trips component string props with %s', (_name, markdown, tagName, props) => {
         const document = parseMarkdownNotebook(markdown)
 
         expect(document.nodes[0]).toMatchObject({
             type: 'component',
-            tagName: 'SummaryCard',
-            props: {
-                id: TEST_AI_CONVERSATION_ID,
-                summary: '## Summary\nDone',
-            },
+            tagName,
+            props,
         })
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it.each([
+        ['an escaped tag', '\\<'],
+        ['an unescaped tag with escaped prop source', '<'],
+    ])('recovers a multiline component produced by the prose serializer with %s', (_name, tagStart) => {
+        const markdown = `${tagStart}PythonV2 title="Chart" code="import pandas as pd
+
+\\# Prepare values
+labels = \\[f\\\\"<b>{row}</b>\\\\" for row in rows\\]
+values = rows\\[0\\] \\* 2" />`
+        const recoveredMarkdown = `<PythonV2 title="Chart" code="import pandas as pd
+
+# Prepare values
+labels = [f\\"<b>{row}</b>\\" for row in rows]
+values = rows[0] * 2" />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'PythonV2',
+            props: {
+                title: 'Chart',
+                code: 'import pandas as pd\n\n# Prepare values\nlabels = [f"<b>{row}</b>" for row in rows]\nvalues = rows[0] * 2',
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(recoveredMarkdown)
+    })
+
+    it.each([
+        [
+            'an unquoted prop',
+            `<PythonV2 nodeId=p
+
+code=print(1) />`,
+        ],
+        [
+            'an unterminated quoted prop',
+            `<PythonV2 nodeId="p
+
+Following paragraph`,
+        ],
+    ])('does not cross a blank-line boundary for a malformed component with %s', (_name, markdown) => {
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
+        expect(serializeMarkdownNotebook(document)).toEqual(`\\${markdown}`)
+    })
+
+    it('does not scan past the multiline component limit', () => {
+        const markdown = [`<PythonV2 nodeId="p" code="`, ...Array.from({ length: 1_001 }, () => 'x'), `" />`].join('\n')
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
     })
 
     it('serializes bold links in a stable mark order', () => {
