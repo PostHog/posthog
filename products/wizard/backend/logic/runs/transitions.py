@@ -1,6 +1,13 @@
 from products.wizard.backend.facade.enums import WizardRunStatus
 from products.wizard.backend.facade.errors import IllegalStatusTransitionError, InvalidTransitionMetadataError
 
+# CREATED --> RUNNING --> COMPLETED
+#    |           |
+#    +--> FAILED +--> FAILED
+#    |           |
+#    +--> CANCELLED
+#                |
+#                +--> CANCELLED
 _ALLOWED_STATUS_TRANSITIONS = frozenset(
     {
         (WizardRunStatus.CREATED, WizardRunStatus.RUNNING),
