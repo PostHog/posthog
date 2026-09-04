@@ -7,6 +7,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
+from products.error_tracking.backend.logic.alerts import NATIVE_ALERTS_FLAG
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination, ErrorTrackingIssue
 
 # Sentinel swapped for a real integration id inside the test body; parameterized
@@ -98,6 +99,8 @@ class TestErrorTrackingAlerts(APIBaseTest):
                 format="json",
             )
             assert create.status_code == 403
+            with self.settings(PERSISTED_FEATURE_FLAGS=[NATIVE_ALERTS_FLAG]):
+                assert self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/").status_code == 200
         assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
 
     def test_alert_create_compiles_filter_bytecode(self):

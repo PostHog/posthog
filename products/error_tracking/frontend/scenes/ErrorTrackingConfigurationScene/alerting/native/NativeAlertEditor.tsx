@@ -20,7 +20,7 @@ import { AnyPropertyFilter } from '~/types'
 import { AlertPreview } from './AlertPreview'
 import { THROTTLE_OPTIONS, TRIGGER_OPTIONS, nativeAlertEditorLogic, splitChannel } from './nativeAlertEditorLogic'
 
-export function NativeAlertEditor(): JSX.Element {
+export function NativeAlertEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const { isOpen, draft, preview, previewLoading, previewError, savingLoading, deletingLoading, saveDisabledReason } =
         useValues(nativeAlertEditorLogic)
     const {
@@ -46,6 +46,7 @@ export function NativeAlertEditor(): JSX.Element {
                 </span>
             }
             isOpen={isOpen}
+            inline={inline}
             onClose={closeEditor}
             width={1080}
             overlayClassName="pt-20"
