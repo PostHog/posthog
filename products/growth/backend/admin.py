@@ -18,13 +18,7 @@ from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
-from products.growth.backend.enrichment.labels import (
-    MAX_INPUT_COLUMNS,
-    RESERVED_OUTPUT_FIELD_KEYS,
-    UNKNOWN,
-    PromptConfigError,
-    validate_sources,
-)
+from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS, RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
 from products.growth.backend.models import (
     EnrichmentLabelResult,
     EnrichmentPromptConfig,
@@ -423,18 +417,6 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
                     raise ValidationError(f"output_fields entry {key!r} has 'min' {low} above 'max' {high}.")
         return output_fields
 
-    def clean_sources(self) -> list[dict[str, Any]]:
-        sources = self.cleaned_data.get("sources")
-        if not isinstance(sources, list):
-            raise ValidationError("sources must be a list of objects.")
-        output_fields = self.cleaned_data.get("output_fields", self.instance.output_fields)
-        probe = EnrichmentPromptConfig(sources=sources, output_fields=output_fields)
-        try:
-            validate_sources(probe)
-        except PromptConfigError as e:
-            raise ValidationError(str(e)) from e
-        return sources
-
 
 @admin.register(EnrichmentPromptConfig)
 class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
@@ -457,16 +439,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
             return readonly
         has_results = EnrichmentLabelResult.objects.filter(label_name=obj.name, prompt_version=obj.version).exists()
         if has_results:
-            readonly = (
-                *readonly,
-                "name",
-                "version",
-                "prompt_text",
-                "model",
-                "input_fields",
-                "sources",
-                "output_fields",
-            )
+            readonly = (*readonly, "name", "version", "prompt_text", "model", "input_fields", "output_fields")
         return readonly
 
     def save_model(

@@ -27,14 +27,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { type ConfigVersionApi, type LabelSummaryApi, OutputFieldTypeEnumApi } from '../generated/api.schemas'
 import { growthAiEnrichmentRunCreateBodySampleMax } from '../generated/api.zod'
-import { aiEnrichmentLogic, type AIEnrichmentSource } from './aiEnrichmentLogic'
+import { aiEnrichmentLogic } from './aiEnrichmentLogic'
 import {
     outputFieldsDisabledReason,
     type AIEnrichmentOutputField,
     type AIEnrichmentOutputFieldType,
 } from './aiEnrichmentOutputFields'
 import { AIEnrichmentResultsTable } from './AIEnrichmentResultsTable'
-import { sourcesDisabledReason } from './aiEnrichmentSources'
 import { suggestNextVersion } from './aiEnrichmentVersioning'
 
 export const scene: SceneExport = {
@@ -46,12 +45,6 @@ export const scene: SceneExport = {
 const OUTPUT_FIELD_TYPE_OPTIONS: { value: AIEnrichmentOutputFieldType; label: string }[] = Object.values(
     OutputFieldTypeEnumApi
 ).map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))
-
-const SOURCE_KIND_OPTIONS: { value: AIEnrichmentSource['kind']; label: string }[] = [
-    { value: 'fetch', label: 'Fetch' },
-    { value: 'search', label: 'Search' },
-]
-const DEFAULT_SEARCH_LIMIT = 5
 
 function AIEnrichmentLabelPicker(): JSX.Element {
     const { labels, labelsLoading } = useValues(aiEnrichmentLogic)
@@ -274,74 +267,6 @@ function AIEnrichmentOutputFieldsEditor(): JSX.Element {
     )
 }
 
-function AIEnrichmentSourcesEditor(): JSX.Element {
-    const { editorSources } = useValues(aiEnrichmentLogic)
-    const { addEditorSource, updateEditorSource, removeEditorSource } = useActions(aiEnrichmentLogic)
-
-    return (
-        <div className="space-y-1">
-            {editorSources.map((source: AIEnrichmentSource, index: number) => (
-                <div key={index} className="flex items-center gap-2">
-                    <LemonInput
-                        className="flex-1"
-                        placeholder="key, e.g. pricing"
-                        value={source.key}
-                        onChange={(key) => updateEditorSource(index, { key })}
-                    />
-                    <LemonSelect
-                        value={source.kind}
-                        onChange={(kind) =>
-                            kind &&
-                            updateEditorSource(
-                                index,
-                                kind === 'search' ? { kind, limit: source.limit ?? DEFAULT_SEARCH_LIMIT } : { kind }
-                            )
-                        }
-                        options={SOURCE_KIND_OPTIONS}
-                    />
-                    {source.kind === 'fetch' ? (
-                        <LemonInput
-                            className="flex-[2]"
-                            placeholder="https://{domain}/pricing"
-                            value={source.url ?? ''}
-                            onChange={(url) => updateEditorSource(index, { url })}
-                        />
-                    ) : (
-                        <>
-                            <LemonInput
-                                className="flex-[2]"
-                                placeholder='"{name}" AI OR LLM product'
-                                value={source.query ?? ''}
-                                onChange={(query) => updateEditorSource(index, { query })}
-                            />
-                            <LemonInput
-                                type="number"
-                                min={1}
-                                max={10}
-                                className="w-16"
-                                value={source.limit ?? DEFAULT_SEARCH_LIMIT}
-                                onChange={(limit) =>
-                                    updateEditorSource(index, { limit: limit ?? DEFAULT_SEARCH_LIMIT })
-                                }
-                            />
-                        </>
-                    )}
-                    <LemonButton
-                        icon={<IconTrash />}
-                        size="small"
-                        status="danger"
-                        onClick={() => removeEditorSource(index)}
-                        tooltip="Remove source"
-                    />
-                </div>
-            ))}
-            <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={() => addEditorSource()}>
-                Add source
-            </LemonButton>
-        </div>
-    )
-}
-
 function AIEnrichmentEditorPanel(): JSX.Element {
     const { editorPromptText, editorModel, editorInputFields, isEditorDirty, modelOptions, selectedVersion } =
         useValues(aiEnrichmentLogic)
@@ -400,15 +325,6 @@ function AIEnrichmentEditorPanel(): JSX.Element {
                 />
             </div>
             <div className="space-y-1">
-                <div className="font-semibold">Web sources</div>
-                <div className="text-secondary text-xs">
-                    {
-                        '{domain} and {name} are substituted per company. Each source costs Firecrawl credits for every classified org.'
-                    }
-                </div>
-                <AIEnrichmentSourcesEditor />
-            </div>
-            <div className="space-y-1">
                 <div className="font-semibold">Output fields</div>
                 <div className="text-secondary text-xs">
                     The keys, types, and optional descriptions the model must return for each sampled org.
@@ -427,10 +343,9 @@ function runDisabledReason(
     canRun: boolean,
     editorPromptText: string,
     inputReason: string | undefined,
-    outputReason: string | undefined,
-    sourcesReason: string | undefined
+    outputReason: string | undefined
 ): string | undefined {
-    if (canRun && !sourcesReason) {
+    if (canRun) {
         return undefined
     }
     if (!editorPromptText.trim()) {
@@ -441,9 +356,6 @@ function runDisabledReason(
     }
     if (outputReason) {
         return `${outputReason} before running`
-    }
-    if (sourcesReason) {
-        return `${sourcesReason} before running`
     }
     return undefined
 }
@@ -457,12 +369,10 @@ function AIEnrichmentTestRunControls(): JSX.Element {
         editorPromptText,
         editorInputFields,
         editorOutputFields,
-        editorSources,
     } = useValues(aiEnrichmentLogic)
     const { setSampleSize, runClassification } = useActions(aiEnrichmentLogic)
     const inputReason = inputFieldsDisabledReason(editorInputFields)
     const outputReason = outputFieldsDisabledReason(editorOutputFields)
-    const sourcesReason = sourcesDisabledReason(editorSources, editorOutputFields)
 
     return (
         <div className="flex flex-wrap items-end gap-2">
@@ -485,7 +395,7 @@ function AIEnrichmentTestRunControls(): JSX.Element {
                 disabledReason={
                     saveResultLoading
                         ? 'Save in progress'
-                        : runDisabledReason(canRun, editorPromptText, inputReason, outputReason, sourcesReason)
+                        : runDisabledReason(canRun, editorPromptText, inputReason, outputReason)
                 }
                 onClick={() => runClassification()}
                 data-attr="ai-enrichment-test-run"
@@ -500,20 +410,12 @@ function AIEnrichmentTestRunControls(): JSX.Element {
     )
 }
 
-export function AIEnrichmentSaveControls(): JSX.Element {
-    const {
-        saveResultLoading,
-        selectedLabel,
-        isRunning,
-        editorInputFields,
-        editorOutputFields,
-        editorSources,
-        versions,
-    } = useValues(aiEnrichmentLogic)
+function AIEnrichmentSaveControls(): JSX.Element {
+    const { saveResultLoading, selectedLabel, isRunning, editorInputFields, editorOutputFields, versions } =
+        useValues(aiEnrichmentLogic)
     const { saveVersion } = useActions(aiEnrichmentLogic)
     const inputReason = inputFieldsDisabledReason(editorInputFields)
     const outputReason = outputFieldsDisabledReason(editorOutputFields)
-    const sourcesReason = sourcesDisabledReason(editorSources, editorOutputFields)
 
     return (
         <div className="flex items-center gap-2">
@@ -529,9 +431,7 @@ export function AIEnrichmentSaveControls(): JSX.Element {
                             ? `${inputReason} before saving`
                             : outputReason
                               ? `${outputReason} before saving`
-                              : sourcesReason
-                                ? `${sourcesReason} before saving`
-                                : undefined
+                              : undefined
                 }
                 onClick={() =>
                     LemonDialog.openForm({

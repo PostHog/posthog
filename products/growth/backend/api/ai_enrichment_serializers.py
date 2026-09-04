@@ -16,16 +16,12 @@ from products.growth.backend.enrichment.labels import (
     MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
     MAX_OUTPUT_FIELDS,
     MAX_PROMPT_TEXT_CHARS,
-    MAX_SEARCH_RESULTS,
     OUTPUT_FIELD_KEY_RE,
     OUTPUT_FIELD_TYPES,
     RESERVED_OUTPUT_FIELD_KEYS,
-    SOURCE_KEY_RE,
-    SOURCE_KINDS,
     PromptConfigError,
     validate_input_fields,
     validate_output_fields,
-    validate_sources,
 )
 from products.growth.backend.models import EnrichmentPromptConfig
 
@@ -37,8 +33,9 @@ _OUTPUT_FIELDS_HELP = (
 )
 
 _PROMPT_TEXT_HELP = (
-    "System prompt; {email} is replaced with the signup email domain at runtime. "
-    f"At most {MAX_PROMPT_TEXT_CHARS} characters."
+    "System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the "
+    "model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs "
+    f"Firecrawl credits. At most {MAX_PROMPT_TEXT_CHARS} characters."
 )
 
 _MODEL_HELP = "Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves."
@@ -46,15 +43,6 @@ _MODEL_HELP = "Gateway model to classify with, routed through the LLM gateway. S
 _INPUT_FIELDS_HELP = (
     "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected "
     "value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional."
-)
-
-_SOURCES_HELP = (
-    "Web sources this config fetches per org through Firecrawl before classifying. Kind 'fetch' scrapes one url "
-    "template; kind 'search' runs a web search from a query template. Templates may reference {domain} (the "
-    "signup domain) and {name} (the Harmonic payload's name, falling back to the organization's name). Each "
-    "fetch costs 1 Firecrawl credit and each search costs 2. Results reach the LLM as extra input columns and "
-    "are stored on the result row, so a config with any sources must declare a string 'evidence_url' output "
-    "field."
 )
 
 
@@ -80,38 +68,6 @@ class OutputFieldSerializer(serializers.Serializer):
         if value in RESERVED_OUTPUT_FIELD_KEYS:
             raise serializers.ValidationError(f"{value!r} is reserved for provenance and cannot be an output key.")
         return value
-
-
-class SourceSerializer(serializers.Serializer):
-    key = serializers.RegexField(
-        SOURCE_KEY_RE,
-        max_length=32,
-        help_text="Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, "
-        "letters/digits/underscore only.",
-    )
-    kind = serializers.ChoiceField(
-        choices=[(value, value) for value in SOURCE_KINDS],
-        help_text="'fetch' scrapes one url; 'search' runs a web search.",
-    )
-    url = serializers.CharField(
-        required=False,
-        allow_blank=False,
-        max_length=2048,
-        help_text="Url template for a 'fetch' source, e.g. 'https://{domain}/pricing'. Required for kind 'fetch'.",
-    )
-    query = serializers.CharField(
-        required=False,
-        allow_blank=False,
-        max_length=500,
-        help_text="Search query template for a 'search' source, e.g. '\"{name}\" AI OR LLM product'. Required for "
-        "kind 'search'.",
-    )
-    limit = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=MAX_SEARCH_RESULTS,
-        help_text=f"Max results for a 'search' source (1-{MAX_SEARCH_RESULTS}). Ignored for kind 'fetch'.",
-    )
 
 
 def _validate_output_fields_list(value: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -144,13 +100,11 @@ def _validate_config_shape(attrs: dict[str, Any], *, capture_path: str | None = 
         prompt_text=attrs.get("prompt_text", ""),
         model=attrs.get("model", ""),
         input_fields=attrs.get("input_fields", []),
-        sources=attrs.get("sources", []),
         output_fields=attrs["output_fields"],
     )
     try:
         validate_input_fields(draft)
         validate_output_fields(draft)
-        validate_sources(draft)
     except PromptConfigError as e:
         if capture_path is not None:
             capture_exception(e, {"path": capture_path})
@@ -177,7 +131,6 @@ class ConfigVersionSerializer(serializers.Serializer):
     prompt_text = serializers.CharField(help_text=_PROMPT_TEXT_HELP)
     model = serializers.CharField(help_text="Gateway model id this version was authored against.")
     input_fields = serializers.ListField(child=serializers.CharField(), help_text=_INPUT_FIELDS_HELP)
-    sources = SourceSerializer(many=True, help_text=_SOURCES_HELP)
     output_fields = OutputFieldSerializer(many=True, help_text=_OUTPUT_FIELDS_HELP)
     is_active = serializers.BooleanField(help_text="Whether the batch runner currently computes this version.")
     created_by_email = serializers.SerializerMethodField(
@@ -240,7 +193,6 @@ class SaveRequestSerializer(serializers.Serializer):
     input_fields = serializers.ListField(
         child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
     )
-    sources = SourceSerializer(many=True, required=False, default=list, help_text=_SOURCES_HELP)
     output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
 
     def validate_version(self, value: str) -> str:
@@ -272,7 +224,6 @@ class RunRequestSerializer(serializers.Serializer):
     input_fields = serializers.ListField(
         child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
     )
-    sources = SourceSerializer(many=True, required=False, default=list, help_text=_SOURCES_HELP)
     output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
     sample = serializers.IntegerField(
         required=False,

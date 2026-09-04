@@ -21,16 +21,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 
 from products.growth.backend.enrichment.labels import (
+    TransientToolError,
     ai_processing_approved,
     bound_inputs,
     classify_payload,
     extract_input_fields,
     has_usable_payload,
-    parse_sources,
-    source_inputs,
     unknown_output,
 )
-from products.growth.backend.enrichment.sources import resolve_sources
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -105,8 +103,6 @@ def classify_fetch_for_run(
     # (nested in output["inputs"]) on success, and re-deriving it here - cheap, pure extraction,
     # no LLM call - is simpler than threading a partial result out of a caught exception. Without
     # it, a row that fails the LLM call would show an empty "inputs sent" despite having built one.
-    specs = parse_sources(config)
-    sources: dict[str, dict[str, Any]] | None = None
     if not has_usable_payload(fetch.payload):
         inputs: dict[str, Any] = {}
     else:
@@ -123,13 +119,9 @@ def classify_fetch_for_run(
         if not ai_processing_approved(fetch.organization_id):
             output = unknown_output(config, signup_domain, "AI processing consent was revoked mid-run")
             return company, signup_domain, output, None, {}
-        if specs and has_usable_payload(fetch.payload):
-            name = fetch.payload.get("name") if isinstance(fetch.payload.get("name"), str) else fetch.organization.name
-            sources = resolve_sources(fetch.organization_id, domain=signup_domain, name=name, specs=specs)
-            extracted = extract_input_fields(fetch.payload, config.input_fields)
-            extracted.update(source_inputs(sources))
-            inputs = bound_inputs(extracted)
-        output = classify_payload(config, fetch.payload, signup_domain, client, sources=sources)
+        output = classify_payload(config, fetch.payload, signup_domain, client)
+    except TransientToolError:
+        return company, signup_domain, None, "web search unavailable, retry later", inputs
     except Exception as e:
         return company, signup_domain, None, _run_error(config, e, "classify_fetch_for_run"), inputs
     finally:

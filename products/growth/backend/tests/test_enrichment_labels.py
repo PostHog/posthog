@@ -1,7 +1,8 @@
 import json
 import datetime as dt
 from io import StringIO
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
@@ -11,38 +12,31 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
 import openai
+from openai import OpenAI
 from parameterized import parameterized
 
-from posthog.egress.firecrawl.client import FirecrawlScrape
+from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted
+from posthog.egress.firecrawl.client import FirecrawlSearch, FirecrawlSearchResult
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.growth.backend.enrichment.labels import (
-    DEFAULT_SEARCH_RESULTS,
     MAX_INPUT_LIST_ITEMS,
     MAX_INPUT_VALUE_CHARS,
-    MAX_SEARCH_RESULTS,
-    MAX_SOURCES,
     UNKNOWN,
     OutputParseError,
-    PromptConfigError,
-    SourceSpec,
+    TransientToolError,
     build_messages,
     classify_payload,
     has_usable_payload,
-    parse_sources,
-    presented_urls,
-    render_template,
     signup_domain_for_organization,
-    source_inputs,
-    validate_sources,
 )
-from products.growth.backend.enrichment.sources import fetch_source
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
-_SOURCES_MODULE = "products.growth.backend.enrichment.sources"
+_LABELS_MODULE = "products.growth.backend.enrichment.labels"
+_TOOLS_MODULE = "products.growth.backend.enrichment.tools"
 
 
 def _mock_llm_client(
@@ -57,6 +51,9 @@ def _mock_llm_client(
     response.choices[0].message.content = json.dumps(
         {verdict_key: verdict, "confidence": confidence, "reasoning": reasoning}
     )
+    # A bare MagicMock().tool_calls is truthy, which the tool loop reads as "the model wants to
+    # call a tool" - this fixture always answers in one turn.
+    response.choices[0].message.tool_calls = None
     client.chat.completions.create.return_value = response
     return client
 
@@ -170,233 +167,49 @@ class TestHasUsablePayload(SimpleTestCase):
         assert has_usable_payload(payload) is expected
 
 
-class TestParseSourcesRejections(SimpleTestCase):
-    def _config(self, sources: Any, input_fields: list[str] | None = None) -> EnrichmentPromptConfig:
-        return EnrichmentPromptConfig(
-            name="test_label",
-            version="v1",
-            prompt_text="x",
-            model="gpt-5-mini",
-            input_fields=input_fields or [],
-            sources=sources,
-        )
-
-    @parameterized.expand(
-        [
-            ("not_a_list", {"key": "pricing", "kind": "fetch", "url": "https://{domain}"}),
-            ("entry_not_a_dict", ["pricing"]),
-            ("key_missing", [{"kind": "fetch", "url": "https://{domain}"}]),
-            ("key_uppercase", [{"key": "Pricing", "kind": "fetch", "url": "https://{domain}"}]),
-            ("key_too_long", [{"key": "p" * 33, "kind": "fetch", "url": "https://{domain}"}]),
-            (
-                "duplicate_key",
-                [
-                    {"key": "pricing", "kind": "fetch", "url": "https://{domain}/a"},
-                    {"key": "pricing", "kind": "fetch", "url": "https://{domain}/b"},
-                ],
-            ),
-            ("unknown_kind", [{"key": "pricing", "kind": "crawl", "url": "https://{domain}"}]),
-            ("fetch_missing_url", [{"key": "pricing", "kind": "fetch"}]),
-            ("fetch_url_not_https", [{"key": "pricing", "kind": "fetch", "url": "http://{domain}"}]),
-            ("search_missing_query", [{"key": "news", "kind": "search"}]),
-            ("search_empty_query", [{"key": "news", "kind": "search", "query": ""}]),
-            ("search_query_too_long", [{"key": "news", "kind": "search", "query": "x" * 501}]),
-            ("limit_not_int", [{"key": "news", "kind": "search", "query": "x", "limit": "5"}]),
-            ("limit_zero", [{"key": "news", "kind": "search", "query": "x", "limit": 0}]),
-            ("limit_too_high", [{"key": "news", "kind": "search", "query": "x", "limit": MAX_SEARCH_RESULTS + 1}]),
-            ("template_unknown_variable", [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/{bogus}"}]),
-            ("template_bare_brace", [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/{"}]),
-            (
-                "too_many_sources",
-                [{"key": f"s{i}", "kind": "fetch", "url": "https://{domain}"} for i in range(MAX_SOURCES + 1)],
-            ),
-            ("fetch_authority_is_bare_name", [{"key": "pricing", "kind": "fetch", "url": "https://{name}/"}]),
-            (
-                "fetch_authority_name_as_subdomain",
-                [{"key": "pricing", "kind": "fetch", "url": "https://{name}.example.com/pricing"}],
-            ),
-            (
-                "fetch_authority_name_appended_to_host",
-                [{"key": "pricing", "kind": "fetch", "url": "https://acme.com{name}/"}],
-            ),
-        ]
-    )
-    def test_rejects_a_malformed_source(self, _name, sources):
-        with self.assertRaises(PromptConfigError):
-            parse_sources(self._config(sources))
-
-    @parameterized.expand(
-        [
-            ("domain_only_authority", "https://{domain}/pricing"),
-            ("name_in_the_path_not_the_authority", "https://example.com/{name}"),
-        ]
-    )
-    def test_accepts_a_fetch_template_with_a_permitted_authority(self, _name, url):
-        config = self._config(sources=[{"key": "pricing", "kind": "fetch", "url": url}])
-
-        parse_sources(config)  # does not raise
-
-    def test_rejects_when_input_fields_plus_sources_exceed_the_column_budget(self):
-        config = self._config(
-            sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}"}],
-            input_fields=[f"field_{i}" for i in range(39)],
-        )
-
-        with self.assertRaises(PromptConfigError):
-            parse_sources(config)
-
-    def test_accepts_a_well_formed_fetch_and_search_source(self):
-        config = self._config(
-            sources=[
-                {"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"},
-                {"key": "news", "kind": "search", "query": '"{name}" AI', "limit": 3},
-            ]
-        )
-
-        specs = parse_sources(config)
-
-        assert specs == [
-            SourceSpec(key="pricing", kind="fetch", template="https://{domain}/pricing"),
-            SourceSpec(key="news", kind="search", template='"{name}" AI', limit=3),
-        ]
-
-    def test_a_search_source_without_a_declared_limit_gets_the_default(self):
-        config = self._config(sources=[{"key": "news", "kind": "search", "query": "x"}])
-
-        assert parse_sources(config)[0].limit == DEFAULT_SEARCH_RESULTS
+class _FakeToolCall:
+    def __init__(self, call_id: str, name: str, arguments: dict[str, Any]) -> None:
+        self.id = call_id
+        self.function = SimpleNamespace(name=name, arguments=json.dumps(arguments))
 
 
-class TestValidateSourcesEvidenceUrl(SimpleTestCase):
-    def _config(self, sources: list[dict], output_fields: list[dict]) -> EnrichmentPromptConfig:
-        return EnrichmentPromptConfig(
-            name="test_label",
-            version="v1",
-            prompt_text="judge it.",
-            model="gpt-5-mini",
-            sources=sources,
-            output_fields=output_fields,
-        )
-
-    def test_a_source_without_an_evidence_url_output_is_rejected(self):
-        config = self._config(
-            sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}"}],
-            output_fields=[{"key": "is_ai", "type": "boolean", "description": ""}],
-        )
-
-        with self.assertRaises(PromptConfigError):
-            validate_sources(config)
-
-    def test_a_source_with_a_non_string_evidence_url_is_rejected(self):
-        config = self._config(
-            sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}"}],
-            output_fields=[{"key": "evidence_url", "type": "boolean", "description": ""}],
-        )
-
-        with self.assertRaises(PromptConfigError):
-            validate_sources(config)
-
-    def test_a_source_with_a_string_evidence_url_passes(self):
-        config = self._config(
-            sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}"}],
-            output_fields=[{"key": "evidence_url", "type": "string", "description": ""}],
-        )
-
-        validate_sources(config)  # does not raise
-
-    def test_no_sources_does_not_require_evidence_url(self):
-        config = self._config(sources=[], output_fields=[{"key": "is_ai", "type": "boolean", "description": ""}])
-
-        validate_sources(config)  # does not raise
+class _FakeResponse:
+    def __init__(
+        self,
+        *,
+        content: str | None = None,
+        tool_calls: list[_FakeToolCall] | None = None,
+        finish_reason: str = "stop",
+        prompt_tokens: int = 10,
+        completion_tokens: int = 5,
+    ) -> None:
+        message = SimpleNamespace(content=content, tool_calls=tool_calls)
+        self.choices = [SimpleNamespace(message=message, finish_reason=finish_reason)]
+        self.usage = SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+        self.model = "gpt-5-mini-2026-07-01"
+        self.system_fingerprint = "fp_test"
 
 
-class TestRenderTemplate(SimpleTestCase):
-    def test_fills_domain_and_name(self):
-        assert render_template("https://{domain}/pricing", domain="acme.example", name=None) == (
-            "https://acme.example/pricing"
-        )
-        assert render_template('"{name}" AI', domain=None, name="Acme") == '"Acme" AI'
+class _ScriptedClient:
+    """Minimal OpenAI-client stand-in for the tool loop: chat.completions.create returns each
+    scripted response in order and records the kwargs it was called with, so a test can see what
+    the loop sent on each turn."""
 
-    @parameterized.expand([("none_domain", None), ("empty_domain", "")])
-    def test_a_missing_or_empty_variable_renders_none(self, _name, domain):
-        assert render_template("https://{domain}/pricing", domain=domain, name="Acme") is None
+    def __init__(self, *responses: _FakeResponse) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    def test_a_template_with_no_variables_renders_unchanged_even_without_context(self):
-        assert render_template("https://acme.example", domain=None, name=None) == "https://acme.example"
-
-    def test_a_name_with_a_slash_and_spaces_is_percent_encoded_with_quote_values(self):
-        rendered = render_template("https://{domain}/{name}", domain="acme.example", name="a/b c", quote_values=True)
-
-        assert rendered == "https://acme.example/a%2Fb%20c"
-
-    def test_a_name_with_a_slash_and_spaces_is_left_alone_without_quote_values(self):
-        assert render_template('"{name}" AI', domain=None, name="a/b c") == '"a/b c" AI'
+    def _create(self, **kwargs: Any) -> _FakeResponse:
+        self.calls.append(kwargs)
+        return self._responses[len(self.calls) - 1]
 
 
-class TestSourceInputs(SimpleTestCase):
-    def test_a_successful_fetch_contributes_its_url_and_markdown(self):
-        sources = {"pricing": {"kind": "fetch", "url": "https://acme.example/pricing", "markdown": "Plans."}}
-
-        assert source_inputs(sources) == {
-            "sources.pricing.url": "https://acme.example/pricing",
-            "sources.pricing.markdown": "Plans.",
-        }
-
-    def test_a_successful_search_contributes_its_query_and_results(self):
-        results = [{"url": "https://techcrunch.com/acme", "title": "Acme raises funding", "description": None}]
-        sources = {"news": {"kind": "search", "query": "Acme AI", "results": results}}
-
-        assert source_inputs(sources) == {"sources.news.query": "Acme AI", "sources.news.results": results}
-
-    def test_a_failed_source_contributes_nothing(self):
-        sources = {"pricing": {"kind": "fetch", "url": "https://acme.example/pricing", "error": "unreachable"}}
-
-        assert source_inputs(sources) == {}
+def _search_tool_call(call_id: str = "call_1", query: str = "Acme AI") -> _FakeToolCall:
+    return _FakeToolCall(call_id, "web_search", {"query": query})
 
 
-class TestPresentedUrls(SimpleTestCase):
-    def test_collects_fetch_and_search_result_urls(self):
-        sources: dict[str, dict[str, Any]] = {
-            "pricing": {"kind": "fetch", "url": "https://acme.example/pricing"},
-            "news": {
-                "kind": "search",
-                "results": [{"url": "https://techcrunch.com/acme"}, {"url": "https://Other.example/post"}],
-            },
-        }
-
-        assert presented_urls(sources) == {
-            "https://acme.example/pricing",
-            "https://techcrunch.com/acme",
-            "https://other.example/post",
-        }
-
-    def test_a_failed_source_contributes_no_urls(self):
-        sources = {"pricing": {"kind": "fetch", "url": "https://acme.example/pricing", "error": "unreachable"}}
-
-        assert presented_urls(sources) == set()
-
-
-class TestBuildMessagesSourceDisclaimer(SimpleTestCase):
-    def _config(self) -> EnrichmentPromptConfig:
-        return EnrichmentPromptConfig(
-            name="test_label",
-            version="v1",
-            prompt_text="judge it.",
-            model="gpt-5-mini",
-            output_fields=[{"key": "flag", "type": "boolean", "description": ""}],
-        )
-
-    def test_a_source_input_column_adds_the_untrusted_data_warning(self):
-        messages = build_messages(self._config(), {"sources.pricing.markdown": "Plans."}, None)
-
-        assert "unverified" in messages[1]["content"]
-
-    def test_no_source_input_column_omits_the_warning(self):
-        messages = build_messages(self._config(), {"name": "Acme"}, None)
-
-        assert "unverified" not in messages[1]["content"]
-
-
-class TestClassifyPayloadSources(SimpleTestCase):
+class TestClassifyPayloadToolLoop(SimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -404,173 +217,181 @@ class TestClassifyPayloadSources(SimpleTestCase):
             prompt_text="judge it. Email: {email}",
             model="gpt-5-mini",
             input_fields=["name"],
-            sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
             output_fields=[
                 {"key": "is_ai", "type": "boolean", "description": ""},
                 {"key": "evidence_url", "type": "string", "description": ""},
             ],
         )
 
-    def test_source_content_reaches_the_prompt_and_the_stored_inputs(self):
+    def test_tool_loop_executes_web_search_and_feeds_the_result_back(self):
         config = self._config()
-        client = MagicMock()
-        response = MagicMock()
-        response.choices[0].message.content = json.dumps({"is_ai": True, "evidence_url": "https://acme.example"})
-        client.chat.completions.create.return_value = response
-        sources = {"pricing": {"kind": "fetch", "url": "https://acme.example/pricing", "markdown": "Plans."}}
-
-        result = classify_payload(config, {"name": "Acme"}, "example.com", client, sources=sources)
-
-        sent = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
-        assert "Plans." in sent
-        assert result["inputs"]["fields"]["sources.pricing.markdown"] == "Plans."
-
-    def test_sources_are_ignored_when_the_payload_is_not_found(self):
-        config = self._config()
-        client = MagicMock()
-        sources = {"pricing": {"kind": "fetch", "url": "https://acme.example/pricing", "markdown": "Plans."}}
-
-        result = classify_payload(config, {"companyFound": False}, "example.com", client, sources=sources)
-
-        assert result["is_ai"] == UNKNOWN
-        client.chat.completions.create.assert_not_called()
-
-
-class TestClassifyPayloadFetchedSourceBounding(BaseTest):
-    def _config(self) -> EnrichmentPromptConfig:
-        return EnrichmentPromptConfig(
-            name="test_label",
-            version="v1",
-            prompt_text="judge it. Email: {email}",
-            model="gpt-5-mini",
-            input_fields=["name"],
-            sources=[{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
-            output_fields=[
-                {"key": "is_ai", "type": "boolean", "description": ""},
-                {"key": "evidence_url", "type": "string", "description": ""},
-            ],
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_search_tool_call()]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": ""})),
+        )
+        found = FirecrawlSearch(
+            query="Acme AI", results=(FirecrawlSearchResult(url="https://techcrunch.com/acme", title="funding"),)
         )
 
-    def test_a_fetched_markdown_over_the_cap_is_truncated_with_a_marker_and_flagged(self):
-        config = self._config()
-        markdown = "x" * (MAX_INPUT_VALUE_CHARS + 500)
-        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown=markdown)
-        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped):
-            source_record = fetch_source(
-                self.organization.id,
-                SourceSpec(key="pricing", kind="fetch", template="https://{domain}/pricing"),
-                domain="acme.example",
-                name=None,
-            )
-        client = MagicMock()
-        response = MagicMock()
-        response.choices[0].message.content = json.dumps({"is_ai": True, "evidence_url": "https://acme.example"})
-        client.chat.completions.create.return_value = response
+        with patch(f"{_TOOLS_MODULE}.search", return_value=found):
+            result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
 
-        result = classify_payload(config, {"name": "Acme"}, "example.com", client, sources={"pricing": source_record})
-
-        stored = result["inputs"]["fields"]["sources.pricing.markdown"]
-        assert stored.endswith("…")
-        assert len(stored) == MAX_INPUT_VALUE_CHARS + 1
-        assert "sources.pricing.markdown" in result["meta"]["bounded"]["truncated"]
-
-
-class TestClassifyPayloadEvidenceUrlValidation(SimpleTestCase):
-    def _config(self) -> EnrichmentPromptConfig:
-        return EnrichmentPromptConfig(
-            name="test_label",
-            version="v1",
-            prompt_text="judge it. Email: {email}",
-            model="gpt-5-mini",
-            sources=[{"key": "news", "kind": "search", "query": '"{name}" AI'}],
-            output_fields=[
-                {"key": "is_ai", "type": "boolean", "description": ""},
-                {"key": "evidence_url", "type": "string", "description": ""},
-            ],
-        )
-
-    def _client_with_evidence(self, evidence_url: str) -> MagicMock:
-        client = MagicMock()
-        response = MagicMock()
-        response.choices[0].message.content = json.dumps({"is_ai": True, "evidence_url": evidence_url})
-        client.chat.completions.create.return_value = response
-        return client
-
-    def _search_sources(self, result_url: str) -> dict:
-        return {"news": {"kind": "search", "query": "Acme AI", "results": [{"url": result_url}]}}
-
-    def test_an_evidence_url_on_the_signup_domain_is_kept(self):
-        client = self._client_with_evidence("https://acme.example/pricing")
-
-        result = classify_payload(
-            self._config(), {"name": "Acme"}, "acme.example", client, sources=self._search_sources("https://x.example")
-        )
-
-        assert result["evidence_url"] == "https://acme.example/pricing"
-        assert "evidence_url_rejected" not in result.get("meta", {})
-
-    def test_an_evidence_url_matching_a_presented_search_result_off_the_signup_domain_is_kept(self):
-        client = self._client_with_evidence("https://techcrunch.com/acme")
-
-        result = classify_payload(
-            self._config(),
-            {"name": "Acme"},
-            "acme.example",
-            client,
-            sources=self._search_sources("https://techcrunch.com/acme"),
-        )
-
-        assert result["evidence_url"] == "https://techcrunch.com/acme"
-        assert "evidence_url_rejected" not in result.get("meta", {})
-
-    def test_an_evidence_url_off_domain_and_unpresented_is_rejected_without_failing_the_verdict(self):
-        client = self._client_with_evidence("https://not-acme.example/pricing")
-
-        result = classify_payload(
-            self._config(),
-            {"name": "Acme"},
-            "acme.example",
-            client,
-            sources=self._search_sources("https://techcrunch.com/acme"),
-        )
-
-        assert result["evidence_url"] is None
         assert result["is_ai"] is True
-        assert result["meta"]["evidence_url_rejected"] == "https://not-acme.example/pricing"
+        assert len(client.calls) == 2
+        second_turn_messages = client.calls[1]["messages"]
+        tool_messages = [m for m in second_turn_messages if m.get("role") == "tool"]
+        assert len(tool_messages) == 1
+        assert "techcrunch.com/acme" in tool_messages[0]["content"]
 
-    def test_an_empty_evidence_url_is_left_alone(self):
-        client = self._client_with_evidence("")
-
-        result = classify_payload(
-            self._config(), {"name": "Acme"}, "acme.example", client, sources=self._search_sources("https://x.example")
+    def test_tool_calls_are_recorded_in_meta_and_bounded_in_stored_inputs(self):
+        config = self._config()
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_search_tool_call(query="Acme AI")]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": ""})),
+        )
+        long_title = "x" * (MAX_INPUT_VALUE_CHARS + 500)
+        found = FirecrawlSearch(
+            query="Acme AI", results=(FirecrawlSearchResult(url="https://x.example", title=long_title),)
         )
 
-        assert result["evidence_url"] == ""
-        assert "evidence_url_rejected" not in result.get("meta", {})
+        with patch(f"{_TOOLS_MODULE}.search", return_value=found):
+            result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        assert result["meta"]["tool_calls"] == [
+            {"name": "web_search", "arguments": {"query": "Acme AI"}, "error": None}
+        ]
+        assert result["meta"]["tool_urls"] == ["https://x.example"]
+        [stored] = result["inputs"]["tool_calls"]
+        assert stored["name"] == "web_search"
+        stored_title = stored["result"]["results"][0]["title"]
+        assert stored_title.endswith("…")
+        assert len(stored_title) == MAX_INPUT_VALUE_CHARS + 1
+
+    def test_usage_tokens_are_summed_across_tool_turns(self):
+        config = self._config()
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_search_tool_call()], prompt_tokens=100, completion_tokens=10),
+            _FakeResponse(
+                content=json.dumps({"is_ai": True, "evidence_url": ""}), prompt_tokens=150, completion_tokens=20
+            ),
+        )
+        found = FirecrawlSearch(query="Acme AI", results=(FirecrawlSearchResult(url="https://x.example"),))
+
+        with patch(f"{_TOOLS_MODULE}.search", return_value=found):
+            result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        assert result["meta"]["prompt_tokens"] == 250
+        assert result["meta"]["completion_tokens"] == 30
+
+    def test_a_fifth_tool_call_in_one_turn_gets_the_budget_error_and_the_next_turn_omits_tools(self):
+        config = self._config()
+        calls = [_search_tool_call(f"call_{i}", query=f"q{i}") for i in range(5)]
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=calls),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": ""})),
+        )
+        found = FirecrawlSearch(query="q", results=(FirecrawlSearchResult(url="https://x.example"),))
+
+        with patch(f"{_TOOLS_MODULE}.search", return_value=found):
+            result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        # Only 4 of the 5 requested calls were actually executed.
+        assert len(result["meta"]["tool_calls"]) == 4
+        assert "tools" not in client.calls[1]
+        assert "tool_choice" not in client.calls[1]
+        rejected_message = client.calls[1]["messages"][-1]
+        assert rejected_message["role"] == "tool"
+        assert json.loads(rejected_message["content"]) == {"error": "tool budget exhausted"}
+
+    def test_a_transient_tool_error_raises_before_any_further_model_call(self):
+        config = self._config()
+        client = _ScriptedClient(_FakeResponse(tool_calls=[_search_tool_call()]))
+
+        with patch(f"{_TOOLS_MODULE}.search", side_effect=FirecrawlEgressBudgetExhausted("boom")):
+            with self.assertRaises(TransientToolError):
+                classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        assert len(client.calls) == 1
+
+    def test_no_final_answer_after_max_tool_rounds_raises(self):
+        config = self._config()
+        calls = [_search_tool_call(f"call_{i}", query=f"q{i}") for i in range(3)]
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[calls[0]]),
+            _FakeResponse(tool_calls=[calls[1]]),
+            _FakeResponse(tool_calls=[calls[2]]),
+        )
+        found = FirecrawlSearch(query="q", results=(FirecrawlSearchResult(url="https://x.example"),))
+
+        with (
+            patch(f"{_LABELS_MODULE}.MAX_TOOL_ROUNDS", 2),
+            patch(f"{_LABELS_MODULE}.MAX_TOOL_CALLS", 10),
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+        ):
+            with self.assertRaises(OutputParseError):
+                classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        # The third turn reveals the model still wants tools and is rejected before executing it.
+        assert len(client.calls) == 3
 
 
-class TestContentHashIncludesSources(SimpleTestCase):
-    def _config(self, sources: list[dict]) -> EnrichmentPromptConfig:
+class TestClassifyPayloadToolEvidenceUrl(SimpleTestCase):
+    def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
             version="v1",
-            prompt_text="judge it.",
+            prompt_text="judge it. Email: {email}",
             model="gpt-5-mini",
             input_fields=["name"],
-            output_fields=[{"key": "flag", "type": "boolean"}],
-            sources=sources,
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "evidence_url", "type": "string", "description": ""},
+            ],
         )
 
-    def test_changing_sources_changes_the_hash(self):
-        no_sources = self._config([])
-        with_a_source = self._config([{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}])
+    def _client(self, evidence_url: str) -> _ScriptedClient:
+        return _ScriptedClient(
+            _FakeResponse(tool_calls=[_search_tool_call()]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": evidence_url})),
+        )
 
-        assert no_sources.content_hash != with_a_source.content_hash
+    @parameterized.expand(
+        [
+            (
+                "on_signup_domain",
+                "https://acme.example/pricing",
+                "https://x.example",
+                "https://acme.example/pricing",
+                False,
+            ),
+            (
+                "matches_a_presented_search_result_off_domain",
+                "https://techcrunch.com/acme",
+                "https://techcrunch.com/acme",
+                "https://techcrunch.com/acme",
+                False,
+            ),
+            (
+                "off_domain_and_unpresented",
+                "https://not-acme.example/pricing",
+                "https://techcrunch.com/acme",
+                None,
+                True,
+            ),
+            ("empty_string_is_left_alone", "", "https://x.example", "", False),
+        ]
+    )
+    def test_evidence_url_is_validated_against_presented_tool_urls(
+        self, _name, evidence_url, presented_url, expected, expect_rejected
+    ):
+        client = self._client(evidence_url)
+        found = FirecrawlSearch(query="Acme AI", results=(FirecrawlSearchResult(url=presented_url),))
 
-    def test_the_same_sources_produce_the_same_hash(self):
-        sources = [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}]
+        with patch(f"{_TOOLS_MODULE}.search", return_value=found):
+            result = classify_payload(self._config(), {"name": "Acme"}, "acme.example", cast(OpenAI, client))
 
-        assert self._config(sources).content_hash == self._config(sources).content_hash
+        assert result["evidence_url"] == expected
+        assert ("evidence_url_rejected" in result.get("meta", {})) is expect_rejected
 
 
 class TestConfigurableOutputFields(SimpleTestCase):
@@ -607,6 +428,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         client = MagicMock()
         response = MagicMock()
         response.choices[0].message.content = json.dumps({"is_enterprise": True})
+        response.choices[0].message.tool_calls = None
         response.usage = None
         client.chat.completions.create.return_value = response
         payload = {
@@ -638,6 +460,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         response.choices[0].message.content = json.dumps(
             {"is_enterprise": "true", "employee_estimate": "500", "notes": 42, "extra_ignored": "x"}
         )
+        response.choices[0].message.tool_calls = None
         client.chat.completions.create.return_value = response
 
         output = classify_payload(config, {"company": "Acme"}, None, client)
@@ -654,6 +477,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         client = MagicMock()
         response = MagicMock()
         response.choices[0].message.content = json.dumps({"something_else": True})
+        response.choices[0].message.tool_calls = None
         client.chat.completions.create.return_value = response
 
         with self.assertRaises(ValueError):
@@ -674,6 +498,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         client = MagicMock()
         response = MagicMock()
         response.choices[0].message.content = json.dumps(content)
+        response.choices[0].message.tool_calls = None
         client.chat.completions.create.return_value = response
 
         with self.assertRaises(OutputParseError):
@@ -684,6 +509,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         client = MagicMock()
         response = MagicMock()
         response.choices[0].message.content = 'Sure!\n```json\n{"flag": "yes"}\n```'
+        response.choices[0].message.tool_calls = None
         client.chat.completions.create.return_value = response
 
         assert classify_payload(config, {"company": "Acme"}, None, client)["flag"] is True
@@ -754,6 +580,7 @@ class TestCallAndParseRetryAllowlist(SimpleTestCase):
         client = MagicMock()
         good_response = MagicMock()
         good_response.choices[0].message.content = json.dumps({"flag": True})
+        good_response.choices[0].message.tool_calls = None
         client.chat.completions.create.side_effect = [
             openai.RateLimitError(message="rate limited", response=MagicMock(), body={}),
             good_response,
@@ -808,6 +635,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         client.with_options.return_value = client
         response = MagicMock()
         response.choices[0].message.content = json.dumps({"is_ai": True, "confidence": 0.8, "reasoning": "x"})
+        response.choices[0].message.tool_calls = None
         response.model = "gpt-5-mini-2026-07-01"
         response.system_fingerprint = "fp_abc"
         response.usage.prompt_tokens = 900
@@ -927,6 +755,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         client.with_options.return_value = client
         response = MagicMock()
         response.choices[0].message.content = "not json at all"
+        response.choices[0].message.tool_calls = None
         client.chat.completions.create.return_value = response
 
         with (
@@ -1078,6 +907,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
         client.with_options.return_value = client
         response = MagicMock()
         response.choices[0].message.content = json.dumps({"is_ai": False})
+        response.choices[0].message.tool_calls = None
         client.chat.completions.create.return_value = response
         out = StringIO()
 

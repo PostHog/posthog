@@ -7,9 +7,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ConfigVersionApi } from '../generated/api.schemas'
-import { aiEnrichmentLogic, type AIEnrichmentSource } from './aiEnrichmentLogic'
+import { aiEnrichmentLogic } from './aiEnrichmentLogic'
 
-const CONFIG_V1: ConfigVersionApi & { sources: AIEnrichmentSource[] } = {
+const CONFIG_V1: ConfigVersionApi = {
     id: 'config-v1',
     name: 'test_label',
     version: 'v1',
@@ -17,7 +17,6 @@ const CONFIG_V1: ConfigVersionApi & { sources: AIEnrichmentSource[] } = {
     model: 'gpt-5-mini',
     input_fields: ['name'],
     output_fields: [{ key: 'verdict', type: 'boolean', description: '' }],
-    sources: [{ key: 'pricing', kind: 'fetch', url: 'https://{domain}/pricing' }],
     is_active: true,
     created_by_email: 'staff@posthog.com',
     created_at: '2024-01-01T00:00:00Z',
@@ -84,7 +83,6 @@ describe('aiEnrichmentLogic', () => {
                 editorPromptText: 'original prompt',
                 editorModel: 'gpt-5-mini',
                 editorInputFields: ['name'],
-                editorSources: [{ key: 'pricing', kind: 'fetch', url: 'https://{domain}/pricing' }],
                 isEditorDirty: false,
             })
         })
@@ -166,7 +164,6 @@ describe('aiEnrichmentLogic', () => {
                 model: 'gpt-5-mini',
                 input_fields: ['name'],
                 output_fields: [{ key: 'verdict', type: 'boolean', description: '' }],
-                sources: [{ key: 'pricing', kind: 'fetch', url: 'https://{domain}/pricing' }],
             })
             expect(logic.values.selectedVersionId).toBe('config-v2')
         })
@@ -181,13 +178,9 @@ describe('aiEnrichmentLogic', () => {
                 outputs: { verdict: true },
             })
             const summaryLine = JSON.stringify({ summary: { classified: 1, unknown: 0, errors: 0 } })
-            let requestBody: unknown
             useMocks({
                 post: {
-                    '/api/growth_ai_enrichment/run/': async ({ request }) => {
-                        requestBody = await request.json()
-                        return ndjsonResponse([rowLine, summaryLine])
-                    },
+                    '/api/growth_ai_enrichment/run/': () => ndjsonResponse([rowLine, summaryLine]),
                 },
             })
             // Let the label selection's own config load (and the loadVersionIntoEditor it
@@ -211,9 +204,6 @@ describe('aiEnrichmentLogic', () => {
             ])
             expect(logic.values.runSummary).toEqual({ classified: 1, unknown: 0, errors: 0 })
             expect(logic.values.isRunning).toBe(false)
-            expect((requestBody as { sources: unknown }).sources).toEqual([
-                { key: 'pricing', kind: 'fetch', url: 'https://{domain}/pricing' },
-            ])
         })
 
         it('surfaces a terminal aborted-run error and clears isRunning, without the generic fallback toast', async () => {

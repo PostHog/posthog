@@ -229,7 +229,6 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
             prompt_text=data["prompt_text"],
             model=data["model"],
             input_fields=data["input_fields"],
-            sources=data["sources"],
             output_fields=data["output_fields"],
         )
 
@@ -315,7 +314,6 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
                     prompt_text=data["prompt_text"],
                     model=data["model"],
                     input_fields=data["input_fields"],
-                    sources=data["sources"],
                     output_fields=data["output_fields"],
                     is_active=False,
                     created_by=cast(User, request.user),

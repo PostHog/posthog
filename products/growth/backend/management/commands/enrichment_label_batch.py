@@ -27,19 +27,16 @@ from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
+    TransientToolError,
     ai_processing_approved,
     classify_payload,
     get_active_config,
-    has_usable_payload,
     is_unknown_output,
     latest_fetches_qs,
-    parse_sources,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
-    validate_sources,
 )
-from products.growth.backend.enrichment.sources import TRANSIENT_SOURCE_ERRORS, resolve_sources
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -64,10 +61,8 @@ def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> No
                 "attempted": counts["attempted"],
                 "succeeded": counts["succeeded"],
                 "failed": counts["failed"],
-                "sources_fetched": counts["sources_fetched"],
-                "sources_cached": counts["sources_cached"],
-                "sources_failed": counts["sources_failed"],
-                "sources_deferred": counts["sources_deferred"],
+                "tool_calls": counts["tool_calls"],
+                "tools_deferred": counts["tools_deferred"],
             },
         )
 
@@ -135,7 +130,6 @@ class Command(BaseCommand):
         try:
             validate_input_fields(config)
             validate_output_fields(config)
-            validate_sources(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e
 
@@ -166,7 +160,6 @@ class Command(BaseCommand):
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
         client = get_llm_client(product="growth").with_options(max_retries=0)
-        specs = parse_sources(config)
 
         counts: dict[str, int] = {
             "attempted": 0,
@@ -177,10 +170,8 @@ class Command(BaseCommand):
             "failed": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
-            "sources_fetched": 0,
-            "sources_cached": 0,
-            "sources_failed": 0,
-            "sources_deferred": 0,
+            "tool_calls": 0,
+            "tools_deferred": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -245,39 +236,7 @@ class Command(BaseCommand):
                         counts["consent_revoked_after_attempt"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                sources = None
-                # Skipped when has_usable_payload is False, since fetching sources would spend
-                # Firecrawl budget on an org whose verdict is already "unknown" regardless.
-                if specs and has_usable_payload(fetch.payload):
-                    name = (
-                        fetch.payload.get("name")
-                        if isinstance(fetch.payload.get("name"), str)
-                        else fetch.organization.name
-                    )
-                    sources = resolve_sources(fetch.organization_id, domain=signup_domain, name=name, specs=specs)
-                    fetched = cached = failed_sources = 0
-                    deferred = False
-                    for record in sources.values():
-                        error = record.get("error")
-                        if error in TRANSIENT_SOURCE_ERRORS:
-                            deferred = True
-                        elif record.get("source") == "cache":
-                            cached += 1
-                        elif error:
-                            failed_sources += 1
-                        else:
-                            fetched += 1
-                    with counts_lock:
-                        counts["sources_fetched"] += fetched
-                        counts["sources_cached"] += cached
-                        counts["sources_failed"] += failed_sources
-                    if deferred:
-                        # A transient source problem must not become a permanent verdict or trip the
-                        # circuit breaker; with no result row written, the next run retries this org.
-                        with counts_lock:
-                            counts["sources_deferred"] += 1
-                        return
-                output = classify_payload(config, fetch.payload, signup_domain, client, sources=sources)
+                output = classify_payload(config, fetch.payload, signup_domain, client)
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
@@ -296,6 +255,12 @@ class Command(BaseCommand):
                             "inputs": inputs,
                         },
                     )
+            except TransientToolError:
+                # A transient tool problem must not become a permanent verdict or trip the
+                # circuit breaker; with no result row written, the next run retries this org.
+                with counts_lock:
+                    counts["tools_deferred"] += 1
+                return
             except Exception as e:
                 capture_exception(
                     e,
@@ -319,6 +284,7 @@ class Command(BaseCommand):
                 counts["succeeded"] += 1
                 counts["prompt_tokens"] += meta.get("prompt_tokens", 0)
                 counts["completion_tokens"] += meta.get("completion_tokens", 0)
+                counts["tool_calls"] += len(meta.get("tool_calls", []))
                 failure_streak = 0
                 if is_unknown_output(output):
                     counts["unknown"] += 1
@@ -402,14 +368,14 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted. Consent skips and source deferrals are
+        # work that was queued but never actually attempted. Consent skips and tool deferrals are
         # excluded for the same reason (an archive of orgs that all declined, or that all hit a
         # transient Firecrawl outage, is a correct empty run, not a failed one), but only
-        # "consent_revoked_after_attempt" and "sources_deferred" need subtracting here - a declined
+        # "consent_revoked_after_attempt" and "tools_deferred" need subtracting here - a declined
         # org caught at enumeration time never incremented "attempted" to begin with (see
         # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
         # double-subtract and could push "tried" negative.
-        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["sources_deferred"]
+        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["tools_deferred"]
         tried = counts["attempted"] - not_tried
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
@@ -418,8 +384,7 @@ class Command(BaseCommand):
             f"skipped_existing {counts['skipped_existing']}, "
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
             f"failed {counts['failed']}, aborted {counts['aborted']}, "
-            f"sources_fetched {counts['sources_fetched']}, sources_cached {counts['sources_cached']}, "
-            f"sources_failed {counts['sources_failed']}, sources_deferred {counts['sources_deferred']}, "
+            f"tool_calls {counts['tool_calls']}, tools_deferred {counts['tools_deferred']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )

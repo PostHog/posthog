@@ -31,15 +31,6 @@ export const growthAiEnrichmentRunCreateBodyPromptTextMax = 20000
 
 export const growthAiEnrichmentRunCreateBodyModelMax = 128
 
-export const growthAiEnrichmentRunCreateBodySourcesItemKeyMax = 32
-
-export const growthAiEnrichmentRunCreateBodySourcesItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]{0,31}$')
-export const growthAiEnrichmentRunCreateBodySourcesItemUrlMax = 2048
-
-export const growthAiEnrichmentRunCreateBodySourcesItemQueryMax = 500
-
-export const growthAiEnrichmentRunCreateBodySourcesItemLimitMax = 10
-
 export const growthAiEnrichmentRunCreateBodyOutputFieldsItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]\*$')
 export const growthAiEnrichmentRunCreateBodyOutputFieldsItemDescriptionDefault = ``
 export const growthAiEnrichmentRunCreateBodyOutputFieldsItemDescriptionMax = 400
@@ -58,7 +49,7 @@ export const GrowthAiEnrichmentRunCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(growthAiEnrichmentRunCreateBodyPromptTextMax)
         .describe(
-            'System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.'
+            'System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.'
         ),
     model: zod
         .string()
@@ -71,48 +62,6 @@ export const GrowthAiEnrichmentRunCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional.'
-        ),
-    sources: zod
-        .array(
-            zod.object({
-                key: zod
-                    .string()
-                    .max(growthAiEnrichmentRunCreateBodySourcesItemKeyMax)
-                    .regex(growthAiEnrichmentRunCreateBodySourcesItemKeyRegExp)
-                    .describe(
-                        "Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, letters\/digits\/underscore only."
-                    ),
-                kind: zod
-                    .enum(['fetch', 'search'])
-                    .describe('\* `fetch` - fetch\n\* `search` - search')
-                    .describe(
-                        "'fetch' scrapes one url; 'search' runs a web search.\n\n\* `fetch` - fetch\n\* `search` - search"
-                    ),
-                url: zod
-                    .string()
-                    .max(growthAiEnrichmentRunCreateBodySourcesItemUrlMax)
-                    .optional()
-                    .describe(
-                        "Url template for a 'fetch' source, e.g. 'https:\/\/{domain}\/pricing'. Required for kind 'fetch'."
-                    ),
-                query: zod
-                    .string()
-                    .max(growthAiEnrichmentRunCreateBodySourcesItemQueryMax)
-                    .optional()
-                    .describe(
-                        "Search query template for a 'search' source, e.g. '\"{name}\" AI OR LLM product'. Required for kind 'search'."
-                    ),
-                limit: zod
-                    .number()
-                    .min(1)
-                    .max(growthAiEnrichmentRunCreateBodySourcesItemLimitMax)
-                    .optional()
-                    .describe("Max results for a 'search' source (1-10). Ignored for kind 'fetch'."),
-            })
-        )
-        .optional()
-        .describe(
-            "Web sources this config fetches per org through Firecrawl before classifying. Kind 'fetch' scrapes one url template; kind 'search' runs a web search from a query template. Templates may reference {domain} (the signup domain) and {name} (the Harmonic payload's name, falling back to the organization's name). Each fetch costs 1 Firecrawl credit and each search costs 2. Results reach the LLM as extra input columns and are stored on the result row, so a config with any sources must declare a string 'evidence_url' output field."
         ),
     output_fields: zod
         .array(
@@ -165,15 +114,6 @@ export const growthAiEnrichmentSaveCreateBodyPromptTextMax = 20000
 
 export const growthAiEnrichmentSaveCreateBodyModelMax = 128
 
-export const growthAiEnrichmentSaveCreateBodySourcesItemKeyMax = 32
-
-export const growthAiEnrichmentSaveCreateBodySourcesItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]{0,31}$')
-export const growthAiEnrichmentSaveCreateBodySourcesItemUrlMax = 2048
-
-export const growthAiEnrichmentSaveCreateBodySourcesItemQueryMax = 500
-
-export const growthAiEnrichmentSaveCreateBodySourcesItemLimitMax = 10
-
 export const growthAiEnrichmentSaveCreateBodyOutputFieldsItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]\*$')
 export const growthAiEnrichmentSaveCreateBodyOutputFieldsItemDescriptionDefault = ``
 export const growthAiEnrichmentSaveCreateBodyOutputFieldsItemDescriptionMax = 400
@@ -194,7 +134,7 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(growthAiEnrichmentSaveCreateBodyPromptTextMax)
         .describe(
-            'System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.'
+            'System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.'
         ),
     model: zod
         .string()
@@ -207,48 +147,6 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional.'
-        ),
-    sources: zod
-        .array(
-            zod.object({
-                key: zod
-                    .string()
-                    .max(growthAiEnrichmentSaveCreateBodySourcesItemKeyMax)
-                    .regex(growthAiEnrichmentSaveCreateBodySourcesItemKeyRegExp)
-                    .describe(
-                        "Column prefix this source contributes, e.g. 'pricing'. Lowercase, starts with a letter, letters\/digits\/underscore only."
-                    ),
-                kind: zod
-                    .enum(['fetch', 'search'])
-                    .describe('\* `fetch` - fetch\n\* `search` - search')
-                    .describe(
-                        "'fetch' scrapes one url; 'search' runs a web search.\n\n\* `fetch` - fetch\n\* `search` - search"
-                    ),
-                url: zod
-                    .string()
-                    .max(growthAiEnrichmentSaveCreateBodySourcesItemUrlMax)
-                    .optional()
-                    .describe(
-                        "Url template for a 'fetch' source, e.g. 'https:\/\/{domain}\/pricing'. Required for kind 'fetch'."
-                    ),
-                query: zod
-                    .string()
-                    .max(growthAiEnrichmentSaveCreateBodySourcesItemQueryMax)
-                    .optional()
-                    .describe(
-                        "Search query template for a 'search' source, e.g. '\"{name}\" AI OR LLM product'. Required for kind 'search'."
-                    ),
-                limit: zod
-                    .number()
-                    .min(1)
-                    .max(growthAiEnrichmentSaveCreateBodySourcesItemLimitMax)
-                    .optional()
-                    .describe("Max results for a 'search' source (1-10). Ignored for kind 'fetch'."),
-            })
-        )
-        .optional()
-        .describe(
-            "Web sources this config fetches per org through Firecrawl before classifying. Kind 'fetch' scrapes one url template; kind 'search' runs a web search from a query template. Templates may reference {domain} (the signup domain) and {name} (the Harmonic payload's name, falling back to the organization's name). Each fetch costs 1 Firecrawl credit and each search costs 2. Results reach the LLM as extra input columns and are stored on the result row, so a config with any sources must declare a string 'evidence_url' output field."
         ),
     output_fields: zod
         .array(
