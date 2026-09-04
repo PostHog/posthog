@@ -23,6 +23,7 @@ from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.comment.access import task_comment_target_is_accessible
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
+from posthog.helpers.slack_scopes import can_customize_message_appearance
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -1156,6 +1157,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 item_url=build_comment_item_url(comment.scope, comment.item_id),
                 item_label=comment_scope_display_name(comment.scope),
                 organization_id=self.team.organization_id,
+                can_customize_appearance=can_customize_message_appearance(integration),
             )
         except Exception as e:
             _release_slack_reservation(slack_thread)

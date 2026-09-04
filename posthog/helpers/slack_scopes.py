@@ -30,6 +30,26 @@ REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
 )
 
 
+# Optional in the Slack app manifest, so an install can decline it. Workspaces with a strict
+# app-approval policy refuse an app that demands it, so nothing may treat it as required.
+CHAT_WRITE_CUSTOMIZE_SCOPE = "chat:write.customize"
+
+
+def can_customize_message_appearance(integration: Integration) -> bool:
+    """Whether messages from this install may set a per-message username and icon.
+
+    Fails open when the granted set is unknown, which is what installs recorded before scopes
+    were stored look like. The post path drops the appearance fields and posts again when Slack
+    refuses them, so an optimistic answer costs one rejected call and never loses a message.
+    """
+    try:
+        granted = SlackIntegration(integration).granted_scopes()
+    except Exception:
+        logger.warning("slack_granted_scopes_read_failed", integration_id=integration.id, exc_info=True)
+        return True
+    return not granted or CHAT_WRITE_CUSTOMIZE_SCOPE in granted
+
+
 def has_scopes(integration: Integration, required: Iterable[str]) -> bool:
     """Whether the install granted these bot scopes. Fails closed, so an install whose
     granted set can't be read never enables anything."""
