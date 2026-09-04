@@ -548,11 +548,13 @@ describe('loginLogic', () => {
 
     describe('redirectAfterLogin', () => {
         const originalLocation = window.location
+        let replaceSpy: jest.Mock
         let assignSpy: jest.Mock
         let reloadSpy: jest.Mock
 
         beforeEach(() => {
             initKeaTests()
+            replaceSpy = jest.fn()
             assignSpy = jest.fn()
             reloadSpy = jest.fn()
             Object.defineProperty(window, 'location', {
@@ -561,6 +563,7 @@ describe('loginLogic', () => {
                     pathname: '/login',
                     search: '',
                     hash: '',
+                    replace: replaceSpy,
                     assign: assignSpy,
                     reload: reloadSpy,
                 },
@@ -575,42 +578,48 @@ describe('loginLogic', () => {
         it('lands on the app root in a single document load', () => {
             router.actions.push('/login')
             redirectAfterLogin()
-            expect(assignSpy).toHaveBeenCalledTimes(1)
-            expect(assignSpy).toHaveBeenCalledWith('/')
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/')
             // A second navigation would cancel every chunk the first boot had started fetching
             expect(reloadSpy).not.toHaveBeenCalled()
+        })
+
+        it('takes the place of the login entry, so Back does not return to it', () => {
+            router.actions.push('/login')
+            redirectAfterLogin()
+            expect(assignSpy).not.toHaveBeenCalled()
         })
 
         it('lands on the next path, keeping its query and hash', () => {
             router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights?foo=bar')}#tab=raw`)
             redirectAfterLogin()
-            expect(assignSpy).toHaveBeenCalledTimes(1)
-            expect(assignSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
         })
 
         it('ignores a next path pointing at another origin', () => {
             router.actions.push('/login?next=//google.com')
             redirectAfterLogin()
-            expect(assignSpy).toHaveBeenCalledWith('/')
+            expect(replaceSpy).toHaveBeenCalledWith('/')
         })
 
         it('prefers an explicit destination over the next path', () => {
             router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights')}`)
             redirectAfterLogin('/project/5/replay/home')
-            expect(assignSpy).toHaveBeenCalledTimes(1)
-            expect(assignSpy).toHaveBeenCalledWith('/project/5/replay/home')
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/replay/home')
         })
 
         it('rejects an explicit cross-origin destination', () => {
             router.actions.push('/login')
             redirectAfterLogin('https://evil.example/steal')
-            expect(assignSpy).toHaveBeenCalledWith('/')
+            expect(replaceSpy).toHaveBeenCalledWith('/')
         })
 
         it('rejects a protocol-relative cross-origin destination', () => {
             router.actions.push('/login')
             redirectAfterLogin('//evil.example/steal')
-            expect(assignSpy).toHaveBeenCalledWith('/')
+            expect(replaceSpy).toHaveBeenCalledWith('/')
         })
 
         it('accepts an absolute destination on our own origin, as its path', () => {
@@ -618,7 +627,7 @@ describe('loginLogic', () => {
             // destination, and it arrives as a path.
             router.actions.push('/login')
             redirectAfterLogin('http://localhost/project/5/insights?foo=bar#tab=raw')
-            expect(assignSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
         })
     })
 })

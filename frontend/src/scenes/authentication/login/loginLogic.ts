@@ -143,14 +143,16 @@ export function handleLoginRedirect(): void {
 /** Land on the post-login page in a single document load.
  *
  * `POSTHOG_APP_CONTEXT` is injected into the HTML, so a document served to a logged-out visitor
- * still describes a logged-out one. The destination must arrive as a new document.
+ * still describes a logged-out one. The destination must arrive as a new document, and it takes
+ * the place of the login entry in history.
  *
  * An explicit destination must resolve to a same-origin path. That also rules out a bare fragment
  * or query string. The guard falls back to `loginRedirectTarget()`, which checks `?next=` the
  * same way. */
 export function redirectAfterLogin(destination?: string): void {
     const guardedDestination = destination ? getRelativeNextPath(destination, location) : null
-    window.location.assign(guardedDestination || loginRedirectTarget())
+    // Replace, so Back does not return to the login screen
+    window.location.replace(guardedDestination || loginRedirectTarget())
 }
 
 export interface LoginForm {
