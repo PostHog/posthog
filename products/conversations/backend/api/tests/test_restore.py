@@ -661,9 +661,10 @@ class TestRestoreAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         derived_session_id = identity_widget_session_id(identity_hash)
-        self.assertEqual(response.json()["widget_session_id"], derived_session_id)
         ticket.refresh_from_db()
         self.assertEqual(ticket.widget_session_id, derived_session_id)
+        # The client stores this field as its browser credential, so it must come back unchanged.
+        self.assertEqual(response.json()["widget_session_id"], self.widget_session_id)
 
         tickets_response = self.client.get(
             "/api/conversations/v1/widget/tickets",

@@ -171,23 +171,24 @@ class WidgetRestoreRedeemView(APIView):
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         raw_token = serializer.validated_data["restore_token"]
-        widget_session_id = str(serializer.validated_data["widget_session_id"])
+        browser_session_id = str(serializer.validated_data["widget_session_id"])
+        migrate_to_session_id = browser_session_id
         if verified_distinct_id is not None:
             # A verified viewer's ticket list is keyed on the session id derived from the
             # identity hash, so bind the tickets to the person rather than to this browser.
             # They then survive a cleared localStorage and follow the person to a new device.
-            widget_session_id = identity_widget_session_id(serializer.validated_data["identity_hash"])
+            migrate_to_session_id = identity_widget_session_id(serializer.validated_data["identity_hash"])
 
         # Redeem token
         result = RestoreService.redeem_token(
             team=team,
             raw_token=raw_token,
-            widget_session_id=widget_session_id,
+            widget_session_id=migrate_to_session_id,
         )
 
         # Invalidate tickets cache if migration succeeded
         if result.status == "success" and result.migrated_ticket_ids:
-            invalidate_tickets_cache(team.id, widget_session_id)
+            invalidate_tickets_cache(team.id, migrate_to_session_id)
             if verified_distinct_id is not None:
                 invalidate_identity_tickets_cache(team.id)
 
@@ -196,7 +197,10 @@ class WidgetRestoreRedeemView(APIView):
         if result.code:
             response_data["code"] = result.code
         if result.widget_session_id:
-            response_data["widget_session_id"] = result.widget_session_id
+            # The client stores this field as its own browser credential. It must stay the id
+            # the browser sent: the derived id would replace it and drop every ticket that
+            # still keys on the browser's own session.
+            response_data["widget_session_id"] = browser_session_id
         if result.migrated_ticket_ids:
             response_data["migrated_ticket_ids"] = result.migrated_ticket_ids
 
