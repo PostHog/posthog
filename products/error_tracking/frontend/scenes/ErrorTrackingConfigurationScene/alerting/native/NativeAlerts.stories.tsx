@@ -147,7 +147,8 @@ function Section({ openAlert }: { openAlert?: ErrorTrackingAlertApi }): JSX.Elem
     return (
         <div className="w-[900px] p-4">
             <NativeAlertsList />
-            <NativeAlertEditor />
+            {/* Portals fall outside the snapshot root, so the open editor renders in place. */}
+            <NativeAlertEditor inline={Boolean(openAlert)} />
         </div>
     )
 }

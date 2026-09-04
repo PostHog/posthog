@@ -3,6 +3,7 @@
 from typing import Any, Optional
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 
@@ -33,6 +34,10 @@ MAX_THROTTLE_SECONDS = 30 * 24 * 60 * 60
 
 
 def native_alerts_enabled(team_id: int) -> bool:
+    # Flags forced on for the whole instance (dev, self-hosted) reach the frontend
+    # through the persisted list, so the API must honor the same baseline.
+    if NATIVE_ALERTS_FLAG in settings.PERSISTED_FEATURE_FLAGS:
+        return True
     try:
         # Alert rows are canonical-project-scoped, so the flag must bucket child
         # environments with their parent or per-environment ids would gate

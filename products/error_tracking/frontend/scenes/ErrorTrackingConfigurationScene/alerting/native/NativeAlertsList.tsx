@@ -166,7 +166,7 @@ export function NativeAlertsList(): JSX.Element {
             </div>
             {loadError ? (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: loadAlerts }}>
-                    Could not load alerts.
+                    {loadError}
                 </LemonBanner>
             ) : alertsLoaded && alerts.length === 0 ? (
                 <LemonCard hoverEffect={false} className="text-secondary text-sm">

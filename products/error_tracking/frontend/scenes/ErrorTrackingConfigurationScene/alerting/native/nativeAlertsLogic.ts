@@ -134,7 +134,13 @@ export const nativeAlertsLogic = kea<nativeAlertsLogicType>([
         alertsLoaded: [false, { loadAlertsSuccess: () => true }],
         loadError: [
             null as string | null,
-            { loadAlerts: () => null, loadAlertsSuccess: () => null, loadAlertsFailure: (_, { error }) => error },
+            {
+                loadAlerts: () => null,
+                loadAlertsSuccess: () => null,
+                // A 403 is the API's feature gate, not an outage: say so instead of a generic failure.
+                loadAlertsFailure: (_, { errorObject }) =>
+                    errorObject?.status === 403 ? 'Alerts are not enabled for this project.' : 'Could not load alerts.',
+            },
         ],
     }),
 

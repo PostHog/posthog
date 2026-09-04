@@ -80,6 +80,10 @@ describe('nativeAlertsLogic', () => {
         mockList.mockReset().mockRejectedValue(new Error('boom'))
         await expectLogic(logic, () => logic.actions.loadAlerts()).toDispatchActions(['loadAlertsFailure'])
         expect(logic.values.alertsLoaded).toBe(false)
-        expect(logic.values.loadError).toBeTruthy()
+        expect(logic.values.loadError).toBe('Could not load alerts.')
+
+        mockList.mockReset().mockRejectedValue(Object.assign(new Error('forbidden'), { status: 403 }))
+        await expectLogic(logic, () => logic.actions.loadAlerts()).toDispatchActions(['loadAlertsFailure'])
+        expect(logic.values.loadError).toBe('Alerts are not enabled for this project.')
     })
 })
