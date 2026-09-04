@@ -23,6 +23,7 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonRadio, type LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
@@ -49,6 +50,7 @@ const TaskRunChat = lazy(() =>
 
 const MARKDOWN_BODY_CLASSES =
     'text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2'
+const OTHER_ANSWER_VALUE = '__feature_question_other__'
 
 /** The summary body: rendered markdown that swaps to a textarea on click. */
 function EditableSummary({ report }: { report: SignalReport }): JSX.Element {
@@ -114,88 +116,85 @@ function EditableSummary({ report }: { report: SignalReport }): JSX.Element {
 function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact: SignalReportArtefact }): JSX.Element {
     const logic = featureDetailLogic({ reportId: report.id, report })
     const { answeringQuestionId, answerDraft, answerSaving } = useValues(logic)
-    const { startAnswering, setAnswerDraft, cancelAnswering, saveAnswer } = useActions(logic)
+    const { selectAnswer, saveAnswer } = useActions(logic)
 
     const questionText = typeof artefact.content?.question === 'string' ? artefact.content.question : ''
     const options = Array.isArray(artefact.content?.options)
         ? Array.from(new Set(artefact.content.options.filter((option): option is string => typeof option === 'string')))
         : []
     const answering = answeringQuestionId === artefact.id
+    const selectedAnswer = answering ? (options.includes(answerDraft) ? answerDraft : OTHER_ANSWER_VALUE) : undefined
+    const customAnswer = selectedAnswer === OTHER_ANSWER_VALUE ? answerDraft : ''
+    const radioOptions: LemonRadioOption<string>[] = [
+        ...options.map((option) => ({
+            value: option,
+            label: option,
+            disabledReason: answerSaving ? 'Saving answer' : undefined,
+            'data-attr': 'feature-question-option',
+        })),
+        {
+            value: OTHER_ANSWER_VALUE,
+            label: 'Other',
+            disabledReason: answerSaving ? 'Saving answer' : undefined,
+            'data-attr': 'feature-question-other-option',
+        },
+    ]
+    const submitDisabledReason = !answering
+        ? 'Select an answer'
+        : selectedAnswer === OTHER_ANSWER_VALUE && !customAnswer.trim()
+          ? 'Enter an answer'
+          : undefined
 
     return (
-        <div className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-3">
-            <LemonMarkdown className="text-sm text-secondary break-words" disableImages>
+        <div className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
+            <LemonMarkdown className="text-sm text-secondary break-words [&>p]:m-0" disableImages>
                 {questionText}
             </LemonMarkdown>
-            <div className="flex items-center gap-2 text-xs text-tertiary">
-                <TZLabel time={artefact.created_at} />
-            </div>
-            {answering ? (
-                <div className="flex flex-col gap-2">
-                    {options.length > 0 ? (
-                        <>
-                            <div className="grid grid-cols-1 gap-2 @3xl:grid-cols-2">
-                                {options.map((option) => (
-                                    <LemonButton
-                                        key={option}
-                                        size="small"
-                                        type="secondary"
-                                        fullWidth
-                                        loading={answerSaving && answerDraft === option}
-                                        disabledReason={answerSaving ? 'Saving answer' : undefined}
-                                        data-attr="feature-question-option"
-                                        onClick={() => saveAnswer(option)}
-                                    >
-                                        <span className="w-full whitespace-normal text-left">{option}</span>
-                                    </LemonButton>
-                                ))}
-                            </div>
-                            <div className="flex items-center gap-2 py-1">
-                                <div className="h-px flex-1 bg-border-primary" />
-                                <span className="text-xs text-tertiary">Custom answer</span>
-                                <div className="h-px flex-1 bg-border-primary" />
-                            </div>
-                        </>
-                    ) : null}
-                    <LemonTextArea
-                        value={answerDraft}
-                        onChange={setAnswerDraft}
-                        minRows={2}
-                        placeholder={options.length > 0 ? 'Write a custom answer…' : 'Write your answer…'}
-                        disabled={answerSaving}
-                        autoFocus={options.length === 0}
-                        data-attr="feature-question-custom-answer"
+            <TZLabel time={artefact.created_at} className="text-xs text-tertiary" />
+            <form
+                className="flex flex-col gap-3"
+                onSubmit={(event) => {
+                    event.preventDefault()
+                    if (!submitDisabledReason) {
+                        saveAnswer()
+                    }
+                }}
+            >
+                {options.length > 0 ? (
+                    <LemonRadio
+                        value={selectedAnswer}
+                        onChange={(value) => selectAnswer(artefact.id, value === OTHER_ANSWER_VALUE ? '' : value)}
+                        options={radioOptions}
+                        radioPosition="top"
+                        aria-label="Answer choices"
                     />
-                    <div className="flex items-center justify-end gap-2">
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            onClick={cancelAnswering}
-                            disabledReason={answerSaving ? 'Saving…' : undefined}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            onClick={() => saveAnswer()}
-                            loading={answerSaving}
-                            data-attr="feature-question-submit-custom"
-                        >
-                            {options.length > 0 ? 'Submit custom answer' : 'Answer'}
-                        </LemonButton>
-                    </div>
+                ) : null}
+                <LemonInput
+                    value={options.length > 0 ? customAnswer : answering ? answerDraft : ''}
+                    onFocus={() => {
+                        if (selectedAnswer !== OTHER_ANSWER_VALUE) {
+                            selectAnswer(artefact.id, '')
+                        }
+                    }}
+                    onChange={(value) => selectAnswer(artefact.id, value)}
+                    placeholder={options.length > 0 ? 'Enter another answer' : 'Enter your answer'}
+                    disabled={answerSaving}
+                    className={options.length > 0 ? 'ml-6 max-w-2xl' : undefined}
+                    data-attr="feature-question-custom-answer"
+                />
+                <div className="flex justify-end">
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        htmlType="submit"
+                        loading={answerSaving}
+                        disabledReason={submitDisabledReason}
+                        data-attr="feature-question-submit-custom"
+                    >
+                        Submit answer
+                    </LemonButton>
                 </div>
-            ) : (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    onClick={() => startAnswering(artefact.id)}
-                    className="w-fit"
-                >
-                    Answer
-                </LemonButton>
-            )}
+            </form>
         </div>
     )
 }

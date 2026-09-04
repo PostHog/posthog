@@ -148,6 +148,13 @@ export interface featureDetailLogicActions {
     saveAnswer: (answer?: string) => {
         answer: string | undefined
     }
+    selectAnswer: (
+        artefactId: string,
+        answer: string
+    ) => {
+        answer: string
+        artefactId: string
+    }
     saveFeedback: () => {
         value: true
     }
@@ -284,6 +291,7 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
         setAnswerDraft: (draft: string) => ({ draft }),
         cancelAnswering: true,
         saveAnswer: (answer?: string) => ({ answer }),
+        selectAnswer: (artefactId: string, answer: string) => ({ artefactId, answer }),
         setAnswerSaving: (saving: boolean) => ({ saving }),
         // User feedback: `question` artefacts authored by the user (attribution = user id), which
         // the owner scout acts on and answers on its next run.
@@ -333,6 +341,7 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
             null as string | null,
             {
                 startAnswering: (_, { artefactId }) => artefactId,
+                selectAnswer: (_, { artefactId }) => artefactId,
                 cancelAnswering: () => null,
             },
         ],
@@ -340,6 +349,7 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
             '',
             {
                 startAnswering: () => '',
+                selectAnswer: (_, { answer }) => answer,
                 setAnswerDraft: (_, { draft }) => draft,
                 cancelAnswering: () => '',
             },
