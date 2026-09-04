@@ -25,7 +25,9 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:24.13.0-bookworm-slim AS node-base
+# Digest-pinned because the runtime `node` binary is copied out of this stage, replacing a
+# GPG-verified download.
+FROM node:24.13.0-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -298,9 +300,9 @@ RUN apt-get update && \
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \
     "libjemalloc2" \
-    # numba's omppool extension links libgomp.so.1 and vendors no copy of it.
+    # sklearn's OpenMP kernels, xgboost and numba's omppool link libgomp.so.1 and
+    # vendor no copy of it. The old base supplied it through gcc.
     "libgomp1" \
-    "ca-certificates" \
     && \
     rm -rf /var/lib/apt/lists/*
 
