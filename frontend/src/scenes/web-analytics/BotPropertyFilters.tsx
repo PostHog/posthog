@@ -10,6 +10,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { CUSTOM_BOT_CATEGORY } from 'scenes/settings/environment/customBotDefinitionsUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -111,16 +113,18 @@ const CATEGORY_LABELS: Record<string, string> = {
     monitoring: 'Monitoring',
     http_client: 'HTTP client',
     headless_browser: 'Headless browser',
+    [CUSTOM_BOT_CATEGORY]: 'Custom',
 }
 
 function getFilteredBotOptions(
     selectedCategory: string | null,
-    selectedCrawler: string | null
+    selectedCrawler: string | null,
+    customBots: BotDef[]
 ): {
     categories: { label: string; value: string | null }[]
     crawlers: { label: string; value: string | null }[]
 } {
-    let filtered = BOT_DEFINITIONS_LIST
+    let filtered = [...BOT_DEFINITIONS_LIST, ...customBots]
 
     if (selectedCategory) {
         filtered = filtered.filter((b) => b.category === selectedCategory)
@@ -198,10 +202,18 @@ export const BotPropertyFilters = (): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
     const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
     const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    // Bots the project defined itself classify the same way built-in ones do, so they belong in
+    // the same dropdowns.
+    const customBots: BotDef[] = (currentTeam?.modifiers?.customBotDefinitions ?? []).map((definition) => ({
+        name: definition.name,
+        category: definition.category || CUSTOM_BOT_CATEGORY,
+    }))
 
     const selectedCategory = getBotFilterValue(rawBotAnalyticsFilters, '$virt_traffic_category')
     const selectedCrawler = getBotFilterValue(rawBotAnalyticsFilters, '$virt_bot_name')
-    const { categories, crawlers } = getFilteredBotOptions(selectedCategory, selectedCrawler)
+    const { categories, crawlers } = getFilteredBotOptions(selectedCategory, selectedCrawler, customBots)
 
     const activeFilterCount = rawBotAnalyticsFilters.length
 

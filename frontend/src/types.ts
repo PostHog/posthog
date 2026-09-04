@@ -723,6 +723,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    tags?: string[]
 }
 
 export interface TeamSurveyConfigType {
@@ -896,6 +897,8 @@ export interface TeamType extends TeamBasicType {
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
+    // Optional so cached team objects from before this field shipped still typecheck.
+    feature_flag_policy_config?: FeatureFlagPolicyConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -903,6 +906,10 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+}
+
+export interface FeatureFlagPolicyConfig {
+    require_tags: boolean
 }
 
 export interface ProductIntentType {
@@ -2618,6 +2625,10 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     favorited?: boolean
     order: number | null
     result: any
+    /** Result column names, served alongside `result`. SQL insights draw from these. */
+    columns?: string[] | null
+    /** ClickHouse type of each entry in `columns`, as [name, type] pairs. */
+    types?: string[][] | null
     deleted: boolean
     saved: boolean
     created_at: string
@@ -4511,11 +4522,6 @@ export enum FeatureFlagStatus {
     ARCHIVED = 'archived',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
-}
-
-export interface FeatureFlagStatusResponse {
-    status: FeatureFlagStatus
-    reason: string
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -7321,6 +7327,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'task_skills'
     key: string
     label: string
     choices?: { value: string; label: string }[]

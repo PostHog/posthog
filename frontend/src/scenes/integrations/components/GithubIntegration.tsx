@@ -110,8 +110,10 @@ export function GithubIntegration({
                                 onLink={(installationId) => {
                                     // Reusing an existing install never leaves PostHog, so it's a
                                     // connect that skips GitHub entirely — worth separating from the
-                                    // clicks that redirect out.
-                                    reportConnect('settings_link_existing')
+                                    // clicks that redirect out. Falls back to `connectSurface` like
+                                    // every other button here, instead of a fixed literal, so the
+                                    // surface still says where the click happened.
+                                    reportConnect(connectSurface === 'settings' ? 'settings_link_existing' : undefined)
                                     linkExistingGithubInstallation(installationId)
                                 }}
                                 projectName={currentTeam?.name}

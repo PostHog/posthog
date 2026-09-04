@@ -2086,6 +2086,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // A bare PATCH (rename, display-option persist) doesn't recompute the insight, so
                     // its response carries `result: null` and stale-but-empty cache metadata. Keep the
                     // tile's already-computed chart data instead of blanking it into "Chart data didn't load".
+                    // SQL insights draw from `columns` and `types` rather than `result`, so those have to
+                    // survive the merge too or the tile loses the columns it picks its axes from.
                     const existing = tiles[tileIndex].insight as QueryBasedInsightModel
                     tiles[tileIndex] = {
                         ...tiles[tileIndex],
@@ -2094,6 +2096,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             ...item,
                             result: item.result ?? existing.result,
                             last_refresh: item.last_refresh ?? existing.last_refresh,
+                            columns: item.columns ?? existing.columns,
+                            types: item.types ?? existing.types,
                         },
                     }
 
