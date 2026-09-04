@@ -543,8 +543,13 @@ export function SceneName({
 
     // The field is narrower and shorter than the row that holds it, so a press can land on the
     // padding beside it. Nothing there is a selection anchor either, so claim the press for the
-    // page rather than leaving it for the browser, and put the caret in the field.
-    // Only apply this behavior when the name is actually editable.
+    // page rather than leaving it for the browser.
+    //
+    // In edit mode this also puts the caret in the field. In view mode there is no field yet,
+    // and the claim is the whole job: the row spans the scene header, so a press on the empty
+    // space beside the title must not open the editor.
+    //
+    // A read-only name has no press to claim, so leave its text selectable.
     const claimStrayPress = (e: React.MouseEvent): void => {
         if (!onChange || !canEdit) {
             return

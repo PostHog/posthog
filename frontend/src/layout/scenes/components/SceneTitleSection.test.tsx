@@ -116,6 +116,19 @@ describe('SceneName', () => {
         expect(press.defaultPrevented).toBe(false)
     })
 
+    // The row spans the scene header, so a press on the empty space beside the title must be
+    // claimed for the page without opening the editor.
+    test('a press beside the view mode title is claimed but does not enter edit mode', () => {
+        render(<SceneName name="Paying users" canEdit onChange={jest.fn()} />)
+
+        const row = screen.getByTestId('scene-name')
+        const press = createEvent.mouseDown(row, { button: 0 })
+        fireEvent(row, press)
+
+        expect(press.defaultPrevented).toBe(true)
+        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    })
+
     // Ctrl+click is the macOS secondary press. It reports button 0, so it needs its own
     // guard or it would enter edit mode and swallow the context menu.
     test('ctrl+click on the view mode title does not enter edit mode', () => {
