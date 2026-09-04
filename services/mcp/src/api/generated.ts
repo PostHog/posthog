@@ -92035,6 +92035,7 @@ export namespace Schemas {
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
      * * `Canvas` - Canvas
+     * * `Task` - Task
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -92133,6 +92134,7 @@ export namespace Schemas {
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
       Canvas: 'Canvas',
+      Task: 'Task',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',
@@ -92217,6 +92219,7 @@ export namespace Schemas {
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
      * * `Canvas` - Canvas
+     * * `Task` - Task
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -92303,6 +92306,7 @@ export namespace Schemas {
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
       Canvas: 'Canvas',
+      Task: 'Task',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',
