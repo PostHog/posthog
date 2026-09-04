@@ -46,6 +46,7 @@ import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
+import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig } from "./types";
 
 const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
@@ -594,6 +595,12 @@ export class PiAgentServer {
     ]);
     const runState = taskRun?.state;
     seedRunUsage(this.runUsage, runState?.token_usage);
+    // Before the prompt: its skills-store section counts the stubs on disk.
+    const storeSkillsInstalledCount = await syncStoreSkills(
+      runState,
+      { taskId: payload.task_id, runId: payload.run_id },
+      this.logger,
+    );
     const taskSnapshotKind = taskRun
       ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
@@ -603,6 +610,11 @@ export class PiAgentServer {
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
         : this.config.claudeCode?.systemPrompt?.append;
+    const storeSkillsInstructions = buildStoreSkillsInstructions(
+      storeSkillsInstalledCount,
+    );
+    const additionalInstructions =
+      `${configuredSystemPrompt ?? ""}${storeSkillsInstructions}` || undefined;
     // A repo-less run gets the tools to discover and clone a repository, and the
     // channel prompt that names them. Derive both from one condition so the tools
     // and the prompt that describes them can never disagree.
@@ -614,7 +626,7 @@ export class PiAgentServer {
       cwd,
       environment: "cloud",
       channelMode,
-      additionalInstructions: configuredSystemPrompt,
+      additionalInstructions,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
       task_id: payload.task_id,
