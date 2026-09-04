@@ -295,17 +295,47 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
 
-    @parameterized.expand([("unassigned", False), ("assigned", True)])
-    def test_retrieve_includes_channel_id(self, _name, assign):
+    def _report_payload(self, report: SignalReport, *, via: str) -> dict:
+        # `retrieve` reads the artefact-derived values off per-row subqueries. `list` reads them
+        # off batched lookups over its page. The two must agree, so every case runs on both.
+        if via == "detail":
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+            assert response.status_code == status.HTTP_200_OK
+            return response.json()
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        return next(row for row in response.json()["results"] if row["id"] == str(report.id))
+
+    @parameterized.expand(
+        [
+            ("unassigned_detail", False, "detail"),
+            ("unassigned_list", False, "list"),
+            ("assigned_detail", True, "detail"),
+            ("assigned_list", True, "list"),
+        ]
+    )
+    def test_report_includes_channel_id(self, _name, assign, via):
         channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
         report = self._create_report()
         if channel:
             self._assign_channel(report, channel)
 
-        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
-        response = self.client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["channel_id"] == (str(channel.id) if channel else None)
+        assert self._report_payload(report, via=via)["channel_id"] == (str(channel.id) if channel else None)
+
+    @parameterized.expand(
+        [
+            ("no_artefacts_detail", 0, "detail"),
+            ("no_artefacts_list", 0, "list"),
+            ("several_artefacts_detail", 3, "detail"),
+            ("several_artefacts_list", 3, "list"),
+        ]
+    )
+    def test_report_includes_artefact_count(self, _name, artefacts, via):
+        report = self._create_report()
+        for _ in range(artefacts):
+            self._priority_artefact(report, priority="P2")
+
+        assert self._report_payload(report, via=via)["artefact_count"] == artefacts
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")
@@ -333,16 +363,15 @@ class TestSignalReportListAPI(APIBaseTest):
         assert first_response.status_code == status.HTTP_200_OK
         assert all(row["id"] != str(report.id) for row in first_response.json()["results"])
 
-    def test_soft_deleted_channel_is_returned_as_unassigned(self):
+    @parameterized.expand([("detail",), ("list",)])
+    def test_soft_deleted_channel_is_returned_as_unassigned(self, via):
         channel = Channel.objects.create(team=self.team, name="Reports")
         report = self._create_report()
         self._assign_channel(report, channel)
         channel.deleted = True
         channel.save(update_fields=["deleted"])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["channel_id"] is None
+        assert self._report_payload(report, via=via)["channel_id"] is None
 
     def test_filter_by_channel_id_rejects_non_uuid(self):
         response = self.client.get(self._list_url(channel_id="not-a-uuid"))

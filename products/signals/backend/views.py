@@ -116,6 +116,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
+from products.signals.backend.report_artefact_summaries import artefact_count_by_report, live_channel_id_by_report
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
@@ -881,8 +882,14 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
         qs = self._apply_signal_report_inbox_view_filter(qs)
-        qs = self._annotate_signal_report_status_rank(qs)
-        qs = self._annotate_signal_report_priority(qs)
+        # Both ranks read an artefact subquery. Django repeats that subquery's SQL at every
+        # reference, so `priority_sort_rank` alone repeats it once per priority value. Neither
+        # rank is rendered, so apply each one only when this request sorts or filters on it.
+        ordering_fields = self._signal_report_ordering_fields()
+        if "pipeline_status_rank" in ordering_fields:
+            qs = self._annotate_signal_report_status_rank(qs)
+        if "priority_sort_rank" in ordering_fields or self._priority_filter_requested():
+            qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
@@ -895,15 +902,6 @@ class SignalReportViewSet(
         return qs
 
     def _scope_signal_report_queryset(self, queryset):
-        # Count via a correlated subquery instead of `Count("artefacts")`,
-        # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
-        artefact_count_subquery = Subquery(
-            SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
-            .values("report_id")
-            .annotate(count=Count("*"))
-            .values("count"),
-            output_field=IntegerField(),
-        )
         channel_id_subquery = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
@@ -921,13 +919,25 @@ class SignalReportViewSet(
             output_field=models.UUIDField(),
         )
         # select_related("refund"): the serializer renders the reverse OneToOne inline.
-        return (
-            queryset.filter(team=self.team)
-            .select_related("refund")
-            .annotate(
-                artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
-                channel_id=channel_id_subquery,
-            )
+        scoped = queryset.filter(team=self.team).select_related("refund")
+        if self.action in self._MULTI_REPORT_ACTIONS:
+            # Both values are correlated subqueries, so each one costs an artefact walk per row
+            # the query matches. Neither multi-row action needs that (see the note in
+            # `safely_get_queryset`). `channel_id` stays as an alias, so the channel filter can
+            # still narrow on it without the query paying for it on every row it keeps.
+            return scoped.alias(channel_id=channel_id_subquery)
+        # Count via a correlated subquery instead of `Count("artefacts")`,
+        # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
+        artefact_count_subquery = Subquery(
+            SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
+            .values("report_id")
+            .annotate(count=Count("*"))
+            .values("count"),
+            output_field=IntegerField(),
+        )
+        return scoped.annotate(
+            artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
+            channel_id=channel_id_subquery,
         )
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
@@ -1227,10 +1237,13 @@ class SignalReportViewSet(
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_rank` annotation, which must be applied first.
+        # Filters on the `priority_rank` alias. The caller applies that alias only when
+        # `_priority_filter_requested` is true, so this filter must narrow only in the same case.
         # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
+        if not self._priority_filter_requested():
+            return queryset
         priority_filter = self.request.query_params.get("priority")
-        if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
+        if not priority_filter:
             user = cast(User, self.request.user)
             personal_threshold = (
                 SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
@@ -1244,8 +1257,6 @@ class SignalReportViewSet(
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
             return queryset.filter(priority_rank__in=values)
-        if not priority_filter:
-            return queryset
 
         values = [p.strip().upper() for p in priority_filter.split(",") if p.strip()]
         if not values:
@@ -1332,7 +1343,8 @@ class SignalReportViewSet(
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
         # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
-        return queryset.annotate(
+        # An alias, not an annotation: nothing renders the rank, so it stays out of the SELECT list.
+        return queryset.alias(
             pipeline_status_rank=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(1)),
                 When(status=SignalReport.Status.READY, then=Value(0)),
@@ -1371,7 +1383,9 @@ class SignalReportViewSet(
             .values("_priority_val")[:1],
             output_field=CharField(),
         )
-        return queryset.annotate(priority_rank=latest_priority).annotate(
+        # Aliases, not annotations: the serializer reads the priority off the prefetched artefact,
+        # so neither value is rendered and neither belongs in the SELECT list.
+        return queryset.alias(priority_rank=latest_priority).alias(
             priority_sort_rank=Case(
                 *(
                     When(priority_rank=priority, then=Value(index))
@@ -1403,7 +1417,9 @@ class SignalReportViewSet(
         )
 
     def _annotate_latest_actionability(self, queryset):
-        return queryset.annotate(
+        # Aliases, not annotations: the serializer reads both values off the prefetched artefact,
+        # so these exist only for the filters and ranks that narrow and sort on them.
+        return queryset.alias(
             latest_actionability_value=self._latest_actionability_field("actionability"),
             latest_already_addressed_value=self._latest_actionability_field("already_addressed"),
         )
@@ -1520,6 +1536,18 @@ class SignalReportViewSet(
             return self._default_signal_report_ordering_clauses
         clauses = self._parse_ordering_string(str(raw).strip())
         return clauses if clauses else self._default_signal_report_ordering_clauses
+
+    def _signal_report_ordering_fields(self) -> frozenset[str]:
+        # The annotation names this request orders on. `filter_queryset` orders `list` only, so
+        # every other action orders on none of them.
+        if self.action != "list":
+            return frozenset()
+        return frozenset(clause.removeprefix("-") for clause in self._parse_signal_report_ordering())
+
+    def _priority_filter_requested(self) -> bool:
+        # Whether this request narrows on `priority_rank`, so the caller knows to alias it.
+        params = self.request.query_params
+        return bool(params.get("priority")) or params.get("use_priority_preference", "false").lower() == "true"
 
     def _apply_signal_report_ordering(self, queryset):
         clauses = self._parse_signal_report_ordering()
@@ -1911,6 +1939,14 @@ class SignalReportViewSet(
         # actions carry, for the serializer's refund_ineligibility_reason field.
         with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
             first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+
+        # Same trade for the two artefact-derived values the serializer renders on every row.
+        with tracer.start_as_current_span("signals.reports.list.fetch_artefact_summaries"):
+            artefact_counts = artefact_count_by_report(report_ids)
+            channel_ids = live_channel_id_by_report(report_ids)
+        for report in reports:
+            report.artefact_count = artefact_counts.get(str(report.id), 0)
+            report.channel_id = channel_ids.get(str(report.id))
 
         context = {
             **self.get_serializer_context(),
