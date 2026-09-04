@@ -6,7 +6,7 @@
         </p>
     {% else %}
         <p>
-            The organization <strong>{{ organization_name }}</strong> has been deleted{% if project_names %}, with its project{{ project_names|length|pluralize }}: <strong>{{ project_names|join:", " }}</strong>{% endif %}. You no longer have access to it.
+            The organization <strong>{{ organization_name }}</strong> has been deleted. You no longer have access to it.
         </p>
     {% endif %}
     <p>This can't be undone, but hey, if you ever want to start fresh, we'll be here.</p>

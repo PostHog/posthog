@@ -2591,6 +2591,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert {dest["raw_email"] for dest in member_message.to} == {"left-behind@posthog.com"}
         assert member_message.properties["requested_by_you"] is False
         assert "left-behind@posthog.com" not in actor_message.html_body
+        assert actor_message.properties["project_names"] == ["Website"]
+        assert member_message.properties["project_names"] == []
+        assert "Website" not in member_message.html_body
 
     def test_send_organization_deleted_email_without_other_members(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

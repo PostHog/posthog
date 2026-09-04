@@ -2287,7 +2287,9 @@ def send_organization_deleted_email(
             campaign_key=f"organization_deleted_members_{user_id}_{timestamp}",
             subject=f"The organization '{organization_name}' has been deleted",
             organization_name=organization_name,
-            project_names=project_names,
+            # Project access controls can hide a project from a member, and this list covers
+            # the whole organization. Only the person who ran the deletion gets the names.
+            project_names=[],
             requested_by_you=False,
         )
         for member in other_members:
