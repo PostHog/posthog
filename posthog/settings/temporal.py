@@ -180,6 +180,18 @@ TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_O
 TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
 
 TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS: list[str] = get_list(os.getenv("TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS", ""))
+TASK_RUN_STREAM_THIN_TAIL_ORIGINS: list[str] = get_list(os.getenv("TASK_RUN_STREAM_THIN_TAIL_ORIGINS", ""))
+# Connect-time backlog replay parses the whole run log in worker memory; past this
+# byte cap the connection degrades to the plain Redis window instead.
+TASK_RUN_STREAM_BACKLOG_MAX_BYTES: int = get_from_env(
+    "TASK_RUN_STREAM_BACKLOG_MAX_BYTES", 50 * 1024 * 1024, type_cast=int
+)
+# Total log bytes one worker process replays concurrently across connections; a
+# connection past the budget gets a retryable error frame instead of a replay.
+# Must exceed TASK_RUN_STREAM_BACKLOG_MAX_BYTES or a single large log can never replay.
+TASK_RUN_STREAM_BACKLOG_INFLIGHT_MAX_BYTES: int = get_from_env(
+    "TASK_RUN_STREAM_BACKLOG_INFLIGHT_MAX_BYTES", 256 * 1024 * 1024, type_cast=int
+)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
