@@ -8,24 +8,30 @@ use serde::{Deserialize, Serialize};
 ///
 /// # What the bit means, per writer
 ///
-/// A row exists once the `(cohort, person)` pair is evaluated, so the reconcile scan can enumerate
-/// it, and an explicit `false` is written rather than the row deleted. The seed paths are the one
-/// exception: they write no row for a non-member downstream was never told about.
+/// Absence does not mean the pair was never evaluated. Every writer stages a row only when the bit
+/// flips, or when a receiver settles a transferred fallback, so a pair first evaluated as a
+/// non-member has no row. Absence means **no registered membership**, and composes as `false`. A
+/// retraction does write an explicit `false` rather than deleting the row.
 ///
 /// The two seed paths ([`handle_seed`](crate::workers::seed_path) and the person-seed apply) hold a
-/// stricter meaning: the bit is **what downstream was last told**. They commit it only after the
-/// membership produce acks, and before every emission they record the value it retires, so a
-/// produce that fails after stage 1 commits leaves the row disagreeing with the truth and the
-/// redelivery re-emits. A row that agrees with the truth never vetoes a transition minted in the
-/// same apply: it can be that pre-write, or the row an apply left behind when it acked and then
-/// held before its post-ack commit.
+/// stricter meaning: the bit is **what downstream was last told**. Before every emission they
+/// record, with stage 1, the value that emission retires, so a produce that fails after stage 1
+/// commits leaves the row disagreeing with the truth and the redelivery re-emits. A row that agrees
+/// with the truth never vetoes a transition minted in the same apply: it can be that pre-write, or
+/// the row an apply left behind when it acked and then held before its post-ack commit. A silent
+/// apply writes nothing, not even a `false` row for a non-member downstream was never told about.
 ///
-/// Every other writer (the live event path, the sweep, the merge apply, reconcile) writes the bit
-/// as **stage-1 truth**, at stage-1 time. Their emissions are transition-derived, so their register
-/// value carries no claim about what downstream received. A seed apply that reads such a row
-/// trusts it, which is wrong only for a live transition whose own produce failed: the live path's
-/// accepted residual. Read the bit accordingly, and see `handle_sweep` for why the sweep must not
-/// adopt the seed paths' diff.
+/// Every other writer (the live event path, the sweep, the merge apply, the cascade apply,
+/// reconcile) writes the bit as **recomputed stage-1 truth**. Their emissions are
+/// transition-derived, so their register value carries no claim about what downstream received. A
+/// seed apply that reads such a row trusts it, which is wrong only for a live transition whose own
+/// produce failed: the live path's accepted residual. Read the bit accordingly, and see
+/// `handle_sweep` for why the sweep must not adopt the seed paths' diff.
+///
+/// When a row commits is a separate axis from what it records. The live event path and the merge
+/// apply commit with stage 1 and produce after. The sweep, the cascade apply, reconcile, and the
+/// seed paths' post-ack write all commit only once their produce acks, each retrying its own unit:
+/// the swept keys, the cascade message, the reconcile page, the seed apply.
 ///
 /// `last_evaluated_at_ms` is write-only for now (nothing reads it). Writers use the timestamp of the
 /// operation that evaluated membership: event time for live/merge work, the sweep cutoff for

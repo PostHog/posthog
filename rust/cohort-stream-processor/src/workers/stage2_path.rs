@@ -120,9 +120,9 @@ impl StatusCounts {
         }
     }
 
-    fn record_by_cause(self, metric: &'static str, cause: &'static str) {
+    fn record_found(self, metric: &'static str, found: &'static str) {
         for (count, status) in self.non_zero() {
-            counter!(metric, "kind" => status.as_str(), "cause" => cause).increment(count);
+            counter!(metric, "kind" => status.as_str(), "found" => found).increment(count);
         }
     }
 
@@ -136,26 +136,31 @@ impl StatusCounts {
     }
 }
 
-/// Register repairs split by what the diff found in the row, so an operator can tell a
-/// pre-existing gap (expected in bulk on the first run after a roll) from a produce that failed
-/// and was redelivered.
+/// Register repairs split by what the diff found in the row. The split is what the read observed,
+/// not why the row got that way: a row can disagree with the truth because a produce failed and
+/// was redelivered, because the cohort was edited and its leaf key moved, or because a transfer
+/// left a fallback behind, and nothing persisted tells those apart.
 #[derive(Debug, Default, Clone, Copy)]
 struct RepairCounts {
-    /// The row was absent or unreadable.
-    gap: StatusCounts,
-    /// The row was present and disagreed with the truth.
-    lag: StatusCounts,
+    /// No row at all — the register predates this apply.
+    absent: StatusCounts,
+    /// A row that did not decode; also counted on `STAGE2_STATE_DECODE_ERROR` at the read.
+    corrupt: StatusCounts,
+    /// A row that decoded and disagreed with the truth.
+    mismatch: StatusCounts,
 }
 
 impl RepairCounts {
     fn add(&mut self, other: Self) {
-        self.gap.add(other.gap);
-        self.lag.add(other.lag);
+        self.absent.add(other.absent);
+        self.corrupt.add(other.corrupt);
+        self.mismatch.add(other.mismatch);
     }
 
     fn record(self, metric: &'static str) {
-        self.gap.record_by_cause(metric, "gap");
-        self.lag.record_by_cause(metric, "lag");
+        self.absent.record_found(metric, "absent");
+        self.corrupt.record_found(metric, "corrupt");
+        self.mismatch.record_found(metric, "mismatch");
     }
 }
 
@@ -203,8 +208,9 @@ pub(crate) async fn recompute_stage2(
             });
         }
         if diff.requires_write() {
-            // Write `false` rather than deleting so absence means "never evaluated". A no-flip
-            // transferred fallback is rewritten once so receiver evaluation claims ownership.
+            // Write `false` rather than deleting so the retracted pair stays enumerable by the
+            // reconcile scan. A no-flip transferred fallback is rewritten once so receiver
+            // evaluation claims ownership.
             writes.push((
                 diff.stage2_key,
                 Stage2State {
@@ -377,9 +383,10 @@ pub(crate) async fn diff_single_leaf_registers(
         }
         let status = membership_status(truth);
         if !want.minted_transition {
-            match stored_bit {
-                None => repairs.gap.count(status),
-                Some(_) => repairs.lag.count(status),
+            match stored {
+                StoredRegister::Absent => repairs.absent.count(status),
+                StoredRegister::Corrupt => repairs.corrupt.count(status),
+                StoredRegister::Present(_) => repairs.mismatch.count(status),
             }
         }
         changes.push(CohortMembershipChange {

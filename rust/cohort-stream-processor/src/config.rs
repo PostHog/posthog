@@ -817,9 +817,10 @@ impl Config {
         }
 
         // A seed path re-derives its own failed produce on redelivery, so reconcile is no longer
-        // its repair path. Three classes still need it: the live path, which never holds a
-        // failed produce for redelivery; a cohort edit that changes what membership means; and
-        // the merge apply, whose produce is at-most-once by construction.
+        // its repair path. Three classes still need it: the live path, which holds the offset but
+        // commits stage 1 before it produces, so the replayed event mints no transition and emits
+        // nothing; a cohort edit that changes what membership means; and the merge apply, whose
+        // produce is at-most-once by construction.
         if self.cohort_seed_person_apply_enabled && !self.cohort_seed_reconcile_enabled {
             warn!(
                 "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a live \
