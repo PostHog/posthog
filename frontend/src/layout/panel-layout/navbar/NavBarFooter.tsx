@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
-import { InstallationStatusNavButton } from './InstallationStatusNavButton'
+import { InstallationStatusNavButton } from '../InstallationStatusNavButton'
 
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')

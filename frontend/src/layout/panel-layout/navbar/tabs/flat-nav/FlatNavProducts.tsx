@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
@@ -7,11 +7,12 @@ import { IconGear } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { NavLink } from '../../NavLink'
 import { flatNavLogic } from './flatNavLogic'
 import { FlatNavSection } from './FlatNavSection'
 
@@ -21,6 +22,7 @@ function slugify(path: string): string {
 
 export function FlatNavProducts(): JSX.Element {
     const { productGroups, customProductsLoading } = useValues(flatNavLogic)
+    const { reportNavItemClicked } = useActions(eventUsageLogic)
 
     return (
         <FlatNavSection
@@ -66,7 +68,7 @@ export function FlatNavProducts(): JSX.Element {
                                     isCollapsed={false}
                                     tag={item.tag}
                                     data-attr={`flat-nav-tool-${slugify(item.path)}`}
-                                    onClick={() => posthog.capture('nav item clicked', { item: item.path })}
+                                    onClick={() => reportNavItemClicked(item.path, 'tools')}
                                 />
                             ))}
                         </Fragment>

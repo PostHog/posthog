@@ -1,5 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { pluralize } from 'lib/utils/strings'
 
 /** Synthetic result that jumps to the theme setting, or toggles the theme outright. */
@@ -48,9 +49,10 @@ interface NewTabCandidate {
  * navigate qualify. An item carrying `onSelect`, and the theme row, run an action instead,
  * so treating the modifier as "open in a new tab" would fire that action rather than open
  * anything, which is merely surprising for most items but destructive for "Log out".
+ * A placeholder href goes nowhere, so it would open an empty tab.
  */
 export const canOpenInNewTab = (item: NewTabCandidate): boolean =>
-    !!item.href && !item.onSelect && item.id !== SETTINGS_THEME_ITEM_ID
+    !!item.href && item.href !== PLACEHOLDER_HREF && !item.onSelect && item.id !== SETTINGS_THEME_ITEM_ID
 
 /** Optional leading `#` and nothing but digits — the shape the ticket endpoint resolves with an
  *  exact ticket-number lookup rather than a text scan (`is_ticket_number_search` server-side). */
