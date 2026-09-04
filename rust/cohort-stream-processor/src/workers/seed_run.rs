@@ -9,7 +9,7 @@
 //!
 //! Pure: no I/O, no clock.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 
 use cohort_core::seed::{ConditionHash, PersonSeed, ReconcileTile, SeedTile};
@@ -207,13 +207,11 @@ fn registers_backed_by(filters: &TeamFilters, lsk: &LeafStateKey) -> usize {
 /// runs first, so it stays behind every data seed that precedes it. A budget closes only the run
 /// it bounds.
 ///
-/// Runs apply in first-offset order, so two open runs would apply one person's seeds out of offset
-/// order whenever both kinds touch them. Behavioral and person-property leaves meet inside one
-/// composed cohort, and that reorder emits transitions the per-seed apply never emits. So a seed
-/// whose person the *other* kind's open run already holds closes both runs first, which puts it in
-/// a run that starts above everything already admitted. Runs for different persons keep batching,
-/// which is the ordinary shape: a partition carries many persons, and the seeder claims a run's
-/// behavioral chunks before its person chunks.
+/// Runs apply in first-offset order, so two open runs could apply one person's seeds out of offset
+/// order when both kinds touch them, and a composed cohort would then emit flips the per-seed
+/// apply never emits. A seed joins its kind's open run only if that run starts above the other
+/// kind's latest run holding its person; otherwise it starts a new run. Different persons keep
+/// batching, which is the ordinary shape.
 ///
 /// Residue: a tombstone redirects a seed to the merge survivor, and routing runs after grouping, so
 /// two seeds that meet only on the survivor are not seen to share a person here. That window is a
@@ -236,13 +234,11 @@ pub(crate) fn group_seeds(
         match work {
             SeedWork::Tile(tile) => {
                 let holder = (tile.team_id(), tile.person_id());
-                if persons.holds(holder) {
-                    tiles.close(&mut groups);
-                    persons.close(&mut groups);
-                }
+                let held_since = persons.holds_since(holder);
                 tiles.admit(
                     Admitted { work: tile, offset },
                     holder,
+                    held_since,
                     weight,
                     budget,
                     &mut groups,
@@ -250,13 +246,11 @@ pub(crate) fn group_seeds(
             }
             SeedWork::Person(seed) => {
                 let holder = (seed.team_id(), seed.person_id());
-                if tiles.holds(holder) {
-                    tiles.close(&mut groups);
-                    persons.close(&mut groups);
-                }
+                let held_since = tiles.holds_since(holder);
                 persons.admit(
                     Admitted { work: seed, offset },
                     holder,
+                    held_since,
                     weight,
                     budget,
                     &mut groups,
@@ -291,12 +285,14 @@ pub(crate) fn group_seeds(
 /// and cascades are all keyed on it, so runs that share no holder cannot observe each other.
 type Holder = (TeamId, Uuid);
 
-/// A run of one kind still accepting seeds, with the row weight and the persons it has admitted.
+/// A run of one kind still accepting seeds, with the row weight it has admitted.
 struct OpenRun<T> {
     into: fn(SeedRun<T>) -> SeedGroup,
     items: Vec<Admitted<T>>,
     rows: usize,
-    holders: HashSet<Holder>,
+    /// Per person, the first offset of the latest run of this kind that took them. Kept across
+    /// closes: a closed run still applies at its own first offset.
+    holders: HashMap<Holder, SeedOffset>,
 }
 
 impl<T> OpenRun<T> {
@@ -305,35 +301,39 @@ impl<T> OpenRun<T> {
             into,
             items: Vec::new(),
             rows: 0,
-            holders: HashSet::new(),
+            holders: HashMap::new(),
         }
     }
 
-    /// Whether some admitted seed already acts on this person.
-    fn holds(&self, holder: Holder) -> bool {
-        self.holders.contains(&holder)
+    /// The start of the latest run of this kind holding this person.
+    fn holds_since(&self, holder: Holder) -> Option<SeedOffset> {
+        self.holders.get(&holder).copied()
     }
 
-    /// Admit one seed, closing the run around it as the budget demands: before, when its weight
-    /// would overflow the row budget; after, when it fills the seed count.
-    ///
-    /// An empty run always admits, so a seed heavier than the whole budget still applies alone
-    /// instead of never being marked or held.
+    /// Admit one seed. The run closes first when `held_since` starts above it or the weight would
+    /// overflow the row budget, and after when the seed count fills. An empty run always admits,
+    /// so a seed heavier than the whole budget still runs alone.
     fn admit(
         &mut self,
         item: Admitted<T>,
         holder: Holder,
+        held_since: Option<SeedOffset>,
         weight: usize,
         budget: RunBudget,
         groups: &mut Vec<SeedGroup>,
     ) {
+        let start = self.items.first().map(|first| first.offset);
+        let reorders = start
+            .zip(held_since)
+            .is_some_and(|(start, since)| start < since);
         let overflows = self.rows.saturating_add(weight) > budget.rows.get();
-        if overflows && !self.items.is_empty() {
+        if reorders || (overflows && !self.items.is_empty()) {
             self.close(groups);
         }
         self.items.push(item);
         self.rows = self.rows.saturating_add(weight);
-        self.holders.insert(holder);
+        let start = self.items[0].offset;
+        self.holders.insert(holder, start);
         if self.items.len() >= budget.seeds.get() {
             self.close(groups);
         }
@@ -345,7 +345,6 @@ impl<T> OpenRun<T> {
             return;
         };
         self.rows = 0;
-        self.holders.clear();
         groups.push((self.into)(run));
     }
 }
@@ -541,10 +540,10 @@ mod tests {
         );
     }
 
-    /// Only the shared person splits: a tile for someone the open person run never touched keeps
-    /// batching, which is the ordinary shape on a partition carrying many persons.
+    /// A run that starts above the other kind's run holding its persons applies after it, so it
+    /// batches.
     #[test]
-    fn one_shared_person_does_not_split_the_runs_around_it() {
+    fn a_run_starting_above_the_other_kinds_run_batches_its_shared_persons() {
         let alice = Uuid::from_u128(11);
         let bob = Uuid::from_u128(12);
         let groups = group_by_count(
@@ -560,7 +559,30 @@ mod tests {
         assert_eq!(
             spans(&groups),
             vec![(0, 1), (2, 3)],
-            "the shared person closes the person run at the tile, and both tiles then batch",
+            "the tile run starts above the person run, so nothing closes",
+        );
+    }
+
+    /// A closed run still applies at its own first offset, so forgetting its persons on close would
+    /// let the tile at 3 join the run at 0 and apply before the person seeds at 1 and 2.
+    #[test]
+    fn a_person_admitted_by_a_closed_run_of_the_other_kind_still_orders_the_seed() {
+        let alice = Uuid::from_u128(11);
+        let bob = Uuid::from_u128(12);
+        let groups = group_by_count(
+            vec![
+                admitted(SeedWork::Tile(tile_for(bob)), 0),
+                admitted(SeedWork::Person(person_seed_for(alice, &[PERSON])), 1),
+                admitted(SeedWork::Person(person_seed_for(alice, &[PERSON])), 2),
+                admitted(SeedWork::Tile(tile_for(alice)), 3),
+            ],
+            2,
+        );
+
+        assert_eq!(
+            spans(&groups),
+            vec![(0, 0), (1, 2), (3, 3)],
+            "the tile starts above the closed person run",
         );
     }
 
