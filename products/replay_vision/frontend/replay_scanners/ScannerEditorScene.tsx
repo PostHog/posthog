@@ -497,8 +497,10 @@ function EditorFooter({
     const ownsDurationFilter = step === 'triggers' || step === 'budget'
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
-    // Editing one section from the goal overview: the edit is already in the form state, so the only
-    // action needed is to return to the overview, where the whole draft is reviewed and created.
+    // Editing one section from the goal overview: the edit is already in the form state, so keeping it
+    // is just a return to the overview, where the whole draft is reviewed and created. The button still
+    // reads "Save changes" — beside "Discard changes", a bare "Back to overview" reads like leaving
+    // without keeping the edit.
     const { from, ...overviewParams } = searchParams
     const fromOverview = from === 'overview'
 
@@ -555,9 +557,9 @@ function EditorFooter({
                             type="primary"
                             to={scannerStepUrlWithParams('overview', scannerId, overviewParams)}
                             disabledReason={saveDisabledReason ?? undefined}
-                            data-attr="vision-editor-back-to-overview"
+                            data-attr="vision-editor-save-section-edits"
                         >
-                            Back to overview
+                            Save changes
                         </LemonButton>
                     </div>
                 </div>
