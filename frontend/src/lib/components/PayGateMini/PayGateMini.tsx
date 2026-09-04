@@ -43,6 +43,9 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
     handleSubmit?: () => void
 }
 
+// The pricing link and the primary button share one event, so the label is what tells them apart.
+const PRICING_LINK_LABEL = 'See all plans and pricing'
+
 /** A sort of paywall for premium features.
  *
  * Simply shows its children when the feature is available,
@@ -81,7 +84,7 @@ export function PayGateMini({
         }
     }, [feature, featureDetail, gateVariant, ctaLabel, productWithFeature?.type])
 
-    const handleCtaClick = (): void => {
+    const captureCtaClick = (clickedLabel: string): void => {
         if (handleSubmit) {
             handleSubmit()
         }
@@ -90,9 +93,13 @@ export function PayGateMini({
             feature: feature,
             feature_detail: featureDetail,
             gate_variant: gateVariant,
-            cta_label: ctaLabel,
+            cta_label: clickedLabel,
         })
     }
+
+    const handleCtaClick = (): void => captureCtaClick(ctaLabel)
+
+    const handlePricingLinkClick = (): void => captureCtaClick(PRICING_LINK_LABEL)
 
     if (billingLoading) {
         return (
@@ -130,6 +137,7 @@ export function PayGateMini({
                 background={background}
                 isGrandfathered={isGrandfathered}
                 handleCtaClick={handleCtaClick}
+                handlePricingLinkClick={handlePricingLinkClick}
             >
                 <div className="flex items-center justify-center deprecated-space-x-3">
                     <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
@@ -169,6 +177,7 @@ interface PayGateContentProps extends PayGateMiniLogicProps {
     isGrandfathered?: boolean
     children: React.ReactNode
     handleCtaClick: () => void
+    handlePricingLinkClick: () => void
 }
 
 function PayGateContent({
@@ -179,6 +188,7 @@ function PayGateContent({
     isGrandfathered,
     children,
     handleCtaClick,
+    handlePricingLinkClick,
 }: PayGateContentProps): JSX.Element | null {
     const {
         productWithFeature,
@@ -214,7 +224,8 @@ function PayGateContent({
                 upgradePricing,
                 ctaLink,
                 isAddonProduct,
-                handleCtaClick
+                handleCtaClick,
+                handlePricingLinkClick
             )}
             {isGrandfathered && <GrandfatheredMessage />}
             {featureInfo.docsUrl && <DocsLink url={featureInfo.docsUrl} />}
@@ -232,7 +243,8 @@ const renderUsageLimitMessage = (
     upgradePricing: ProductUpgradePricing | null,
     ctaLink: string | undefined,
     isAddonProduct?: boolean,
-    handleCtaClick?: () => void
+    handleCtaClick?: () => void,
+    handlePricingLinkClick?: () => void
 ): JSX.Element => {
     if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
         return (
@@ -287,8 +299,8 @@ const renderUsageLimitMessage = (
             </p>
             {gateVariant === 'add-card' && !isAddonProduct && ctaLink && (
                 <p className="mb-4 text-xs text-secondary">
-                    <Link to={ctaLink} onClick={handleCtaClick}>
-                        See all plans and pricing
+                    <Link to={ctaLink} onClick={handlePricingLinkClick}>
+                        {PRICING_LINK_LABEL}
                     </Link>
                 </p>
             )}
