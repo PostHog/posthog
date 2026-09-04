@@ -122,13 +122,13 @@ def _deciding_subject_name(
     return None
 
 
-def _enforced_object_access(subject: SubjectAccessControl, obj: Model, resource: APIScopeObject) -> ResolvedAccess:
-    """The enforced resolution of `obj` for `subject`, with provenance.
+def _legacy_object_access(subject: SubjectAccessControl, obj: Model, resource: APIScopeObject) -> ResolvedAccess:
+    """The legacy resolution of `obj` for `subject`, with provenance, whatever the org setting says.
 
-    Mirrors `get_user_access_level`, which returns the level only. The preview needs the source
-    to explain each change, so it walks the same private methods. The caller already excluded
-    the precheck outcomes (creators, org admins, missing entitlement), so the row walk is the
-    whole answer.
+    Mirrors the legacy path of `get_user_access_level`, which returns the level only. The preview
+    needs the source to explain each change, so it walks the same private methods. The caller
+    already excluded the precheck outcomes (creators, org admins, missing entitlement), so the
+    row walk is the whole answer.
     """
     rows = subject._get_access_controls(subject._access_controls_filters_for_object(resource, str(obj.pk)))
     access = subject._object_access_level_from_rows(
@@ -247,7 +247,11 @@ def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str,
 
 
 def build_resolution_preview(team: Team, user_access_control: UserAccessControl) -> list[ResolutionChange]:
-    """Every (subject, scope) pair on `team` whose enforced and most-specific resolutions differ."""
+    """Every (subject, scope) pair on `team` whose legacy and most-specific resolutions differ.
+
+    The comparison ignores the org setting, so the preview also shows what changed after an
+    organization switched.
+    """
     if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return []
 
@@ -314,7 +318,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 subject,
                 "resource",
                 resource,
-                subject.access.access_level_for_resource(cast(APIScopeObject, resource)),
+                subject.access._legacy_access_level_for_resource(cast(APIScopeObject, resource)),
                 subject.access.resolve_most_specific_resource_access(cast(APIScopeObject, resource)),
             )
 
@@ -372,7 +376,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                     subject,
                     "object",
                     resource,
-                    _enforced_object_access(subject.access, obj, cast(APIScopeObject, resource)),
+                    _legacy_object_access(subject.access, obj, cast(APIScopeObject, resource)),
                     subject.access.resolve_most_specific_object_access(obj),
                     object_id=object_id,
                     object_name=loaded.name,

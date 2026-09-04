@@ -941,12 +941,19 @@ class UserAccessControl:
 
         if self._is_most_specific_access_control_enabled:
             return self.resolve_most_specific_resource_access(resource)
+        return self._legacy_access_level_for_resource(resource)
 
+    def _legacy_access_level_for_resource(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
+        """Resolve access to one resource type with the legacy order, whatever the org setting says.
+
+        The resolution preview compares this with the most-specific answer, also after an
+        organization switched, to show what the switch changed.
+        """
         # Check if this resource inherits access from a parent resource
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
             # Use parent resource for access control checks
-            return self.access_level_for_resource(parent_resource)
+            return self._legacy_access_level_for_resource(parent_resource)
 
         if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return ResolvedAccess(
