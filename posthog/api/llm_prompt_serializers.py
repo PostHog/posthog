@@ -174,7 +174,7 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
     )
-    label = serializers.CharField(
+    label = serializers.CharField(  # type: ignore[assignment]
         required=False,
         max_length=PROMPT_LABEL_NAME_MAX_LENGTH,
         help_text=(
