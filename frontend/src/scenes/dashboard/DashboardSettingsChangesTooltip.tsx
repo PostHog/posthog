@@ -57,6 +57,7 @@ function renderChangeValue(change: DashboardFilterChange): JSX.Element {
                 <ChangeValue value={change.previousValue} />
             </span>
             <span aria-hidden="true">→</span>
+            <span className="sr-only">changed to</span>
             <span className="font-medium">
                 <ChangeValue value={change.value} />
             </span>
