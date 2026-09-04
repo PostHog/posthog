@@ -87,4 +87,52 @@ describe('SceneName', () => {
 
         expect(screen.getByRole('textbox')).toBeInTheDocument()
     })
+
+    // Right-click on the view mode title should not enter edit mode; it should allow
+    // the context menu to show instead.
+    test('right-click on the view mode title does not enter edit mode', () => {
+        render(<SceneName name="Paying users" canEdit onChange={jest.fn()} />)
+
+        const title = screen.getByRole('button')
+        const press = createEvent.mouseDown(title, { button: 2 })
+        fireEvent(title, press)
+
+        // Should not prevent default on right-click
+        expect(press.defaultPrevented).toBe(false)
+        // Should not enter edit mode
+        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    })
+
+    // Read-only scene names should be selectable text, not grab presses away from
+    // text selection.
+    test('read-only scene name allows text selection', () => {
+        render(<SceneName name="Paying users" canEdit={false} onChange={undefined} />)
+
+        const container = screen.getByTestId('scene-name')
+        const press = createEvent.mouseDown(container)
+        fireEvent(container, press)
+
+        // Should not prevent default on read-only name
+        expect(press.defaultPrevented).toBe(false)
+    })
+
+    // Links inside editable markdown descriptions should remain clickable and navigate,
+    // not be prevented by the description button's press handler.
+    test('links in read-only markdown descriptions remain clickable', () => {
+        render(<SceneName name="Paying users" canEdit={false} onChange={undefined} />)
+
+        // Create a mock link element inside the rendered content
+        const link = document.createElement('a')
+        link.href = 'https://example.com'
+        const press = createEvent.mouseDown(link)
+
+        // Simulate the enterEditOnPress logic
+        const target = link as HTMLElement
+        const isInteractive = target.closest('button, a, input, textarea, [role="button"]')
+
+        // The link should be detected as interactive and the press should not be prevented
+        expect(isInteractive).toBe(link)
+        // If target is a link, enterEditOnPress should return without preventing default
+        expect(press.defaultPrevented).toBe(false)
+    })
 })

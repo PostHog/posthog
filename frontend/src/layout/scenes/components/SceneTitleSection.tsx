@@ -448,8 +448,29 @@ type SceneNameProps = {
  * page claims nothing at all — and a browser that drags its own window from the page surface
  * (Arc, when its toolbar is hidden) is then free to read the drag as a window move. Preventing
  * the default claims the press for the page and puts the caret in the field.
+ *
+ * Only prevent default on primary (left) clicks; right-click and middle-click should open
+ * the context menu or trigger browser behavior normally. On macOS, Cmd+click is reported as
+ * button 0 but is semantically a context-menu gesture and should not enter edit mode.
+ *
+ * Do not prevent default when pressing interactive elements like links or buttons inside
+ * content (e.g. markdown links), allowing them to retain their default behavior.
  */
 function enterEditOnPress(e: React.MouseEvent, startEditing: () => void): void {
+    // Ignore non-primary presses
+    if (e.button !== 0) {
+        return
+    }
+    // On macOS, Cmd+click is a context-menu gesture; don't enter edit mode
+    if (e.metaKey) {
+        return
+    }
+    // Don't claim presses on links, inputs, or other interactive content (but not
+    // the button that contains them, which we want to activate)
+    const target = e.target as HTMLElement
+    if (target.tagName === 'A' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return
+    }
     e.preventDefault()
     startEditing()
 }
@@ -531,7 +552,11 @@ export function SceneName({
     // The field is narrower and shorter than the row that holds it, so a press can land on the
     // padding beside it. Nothing there is a selection anchor either, so claim the press for the
     // page rather than leaving it for the browser, and put the caret in the field.
+    // Only apply this behavior when the name is actually editable.
     const claimStrayPress = (e: React.MouseEvent): void => {
+        if (!onChange || !canEdit) {
+            return
+        }
         if ((e.target as HTMLElement).closest('button, a, input, textarea, [role="button"]')) {
             return
         }
