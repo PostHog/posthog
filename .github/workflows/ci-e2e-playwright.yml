@@ -65,6 +65,9 @@ env:
     # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
     INTERNAL_API_SECRET: posthog123
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
