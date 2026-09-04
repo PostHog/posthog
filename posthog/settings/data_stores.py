@@ -679,6 +679,13 @@ CACHES = {
     }
 }
 
+# Authorization cache reads must use the writer. Reading membership versions and values from
+# different replicas can otherwise make a revoked membership appear valid after invalidation.
+CACHES["organization_access"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -741,6 +748,7 @@ else:
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     CACHES["query_cache"] = CACHES["default"]
+    CACHES["organization_access"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

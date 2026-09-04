@@ -39,6 +39,8 @@ export interface MessageListProps {
     canEditTicket?: boolean
     onEditMessage?: (message: ChatMessage) => void
     onDeleteMessage?: (messageId: string) => void
+    fullEmailLoadingMessageId?: string | null
+    onViewFullEmail?: (messageId: string) => void
 }
 
 /** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
@@ -71,6 +73,8 @@ export function MessageList({
     canEditTicket = false,
     onEditMessage,
     onDeleteMessage,
+    fullEmailLoadingMessageId = null,
+    onViewFullEmail,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -231,6 +235,12 @@ export function MessageList({
                         }
                         onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
                         onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                        fullEmailLoading={fullEmailLoadingMessageId === message.id}
+                        onViewFullEmail={
+                            onViewFullEmail && message.hasFullEmailContent
+                                ? () => onViewFullEmail(message.id)
+                                : undefined
+                        }
                     />
                 ),
             }

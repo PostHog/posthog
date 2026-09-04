@@ -23,6 +23,7 @@ import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
 export const SCOPE_DATE_OPTIONS = dateMapping.filter(({ key }) =>
     [
         'Custom',
+        'Today',
         'Last 24 hours',
         'Last 7 days',
         'Last 14 days',

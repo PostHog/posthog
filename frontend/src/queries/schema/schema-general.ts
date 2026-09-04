@@ -524,6 +524,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
+    customBotDefinitions?: CustomBotDefinition[]
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
@@ -699,6 +700,12 @@ export interface RecordingsQueryExperimentExposureFilter {
     experiment_id: integer
     /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
     variant?: string
+    /**
+     * Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria
+     * inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was
+     * never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward.
+     */
+    in_session?: boolean
 }
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
@@ -1400,6 +1407,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showAnnotations?: boolean
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
@@ -6794,6 +6803,45 @@ export interface CustomChannelRule {
     id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
 }
 
+/** The event properties a project's own bot rule can match on. */
+export enum CustomBotField {
+    RawUserAgent = '$raw_user_agent',
+    IP = '$ip',
+    Lib = '$lib',
+    Host = '$host',
+    Pathname = '$pathname',
+    CurrentURL = '$current_url',
+    Browser = '$browser',
+    OS = '$os',
+    BrowserLanguage = '$browser_language',
+    ScreenWidth = '$screen_width',
+    ScreenHeight = '$screen_height',
+    CountryCode = '$geoip_country_code',
+    Referrer = '$referrer',
+    ReferringDomain = '$referring_domain',
+}
+
+export enum CustomBotMatcher {
+    Contains = 'contains',
+    Regex = 'regex',
+    /** Matches an IP against a network range, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
+    Cidr = 'cidr',
+}
+
+/** A bot a project defines itself, on top of PostHog's built-in bot list. */
+export interface CustomBotDefinition {
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+    /** The event property this rule reads. */
+    key: CustomBotField
+    /** Matched against the property named by `key`. */
+    pattern: string
+    matcher: CustomBotMatcher
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of definitions
+}
+
 export enum DefaultChannelTypes {
     CrossNetwork = 'Cross Network',
     PaidSearch = 'Paid Search',
@@ -9511,6 +9559,10 @@ export const externalDataSources = [
     'Coolify',
     'SocialPilot',
     'RoktAds',
+    'Strato',
+    'Medusa',
+    'Membrain',
+    'RecallAI',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -10056,6 +10108,7 @@ export enum ProductKey {
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
+    POSTHOG_AI_ONBOARDING = 'posthog_ai_onboarding',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     PULSE = 'pulse',

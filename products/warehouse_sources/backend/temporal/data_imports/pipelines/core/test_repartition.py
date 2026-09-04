@@ -228,6 +228,40 @@ class TestSelectRepartitionTarget:
                 1000,
                 {"partition_mode": "datetime", "partition_format": "hour"},
             ),
+            # Out of datetime tiers and still over budget: a skewed key (one timestamp across many
+            # rows) can't be split by time, so the table switches to hashed buckets rather than
+            # staying over budget forever and OOMing every merge. The hash is over the primary key —
+            # hashing the skewed datetime key would put every row sharing a timestamp in one bucket.
+            (
+                "datetime_at_finest_tier_falls_back_to_md5_on_primary_key",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "hour",
+                    "partitioning_keys": ["created_at"],
+                    "primary_key_columns": ["subscription_id", "valid_from"],
+                },
+                {"2024-01-01T00": 5000},
+                1000,
+                {
+                    "partition_mode": "md5",
+                    "partition_keys": ["subscription_id", "valid_from"],
+                    "partition_count": 5,
+                },
+            ),
+            # A date-typed key caps at `day`, so it reaches the same fallback one tier earlier.
+            (
+                "date_typed_key_at_day_ceiling_falls_back_to_md5",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["report_date"],
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "report_date", "data_type": "date32[day]"}]},
+                },
+                {"2024-01-01": 5000},
+                1000,
+                {"partition_mode": "md5", "partition_keys": ["id"], "partition_count": 5},
+            ),
             (
                 "unpartitioned_with_keys_enables_partitioning",
                 {"partition_mode": None, "primary_key_columns": ["id"]},
@@ -260,6 +294,17 @@ class TestSelectRepartitionTarget:
     @parameterized.expand(
         [
             ("datetime_hour", {"partition_mode": "datetime", "partition_format": "hour"}, "datetime_at_finest_tier"),
+            # Hashing the partition key itself would rebuild the same skew, so this is still a skip.
+            (
+                "datetime_hour_primary_key_is_the_skewed_key",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "hour",
+                    "partitioning_keys": ["created_at"],
+                    "primary_key_columns": ["created_at"],
+                },
+                "datetime_at_finest_tier",
+            ),
             ("unpartitionable", {"partition_mode": None}, "unpartitionable_no_keys"),
         ]
     )

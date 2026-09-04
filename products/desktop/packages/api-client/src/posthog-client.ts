@@ -275,6 +275,48 @@ export interface TaskSearchResult {
   metadata: Record<string, unknown>;
 }
 
+/**
+ * The effective AI run defaults for the signed-in user in a project, as resolved
+ * by the tasks backend: their own preference over the project default. `source`
+ * says which level supplied them, and is `"none"` when neither is set.
+ */
+export interface TaskRunDefaults {
+  runtime_adapter: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+  source: "user" | "team" | "none";
+}
+
+export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
+  runtime_adapter: null,
+  model: null,
+  reasoning_effort: null,
+  source: "none",
+};
+
+/**
+ * A stored preference triple. All three null means the level is unset and the one
+ * below it applies — a personal preference falls back to the project default, and
+ * the project default to each surface's built-in model.
+ */
+export interface TaskRunPreferences {
+  runtime_adapter: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+}
+
+export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
+  runtime_adapter: null,
+  model: null,
+  reasoning_effort: null,
+};
+
+/** What the signed-in user has stored for this project, and what it resolves to. */
+export interface MyTaskRunConfig {
+  preferences: TaskRunPreferences;
+  resolved: TaskRunDefaults;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -2105,6 +2147,86 @@ export class PostHogAPIClient {
     return data as Schemas.Team;
   }
 
+  /**
+   * The AI run triple a task run gets when the caller pins no runtime selection —
+   * the signed-in user's per-project preference over the project default.
+   *
+   * Hand-rolled rather than routed through the generated client because
+   * `tasks/@me/config/` postdates the last schema pull.
+   */
+  async getTaskRunDefaults(projectId: number): Promise<TaskRunDefaults> {
+    return (await this.getMyTaskRunConfig(projectId)).resolved;
+  }
+
+  /** The signed-in user's stored preference for this project, plus what it resolves to. */
+  async getMyTaskRunConfig(projectId: number): Promise<MyTaskRunConfig> {
+    return await this.taskRunConfigRequest(
+      "get",
+      `/api/projects/${projectId}/tasks/@me/config/`,
+    );
+  }
+
+  /**
+   * Store the signed-in user's preference for this project. All three fields null
+   * clears it, which is how "use the project default" is expressed.
+   */
+  async updateMyTaskRunPreferences(
+    projectId: number,
+    preferences: TaskRunPreferences,
+  ): Promise<MyTaskRunConfig> {
+    return await this.taskRunConfigRequest(
+      "post",
+      `/api/projects/${projectId}/tasks/@me/config/`,
+      preferences,
+    );
+  }
+
+  /**
+   * The project-wide default. Readable by any member; only project admins may change
+   * it, which is why this client offers no writer for it — the settings page links to
+   * PostHog rather than presenting a control that would 403.
+   */
+  async getTeamTaskRunPreferences(
+    projectId: number,
+  ): Promise<TaskRunPreferences> {
+    return (
+      await this.taskRunConfigRequest(
+        "get",
+        `/api/projects/${projectId}/tasks/config/`,
+      )
+    ).preferences;
+  }
+
+  private async taskRunConfigRequest(
+    method: "get" | "post",
+    urlPath: string,
+    body?: TaskRunPreferences,
+  ): Promise<MyTaskRunConfig> {
+    const response = await this.api.fetcher.fetch({
+      method,
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Task run config request failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      ai_run_preferences?: Partial<TaskRunPreferences> | null;
+      resolved_ai_run_defaults?: TaskRunDefaults | null;
+    };
+    return {
+      // The API stores a cleared preference as `{}`, so read each field rather than
+      // assuming the triple is present.
+      preferences: {
+        runtime_adapter: payload.ai_run_preferences?.runtime_adapter ?? null,
+        model: payload.ai_run_preferences?.model ?? null,
+        reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
+      },
+      resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+    };
+  }
+
   async listSignalSourceConfigs(
     projectId: number,
   ): Promise<SignalSourceConfig[]> {
@@ -2394,13 +2516,10 @@ export class PostHogAPIClient {
   }
 
   async listEvaluations(projectId: number): Promise<Evaluation[]> {
-    const data = await this.api.get(
-      "/api/environments/{project_id}/evaluations/",
-      {
-        path: { project_id: projectId.toString() },
-        query: { limit: 200 },
-      },
-    );
+    const data = await this.api.get("/api/projects/{project_id}/evaluations/", {
+      path: { project_id: projectId.toString() },
+      query: { limit: 200 },
+    });
     return data.results ?? [];
   }
 
@@ -2410,7 +2529,7 @@ export class PostHogAPIClient {
     updates: { enabled: boolean },
   ): Promise<Evaluation> {
     return await this.api.patch(
-      "/api/environments/{project_id}/evaluations/{id}/",
+      "/api/projects/{project_id}/evaluations/{id}/",
       {
         path: {
           project_id: projectId.toString(),
@@ -2734,7 +2853,7 @@ export class PostHogAPIClient {
     if (ids.length === 0) return [];
     const TASK_SUMMARIES_MAX_PAGES = 50;
     const teamId = await this.getTeamId();
-    const all: Schemas.TaskSummary[] = [];
+    const all: Schemas.TaskSummaryDTO[] = [];
     let urlPath: string = `/api/projects/${teamId}/tasks/summaries/`;
     for (let i = 0; i < TASK_SUMMARIES_MAX_PAGES; i++) {
       const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -2751,7 +2870,8 @@ export class PostHogAPIClient {
           `Failed to fetch task summaries: ${response.statusText}`,
         );
       }
-      const page = (await response.json()) as Schemas.PaginatedTaskSummaryList;
+      const page =
+        (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
       all.push(...page.results);
       if (!page.next) return all;
       const nextUrl = new URL(page.next);
@@ -2872,7 +2992,7 @@ export class PostHogAPIClient {
         body: {
           ...taskOptions,
           origin_product: originProduct ?? "user_created",
-        } as unknown as Schemas.Task,
+        } as unknown as Schemas.TaskCreate,
       }),
     );
 
@@ -2881,7 +3001,7 @@ export class PostHogAPIClient {
 
   async updateTask(
     taskId: string,
-    updates: Partial<Schemas.Task>,
+    updates: Schemas.PatchedTaskWrite,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -2898,13 +3018,10 @@ export class PostHogAPIClient {
   /**
    * Mirror this device's archive state onto the task, so every client agrees on
    * what is archived — and so the list endpoint, which hides archived tasks,
-   * counts what the app actually shows. `archived` is on the write serializer
-   * but not yet in the generated schema.
+   * counts what the app actually shows.
    */
   async setTaskArchived(taskId: string, archived: boolean): Promise<void> {
-    await this.updateTask(taskId, {
-      archived,
-    } as unknown as Partial<Schemas.Task>);
+    await this.updateTask(taskId, { archived });
   }
 
   async deleteTask(taskId: string) {
@@ -4109,7 +4226,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4129,7 +4246,7 @@ export class PostHogAPIClient {
     }
 
     const data =
-      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailList>;
+      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailDTOList>;
     return (data.results ?? []).map((run) =>
       normalizeTaskRunResponse(run, { teamId, taskId }),
     );
@@ -4150,7 +4267,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4183,7 +4300,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to create task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4214,7 +4331,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to start task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.Task;
+    const data = (await response.json()) as Schemas.TaskDetailDTO;
     return normalizeTaskResponse(data, { teamId });
   }
 
@@ -4250,8 +4367,7 @@ export class PostHogAPIClient {
     runId: string,
   ): Promise<{ analysis_task_id: string; created: boolean }> {
     const teamId = await this.getTeamId();
-    const data = await this.api.post(
-      //@ts-expect-error this is not in the generated client
+    return await this.api.post(
       `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
       {
         path: {
@@ -4261,7 +4377,6 @@ export class PostHogAPIClient {
         },
       },
     );
-    return data as { analysis_task_id: string; created: boolean };
   }
 
   /**
@@ -6926,7 +7041,7 @@ export class PostHogAPIClient {
         const scope = `event = '$exception' AND properties.$exception_issue_id = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 30 DAY`;
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
-            "/api/environments/{project_id}/error_tracking/issues/{id}/",
+            "/api/projects/{project_id}/error_tracking/issues/{id}/",
             { path: { project_id: projectId, id } },
           ),
           this.runQuery({
@@ -7169,7 +7284,7 @@ export class PostHogAPIClient {
       }
       case "eval": {
         const evaluation = await this.api.get(
-          "/api/environments/{project_id}/evaluations/{id}/",
+          "/api/projects/{project_id}/evaluations/{id}/",
           { path: { project_id: projectId, id } },
         );
         return shapeEvaluationPreview(evaluation);
