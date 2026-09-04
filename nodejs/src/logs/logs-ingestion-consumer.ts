@@ -878,6 +878,7 @@ export class LogsIngestionConsumer {
             { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
         >()
         const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
+        let quarantined = 0
         const results = await Promise.allSettled(
             messages.map((message) =>
                 limit(async () => {
@@ -1041,27 +1042,30 @@ export class LogsIngestionConsumer {
                         if (error instanceof DependencyUnavailableError) {
                             throw error
                         }
+                        // Quarantine succeeded: the DLQ copy is the record of this failure, so the
+                        // message resolves and the batch can commit past it. A failed DLQ write
+                        // rejects here instead, so the batch keeps the only copy on the source topic.
                         await this.produceToDlq(message, error)
-                        throw error
+                        quarantined += 1
                     }
                 })
             )
         )
 
+        // Every rejection means this batch must not commit: a dependency outage, or a DLQ write
+        // that failed. `Promise.allSettled` swallows rejections, so rethrow before the tallies and
+        // usage metrics are emitted. The rejected background task stops the offset commit and the
+        // consumer replays the batch from the last good commit, which would count them twice.
         const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-        if (failures.length > 0) {
+        if (failures.length > 0 || quarantined > 0) {
             logger.error('Failed to process some log messages', {
+                quarantinedCount: quarantined,
                 failureCount: failures.length,
                 totalCount: messages.length,
             })
         }
-
-        // Rethrow before the tallies and usage metrics are emitted: a rejected background task
-        // stops the offset commit, so the consumer replays this batch from the last good commit
-        // and would count them twice.
-        const dependencyFailure = failures.find((r) => r.reason instanceof DependencyUnavailableError)
-        if (dependencyFailure) {
-            throw dependencyFailure.reason
+        if (failures.length > 0) {
+            throw failures[0].reason
         }
 
         await this.emitMetricRuleTallies(metricTalliesByTeam)

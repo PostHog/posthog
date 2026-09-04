@@ -691,20 +691,27 @@ describe('LogsIngestionConsumer', () => {
             expect(dlq[0]?.headers?.team_id).toEqual(team.id.toString())
         })
 
-        it('should fail the batch when the message cannot be written to the DLQ', async () => {
+        it.each([
+            ['the message fails to parse', { bytes_uncompressed: 'not-a-number' }],
+            ['the message fails to process', {}],
+        ])('should fail the batch when %s and cannot be written to the DLQ', async (_, headers) => {
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
                 token: team.api_token,
-                bytes_uncompressed: 'not-a-number',
+                ...headers,
             })
 
+            // Every produce fails: the logs topic write fails the message, and the DLQ write that
+            // follows fails too.
             const originalQueueMessages = mockProducer.queueMessages
             mockProducer.queueMessages = jest.fn().mockRejectedValue(new Error('DLQ unavailable'))
 
             try {
                 // Resolving here would commit the source offset with no copy anywhere, so the
                 // only record of the payload would be gone.
-                await expect(consumer.processKafkaBatch(messages)).rejects.toThrow('DLQ unavailable')
+                await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow(
+                    'DLQ unavailable'
+                )
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
             }
