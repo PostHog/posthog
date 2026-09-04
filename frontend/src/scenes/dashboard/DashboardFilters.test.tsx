@@ -113,7 +113,7 @@ describe('DashboardFilterBar', () => {
         logic.unmount()
     })
 
-    it('shows Previewing while a large dashboard preview loads', async () => {
+    it('keeps Preview disabled until the dashboard settings change', async () => {
         const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
         let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
             throw new Error('Preview resolver is unavailable')
@@ -157,6 +157,13 @@ describe('DashboardFilterBar', () => {
 
         finishPreview(previewDashboard.tiles[0].insight!)
         await expectLogic(logic).toFinishAllListeners()
+        expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Previewing')
+        expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveAttribute('aria-disabled', 'true')
+
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-30d', null)
+        }).toFinishAllListeners()
+
         expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Preview')
         expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveAttribute(
             'aria-disabled',

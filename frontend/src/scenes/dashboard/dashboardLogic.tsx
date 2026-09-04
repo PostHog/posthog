@@ -541,9 +541,6 @@ export interface dashboardLogicActions {
             tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
         }
     }
-    finishPreviewDashboardChanges: () => {
-        value: true
-    }
     forceRefreshIfStale: () => {
         value: true
     }
@@ -1429,7 +1426,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         clearInitialDashboardSettingsOverride: true,
         clearDashboardSettingsUrlOverrides: true,
         previewDashboardChanges: true,
-        finishPreviewDashboardChanges: true,
         saveDashboardChanges: true,
         saveDashboardChangesSuccess: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1965,7 +1961,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 previewDashboardChanges: () => true,
-                finishPreviewDashboardChanges: () => false,
             },
         ],
         cancellingPreview: [
@@ -4185,208 +4180,187 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh }, breakpoint) => {
-            const isDashboardChangesPreview = action === RefreshDashboardItemsAction.Preview && values.loadingPreview
-            try {
-                const dashboardRefreshStartTime = performance.now()
-                const isInitialLoad =
-                    action === DashboardLoadAction.InitialLoad ||
-                    action === DashboardLoadAction.InitialLoadWithVariables
-                const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
+            const dashboardRefreshStartTime = performance.now()
+            const isInitialLoad =
+                action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
+            const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
 
-                const dashboardId: number = props.id
-                const allInsightTiles = values.insightTiles || []
-                const totalTileCount = allInsightTiles.length
+            const dashboardId: number = props.id
+            const allInsightTiles = values.insightTiles || []
+            const totalTileCount = allInsightTiles.length
 
-                const sortedTilesToRefresh = allInsightTiles
-                    // sort tiles so we poll them in the exact order they are computed on the backend
-                    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-                    .filter(
-                        (t): t is DashboardTile<QueryBasedInsightModel> & { insight: QueryBasedInsightModel } =>
-                            !!t.insight
-                    )
-                    // only refresh stale insights
-                    .filter(
-                        (t) =>
-                            forceRefresh ||
-                            !isInitialLoadOrUpdate ||
-                            !t.insight.cache_target_age ||
-                            dayjs(t.insight.cache_target_age).isBefore(dayjs())
-                    )
+            const sortedTilesToRefresh = allInsightTiles
+                // sort tiles so we poll them in the exact order they are computed on the backend
+                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                .filter(
+                    (t): t is DashboardTile<QueryBasedInsightModel> & { insight: QueryBasedInsightModel } => !!t.insight
+                )
+                // only refresh stale insights
+                .filter(
+                    (t) =>
+                        forceRefresh ||
+                        !isInitialLoadOrUpdate ||
+                        !t.insight.cache_target_age ||
+                        dayjs(t.insight.cache_target_age).isBefore(dayjs())
+                )
 
-                const tilesStaleCount = sortedTilesToRefresh.length
-                let tilesRefreshedCount = 0
-                let tilesRefreshedCachedCount = 0
-                let tilesErroredCount = 0
-                let tilesAbortedCount = 0
+            const tilesStaleCount = sortedTilesToRefresh.length
+            let tilesRefreshedCount = 0
+            let tilesRefreshedCachedCount = 0
+            let tilesErroredCount = 0
+            let tilesAbortedCount = 0
 
-                if (sortedTilesToRefresh.length > 0) {
-                    // Mark tiles as queued before the breakpoint's await, so there's no render gap
-                    // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
-                    // being repopulated - otherwise tiles briefly show as "not queued" and fall
-                    // through to the query's default empty state instead of the loading state.
-                    actions.setRefreshTilesTotal(tilesStaleCount)
-                    actions.setRefreshStatuses(
-                        sortedTilesToRefresh.map((tile) => tile.insight.short_id),
-                        false,
-                        true
-                    )
+            if (sortedTilesToRefresh.length > 0) {
+                // Mark tiles as queued before the breakpoint's await, so there's no render gap
+                // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
+                // being repopulated - otherwise tiles briefly show as "not queued" and fall
+                // through to the query's default empty state instead of the loading state.
+                actions.setRefreshTilesTotal(tilesStaleCount)
+                actions.setRefreshStatuses(
+                    sortedTilesToRefresh.map((tile) => tile.insight.short_id),
+                    false,
+                    true
+                )
 
-                    await breakpoint()
+                await breakpoint()
 
-                    actions.abortAnyRunningQuery()
-                    cache.abortController = new AbortController()
-                    const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
+                actions.abortAnyRunningQuery()
+                cache.abortController = new AbortController()
+                const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
 
-                    // Cache values used during and after the long-running fetch, since the logic
-                    // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
-                    // only cancels on newer invocations, not on unmount).
-                    const {
-                        currentTeamId,
-                        effectiveRefreshFilters,
-                        urlFilters,
-                        dashboardLoadData,
-                        lastDashboardRefresh,
-                    } = values
-                    const urlVariables = values.currentDashboardVariables
+                // Cache values used during and after the long-running fetch, since the logic
+                // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
+                // only cancels on newer invocations, not on unmount).
+                const { currentTeamId, effectiveRefreshFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } =
+                    values
+                const urlVariables = values.currentDashboardVariables
 
-                    const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
-                        const insight = tile.insight
-                        const queryId = uuid()
-                        const queryStartTime = performance.now()
-                        const dashboardId: number = props.id
+                const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
+                    const insight = tile.insight
+                    const queryId = uuid()
+                    const queryStartTime = performance.now()
+                    const dashboardId: number = props.id
 
-                        // Set insight as refreshing
-                        actions.setRefreshStatus(insight.short_id, true, true)
+                    // Set insight as refreshing
+                    actions.setRefreshStatus(insight.short_id, true, true)
 
-                        try {
-                            const insightRefreshStartTime = performance.now()
-                            const refreshedInsight = await getInsightWithRetry(
-                                currentTeamId,
-                                insight,
-                                dashboardId,
-                                queryId,
-                                forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-                                methodOptions,
-                                effectiveRefreshFilters,
-                                urlVariables,
-                                tile.filters_overrides
-                            )
+                    try {
+                        const insightRefreshStartTime = performance.now()
+                        const refreshedInsight = await getInsightWithRetry(
+                            currentTeamId,
+                            insight,
+                            dashboardId,
+                            queryId,
+                            forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
+                            methodOptions,
+                            effectiveRefreshFilters,
+                            urlVariables,
+                            tile.filters_overrides
+                        )
 
-                            if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
-                                const queryError = getInsightQueryError(refreshedInsight)
-                                if (queryError) {
-                                    actions.setRefreshError(insight.short_id, queryError)
-                                    tilesErroredCount++
-                                } else {
-                                    dashboardsModel.actions.updateDashboardInsight(
-                                        refreshedInsight,
-                                        undefined,
-                                        dashboardId
-                                    )
-                                    actions.setRefreshStatus(insight.short_id)
-                                    tilesRefreshedCount++
-                                    if (refreshedInsight.is_cached) {
-                                        tilesRefreshedCachedCount++
-                                    }
-                                    eventUsageLogic.actions.reportDashboardTileRefreshed(
-                                        dashboardId,
-                                        tile,
-                                        urlFilters,
-                                        urlVariables,
-                                        Math.floor(performance.now() - insightRefreshStartTime),
-                                        false
-                                    )
+                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
+                            const queryError = getInsightQueryError(refreshedInsight)
+                            if (queryError) {
+                                actions.setRefreshError(insight.short_id, queryError)
+                                tilesErroredCount++
+                            } else {
+                                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                                actions.setRefreshStatus(insight.short_id)
+                                tilesRefreshedCount++
+                                if (refreshedInsight.is_cached) {
+                                    tilesRefreshedCachedCount++
                                 }
-                            } else {
-                                actions.setRefreshError(insight.short_id)
-                                tilesErroredCount++
-                            }
-                        } catch (e: any) {
-                            if (shouldCancelQuery(e)) {
-                                console.warn(
-                                    `Insight refresh cancelled for ${insight.short_id} due to abort signal:`,
-                                    e
+                                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                                    dashboardId,
+                                    tile,
+                                    urlFilters,
+                                    urlVariables,
+                                    Math.floor(performance.now() - insightRefreshStartTime),
+                                    false
                                 )
-                                actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
-                                tilesAbortedCount++
-                            } else {
-                                actions.setRefreshError(insight.short_id, e)
-                                tilesErroredCount++
                             }
+                        } else {
+                            actions.setRefreshError(insight.short_id)
+                            tilesErroredCount++
                         }
-                    })
-
-                    // Execute the fetches with concurrency limit of 4
-                    await runWithLimit(fetchSyncInsightFunctions, 4)
-                    breakpoint()
-
-                    // REFRESH DONE: all insights have been refreshed
-
-                    // update last refresh time, only if we've forced a blocking refresh of the dashboard
-                    // and all tiles were refreshed
-                    if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
-                        actions.updateDashboardLastRefresh(dayjs())
+                    } catch (e: any) {
+                        if (shouldCancelQuery(e)) {
+                            console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
+                            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
+                            tilesAbortedCount++
+                        } else {
+                            actions.setRefreshError(insight.short_id, e)
+                            tilesErroredCount++
+                        }
                     }
+                })
 
-                    if (isInitialLoad) {
-                        // capture time to see data
-                        const { dashboardQueryId, startTime, responseBytes } = dashboardLoadData
-                        eventUsageLogic.actions.reportTimeToSeeData({
-                            team_id: currentTeamId,
-                            type: 'dashboard_load',
-                            context: 'dashboard',
-                            action,
-                            status: 'success',
-                            primary_interaction_id: dashboardQueryId,
-                            time_to_see_data_ms: Math.floor(performance.now() - startTime),
-                            api_response_bytes: responseBytes,
-                            insights_fetched: sortedTilesToRefresh.length,
-                            insights_fetched_cached: tilesRefreshedCachedCount,
-                            ...getJSHeapMemory(),
-                        })
-                    }
+                // Execute the fetches with concurrency limit of 4
+                await runWithLimit(fetchSyncInsightFunctions, 4)
+                breakpoint()
 
-                    eventUsageLogic.actions.reportDashboardRefreshed(
-                        dashboardId,
-                        urlFilters,
-                        urlVariables,
-                        lastDashboardRefresh,
+                // REFRESH DONE: all insights have been refreshed
+
+                // update last refresh time, only if we've forced a blocking refresh of the dashboard
+                // and all tiles were refreshed
+                if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
+                    actions.updateDashboardLastRefresh(dayjs())
+                }
+
+                if (isInitialLoad) {
+                    // capture time to see data
+                    const { dashboardQueryId, startTime, responseBytes } = dashboardLoadData
+                    eventUsageLogic.actions.reportTimeToSeeData({
+                        team_id: currentTeamId,
+                        type: 'dashboard_load',
+                        context: 'dashboard',
                         action,
-                        !!forceRefresh,
-                        {
-                            totalTileCount,
-                            tilesStaleCount,
-                            tilesRefreshedCount,
-                            tilesErroredCount,
-                            tilesAbortedCount,
-                            refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
-                        }
-                    )
+                        status: 'success',
+                        primary_interaction_id: dashboardQueryId,
+                        time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                        api_response_bytes: responseBytes,
+                        insights_fetched: sortedTilesToRefresh.length,
+                        insights_fetched_cached: tilesRefreshedCachedCount,
+                        ...getJSHeapMemory(),
+                    })
                 }
 
-                if (
-                    isInitialLoad &&
-                    !forceRefresh &&
-                    tilesErroredCount === 0 &&
-                    tilesAbortedCount === 0 &&
-                    values.placement === DashboardPlacement.Public
-                ) {
-                    actions.forceRefreshIfStale()
-                }
-
-                if (
-                    values.dashboardWidgetsEnabled &&
-                    values.placement !== DashboardPlacement.Export &&
-                    values.placement !== DashboardPlacement.Public
-                ) {
-                    const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
-                    if (widgetTileIds.length > 0) {
-                        actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
+                eventUsageLogic.actions.reportDashboardRefreshed(
+                    dashboardId,
+                    urlFilters,
+                    urlVariables,
+                    lastDashboardRefresh,
+                    action,
+                    !!forceRefresh,
+                    {
+                        totalTileCount,
+                        tilesStaleCount,
+                        tilesRefreshedCount,
+                        tilesErroredCount,
+                        tilesAbortedCount,
+                        refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
                     }
-                }
-            } finally {
-                if (isDashboardChangesPreview) {
-                    actions.finishPreviewDashboardChanges()
+                )
+            }
+
+            if (
+                isInitialLoad &&
+                !forceRefresh &&
+                tilesErroredCount === 0 &&
+                tilesAbortedCount === 0 &&
+                values.placement === DashboardPlacement.Public
+            ) {
+                actions.forceRefreshIfStale()
+            }
+
+            if (
+                values.dashboardWidgetsEnabled &&
+                values.placement !== DashboardPlacement.Export &&
+                values.placement !== DashboardPlacement.Public
+            ) {
+                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
+                if (widgetTileIds.length > 0) {
+                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
                 }
             }
         },
