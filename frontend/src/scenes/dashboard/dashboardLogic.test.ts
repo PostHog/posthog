@@ -675,7 +675,7 @@ describe('dashboardLogic', () => {
             ])
             expect(logic.values.filtersDirty).toBe(false)
             expect(logic.values.filterChanges).toEqual([])
-            expect(logic.values.dashboardConfigurationState).toBe('saved')
+            expect(logic.values.dashboardSettingsState).toBe('saved')
 
             await expectLogic(logic, () => {
                 logic.actions.saveDashboardFilters()
@@ -748,11 +748,9 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardMode).toBeNull()
-            expect(logic.values.dashboardConfigurationDraft?.filters).toEqual(
-                expect.objectContaining({ date_from: '-7d' })
-            )
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
             expect(logic.values.filtersDirty).toBe(true)
-            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
         })
 
         it('cancelling layout editing keeps unapplied filter changes', async () => {
@@ -776,9 +774,7 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardMode).toBeNull()
-            expect(logic.values.dashboardConfigurationDraft?.filters).toEqual(
-                expect.objectContaining({ date_from: '-7d' })
-            )
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
             expect(logic.values.filtersDirty).toBe(true)
 
             payloadSpy.mockRestore()
@@ -968,9 +964,7 @@ describe('dashboardLogic', () => {
                 logic.actions.cancelLayoutEdit()
             }).toFinishAllListeners()
 
-            expect(logic.values.dashboardConfigurationDraft?.filters).toEqual(
-                expect.objectContaining({ date_from: '-7d' })
-            )
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
 
             await expectLogic(logic, () => {
                 logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
@@ -2894,7 +2888,7 @@ describe('dashboardLogic', () => {
             }
         )
 
-        it('shows and saves a URL variable override as unsaved configuration', async () => {
+        it('shows and saves a URL variable override as unsaved settings', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
             const update = jest.spyOn(api, 'update').mockResolvedValue({
                 ...logic.values.dashboard!,
@@ -2908,7 +2902,7 @@ describe('dashboardLogic', () => {
             })
             expect(logic.values.filtersDirty).toBe(false)
             expect(logic.values.filterChanges).toEqual([])
-            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
 
             await expectLogic(logic, () => {
                 logic.actions.saveDashboardChanges()
@@ -2921,7 +2915,7 @@ describe('dashboardLogic', () => {
                 },
             })
             expect(router.values.searchParams).toEqual({})
-            expect(logic.values.dashboardConfigurationState).toBe('saved')
+            expect(logic.values.dashboardSettingsState).toBe('saved')
         })
 
         it('shows filter edits as unsaved when a URL variable override exists', async () => {
@@ -2933,10 +2927,10 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.filtersDirty).toBe(true)
-            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
         })
 
-        it('discards filter and SQL variable changes and restores the saved configuration', async () => {
+        it('discards filter and SQL variable changes and restores the saved settings', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
             router.actions.push('/', {
                 [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
@@ -2950,7 +2944,7 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(router.values.searchParams).toEqual({})
-            expect(logic.values.effectiveDashboardConfiguration).toEqual({ filters: {}, variables: {} })
+            expect(logic.values.currentDashboardSettings).toEqual({ filters: {}, variables: {} })
         })
 
         it('saves filter and SQL variable edits in one dashboard update', async () => {
@@ -2980,7 +2974,7 @@ describe('dashboardLogic', () => {
                 },
             })
             expect(router.values.searchParams).toEqual({})
-            expect(logic.values.dashboardConfigurationState).toBe('saved')
+            expect(logic.values.dashboardSettingsState).toBe('saved')
         })
 
         it('keeps edits made while dashboard changes save', async () => {
@@ -3006,8 +3000,8 @@ describe('dashboardLogic', () => {
             })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
-            expect(logic.values.effectiveDashboardConfiguration.variables[variableId]).toEqual(
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
                 expect.objectContaining({ value: 'newer edit' })
             )
         })

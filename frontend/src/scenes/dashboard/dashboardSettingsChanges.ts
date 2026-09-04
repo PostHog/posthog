@@ -7,14 +7,14 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import type { AnyPropertyFilter } from '~/types'
 
-export interface DashboardConfigurationChange {
+export interface DashboardSettingsChange {
     label: string
     previousValue: string[]
     value: string[]
     status: 'new' | 'changed' | 'removed'
 }
 
-export type DashboardFilterChange = DashboardConfigurationChange
+export type DashboardFilterChange = DashboardSettingsChange
 
 function formatVariableValue(variable: { isNull?: boolean; value?: unknown } | undefined): string[] {
     if (variable?.isNull) {
@@ -32,7 +32,7 @@ export function getDashboardVariableChanges(
     previousVariables: Record<string, HogQLVariable>,
     currentVariables: Record<string, HogQLVariable>,
     defaultVariables: Record<string, HogQLVariable>
-): DashboardConfigurationChange[] {
+): DashboardSettingsChange[] {
     const variableIds = new Set([...Object.keys(previousVariables), ...Object.keys(currentVariables)])
 
     return Array.from(variableIds).flatMap((variableId) => {

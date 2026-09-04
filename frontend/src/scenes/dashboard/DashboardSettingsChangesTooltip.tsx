@@ -6,9 +6,9 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { InsightDetailSectionDisplay } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import type { DashboardFilterChange } from './dashboardFilterChanges'
+import type { DashboardFilterChange } from './dashboardSettingsChanges'
 
-interface DashboardFilterChangesTooltipProps {
+interface DashboardSettingsChangesTooltipProps {
     changes: DashboardFilterChange[]
     children: ReactNode
     title?: string
@@ -64,11 +64,11 @@ function renderChangeValue(change: DashboardFilterChange): JSX.Element {
     )
 }
 
-export function DashboardFilterChangesTooltip({
+export function DashboardSettingsChangesTooltip({
     changes,
     children,
     title = 'Filter changes',
-}: DashboardFilterChangesTooltipProps): JSX.Element {
+}: DashboardSettingsChangesTooltipProps): JSX.Element {
     if (!changes.length) {
         return <>{children}</>
     }

@@ -9,26 +9,26 @@ import { urls } from 'scenes/urls'
 import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
-import { DashboardFilterChangesTooltip } from './DashboardFilterChangesTooltip'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
+import { DashboardSettingsChangesTooltip } from './DashboardSettingsChangesTooltip'
 
 function UnsavedFiltersIndicator(): JSX.Element | null {
     const {
-        dashboardConfigurationState,
+        dashboardSettingsState,
         layoutEditMode,
         canEditDashboard,
-        dashboardConfigurationChanges,
+        dashboardSettingsChanges,
         dashboardFiltersSaving,
         showApplyFiltersBanner,
         loadingPreview,
     } = useValues(dashboardLogic)
     const { previewDashboardChanges, discardDashboardChanges, saveDashboardChanges } = useActions(dashboardLogic)
-    if (dashboardConfigurationState !== 'unsavedChanges') {
+    if (dashboardSettingsState !== 'unsavedChanges') {
         return null
     }
 
-    const changedCount = dashboardConfigurationChanges.length
+    const changedCount = dashboardSettingsChanges.length
     const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
 
     return (
@@ -36,7 +36,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
             data-attr="dashboard-filters-unsaved"
             className="flex max-w-full items-center gap-1.5 rounded-full border border-warning bg-warning-highlight py-0.5 pl-2.5 pr-1 text-xs font-semibold text-warning"
         >
-            <DashboardFilterChangesTooltip changes={dashboardConfigurationChanges} title="Unsaved changes">
+            <DashboardSettingsChangesTooltip changes={dashboardSettingsChanges} title="Unsaved changes">
                 <LemonButton
                     type="tertiary"
                     size="small"
@@ -55,7 +55,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                         <IconInfo className="text-sm" />
                     </span>
                 </LemonButton>
-            </DashboardFilterChangesTooltip>
+            </DashboardSettingsChangesTooltip>
             <span className="flex items-center gap-1.5 @max-lg/dashboard-filters:hidden">
                 <span className="h-4 border-l border-warning" />
                 <span className="flex items-center gap-1.5">
@@ -64,7 +64,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                         type="tertiary"
                         size="small"
                         disabledReason={dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined}
-                        tooltip="Restore the configuration saved to this dashboard."
+                        tooltip="Restore the settings saved to this dashboard."
                         onClick={discardDashboardChanges}
                     >
                         Discard
