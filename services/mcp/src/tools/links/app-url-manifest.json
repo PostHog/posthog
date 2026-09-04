@@ -270,17 +270,17 @@
         "scope": "global"
     },
     "codeCanvasFork": {
-        "template": "/code/canvas-fork/{shareToken}",
+        "template": "/desktop/canvas-fork/{shareToken}",
         "params": ["shareToken"],
         "scope": "project"
     },
     "codeCanvasLink": {
-        "template": "/code/canvas/{channelId}/{dashboardId}",
+        "template": "/desktop/canvas/{channelId}/{dashboardId}",
         "params": ["channelId", "dashboardId"],
         "scope": "project"
     },
     "codeChannelLink": {
-        "template": "/code/channel/{channelId}",
+        "template": "/desktop/channel/{channelId}",
         "params": ["channelId"],
         "scope": "project"
     },
@@ -290,7 +290,7 @@
         "scope": "project"
     },
     "codeTaskLink": {
-        "template": "/code/task/{taskId}",
+        "template": "/desktop/task/{taskId}",
         "params": ["taskId"],
         "scope": "project"
     },

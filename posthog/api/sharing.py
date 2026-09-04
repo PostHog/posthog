@@ -75,9 +75,9 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.canvas.backend.build_service import CanvasNotPublished
 from products.canvas.backend.models import Canvas
 from products.canvas.backend.sharing import (
+    CanvasNotPublished,
     canvas_has_ready_build,
     canvas_is_shareable,
     clear_shared_build,
