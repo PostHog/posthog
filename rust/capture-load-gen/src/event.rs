@@ -15,6 +15,7 @@ use uuid::Uuid;
 /// `$identify` events claiming a fresh anonymous distinct id.
 pub struct EventFactory {
     distinct_ids: Vec<String>,
+    anon_prefix: String,
     event_names: Vec<String>,
     filler: String,
     person_update_pct: u8,
@@ -23,6 +24,7 @@ pub struct EventFactory {
 
 impl EventFactory {
     pub fn new(
+        id_prefix: &str,
         distinct_ids: u64,
         event_names: Vec<String>,
         prop_bytes: usize,
@@ -30,10 +32,11 @@ impl EventFactory {
         merge_pct: u8,
     ) -> Self {
         let distinct_ids = (0..distinct_ids.max(1))
-            .map(|i| format!("loadgen-user-{i}"))
+            .map(|i| format!("{id_prefix}user-{i}"))
             .collect();
         Self {
             distinct_ids,
+            anon_prefix: format!("{id_prefix}anon-"),
             event_names,
             filler: "x".repeat(prop_bytes),
             person_update_pct,
@@ -74,7 +77,7 @@ impl EventFactory {
     fn merge_event(&self, mut base: RawEvent) -> RawEvent {
         base.properties.insert(
             "$anon_distinct_id".to_string(),
-            Value::String(format!("loadgen-anon-{}", Uuid::now_v7())),
+            Value::String(format!("{}{}", self.anon_prefix, Uuid::now_v7())),
         );
         RawEvent {
             event: "$identify".to_string(),
@@ -118,7 +121,7 @@ mod tests {
     use rand::SeedableRng;
 
     fn factory() -> EventFactory {
-        EventFactory::new(100, vec!["a".into(), "b".into()], 32, 0, 0)
+        EventFactory::new("loadgen-", 100, vec!["a".into(), "b".into()], 32, 0, 0)
     }
 
     #[test]
@@ -158,7 +161,7 @@ mod tests {
 
     #[test]
     fn zero_prop_bytes_omits_filler() {
-        let f = EventFactory::new(10, vec!["x".into()], 0, 0, 0);
+        let f = EventFactory::new("loadgen-", 10, vec!["x".into()], 0, 0, 0);
         let mut rng = StdRng::seed_from_u64(3);
         let batch = f.batch(1, &mut rng);
         assert!(!batch[0].properties.contains_key("filler"));
@@ -166,7 +169,7 @@ mod tests {
 
     #[test]
     fn merge_events_are_identifies_with_fresh_anon_ids() {
-        let f = EventFactory::new(10, vec!["x".into()], 0, 0, 100);
+        let f = EventFactory::new("loadgen-", 10, vec!["x".into()], 0, 0, 100);
         let mut rng = StdRng::seed_from_u64(4);
         let batch = f.batch(20, &mut rng);
 
@@ -191,7 +194,7 @@ mod tests {
 
     #[test]
     fn person_update_events_carry_a_changing_set_payload() {
-        let f = EventFactory::new(10, vec!["a".into(), "b".into()], 0, 100, 0);
+        let f = EventFactory::new("loadgen-", 10, vec!["a".into(), "b".into()], 0, 100, 0);
         let mut rng = StdRng::seed_from_u64(5);
         let batch = f.batch(20, &mut rng);
 
@@ -209,7 +212,7 @@ mod tests {
 
     #[test]
     fn mix_roughly_matches_the_configured_percentages() {
-        let f = EventFactory::new(100, vec!["a".into()], 0, 30, 20);
+        let f = EventFactory::new("loadgen-", 100, vec!["a".into()], 0, 30, 20);
         let mut rng = StdRng::seed_from_u64(6);
         let batch = f.batch(2000, &mut rng);
 
