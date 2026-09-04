@@ -39062,13 +39062,6 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
-    export interface FacetCount {
-      /** The facet value as emitted by the summarizer (lowercased). */
-      term: string;
-      /** Number of succeeded observations that emitted this value. */
-      count: number;
-    }
-
     /**
      * * `severity_text` - severity_text
      * * `service_name` - service_name
@@ -53118,17 +53111,6 @@ export namespace Schemas {
       histogram: ScorerHistogram | null;
     }
 
-    export interface SummarizerStats {
-      /** Top friction points by emission count. */
-      friction_ranked: FacetCount[];
-      /** Top keywords by emission count. */
-      keyword_ranked: FacetCount[];
-      /** Succeeded observations that emitted at least one friction point or keyword. */
-      total_with_facets: number;
-      /** Succeeded observations that reported at least one friction point. */
-      total_with_friction: number;
-    }
-
     export interface ObservationStats {
       /** Counts of observations by terminal status. */
       status_counts: ObservationStatusCounts;
@@ -53144,8 +53126,6 @@ export namespace Schemas {
       classifier: ClassifierStats | null;
       /** Scorer-type aggregates; null when the scanner is not a scorer. */
       scorer: ScorerStats | null;
-      /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
-      summarizer: SummarizerStats | null;
     }
 
     /**
@@ -77364,6 +77344,16 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SearchSuggestionsQuery {
+      /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
+      scanner_id?: string;
+    }
+
+    export interface SearchSuggestionsResponse {
+      /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+      queries: string[];
+    }
+
     export interface SendCommentToSlack {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
@@ -100780,6 +100770,16 @@ export namespace Schemas {
 
     export type VisionObservationsSearchRetrieveParams = {
     /**
+     * Only observations analyzed at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Only observations analyzed at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
      * Maximum number of results (default 20, at most 50).
      * @minimum 1
      * @maximum 50
@@ -100813,6 +100813,13 @@ export namespace Schemas {
      * @minLength 1
      */
     verdict?: string;
+    };
+
+    export type VisionObservationsSearchSuggestionsRetrieveParams = {
+    /**
+     * Scope to a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
     };
 
     export type VisionScannersListParams = {

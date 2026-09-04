@@ -1732,57 +1732,6 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])
-        self.assertIsNone(body["summarizer"])
-
-    def test_stats_summarizer_facet_rankings(self) -> None:
-        summarizer = self._create_scanner(
-            name="journeys",
-            scanner_type=ScannerType.SUMMARIZER,
-            scanner_config={"prompt": "p", "length": "medium"},
-        )
-        for idx, (friction, keywords) in enumerate(
-            [
-                # Stored rows can repeat a term within one summary; rankings must count it once.
-                (["checkout stalls", "checkout stalls"], ["checkout", "checkout"]),
-                (["checkout stalls", "filter reset"], ["checkout", "filters"]),
-                # Keywords without friction: the friction rate's numerator and denominator must differ here.
-                ([], ["browsing"]),
-                ([], []),
-            ]
-        ):
-            ReplayObservation.objects.create(
-                scanner=summarizer,
-                session_id=f"sess-{idx}",
-                scanner_snapshot=_snapshot_for(summarizer),
-                triggered_by=ObservationTrigger.SCHEDULE,
-                status=ObservationStatus.SUCCEEDED,
-                completed_at=timezone.now(),
-                scanner_result={
-                    "model_output": {
-                        "scanner_type": "summarizer",
-                        "title": "t",
-                        "summary": "s",
-                        "friction_points": friction,
-                        "keywords": keywords,
-                        "confidence": 0.5,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/")
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertEqual(body["summarizer"]["total_with_facets"], 3)
-        self.assertEqual(body["summarizer"]["total_with_friction"], 2)
-        self.assertEqual(
-            body["summarizer"]["friction_ranked"],
-            [{"term": "checkout stalls", "count": 2}, {"term": "filter reset", "count": 1}],
-        )
-        self.assertEqual(
-            body["summarizer"]["keyword_ranked"],
-            [{"term": "checkout", "count": 2}, {"term": "browsing", "count": 1}, {"term": "filters", "count": 1}],
-        )
-        self.assertIsNone(body["classifier"])
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
@@ -3161,6 +3110,8 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
 class TestObservationSearchAction(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
+        # Query vectors are cached by text, so a mocked embedding must not leak between tests.
+        cache.clear()
         self.scanner = self._create_scanner(name="searchable")
 
     @property
@@ -3188,14 +3139,34 @@ class TestObservationSearchAction(_VisionAPITestCase):
             ("min_score_above_max_score", "?q=checkout&min_score=5&max_score=1"),
             ("nan_score", "?q=checkout&min_score=nan"),
             ("infinite_score", "?q=checkout&max_score=inf"),
+            ("unparsable_date", "?q=checkout&date_from=last%20week"),
         ]
     )
     def test_search_rejects_bad_params(self, _name: str, query_string: str) -> None:
         resp = self.client.get(f"{self.search_url}{query_string}")
         self.assertEqual(resp.status_code, 400)
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations")
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_search_date_bounds_reach_the_ranking_filters(self, mock_embed: MagicMock, mock_rank: MagicMock) -> None:
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=2026-09-01")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        filters = mock_rank.call_args[0][5]
+        self.assertIsNotNone(filters.date_from)
+        # A date-only upper bound covers its whole day, like the observation list filter.
+        self.assertEqual((filters.date_to.hour, filters.date_to.minute, filters.date_to.second), (23, 59, 59))
+
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_search_reuses_the_query_vector_for_a_repeated_query(self, mock_embed: MagicMock, _rank: MagicMock) -> None:
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        for _ in range(2):
+            self.assertEqual(self.client.get(f"{self.search_url}?q=same words").status_code, 200)
+        mock_embed.assert_called_once()
+
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_returns_results_in_rank_order(self, mock_embed: MagicMock, mock_rank: MagicMock) -> None:
         first = self._create_succeeded_observation("sess-1")
         second = self._create_succeeded_observation("sess-2")
@@ -3216,8 +3187,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         self.assertFalse(resp.json()["truncated"])
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations")
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_overfetches_then_slices_to_limit_and_flags_truncation(
         self, mock_embed: MagicMock, mock_rank: MagicMock
     ) -> None:
@@ -3239,8 +3210,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(first.id)])
         self.assertTrue(resp.json()["truncated"])
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations")
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_drops_rows_whose_snapshot_experiment_is_restricted(
         self, mock_embed: MagicMock, mock_rank: MagicMock
     ) -> None:
@@ -3268,8 +3239,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(visible.id)])
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations", return_value=[])
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_hides_scanner_targeting_a_restricted_experiment(
         self, mock_embed: MagicMock, mock_rank: MagicMock
     ) -> None:
@@ -3303,7 +3274,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
     )
     def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception_class: type) -> None:
         with patch(
-            "products.replay_vision.backend.api.observations.generate_embedding",
+            "products.replay_vision.backend.search.generate_embedding",
             side_effect=exception_class("embedding service down"),
         ):
             resp = self.client.get(f"{self.search_url}?q=anything")
@@ -3313,7 +3284,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
     def test_search_returns_400_when_ai_consent_is_off(self, _mock_consent: MagicMock) -> None:
         resp = self.client.get(f"{self.search_url}?q=anything")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("allow AI analysis", resp.json()["detail"])
+        self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
 
     def test_search_with_unknown_scanner_returns_404(self) -> None:
         resp = self.client.get(f"{self.search_url}?q=anything&scanner_id={uuid7()}")
@@ -3323,8 +3294,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
     # `get_throttles()`, or the endpoint ships with no throttle at all.
     @patch("posthog.rate_limit.ReplayVisionSearchBurstRateThrottle.rate", new="2/minute")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.replay_vision.backend.api.observations.rank_observations", return_value=[])
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_is_rate_limited(
         self, mock_embed: MagicMock, _mock_rank: MagicMock, _mock_enabled: MagicMock
     ) -> None:
