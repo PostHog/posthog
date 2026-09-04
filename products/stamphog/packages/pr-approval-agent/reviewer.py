@@ -150,6 +150,10 @@ VERDICT_SCHEMA = {
                 "type": "array",
                 "items": {"type": "string"},
             },
+            # The digest splits the per-team clauses back out of this text on the handles they
+            # open with (_TEAM_CLAUSE_RE in products/stamphog/backend/logic/digest.py). A clause
+            # that regex does not recognize takes its team's merge out of that team's digest, so
+            # the clause shape asked for below is a contract with that parser.
             "change_summary": {
                 "type": "string",
                 "maxLength": 600,

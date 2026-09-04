@@ -19,6 +19,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, ChannelResolutionSource, DigestRunStatus
+from products.stamphog.backend.logic.audiences import REPO_AUDIENCE_PREFIX
 from products.stamphog.backend.logic.channel_resolution import (
     Destination,
     RoutingContext,
@@ -36,6 +37,7 @@ from products.stamphog.backend.logic.digest import (
     SCOPE_YOUR_FILES,
     DigestPRSummary,
     DigestSummary,
+    _audience_team_slug,
     _build_headline_prompt,
     _build_selection_prompt,
     _build_summary,
@@ -883,6 +885,76 @@ def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
     assert [(pr.pr_number, pr.summary) for pr in summary.prs] == expected
 
 
+_WHOLE_CHANGE = "Uploads pause when a workspace spends the daily quota."
+_OUR_CLAUSE = "the upload path asks a limiter before it writes."
+_THEIR_CLAUSE = "@PostHog/team-billing: the counters moved."
+_MULTI_TEAM_SUMMARY = f"{_WHOLE_CHANGE} @PostHog/{AUDIENCE}: {_OUR_CLAUSE} {_THEIR_CLAUSE}"
+_OTHER_TEAM_SUMMARY = f"{_WHOLE_CHANGE} {_THEIR_CLAUSE}"
+
+
+@pytest.mark.parametrize(
+    "summary_line,audience,changed_files,expected",
+    [
+        (_MULTI_TEAM_SUMMARY, _audience(3), 8, f"{_WHOLE_CHANGE} {_OUR_CLAUSE}"),
+        (_OTHER_TEAM_SUMMARY, _audience(2), 2, _WHOLE_CHANGE),
+        (
+            _MULTI_TEAM_SUMMARY,
+            PullRequestAudience(audience_key=f"{REPO_AUDIENCE_PREFIX}{REPO}", reason=AudienceReason.REPO_DECLARED),
+            8,
+            _WHOLE_CHANGE,
+        ),
+    ],
+    ids=[
+        "a_team_owning_part_of_the_merge_reads_its_own_clause",
+        "a_team_owning_all_of_it_reads_the_whole_change_sentence",
+        "and_so_does_a_repo_that_declared_its_own_channel",
+    ],
+)
+def test_the_prompt_carries_only_the_reviewed_text_written_for_this_audience(
+    summary_line: str, audience: PullRequestAudience, changed_files: int, expected: str
+) -> None:
+    # The reviewer holds the diff, so it decides what each team hears and writes them a clause each.
+    # Picking that clause here, rather than asking the model to ignore the others, is what makes
+    # another team's half of the merge unreachable: it is not in the prompt to be picked.
+    pr = _pr_stub("o/r", 1, "Ship it", "https://github.com/o/r/pull/1")
+    pr.changed_files = changed_files
+    pr.summary_line = summary_line
+
+    prompt = _build_selection_prompt([pr], [audience], _audience_team_slug([audience]))
+
+    assert f"<reviewed_summary index=0>{expected}</reviewed_summary>" in prompt
+    assert "team-billing" not in prompt
+    assert "the counters moved" not in prompt
+
+
+def test_a_merge_the_reviewer_wrote_this_team_no_clause_for_never_reaches_the_model() -> None:
+    # The reviewer named the owning teams and this team was not one of them, so it had the diff and
+    # found nothing to say about this team's files. Dropping it here costs the team silence; posting
+    # it costs them the other team's announcement in their own channel.
+    #
+    # The dropped merge goes first so a filter that forgot to renumber the index map would resolve
+    # the model's index 0 to the wrong PR.
+    unaddressed = _pr_stub("o/r", 1, "Somebody else's half", "https://github.com/o/r/pull/1")
+    unaddressed.changed_files = 8
+    unaddressed.summary_line = (
+        "Invoices show the booking a charge came from. @PostHog/team-billing: the screen reads a facade."
+    )
+    ours = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
+    ours.changed_files = 2
+    selection = json.dumps(
+        {"prs": [{"index": 0, "rule": "contract", "scope": SCOPE_YOUR_FILES, "summary": "Our own area changed."}]}
+    )
+    client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+        summary = summarize_merged_prs([unaddressed, ours], [_audience(3), _audience(2)])
+
+    assert "Somebody else's half" not in client.prompts[0]
+    assert [(pr.pr_number, pr.summary) for pr in summary.prs] == [(2, "Our own area changed.")]
+    # The scope line still counts every merge the audience claimed, the way the graze rule leaves it.
+    assert summary.considered == 2
+
+
 def test_the_selection_prompt_asks_for_the_perspective_the_code_checks() -> None:
     # The two halves of this rule sit in different files. The code drops a partly owned merge whose
     # line does not claim the team's own files, so a prompt that stopped asking for that claim would
@@ -895,13 +967,9 @@ def test_the_selection_prompt_asks_for_the_perspective_the_code_checks() -> None
     assert SCOPE_YOUR_FILES in prompt
     assert "whole_pr" in prompt
     assert '"scope": "your_files"' in prompt  # the shape the answer is read out of
-    # The reviewed summary of a multi-team merge carries one clause per owning team, and the only
-    # thing that tells the model which clause is this digest's is the audience. A prompt that stops
-    # naming it, or stops saying a summary can carry clauses at all, sends every team the sentence
-    # about the whole pull request again.
-    assert f"team={AUDIENCE}" in prompt
+    # The audience is the only thing in either prompt that says whose side the line is written
+    # from, now that the clause it reads is picked in code rather than named in the prompt.
     assert f"the team `{AUDIENCE}`" in prompt
-    assert "one clause for each team" in prompt
 
 
 def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
@@ -924,11 +992,7 @@ def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
 
     assert "empty string" not in prompt
     assert "do not restate its line" in prompt
-    # The headline reads the same reviewed summaries the selection call did, so it needs the same
-    # audience: without it the paragraph can lead on another team's clause, which is the news this
-    # channel is not supposed to carry.
     assert f"the team `{AUDIENCE}`" in prompt
-    assert "one clause for each team" in prompt
 
 
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:

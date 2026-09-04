@@ -724,7 +724,7 @@ class OwnedFilePromptTests(SimpleTestCase):
         ]
         prompt = _build_selection_prompt([pr], audiences, "team-devex")
 
-        assert "your_files index=0 team=team-devex count=5 of 5" in prompt
+        assert "your_files index=0 count=5 of 5" in prompt
 
     def test_contributor_text_cannot_speak_to_the_summarizer(self) -> None:
         # Two doors into this prompt, both shut. The author's body never reaches it, and the title
