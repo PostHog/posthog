@@ -37,32 +37,9 @@
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
   **Local agents must use it too**: when a hogli command or local dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Do not run it from cloud tasks or agent-server sandboxes; the command is a no-op there.
 
-## Starting a task
-
-Several agents work on this repository at the same time, so the change you plan can already be in flight.
-Before you plan the work or write code, look for open PRs that clash with it.
-This matters most for a broken `master`: the break is visible to everyone, so it attracts duplicate PRs.
-
-Search the open PRs by keyword, then look at each candidate:
-
-```bash
-gh pr list --state open --search "<keywords>" --limit 20
-gh pr diff <number> --name-only  # the files it touches
-gh pr diff <number>              # the patch, once a candidate looks like a match
-```
-
-Take the keywords from the error message, the failing test, the symbol, or the feature name.
-Run two or three searches with different words, because another author can describe the same problem differently.
-Keep draft PRs in the results, because most agent PRs start as drafts.
-
-Then act on what you find:
-
-- An open PR already makes this change: do not open a second one. Tell the user the PR number, and continue the work on that PR.
-- An open PR changes the same files for a different reason: keep your diff clear of the overlap when possible, and name the other PR in your PR description.
-- Nothing matches: continue with the work.
-
 ## Commits and Pull Requests
 
+- Before you write code, check that another agent is not already on it: `gh pr list --state open --search "<keywords>"` (drafts included). If an open PR already makes the change, continue on that PR rather than opening a second one.
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
 - When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the matching doc under `docs/` **in the same PR** — treat a stale doc as part of the breakage, not a follow-up.
 
