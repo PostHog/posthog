@@ -2062,7 +2062,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
 
-    Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
+    Four more writers derive rows from inbox activity, each re-checking the RBAC leg of this gate
     themselves (the actions behind them need only `task:write`) against the canonical project whose
     scouts read the row. They differ on the key-scope leg, because they differ on whether this note is
     the only way the text reaches a scout:
@@ -2078,9 +2078,15 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       a discussion the note is the only path the text takes to a scout (the rating otherwise lands only
       on a product-analytics event), so the full gate applies too. Forwarded only for a report with a
       resolvable authoring scout, since the feedback is a verdict on that scout's own report.
+    - `REPORT_REVIEWER_CORRECTION` — adding or removing a suggested reviewer on a report, see
+      `reviewer_correction_notes.py`. Like a dismissal the logins it names already reach scouts by
+      another path (the report's reviewers artefact, and the project profile's recent corrections), so
+      the key scopes aren't required on top. It is the only derived kind addressed to more than the
+      authoring scout: a removed login is also sent to every scout whose `reviewer:` memory names it,
+      because those are the scouts still routing on it.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
-    on one report, a discussion as a question to weigh, and feedback as a reader's rating — rather than
-    fleet-level steering.
+    on one report, a discussion as a question to weigh, feedback as a reader's rating, and a reviewer
+    correction as a trigger to revisit routing memory — rather than fleet-level steering.
     """
 
     class Origin(models.TextChoices):
@@ -2088,6 +2094,18 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
         REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
+        REPORT_REVIEWER_CORRECTION = "report_reviewer_correction", "Derived from an inbox reviewer correction"
+
+    @classmethod
+    def derived_origins(cls) -> tuple[str, ...]:
+        """Every origin but `HUMAN`: the rows derived from inbox activity, which quote report content.
+
+        Readers that withhold derived rows — the notes list gate, and the implementation-run steering
+        loader — read this rather than listing the kinds, so a new origin is withheld from the moment
+        it exists. Naming the kinds instead leaves a deploy window where a reader that predates the
+        newest one hands it to a caller who may not read reports.
+        """
+        return tuple(origin for origin in cls.Origin.values if origin != cls.Origin.HUMAN)
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
