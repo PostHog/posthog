@@ -809,6 +809,29 @@ describe('getProductUpgradePricing', () => {
         expect(describeProductUpgradePricing(pricing!)).toEqual('It costs $450.00 per month.')
     })
 
+    it('leaves an abbreviated display unit unpluralized', () => {
+        const storageProduct = {
+            ...surveys,
+            display_unit: 'GB',
+            plans: [
+                {
+                    ...surveys.plans[1],
+                    unit: 'GB',
+                    tiers: [
+                        { flat_amount_usd: '0', unit_amount_usd: '0', up_to: 100 },
+                        { flat_amount_usd: '0', unit_amount_usd: '0.35', up_to: null },
+                    ],
+                },
+            ],
+        } as unknown as BillingProductV2Type
+
+        const pricing = getProductUpgradePricing(storageProduct)
+
+        expect(describeProductUpgradePricing(pricing!)).toEqual(
+            'The first 100 GB each month are free, then $0.35 per GB.'
+        )
+    })
+
     it('returns null when the paid plan quotes no price', () => {
         const noPriceProduct = {
             ...surveys,

@@ -882,6 +882,9 @@ export const getProductUpgradePricing = (
     return paidPlan.flat_rate ? flatRatePricing(paidPlan, product, unit) : tieredPricing(paidPlan, product, unit)
 }
 
+// An abbreviation such as "GB" takes no plural s. formatDisplayUsage follows the same rule.
+const pluralizeUnit = (unit: string): string => (unit === unit.toUpperCase() ? unit : wordPluralize(unit))
+
 /** One sentence a person can read on a paywall, saying what the product costs. */
 export const describeProductUpgradePricing = (pricing: ProductUpgradePricing): string => {
     if (pricing.flatRate) {
@@ -890,7 +893,7 @@ export const describeProductUpgradePricing = (pricing: ProductUpgradePricing): s
     const unit = pricing.unit ?? 'unit'
     const perUnit = `${pricing.unitAmountUsd} per ${unit}`
     if (pricing.freeAllocation) {
-        return `The first ${humanFriendlyNumber(pricing.freeAllocation)} ${wordPluralize(unit)} each month are free, then ${perUnit}.`
+        return `The first ${humanFriendlyNumber(pricing.freeAllocation)} ${pluralizeUnit(unit)} each month are free, then ${perUnit}.`
     }
     return `It costs ${perUnit}.`
 }
