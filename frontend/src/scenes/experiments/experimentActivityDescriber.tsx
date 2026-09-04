@@ -321,6 +321,14 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 updateLogDetail.type !== 'holdout' &&
                 updateLogDetail.type !== 'saved_metric_config'
 
+            const conclusionCommentAfter = isExperiment
+                ? changes.find((change) => change.field === 'conclusion_comment')?.after
+                : undefined
+            const conclusionComment =
+                typeof conclusionCommentAfter === 'string' && conclusionCommentAfter.trim()
+                    ? conclusionCommentAfter
+                    : undefined
+
             let listParts: (string | JSX.Element)[]
             if (changes.length === 0) {
                 listParts = ['updated']
@@ -344,8 +352,12 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             }
 
             if (isExperiment && changes.length > 0 && listParts.length === 0) {
-                // humanize() skips log items with a null description
-                return { description: null }
+                if (!conclusionComment) {
+                    // humanize() skips log items with a null description
+                    return { description: null }
+                }
+                // A comment-only edit still gets a row; the comment renders below it.
+                listParts = ['changed the conclusion']
             }
 
             if (isExperiment && changes.length > 0 && listParts.length > 0) {
@@ -366,6 +378,9 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         suffix={suffix}
                     />
                 ),
+                extendedDescription: conclusionComment ? (
+                    <blockquote className="border-l-2 pl-2 text-secondary">{conclusionComment}</blockquote>
+                ) : undefined,
             }
         })
         .otherwise(() => {

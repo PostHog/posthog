@@ -499,14 +499,17 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             </>
         )
 
+        let hasIndescribableChange = false
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
+                hasIndescribableChange = true
                 continue // feature flag updates have to have a "field" to be described
             }
 
             const fieldHandler = featureFlagActionsMapping[change.field as keyof FeatureFlagType]
             if (!fieldHandler) {
                 console.error({ field: change.field, change }, 'No activity describer found for feature flag field')
+                hasIndescribableChange = true
             }
             const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
@@ -524,6 +527,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             return {
                 description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
             }
+        }
+
+        if ((logItem.detail.changes || []).length > 0 && !hasIndescribableChange) {
+            // Every change maps to an excluded field, which happens when a save only bumps the
+            // optimistic-concurrency `version`. The fallback would render a contentless
+            // "updated <flag>" row, so drop the entry instead.
+            return { description: null }
         }
     }
 

@@ -15,6 +15,20 @@ describe('the activity log logic', () => {
             `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
         )
 
+        it('drops an entry whose only change is the version bump', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'version',
+                    before: 1,
+                    after: 2,
+                },
+            ])
+
+            expect(logic.values.humanizedActivity).toHaveLength(0)
+        })
+
         it('can handle change of key', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
