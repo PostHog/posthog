@@ -225,6 +225,26 @@ class TestUrlValidation:
         with pytest.raises(ValueError):
             validate(value)
 
+    @pytest.mark.parametrize(
+        "host, usable",
+        [
+            ("db.example.com", True),
+            ("8.8.8.8", True),
+            ("2001:db8::1", True),  # a bare IPv6 literal is a host, and its colons are not a path
+            ("db.example.com.", True),  # the root dot of an absolute FQDN
+            ("db.acme.com:5432", False),
+            ("user@db.acme.com", False),
+            ("http://db.acme.com", False),
+        ],
+    )
+    def test_host_field_takes_a_hostname_or_ip_only(self, enforce_destination_validation, monkeypatch, host, usable):
+        monkeypatch.setattr(uv, "resolve_host_ips", lambda _host: {ipaddress.ip_address("93.184.216.34")})
+        if usable:
+            uv.validate_external_host(host)
+        else:
+            with pytest.raises(ValueError, match="hostname or IP address"):
+                uv.validate_external_host(host)
+
     @pytest.mark.parametrize("value", [None, 123])
     def test_non_string_target_is_a_client_error(self, value):
         # A non-string has to read as bad input rather than surface as a TypeError
