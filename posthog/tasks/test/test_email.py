@@ -22,6 +22,7 @@ from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
+    send_account_deleted_email,
     send_async_migration_complete_email,
     send_async_migration_errored_email,
     send_batch_export_run_failure,
@@ -39,6 +40,7 @@ from posthog.tasks.email import (
     send_matview_failure_immediate_email,
     send_member_join,
     send_new_ticket_notification,
+    send_organization_deleted_email,
     send_password_reset,
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
@@ -2178,7 +2180,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2209,7 +2210,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2243,7 +2243,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_shows_clickhouse_error_not_newer_shadow(
         self, MockEmailMessage: MagicMock
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2278,7 +2277,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "duckgres boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # View that would trigger an email (scheduled + recent failed job), but user hasn't opted in.
@@ -2300,7 +2298,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2376,7 +2373,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2435,7 +2431,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_immediate_email_respects_immediate_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings
@@ -2549,7 +2544,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_respects_daily_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings
@@ -2572,3 +2566,57 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_matview_failure_digest()
 
         assert len(mocked_email_messages) == (1 if expect_email else 0)
+
+    def test_send_organization_deleted_email_notifies_every_member(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        member = User.objects.create_and_join(
+            organization=self.organization,
+            email="left-behind@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        send_organization_deleted_email(
+            user_id=self.user.id,
+            organization_name="Acme",
+            project_names=["Website"],
+            member_user_ids=[self.user.id, member.id],
+        )
+
+        assert len(mocked_email_messages) == 2
+        actor_message, member_message = mocked_email_messages
+        assert {dest["raw_email"] for dest in actor_message.to} == {self.user.email}
+        assert actor_message.properties["requested_by_you"] is True
+        assert {dest["raw_email"] for dest in member_message.to} == {"left-behind@posthog.com"}
+        assert member_message.properties["requested_by_you"] is False
+        assert "left-behind@posthog.com" not in actor_message.html_body
+
+    def test_send_organization_deleted_email_without_other_members(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        send_organization_deleted_email(
+            user_id=self.user.id,
+            organization_name="Acme",
+            project_names=["Website"],
+            member_user_ids=[self.user.id],
+        )
+
+        assert len(mocked_email_messages) == 1
+
+    def test_send_account_deleted_email(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        send_account_deleted_email(
+            email="gone@posthog.com",
+            first_name="Gone",
+            distinct_id="a-distinct-id",
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.template_name == "account_deleted"
+        assert [dest["raw_email"] for dest in message.to] == ["gone@posthog.com"]
+        assert message.to[0]["distinct_id"] == "a-distinct-id"
+        assert message.html_body

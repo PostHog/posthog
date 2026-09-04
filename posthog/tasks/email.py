@@ -2227,33 +2227,92 @@ def send_project_deleted_email(
     logger.info(f"Sent project deletion confirmation email to user {user_id} for project {project_name}")
 
 
+def _organization_deleted_message(
+    *,
+    campaign_key: str,
+    subject: str,
+    organization_name: str,
+    project_names: list[str],
+    requested_by_you: bool,
+) -> EmailMessage:
+    return EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="organization_deleted",
+        template_context={
+            "organization_name": organization_name,
+            "project_names": project_names,
+            "requested_by_you": requested_by_you,
+            "site_url": settings.SITE_URL,
+        },
+    )
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_organization_deleted_email(
     user_id: int,
     organization_name: str,
     project_names: list[str],
+    member_user_ids: list[int] | None = None,
 ) -> None:
-    """Send email notification when organization deletion is complete."""
-    user = User.objects.filter(id=user_id).first()
-    if not user:
-        logger.warning(f"User {user_id} not found for organization deletion email")
-        return
+    """Send email notification when organization deletion is complete.
 
+    The member who ran the deletion gets a confirmation. Every other member gets a notice,
+    because the organization disappears from their account without any action of their own.
+    """
+    timestamp = timezone.now().timestamp()
+    user = User.objects.filter(id=user_id).first()
+    if user:
+        message = _organization_deleted_message(
+            campaign_key=f"organization_deleted_{user_id}_{timestamp}",
+            subject=f"Your organization '{organization_name}' has been deleted",
+            organization_name=organization_name,
+            project_names=project_names,
+            requested_by_you=True,
+        )
+        message.add_user_recipient(user)
+        message.send()
+        logger.info(
+            f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}"
+        )
+    else:
+        logger.warning(f"User {user_id} not found for organization deletion email")
+
+    other_member_ids = [member_id for member_id in (member_user_ids or []) if member_id != user_id]
+    other_members = list(User.objects.filter(id__in=other_member_ids))
+    if other_members:
+        message = _organization_deleted_message(
+            campaign_key=f"organization_deleted_members_{user_id}_{timestamp}",
+            subject=f"The organization '{organization_name}' has been deleted",
+            organization_name=organization_name,
+            project_names=project_names,
+            requested_by_you=False,
+        )
+        for member in other_members:
+            message.add_user_recipient(member)
+        message.send()
+        logger.info(f"Sent organization deletion notice to {len(other_members)} other members of {organization_name}")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_account_deleted_email(email: str, first_name: str, distinct_id: str) -> None:
+    """Confirm a self-serve account deletion.
+
+    The User row is already gone, so the recipient comes from the caller, not from a lookup.
+    """
     message = EmailMessage(
         use_http=True,
-        campaign_key=f"organization_deleted_{user_id}_{timezone.now().timestamp()}",
-        subject=f"Your organization '{organization_name}' has been deleted",
-        template_name="organization_deleted",
-        template_context={
-            "organization_name": organization_name,
-            "project_names": project_names,
-            "site_url": settings.SITE_URL,
-        },
+        campaign_key=f"account_deleted_{distinct_id}_{timezone.now().timestamp()}",
+        subject="Your PostHog account has been deleted",
+        template_name="account_deleted",
+        template_context={"site_url": settings.SITE_URL},
     )
-    message.add_user_recipient(user)
+    message.add_recipient(email=email, name=first_name, distinct_id=distinct_id)
     message.send()
-    logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")
+    logger.info("Sent account deletion confirmation email")
 
 
 @shared_task(ignore_result=True)

@@ -582,6 +582,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
+        # Read the members now: the deletion workflow removes the memberships before it mails them.
+        member_user_ids = list(organization.memberships.values_list("user_id", flat=True))
         organization_id = organization.pk
         organization_name = organization.name
 
@@ -599,6 +601,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=user.id,
             organization_name=organization_name,
             project_names=project_names,
+            member_user_ids=member_user_ids,
         )
 
     def get_serializer_context(self) -> dict[str, Any]:
