@@ -341,6 +341,45 @@ describe('CanvasReplayerPlugin', () => {
         })
     })
 
+    describe('preloading malformed canvas mutations', () => {
+        it.each([
+            {
+                name: 'a command without args',
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 1,
+                    type: 0,
+                    commands: [{ property: 'clearRect' }],
+                },
+            },
+            {
+                name: 'commands missing entirely',
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 1,
+                    type: 0,
+                    commands: undefined,
+                },
+            },
+            {
+                name: 'a top-level mutation without args',
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 1,
+                    type: 0,
+                },
+            },
+        ])('does not route an error to onError for $name', async ({ data }) => {
+            const onError = jest.fn()
+            const event = { type: EventType.IncrementalSnapshot as const, data, timestamp: 1000 } as eventWithTime
+
+            CanvasReplayerPlugin([event], onError)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(onError).not.toHaveBeenCalled()
+        })
+    })
+
     describe('destroy', () => {
         it('can be called safely after onBuild', () => {
             const plugin = CanvasReplayerPlugin([])
