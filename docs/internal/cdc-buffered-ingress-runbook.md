@@ -209,6 +209,12 @@ Fully-applied buffer files are **not** purged: the completed job already deleted
 14-day S3 TTL clears anything left. Rows already merged stay merged — the same rows the legacy lane would
 have written.
 
+**If the command dies partway, re-run it.** Every step is idempotent, and the mode flips in the last
+one, so an interrupted rollback leaves the source on `buffered` with some or all of its schedules
+paused. That state moves no data and raises no alert of its own: capture is not running, so nothing
+reports a stall. Re-running walks the same steps and finishes them. A source paused with
+`cdc_ingest_mode` still `buffered` and no failing job is the signature to look for.
+
 ## Buffer expiry — no partial recovery
 
 Buffer files expire after 14 days (`expire-cdc-producer-buffer`). If a schema stops consuming —
