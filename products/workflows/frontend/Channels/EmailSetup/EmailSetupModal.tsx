@@ -222,10 +222,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             </LemonButton>
                             <LemonButton
                                 type="primary"
-                                onClick={async () => {
-                                    await submitEmailSender()
-                                    props.onComplete(savedIntegration?.id)
-                                }}
+                                onClick={submitEmailSender}
+                                loading={verificationLoading || isEmailSenderSubmitting}
                                 tooltip="You will not be able to send emails until you verify the DNS records"
                             >
                                 {isDomainVerified ? 'Save' : 'Save & finish later'}
