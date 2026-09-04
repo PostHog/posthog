@@ -143,6 +143,37 @@ describe('earlyAccessFeatureLogic', () => {
         expect(router.values.location.pathname).toMatch(/\/early_access_features$/)
     })
 
+    it('marks a feature missing on a 404 without a failure', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/early_access_feature/:id': () => [404, { detail: 'Not found.' }],
+            },
+        })
+
+        logic = earlyAccessFeatureLogic({ id: 'gone-123' })
+        logic.mount()
+
+        // The scene reads `earlyAccessFeatureMissing` to render <NotFound>. A handled 404 must not
+        // rethrow, so the loader resolves as a success and never files an error tracking issue.
+        await expectLogic(logic)
+            .toDispatchActions(['setEarlyAccessFeatureMissing', 'loadEarlyAccessFeatureSuccess'])
+            .toNotHaveDispatchedActions(['loadEarlyAccessFeatureFailure'])
+        expect(logic.values.earlyAccessFeatureMissing).toBe(true)
+    })
+
+    it('rethrows a genuine failure so it still surfaces', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/early_access_feature/:id': () => [500, { detail: 'Server error' }],
+            },
+        })
+
+        logic = earlyAccessFeatureLogic({ id: 'boom-123' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['setEarlyAccessFeatureMissing', 'loadEarlyAccessFeatureFailure'])
+    })
+
     // PostHog's own project (US cloud, id 2) requires a description on newly created features.
     // These guard that the frontend validator matches the backend's create-only + US-cloud scope.
     describe('description requirement', () => {

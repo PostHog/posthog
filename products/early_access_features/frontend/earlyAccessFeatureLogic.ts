@@ -8,6 +8,7 @@ import React from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -265,7 +266,13 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                         return response
                     } catch (error: any) {
                         actions.setEarlyAccessFeatureMissing()
-                        throw error
+                        // The scene renders <NotFound> from `earlyAccessFeatureMissing`, so a handled
+                        // failure (a 404) needs no rethrow. Rethrow only genuine failures, which must
+                        // still surface to error tracking.
+                        if (shouldReportApiFailure(error)) {
+                            throw error
+                        }
+                        return NEW_EARLY_ACCESS_FEATURE
                     }
                 }
                 return NEW_EARLY_ACCESS_FEATURE
