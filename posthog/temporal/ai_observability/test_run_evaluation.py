@@ -2554,7 +2554,7 @@ class TestRunLocalEvaluationActivity:
         start_time = self.START_TIME
 
         with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"
         ) as mock_capture:
             outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, start_time))
 
@@ -2575,7 +2575,7 @@ class TestRunLocalEvaluationActivity:
         evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return 42")
 
         with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"
         ) as mock_capture:
             outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, self.START_TIME))
 
@@ -2591,7 +2591,7 @@ class TestRunLocalEvaluationActivity:
         team = setup_data["team"]
 
         with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"
         ) as mock_capture:
             outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, self.START_TIME))
 
@@ -2626,7 +2626,7 @@ class TestRunLocalEvaluationActivity:
         )
 
         with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"
         ) as mock_capture:
             outcome = await run_local_evaluation_activity(inputs)
 
@@ -2649,7 +2649,7 @@ class TestRunLocalEvaluationActivity:
         evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
 
         with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"
         ) as mock_capture:
             mock_capture.side_effect = Exception("capture down")
             with pytest.raises(ApplicationError) as exc_info:
@@ -2668,7 +2668,7 @@ class TestRunLocalEvaluationActivity:
 
         env = ActivityEnvironment()
         with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"
         ) as mock_capture:
             await env.run(run_local_evaluation_activity, inputs)
             await env.run(run_local_evaluation_activity, inputs)

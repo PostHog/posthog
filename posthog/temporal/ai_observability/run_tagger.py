@@ -16,7 +16,7 @@ from posthog.temporal.ai_observability.evaluation_event_io import extract_event_
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import model_spec
-from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -508,7 +508,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
                 }
             )
 
-        capture_internal_for_team(
+        capture_ai_internal_for_team(
             team_id=event_data["team_id"],
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",

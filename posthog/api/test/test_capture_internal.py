@@ -21,13 +21,21 @@ from posthog.api.capture import (
     _normalize_options_and_properties,
     _parse_retry_after,
     _resolve_scalar,
+    capture_ai_internal,
+    capture_batch_ai_internal,
     capture_batch_internal,
     capture_internal,
     prepare_capture_internal_batch,
 )
-from posthog.settings.ingestion import CAPTURE_INTERNAL_URL, CAPTURE_V1_INTERNAL_ENDPOINT
+from posthog.settings.ingestion import (
+    CAPTURE_AI_INTERNAL_URL,
+    CAPTURE_INTERNAL_URL,
+    CAPTURE_V1_AI_INTERNAL_ENDPOINT,
+    CAPTURE_V1_INTERNAL_ENDPOINT,
+)
 
 EXPECTED_URL = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
+EXPECTED_AI_URL = f"{CAPTURE_AI_INTERNAL_URL}{CAPTURE_V1_AI_INTERNAL_ENDPOINT}"
 
 
 class MockResponse:
@@ -1240,3 +1248,132 @@ class TestMergeResults(SimpleTestCase):
         assert merged.warnings == ["c"]
         assert merged.retried == ["d"]
         assert set(merged.results.keys()) == {"a", "b", "c", "d"}
+
+
+class TestAiLaneGate(SimpleTestCase):
+    """The two lanes are mutually exclusive, and the gate runs before any HTTP call.
+
+    Capture's v1 endpoints each refuse the other lane's traffic, so a misrouted call
+    would come back as a per-event ``misrouted_event`` drop.  Catching it client-side
+    turns that into an error at the call site instead.
+    """
+
+    @parameterized.expand(
+        [
+            ("$ai_generation",),
+            ("$ai_span",),
+            ("$ai_evaluation",),
+            # Prefixed but not a name capture routes to the AI lane. Django gates on
+            # the prefix alone, so this still goes to the AI endpoint -- capture is
+            # the authority on which names it accepts, and reports the rest as
+            # `misrouted_event`.
+            ("$ai_cache_usage",),
+        ]
+    )
+    def test_ai_event_names_rejected_on_the_analytics_lane(self, event_name: str) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch([_make_event(event=event_name)], token="tok", event_source="src")
+        assert "is an AI event" in str(ctx.exception)
+        assert "capture_ai_internal" in str(ctx.exception)
+
+    @parameterized.expand([("$pageview",), ("custom_event",), ("$identify",), ("ai_generation",)])
+    def test_non_ai_event_names_rejected_on_the_ai_lane(self, event_name: str) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch(
+                [_make_event(event=event_name)], token="tok", event_source="src", ai_lane=True
+            )
+        assert "is not an AI event" in str(ctx.exception)
+        assert "capture_internal" in str(ctx.exception)
+
+    def test_ai_event_accepted_on_the_ai_lane(self) -> None:
+        payload, uuids = prepare_capture_internal_batch(
+            [_make_event(event="$ai_generation")], token="tok", event_source="src", ai_lane=True
+        )
+        assert len(uuids) == 1
+        assert payload["batch"][0]["event"] == "$ai_generation"
+
+    def test_non_ai_event_accepted_on_the_analytics_lane(self) -> None:
+        payload, uuids = prepare_capture_internal_batch(
+            [_make_event(event="$pageview")], token="tok", event_source="src"
+        )
+        assert len(uuids) == 1
+        assert payload["batch"][0]["event"] == "$pageview"
+
+    def test_one_misrouted_event_rejects_the_whole_batch(self) -> None:
+        events = [_make_event(event="$ai_generation"), _make_event(event="$pageview", distinct_id="u2")]
+        with self.assertRaises(CaptureInternalError):
+            prepare_capture_internal_batch(events, token="tok", event_source="src", ai_lane=True)
+
+
+class TestCaptureAiInternal(SimpleTestCase):
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_posts_to_the_ai_endpoint(self, mock_session_fn: MagicMock) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        result = capture_ai_internal(
+            token="tok",
+            event_name="$ai_generation",
+            event_source="ai-src",
+            distinct_id="user-1",
+            event_uuid=uid,
+        )
+
+        assert result.succeeded()
+        assert len(spy.calls) == 1
+        assert spy.calls[0]["url"] == EXPECTED_AI_URL, "AI events must not go to the analytics deployment"
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_analytics_capture_still_posts_to_the_analytics_endpoint(self, mock_session_fn: MagicMock) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        capture_internal(token="tok", event_name="$pageview", event_source="src", distinct_id="user-1", event_uuid=uid)
+
+        assert spy.calls[0]["url"] == EXPECTED_URL
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_batch_ai_posts_to_the_ai_endpoint(self, mock_session_fn: MagicMock) -> None:
+        uid1, uid2 = str(uuid4()), str(uuid4())
+        events = [
+            _make_event(event="$ai_generation", event_uuid=uid1),
+            _make_event(event="$ai_span", distinct_id="u2", event_uuid=uid2),
+        ]
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid1, uid2))])
+
+        result = capture_batch_ai_internal(events=events, token="tok", event_source="ai-src")
+
+        assert result.succeeded()
+        assert set(result.ok) == {uid1, uid2}
+        assert spy.calls[0]["url"] == EXPECTED_AI_URL
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_rejects_before_any_http_call(self, mock_session_fn: MagicMock) -> None:
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body={})])
+
+        with self.assertRaises(CaptureInternalError):
+            capture_ai_internal(token="tok", event_name="$pageview", event_source="src", distinct_id="user-1")
+
+        assert spy.calls == [], "a lane mistake must cost no round trip"
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_server_side_misrouted_drop_surfaces_per_event(self, mock_session_fn: MagicMock) -> None:
+        """Django gates on the prefix; capture gates on its own allowlist. A prefixed
+        name capture does not accept comes back as a per-event drop, not an error."""
+        uid = str(uuid4())
+        body = {"results": {uid: {"result": "drop", "details": "misrouted_event"}}}
+        InstallV1Spy(mock_session_fn, [MockResponse(body=body)])
+
+        result = capture_ai_internal(
+            token="tok",
+            event_name="$ai_cache_usage",
+            event_source="ai-src",
+            distinct_id="user-1",
+            event_uuid=uid,
+        )
+
+        assert not result.succeeded()
+        assert result.dropped == [uid]
+        assert result.results[uid]["details"] == "misrouted_event"
+        with self.assertRaises(CaptureInternalError):
+            result.raise_for_status()
