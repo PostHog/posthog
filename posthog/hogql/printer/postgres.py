@@ -25,6 +25,12 @@ from posthog.uuidt import UUIDT
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# ClickHouse-only window function names, and the Postgres native function each one maps onto.
+_CLICKHOUSE_WINDOW_FUNCTION_NATIVE_NAMES_LOWER: dict[str, str] = {
+    "laginframe": "lag",
+    "leadinframe": "lead",
+}
+
 
 class PostgresPrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
@@ -82,7 +88,8 @@ class PostgresPrinter(BasePrinter):
         self, identifier: str, exprs: list[str], cloned_node: ast.WindowFunction
     ) -> str:
         # Postgres's native lag/lead already has the semantics we want; skip the ClickHouse-style rewrite.
-        return identifier
+        # HogQL also accepts the ClickHouse names, so map those back onto the native ones.
+        return _CLICKHOUSE_WINDOW_FUNCTION_NATIVE_NAMES_LOWER.get(cloned_node.name.lower(), identifier)
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return f"{limit_str} %"

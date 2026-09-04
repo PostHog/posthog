@@ -153,8 +153,8 @@ class BasePrinter(Visitor[str]):
         """Rewrite ``lag``/``lead`` into the ClickHouse ``lagInFrame``/``leadInFrame`` form.
 
         The rewrite renames the function, wraps the value argument in ``toNullable``, and injects a default
-        window frame when none is present. Postgres overrides to return the identifier unchanged because its
-        native ``lag``/``lead`` already provides the desired semantics.
+        window frame when none is present. Postgres overrides it, because its native ``lag``/``lead`` already
+        provides the desired semantics.
         """
         if identifier not in ("lag", "lead"):
             return identifier

@@ -7294,11 +7294,19 @@ class TestPostgresPrinter(BaseTest):
         self.assertIn("AS ", printed)
         self.assertNotIn(long_alias, printed)
 
-    def test_window_functions_keep_postgres_shape(self):
-        printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
+    @parameterized.expand(
+        [
+            ["lag", "lag"],
+            ["lead", "lead"],
+            ["lagInFrame", "lag"],
+            ["leadInFrame", "lead"],
+        ]
+    )
+    def test_window_functions_keep_postgres_shape(self, authored_name: str, native_name: str):
+        printed = self._select(f"SELECT {authored_name}(timestamp) OVER (ORDER BY timestamp) FROM events")
 
-        self.assertIn("lag(", printed)
-        self.assertNotIn("lagInFrame", printed)
+        self.assertIn(f"{native_name}(", printed)
+        self.assertNotIn("InFrame", printed)
         self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
 
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
