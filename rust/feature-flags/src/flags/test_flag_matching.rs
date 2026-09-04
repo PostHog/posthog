@@ -35,7 +35,10 @@ mod tests {
         utils::{
             graph_utils::PrecomputedDependencyGraph,
             mock::MockInto,
-            test_utils::{flag_list_with_metadata, mock_group_type_cache, TestContext},
+            test_utils::{
+                failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
+                TestContext,
+            },
         },
     };
 
@@ -1783,7 +1786,6 @@ mod tests {
     /// holds unless the caller marks the index fetched.
     async fn group_matcher_without_group_prep(
         with_group_key: bool,
-        mapping_failed: bool,
     ) -> (TestContext, FeatureFlagMatcher) {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
@@ -1804,28 +1806,42 @@ mod tests {
             groups,
         );
         // Set in production by `initialize_group_type_mappings_if_needed`, which a bare
-        // `is_condition_match` test doesn't reach. A failed lookup leaves the mapping unset.
-        let mapping = (!mapping_failed).then(|| GroupTypeMapping::new(organization_at_zero));
-        matcher.set_group_type_mapping_for_test(mapping, mapping_failed);
+        // `is_condition_match` test doesn't reach.
+        matcher.set_group_type_mapping_for_test(GroupTypeMapping::new(organization_at_zero));
         (context, matcher)
     }
 
-    fn organization_tier_is_not_condition() -> FlagPropertyGroup {
-        FlagPropertyGroup {
-            variant: None,
-            properties: Some(vec![PropertyFilter {
-                key: "tier".to_string(),
-                value: Some(json!("enterprise")),
-                operator: Some(OperatorType::IsNot),
-                prop_type: PropertyType::Group,
-                group_type_index: Some(0),
-                negation: None,
-                compiled_regex: None,
-                extra: Default::default(),
-            }]),
-            rollout_percentage: Some(100.0),
-            ..Default::default()
+    fn organization_tier_filter(operator: OperatorType) -> PropertyFilter {
+        PropertyFilter {
+            key: "tier".to_string(),
+            value: Some(json!("enterprise")),
+            operator: Some(operator),
+            prop_type: PropertyType::Group,
+            group_type_index: Some(1),
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
         }
+    }
+
+    /// A flag whose single condition aggregates on the person but filters on an organization
+    /// property. This mixed shape is the one that reaches the group fetch state at all: a
+    /// group-aggregated condition is skipped outright when no group key is present.
+    fn mixed_targeting_flag(team_id: TeamId, operator: OperatorType) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![organization_tier_filter(operator)]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(None),
+                    extra: Default::default(),
+                }],
+                aggregation_group_type_index: None,
+                ..Default::default()
+            }
+        )
     }
 
     /// Regression test: the group-property analogue of the person `Pending` guard. A
@@ -1837,40 +1853,28 @@ mod tests {
         true,
         false,
         false,
-        false,
         "an unfetched group property must not satisfy is_not"
     )]
     #[case::fetched_empty_matches(
         true,
         true,
-        false,
         true,
         "a fetched and genuinely empty group has no tier, so is_not should match"
     )]
     #[case::no_group_key_matches(
         false,
         false,
-        false,
         true,
         "no group context should keep pre-existing behavior rather than fail closed"
-    )]
-    #[case::mapping_failure_fails_closed(
-        true,
-        false,
-        true,
-        false,
-        "a failed mapping lookup knows nothing about the group, so it must not satisfy is_not"
     )]
     #[tokio::test]
     async fn test_is_condition_match_group_is_not_honors_group_property_fetch_state(
         #[case] with_group_key: bool,
         #[case] mark_fetched: bool,
-        #[case] mapping_failed: bool,
         #[case] expected_match: bool,
         #[case] scenario: &str,
     ) {
-        let (_context, mut matcher) =
-            group_matcher_without_group_prep(with_group_key, mapping_failed).await;
+        let (_context, mut matcher) = group_matcher_without_group_prep(with_group_key).await;
         let flag = mock!(FeatureFlag);
         if mark_fetched {
             matcher
@@ -1881,6 +1885,16 @@ mod tests {
             matcher.flag_evaluation_state.group_properties_pending(0),
             !mark_fetched
         );
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                group_type_index: Some(0),
+                ..organization_tier_filter(OperatorType::IsNot)
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
 
         // Mirrors what the lazy loader caches for an index with no fetched properties.
         let group_properties = if with_group_key {
@@ -1894,15 +1908,212 @@ mod tests {
             aggregation: None,
         };
         let (is_match, _) = matcher
-            .is_condition_match(
-                &flag,
-                &organization_tier_is_not_condition(),
-                &ctx,
-                None,
-                &None,
-            )
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
             .unwrap();
         assert_eq!(is_match, expected_match, "{scenario}");
+    }
+
+    /// Regression test: a real `GroupTypeCacheManager` failure must reach the fail-closed
+    /// guard. Without the mapping the matcher cannot tell "the request sent no organization"
+    /// from "the lookup broke", and the former reading would let `is_not` match an empty
+    /// property map for an organization that is in fact excluded. Driving the failure through
+    /// `prepare_flag_evaluation_state` also pins that the matcher records the error, rather
+    /// than only that a seeded flag is read.
+    #[tokio::test]
+    async fn test_mixed_targeting_is_not_fails_closed_when_mapping_lookup_fails() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "acme",
+                json!({"tier": "enterprise"}),
+            )
+            .await
+            .unwrap();
+
+        let flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            failing_group_type_cache(),
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        );
+
+        // A mapping failure is deliberately not propagated: it must not poison person flags in
+        // the same batch, so preparation succeeds and the guard is what stops the match.
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            !match_result.matches,
+            "a failed mapping lookup knows nothing about the organization, so is_not must not match"
+        );
+    }
+
+    /// Regression test: an organization the request names but that has no `posthog_group` row
+    /// must still count as fetched. The fetch is authoritative for every requested pair, so
+    /// "no row" means the organization genuinely has no tier and `is_not` should match. If the
+    /// fetch path stopped recording that, the fail-closed guard would reject every such
+    /// organization instead.
+    #[tokio::test]
+    async fn test_mixed_targeting_is_not_matches_group_with_no_stored_row() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            Some(HashMap::from([(
+                "organization".to_string(),
+                json!("no-such-org"),
+            )])),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        assert!(
+            !matcher.flag_evaluation_state.group_properties_pending(1),
+            "the fetch ran for the requested organization, so index 1 must not read as pending"
+        );
+
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+        assert!(
+            match_result.matches,
+            "an organization with no stored properties has no tier, so is_not should match"
+        );
+    }
+
+    /// Regression test: a group filter carrying its own `group_type_index` on a
+    /// person-aggregated condition must have its properties loaded, so the organization's
+    /// stored tier decides the flag. Before the fetch covered filter-level indexes, both
+    /// operators resolved against an empty map, so `is` never matched and `is_not` always did.
+    #[rstest::rstest]
+    #[case::exact_matches_stored_tier(OperatorType::Exact, true)]
+    #[case::is_not_rejects_stored_tier(OperatorType::IsNot, false)]
+    #[tokio::test]
+    async fn test_mixed_targeting_reads_stored_group_properties(
+        #[case] operator: OperatorType,
+        #[case] expected_match: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "acme",
+                json!({"tier": "enterprise"}),
+            )
+            .await
+            .unwrap();
+
+        let flag = mixed_targeting_flag(team.id, operator);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert_eq!(
+            match_result.matches, expected_match,
+            "the organization's stored tier should decide the flag"
+        );
+    }
+
+    /// Regression test: a person property override must not stand in for a same-named group
+    /// property. The request sends `tier` for the person while the condition filters on the
+    /// organization's `tier`, and only the organization's stored value may decide the flag.
+    /// When the override suppressed DB preparation, the organization's properties stayed
+    /// unfetched and the fail-closed guard rejected the condition whichever way it pointed.
+    #[tokio::test]
+    async fn test_person_property_override_does_not_satisfy_same_named_group_filter() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "acme",
+                json!({"tier": "enterprise"}),
+            )
+            .await
+            .unwrap();
+
+        let flag = mixed_targeting_flag(team.id, OperatorType::Exact);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                Some(HashMap::from([("tier".to_string(), json!("free"))])),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get(&flag.key).unwrap().to_value(),
+            FlagValue::Boolean(true),
+            "the organization is enterprise, so the person's own tier must not decide the flag"
+        );
     }
 
     /// Regression test: a group filter carrying its own `group_type_index` must be counted
@@ -1937,7 +2148,7 @@ mod tests {
         );
 
         assert_eq!(
-            FeatureFlagMatcher::referenced_group_type_indexes(&flag),
+            FeatureFlagMatcher::referenced_group_type_indexes(&flag).collect::<HashSet<_>>(),
             HashSet::from([3])
         );
     }

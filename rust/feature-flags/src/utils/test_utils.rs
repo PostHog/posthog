@@ -1933,6 +1933,28 @@ pub fn mock_group_type_cache(
     Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
 }
 
+pub struct FailingGroupTypeFetcher;
+
+#[async_trait]
+impl GroupTypeMappingFetcher for FailingGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        Err(GroupTypeFetchError::DatabaseUnavailable)
+    }
+}
+
+/// A group type cache whose lookups always fail, for tests that need the matcher to see a
+/// real mapping error rather than a seeded one.
+pub fn failing_group_type_cache() -> Arc<GroupTypeCacheManager> {
+    Arc::new(GroupTypeCacheManager::new_with_fetcher(
+        FailingGroupTypeFetcher,
+        None,
+        None,
+    ))
+}
+
 /// Delete a single auth token cache entry from Redis.
 ///
 /// Both secret API tokens and personal API keys share the same cache namespace

@@ -47,17 +47,28 @@ impl PropertyFilter {
 
     /// Returns true if the filter requires DB properties to be evaluated.
     ///
-    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters.
+    /// This is true if the filter key is not in the person property overrides, but only for non
+    /// cohort and non flag filters.
+    ///
+    /// The overrides hold person properties, so they can only satisfy a filter that reads the
+    /// person property map. A group filter reads its own group's property map, which no person
+    /// override populates, so a same-named person property says nothing about it. Counting that
+    /// as covered would skip DB preparation and leave the group's properties unfetched at match
+    /// time, where the fail-closed guard then rejects the filter whichever way it points.
     ///
     /// Uses `lookup_key_for` rather than the raw `self.key` so PersonMetadata filters check the
     /// sentinel-prefixed key (e.g. `__posthog_person_metadata__created_at`). Without this, an SDK
     /// caller sending a raw `created_at` in `person_properties` overrides would make this return
     /// `false`, skip the DB fetch, and let the filter fall through to operator defaults — silently
     /// bypassing the real persons-table value.
-    pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
-        !self.is_cohort()
-            && !self.depends_on_feature_flag()
-            && !overrides.contains_key(lookup_key_for(self).as_ref())
+    pub fn requires_db_property(&self, person_property_overrides: &HashMap<String, Value>) -> bool {
+        if self.is_cohort() || self.depends_on_feature_flag() {
+            return false;
+        }
+        if self.prop_type == PropertyType::Group {
+            return true;
+        }
+        !person_property_overrides.contains_key(lookup_key_for(self).as_ref())
     }
 
     /// Pre-compiles the regex pattern for Regex/NotRegex operators.
@@ -138,6 +149,16 @@ mod tests {
             Value::String("2024-01-01".to_string()),
         )]);
         assert!(!filter.requires_db_property(&sentinel));
+    }
+
+    #[test]
+    fn test_group_filter_requires_db_when_person_override_shares_its_key() {
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "tier".mock_into(), prop_type: PropertyType::Group, group_type_index: Some(1), operator: Some(OperatorType::Exact));
+
+        // A person `tier` says nothing about the organization's `tier`, so the group's
+        // properties still have to be fetched.
+        let person_tier = HashMap::from([("tier".to_string(), Value::String("free".to_string()))]);
+        assert!(filter.requires_db_property(&person_tier));
     }
 
     #[test]
