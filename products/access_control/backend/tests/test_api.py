@@ -28,7 +28,9 @@ class TestSetObjectAccessControl(BaseTest):
         self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=None, access_level="none")
 
-    def _grant(self, access_level: str | None, **overrides: object) -> contracts.ObjectAccessControlRule | None:
+    def _grant(
+        self, access_level: str | None = "viewer", **overrides: object
+    ) -> contracts.ObjectAccessControlRule | None:
         input_kwargs: dict = {
             "resource": "dashboard",
             "resource_id": str(self.dashboard.id),
@@ -77,7 +79,7 @@ class TestSetObjectAccessControl(BaseTest):
     )
     def test_rejects_invalid_rules(self, _name: str, overrides: dict) -> None:
         with pytest.raises(InvalidObjectAccessControlError):
-            self._grant("viewer", **overrides)
+            self._grant(**overrides)
         assert not AccessControl.objects.filter(resource_id=str(self.dashboard.id)).exists()
 
     def test_rejects_subjects_from_another_organization(self) -> None:
