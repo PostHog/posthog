@@ -581,6 +581,29 @@ async def test_run_steps_does_not_repair_polling_timeout(
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
 @patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_does_not_repair_cancelled_async_query(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+) -> None:
+    status_error = _query_status_error(
+        error_message=None,
+        error_code=None,
+        error_category=QueryErrorCategory.CANCELLED,
+    )
+    error = MaxToolRetryableError("Query failed")
+    error.__context__ = status_error
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.plan_invalidating_failed_count == 1
+    mock_fix.assert_not_awaited()
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_does_not_preserve_mixed_self_recoverable_and_unknown_failure(
     mock_executor_cls: MagicMock,
     mock_fix: AsyncMock,

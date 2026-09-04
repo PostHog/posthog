@@ -175,6 +175,10 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         return QueryRepairDecision(repair_hint=_ASYNC_USER_QUERY_REPAIR_HINT, invalidates_plan=True)
     if has_unknown_query_status_error or has_unclassified_error:
         return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
+    # A cancellation says nothing about the query text, so a rewrite would drift a valid metric. The
+    # plan still needs replanning: a deploy, an operator, and a user kill are indistinguishable here.
+    if QueryErrorCategory.CANCELLED in categories:
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
     if has_retryable_error:
         return QueryRepairDecision(repair_hint=_GENERIC_QUERY_REPAIR_HINT, invalidates_plan=True)
     return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
