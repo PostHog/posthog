@@ -3203,6 +3203,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
 
+    def test_clearing_the_last_dashboard_variable_persists(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+
+        _, response_data = self.dashboard_api.update_dashboard(dashboard.pk, {"variables": {}})
+
+        assert response_data["persisted_variables"] is None
+        dashboard.refresh_from_db()
+        assert dashboard.variables == {}
+
     def test_dashboard_variables_stale(self):
         # if a variable is deleted/updated, the dashboard should not show the stale variable
 
