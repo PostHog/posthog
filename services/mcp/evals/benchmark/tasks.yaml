@@ -273,6 +273,32 @@ tasks:
           Reads the current definition first, then edits targeting through update-feature-flag. Does not reach for a
           lifecycle tool, which cannot change targeting. If the flag does not exist, says so.
 
+    # A flag that gates a user-visible change should draw an offer to measure it with an
+    # experiment; an operational flag should not. The pair scores both directions, so a
+    # description that pushes experiments too hard fails the second task.
+    - id: flag-create-offers-experiment
+      category: feature-flags
+      intent:
+          "Create a feature flag called mcp-eval-checkout-redesign for the new checkout page we're rolling out to 20%
+          of users."
+      expected_tools: [create-feature-flag]
+      acceptable_tools: [feature-flag-get-all, feature-flag-get-definition-by-key]
+      success_criteria: >
+          Creates the flag with a 20% rollout, then tells the user an experiment could measure the redesign before a
+          full rollout and offers to create one. Does not create the experiment without the user agreeing to it.
+
+    - id: flag-create-killswitch-no-experiment
+      category: feature-flags
+      intent:
+          'Add a kill switch flag called mcp-eval-billing-killswitch so we can turn off the billing sync if it starts
+          failing.'
+      expected_tools: [create-feature-flag]
+      acceptable_tools: [feature-flag-get-all]
+      success_criteria: >
+          Creates the flag and does not suggest an experiment. An operational kill switch has no user-visible change
+          to measure.
+
+
     # --- session-replay ----------------------------------------------------------
     - id: replay-rage-clicks
       category: session-replay
