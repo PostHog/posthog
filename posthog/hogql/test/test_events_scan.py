@@ -220,6 +220,11 @@ class TestFindEventsScans(TestCase):
                 [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
             ),
             (
+                "GROUP BY ALL has to read every row, limit or not",
+                "SELECT event FROM events GROUP BY ALL LIMIT 100",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
                 "sorting has to read every row, limit or not",
                 "SELECT * FROM events ORDER BY timestamp DESC LIMIT 100",
                 [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],

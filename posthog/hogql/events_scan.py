@@ -411,6 +411,8 @@ def _is_bounded_peek(node: ast.SelectQuery) -> bool:
         or node.having
         or node.qualify
         or node.group_by
+        # `GROUP BY ALL` groups the read without filling group_by
+        or node.group_by_mode
         or node.order_by
         or node.distinct
         or node.array_join_op
