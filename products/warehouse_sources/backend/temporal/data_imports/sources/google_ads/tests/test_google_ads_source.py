@@ -24,6 +24,7 @@ from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
 from posthog.models.integration import Integration
+from posthog.models.integration.google_ads import GoogleAdsTemporarilyUnavailable
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -1432,18 +1433,19 @@ class TestGetOAuthAccountsCaching:
         assert [account.value for account in second] == ["987-654-3210"]
 
 
-class TestGetOAuthAccountsNetworkErrorHandling:
+class TestGetOAuthAccountsTransientErrorHandling:
     @pytest.mark.parametrize(
-        "network_error",
+        "transient_error",
         [
             requests.exceptions.ReadTimeout("read timed out"),
             requests.exceptions.ConnectionError("connection reset"),
+            GoogleAdsTemporarilyUnavailable(),
         ],
     )
-    def test_transient_network_error_becomes_actionable(self, network_error):
-        # list_google_ads_accessible_accounts retries a transient blip internally, so this exception means
-        # every attempt failed. Previously nothing here caught it, so it propagated as an unhandled 500
-        # instead of the same actionable error the credential-rejection path already raises.
+    def test_transient_error_is_actionable_not_a_credential_prompt(self, transient_error):
+        # list_google_ads_accessible_accounts retries a transient blip internally, so these exceptions mean
+        # every attempt failed. Each is retryable on its own, so the picker must surface an actionable
+        # try-again error, never the reconnect-your-credentials prompt reserved for a real 401/403.
         cache.clear()
         source = GoogleAdsSource()
         integration = mock.Mock(errors=None)
@@ -1454,10 +1456,12 @@ class TestGetOAuthAccountsNetworkErrorHandling:
             mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
         ):
             mock_oauth.return_value.access_token_expired.return_value = False
-            mock_google_ads.return_value.list_google_ads_accessible_accounts.side_effect = network_error
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.side_effect = transient_error
 
-            with pytest.raises(IntegrationAccountListingError):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
                 source.get_oauth_accounts(1, 2)
+
+        assert "reconnect" not in str(exc_info.value).lower()
 
 
 class _DrainClock:
