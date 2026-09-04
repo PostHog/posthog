@@ -372,7 +372,7 @@ export interface SubscriptionWriteApi {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt */
-    readonly resource_type: ResourceTypeEnumApi
+    readonly resource_type: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -401,12 +401,13 @@ export interface SubscriptionWriteApi {
      * @maxItems 3
      */
     contexts?: SubscriptionWriteApiContextsItem[]
-    /** Delivery channel: email or slack.
+    /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
-     * * `slack` - Slack */
-    target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams */
+    target_type: SubscriptionTargetEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -440,7 +441,7 @@ export interface SubscriptionWriteApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
     start_date: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -482,6 +483,8 @@ export interface SubscriptionWriteApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 export type PatchedSubscriptionWriteApiContextsItem =
