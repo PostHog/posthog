@@ -35,7 +35,7 @@ import { ScoutStatusDot } from './ScoutStatusDot'
  * nothing to say about a canonical one.
  */
 export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Element {
-    const { rosterScouts, rollups, updatingScoutIds, scoutRunsLoadedOnce } = useValues(scoutFleetLogic)
+    const { rosterScouts, rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
 
     if (rosterScouts.length === 0) {
@@ -141,7 +141,7 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                     render: (_, row: ScoutRosterRow) => {
                         const runs = rollups.get(row.config.skill_name)?.runs ?? []
                         if (runs.length) {
-                            return <ScoutRunBoxes runs={runs} />
+                            return <ScoutRunBoxes runs={runs} costs={scoutRunCosts} />
                         }
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own.
