@@ -169,6 +169,11 @@ class ConversationCheckpoint(UUIDTModel):
     metadata = models.JSONField(null=True, help_text="Serialized checkpoint metadata.")
 
     class Meta:
+        indexes = [
+            # The read path and the compaction sweep both take the newest checkpoints of one
+            # thread and namespace. `unique_checkpoint` leads with `id`, so it cannot serve them.
+            models.Index(fields=["thread", "checkpoint_ns", "-id"], name="ee_conv_ckpt_thread_ns_id"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["id", "checkpoint_ns", "thread"],
