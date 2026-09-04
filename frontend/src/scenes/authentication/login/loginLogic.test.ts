@@ -4,7 +4,7 @@ import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
+import { handleLoginRedirect, loginLogic, redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
@@ -543,6 +543,62 @@ describe('loginLogic', () => {
             router.actions.push(`/login?next=${encodeURIComponent('/project/phc_ABC123/pipeline/destinations')}`)
             handleLoginRedirect()
             expect(hrefSpy).toHaveBeenCalledWith('/project/phc_ABC123/pipeline/destinations')
+        })
+    })
+
+    describe('redirectAfterLogin', () => {
+        const originalLocation = window.location
+        let assignSpy: jest.Mock
+        let reloadSpy: jest.Mock
+
+        beforeEach(() => {
+            initKeaTests()
+            assignSpy = jest.fn()
+            reloadSpy = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: {
+                    origin: 'http://localhost',
+                    pathname: '/login',
+                    search: '',
+                    hash: '',
+                    assign: assignSpy,
+                    reload: reloadSpy,
+                },
+                configurable: true,
+            })
+        })
+
+        afterEach(() => {
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        })
+
+        it('lands on the app root in a single document load', () => {
+            router.actions.push('/login')
+            redirectAfterLogin()
+            expect(assignSpy).toHaveBeenCalledTimes(1)
+            expect(assignSpy).toHaveBeenCalledWith('/')
+            // A second navigation would cancel every chunk the first boot had started fetching
+            expect(reloadSpy).not.toHaveBeenCalled()
+        })
+
+        it('lands on the next path, keeping its query and hash', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights?foo=bar')}#tab=raw`)
+            redirectAfterLogin()
+            expect(assignSpy).toHaveBeenCalledTimes(1)
+            expect(assignSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
+        })
+
+        it('ignores a next path pointing at another origin', () => {
+            router.actions.push('/login?next=//google.com')
+            redirectAfterLogin()
+            expect(assignSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('prefers an explicit destination over the next path', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights')}`)
+            redirectAfterLogin('/project/5/replay/home')
+            expect(assignSpy).toHaveBeenCalledTimes(1)
+            expect(assignSpy).toHaveBeenCalledWith('/project/5/replay/home')
         })
     })
 })
