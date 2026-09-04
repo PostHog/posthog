@@ -359,24 +359,34 @@ describe('NotebookNodeGeneratedWidget', () => {
         {
             label: 'runs a green widget immediately when it has no capabilities',
             permissions: { notebook_data: false, hogql_queries: false, tool_calls: false },
+            frameNames: [],
             autoRuns: true,
         },
         {
             label: 'requires consent for a green widget with notebook data access',
             permissions: { notebook_data: true, hogql_queries: false, tool_calls: false },
+            frameNames: [],
             autoRuns: false,
         },
         {
             label: 'requires consent for a green widget with HogQL access',
             permissions: { notebook_data: false, hogql_queries: true, tool_calls: false },
+            frameNames: [],
             autoRuns: false,
         },
         {
             label: 'requires consent for a green widget with tool access',
             permissions: { notebook_data: false, hogql_queries: false, tool_calls: true },
+            frameNames: [],
             autoRuns: false,
         },
-    ])('$label', async ({ permissions, autoRuns }) => {
+        {
+            label: 'requires consent when a capability-free response still exposes a dataframe',
+            permissions: { notebook_data: false, hogql_queries: false, tool_calls: false },
+            frameNames: ['events_df'],
+            autoRuns: false,
+        },
+    ])('$label', async ({ permissions, frameNames, autoRuns }) => {
         const versionId = '00000000-0000-0000-0000-000000000008'
         const buildHash = 'c'.repeat(64)
         const securityReview = {
@@ -391,7 +401,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             lifecycle_status: 'ready',
             error_detail: null,
             artifact_url: 'https://example.com/reviewed-widget.html',
-            frame_names: [],
+            frame_names: frameNames,
             current_version_id: versionId,
             widget_id: '00000000-0000-0000-0000-000000000009',
             instance_id: '00000000-0000-0000-0000-000000000010',
@@ -414,7 +424,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                     created_at: '2026-08-31T10:00:00Z',
                     build_status: 'ready',
                     artifact_url: 'https://example.com/reviewed-widget.html',
-                    frame_names: [],
+                    frame_names: frameNames,
                     is_current: true,
                     security_review: securityReview,
                     build_hash: buildHash,

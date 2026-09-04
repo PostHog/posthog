@@ -183,6 +183,7 @@ function ExpandedWidget({
     })
     const cleanReviewHasNoCapabilities =
         selectedSecurityReview?.severity === 'none' &&
+        activeFrameNames.length === 0 &&
         Object.values(activePermissions).every((permissionEnabled) => !permissionEnabled)
     const requiresVerification = !widgetTrust.buildTrusted && !cleanReviewHasNoCapabilities
     const trustControls = (variant: 'gate' | 'toolbar'): JSX.Element => (

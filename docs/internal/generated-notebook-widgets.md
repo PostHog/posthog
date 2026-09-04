@@ -80,7 +80,7 @@ The generated-code trust flow works as follows:
 
 Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
 
-The automatic path exposes no PostHog bridge and no network origin: the immutable version grants no capabilities, and the Canvas CSP keeps `connect-src 'none'`. A green automated verdict never substitutes for viewer consent when generated code can access notebook or project data or invoke tools.
+The automatic path requires an empty dataframe allow-list, exposes no PostHog capability, and grants no network origin. The Canvas CSP keeps `connect-src 'none'`. A green automated verdict never substitutes for viewer consent when generated code can access notebook or project data or invoke tools.
 
 There is intentionally no “trust widgets by this author” option. An author is not the sole authority over a collaborative notebook node: another editor can change its instructions, regenerate it, restore a version, or otherwise replace the artifact after the original author created it. Binding trust to an immutable build is stable; binding it to a mutable ownership label is not.
 
