@@ -145,6 +145,29 @@ describe('searchLogic', () => {
         expect(logic.values.ticketItems[0].name).toBe('#77 Session replay is not recording')
     })
 
+    // Free-text ticket search scans message content, so the palette must not send one per
+    // keystroke while a query is still a letter or two long.
+    it('does not search tickets until the query is long enough', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': {
+                    count: 1,
+                    results: [{ id: 'ticket-uuid', ticket_number: 12, status: 'open', email_subject: 'Billing' }],
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('bi')).toDispatchActions([
+            'loadTicketSearchResultsSuccess',
+        ])
+        expect(logic.values.ticketItems).toEqual([])
+
+        await expectLogic(logic, () => logic.actions.setSearch('bill')).toDispatchActions([
+            'loadTicketSearchResultsSuccess',
+        ])
+        expect(logic.values.ticketItems).toHaveLength(1)
+    })
+
     it('does not cancel a person search that already returned', async () => {
         personListMock.mockResolvedValue({ results: [] })
 

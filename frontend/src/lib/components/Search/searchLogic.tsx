@@ -43,7 +43,7 @@ import type { Noun } from '../../../models/groupsModel'
 import type { FileSystemImport } from '../../../queries/schema/schema-general'
 import type { GroupType, IntegrationType, UserType } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import { filterSearchItems } from './utils'
+import { filterSearchItems, shouldSearchTickets } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
@@ -723,13 +723,20 @@ export const searchLogic = kea<searchLogicType>([
                 },
             },
         ],
+        // Support tickets come from the Conversations list endpoint rather than the unified
+        // search API: that endpoint already resolves a bare number to one ticket and matches the
+        // customer's name and email, the subject, and message content, none of which the
+        // full-text `ENTITY_MAP` entry over ticket columns would cover. It answers newest-active
+        // first (`-updated_at`), which is the order a support lookup wants.
         ticketSearchResults: [
             [] as TicketApi[],
             {
                 loadTicketSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
                     const trimmed = searchTerm.trim()
 
-                    if (trimmed === '' || !values.currentTeamId) {
+                    // Returning early also clears the rows a longer query left behind, so a query
+                    // too short to search never shows results that no longer match what is typed.
+                    if (!shouldSearchTickets(trimmed) || !values.currentTeamId) {
                         return []
                     }
 
@@ -1180,9 +1187,10 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [s.ticketSearchResults],
             (ticketSearchResults: TicketApi[]): SearchItem[] => {
                 return ticketSearchResults.map((ticket) => {
-                    // A Slack or widget ticket has no email subject, so its first message is the
-                    // only thing that reads as a title. The number always leads: it is how support
-                    // refers to a ticket everywhere else.
+                    // Only email tickets carry a subject, so a Slack or widget ticket falls back to
+                    // its latest message — the only line of it that reads as a title. The number
+                    // leads either way: it is how support refers to a ticket everywhere else, and
+                    // it is what someone who typed a number is looking to confirm.
                     const subject = ticket.email_subject || ticket.last_message_text || 'Untitled ticket'
                     const displayName = `#${ticket.ticket_number} ${subject}`
                     return {
@@ -1190,11 +1198,13 @@ export const searchLogic = kea<searchLogicType>([
                         name: displayName,
                         displayName,
                         category: 'tickets',
-                        // The detail scene redirects a UUID to the ticket number, so link to the
-                        // canonical URL rather than bouncing through a redirect.
+                        // The detail scene redirects a UUID to the ticket-number URL, so linking
+                        // there directly saves the row a redirect.
                         href: urls.supportTicketDetail(ticket.ticket_number),
                         itemType: 'conversations',
-                        productCategory: ticket.status ? capitalizeFirstLetter(ticket.status.replace('_', ' ')) : null,
+                        // Rendered as the row's muted trailing text: which tickets are still open
+                        // is the first thing a support agent reads off a list of matches.
+                        productCategory: ticket.status ? capitalizeFirstLetter(ticket.status.replace(/_/g, ' ')) : null,
                         record: { type: 'conversations', id: ticket.id, ticketNumber: ticket.ticket_number },
                     }
                 })
