@@ -562,23 +562,19 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             if not context.has_live_target_for_team(obj.team_id):
                 continue
 
-            if context.dashboard_id is not None:
-                dashboard = context.dashboard
-                assert dashboard is not None
+            if context.dashboard_id is not None and context.dashboard is not None:
                 contexts.append(
                     {
                         "dashboard_id": context.dashboard_id,
-                        "dashboard_name": dashboard.name or "Untitled dashboard",
+                        "dashboard_name": context.dashboard.name or "Untitled dashboard",
                     }
                 )
-            elif context.insight_id is not None:
-                insight = context.insight
-                assert insight is not None
+            elif context.insight_id is not None and context.insight is not None:
                 contexts.append(
                     {
                         "insight_id": context.insight_id,
-                        "insight_short_id": insight.short_id,
-                        "insight_name": str(insight),
+                        "insight_short_id": context.insight.short_id,
+                        "insight_name": str(context.insight),
                     }
                 )
         return contexts
