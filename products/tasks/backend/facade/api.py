@@ -135,6 +135,11 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.repository_config_analytics import (
+    capture_repository_config_changed,
+    capture_space_context_changed,
+    repositories_differ,
+)
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
@@ -5922,6 +5927,23 @@ def create_task(
                 relationship=signal_report_task_relationship,
             )
 
+    # Only an override is a change. The inherited case is already counted by `task_created`.
+    if channel is not None and repositories_differ(channel.repositories, task.repositories):
+        capture_repository_config_changed(
+            team=team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_created",
+            previous_repositories=channel.repositories,
+            repositories=task.repositories,
+            previous_integration_id=channel.github_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(channel.id),
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=channel.repositories,
+        )
+
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
 
@@ -5954,6 +5976,8 @@ def update_task(
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
+        previous_repositories = list(task.repositories or [])
+        previous_integration_id = task.github_integration_id
 
         # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
         if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
@@ -5974,11 +5998,33 @@ def update_task(
         if "archived" in validated_data and validated_data["archived"] != task.archived:
             validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
 
+        repo_fields_touched = any(key in validated_data for key in ("repositories", "repository", "github_integration"))
         logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
         for key, value in validated_data.items():
             setattr(task, key, value)
         task.save()
         logger.info("Task %s updated successfully", task.id)
+
+    if repo_fields_touched:
+        space_repositories = (
+            Channel.objects.filter(id=task.channel_id).values_list("repositories", flat=True).first()
+            if task.channel_id
+            else None
+        )
+        capture_repository_config_changed(
+            team=task.team,
+            user_id=user_id,
+            subject="task",
+            trigger="task_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=task.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=task.github_integration_id,
+            channel_id=str(task.channel_id) if task.channel_id else None,
+            task_id=str(task.id),
+            origin_product=task.origin_product,
+            space_repositories=space_repositories,
+        )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
@@ -7895,6 +7941,8 @@ def update_channel(
     if name is not None and _is_general_channel(channel):
         return "general"
     update_fields: list[str] = []
+    previous_repositories = list(channel.repositories or [])
+    previous_integration_id = channel.github_integration_id
     if name is not None:
         normalized = normalize_channel_name(name)
         if not normalized:
@@ -7914,6 +7962,18 @@ def update_channel(
         channel.save(update_fields=[*update_fields, "updated_at"])
     except IntegrityError:
         return "name_taken"
+    if repositories is not None:
+        capture_repository_config_changed(
+            team=channel.team,
+            user_id=user_id,
+            subject="space",
+            trigger="space_settings_edit",
+            previous_repositories=previous_repositories,
+            repositories=channel.repositories,
+            previous_integration_id=previous_integration_id,
+            integration_id=channel.github_integration_id,
+            channel_id=str(channel.id),
+        )
     return _channel_to_dto(channel)
 
 
@@ -8206,6 +8266,7 @@ def publish_channel_instructions(
     *,
     content: str,
     base_version: int | None = None,
+    source: Literal["user", "agent"] = "user",
 ) -> contracts.ChannelInstructionsDTO | None:
     """Publish a new instructions version, superseding the current latest.
 
@@ -8227,6 +8288,7 @@ def publish_channel_instructions(
             .first()
         )
         current_version = current_latest.version if current_latest is not None else 0
+        previous_content_bytes = len(current_latest.content.encode("utf-8")) if current_latest is not None else None
         if base_version is not None and base_version != current_version:
             raise ChannelInstructionsVersionConflictError(current_version=current_version)
         if current_version >= MAX_CHANNEL_INSTRUCTIONS_VERSION:
@@ -8258,22 +8320,53 @@ def publish_channel_instructions(
             raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
         # Publishing produced a result, so drop the in-progress generation marker.
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=user_id,
+        channel_id=str(channel.id),
+        action="published",
+        source=source,
+        previous_version=current_version,
+        new_version=published.version,
+        content_bytes=len(content.encode("utf-8")),
+        previous_content_bytes=previous_content_bytes,
+        base_version_provided=base_version is not None,
+    )
     return _instructions_to_dto(published)
 
 
-def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
+def delete_channel_instructions(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, source: Literal["user", "agent"] = "user"
+) -> int | None:
     """Soft-delete every instructions version. Returns the count, or ``None``
     when the channel isn't visible."""
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return None
     with transaction.atomic():
+        previous_version = (
+            ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+            .order_by("-version")
+            .values_list("version", flat=True)
+            .first()
+            or 0
+        )
         count = (
             ChannelInstructions.objects.select_for_update()
             .filter(channel_id=channel.id, deleted=False)
             .update(deleted=True, is_latest=False)
         )
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    if count:
+        capture_space_context_changed(
+            team=channel.team,
+            user_id=user_id,
+            channel_id=str(channel.id),
+            action="cleared",
+            source=source,
+            previous_version=previous_version,
+            versions_deleted=count,
+        )
     return count
 
 

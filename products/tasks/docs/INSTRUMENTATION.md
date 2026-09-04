@@ -83,6 +83,79 @@ recipient's, even though the task's `created_by` has moved by then. Additional p
 | `from_user_id` | `int?` | User ID of the previous owner        |
 | `to_user_id`   | `int`  | User ID of the recipient (new owner) |
 
+## Channel / Space Configuration Events
+
+Source: `repository_config_analytics.py`, called from `facade/api.py`, `models.py`, and
+`presentation/views/channels_api.py`.
+
+These do **not** go through `Task.capture_event()`, so the "Task events" standard-property table
+above does not apply — they carry only the properties listed here plus `groups()`. `distinct_id`
+is the acting user, falling back to the team UUID.
+
+Neither `Channel` nor `Task` has an activity log, so before these events the only trace of a
+repository change was the row's own `updated_at`.
+
+### `repository_config_changed`
+
+Fires when a Space's or a Task's repository configuration changes. Nothing is captured when a
+write resubmits the same repository set and the same integration.
+
+| Property                         | Type    | Description                                                                                     |
+| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| `subject`                        | `str`   | `space` or `task`                                                                                 |
+| `trigger`                        | `str`   | `space_settings_edit`, `task_settings_edit`, `task_created`, or `github_integration_disconnected` |
+| `team_id`                        | `int`   |                                                                                                   |
+| `channel_id`                     | `str?`  | Always set for `subject=space`; set for `subject=task` when the task has a channel                |
+| `task_id`                        | `str?`  | `subject=task` only                                                                               |
+| `origin_product`                 | `str?`  | `subject=task` only                                                                               |
+| `previous_repository_count`      | `int`   | The "from"                                                                                        |
+| `repository_count`               | `int`   | The "to"                                                                                          |
+| `added_count` / `removed_count`  | `int`   |                                                                                                   |
+| `added_repositories`             | `str[]` | The delta only, never the full list. Capped at 10 by the serializer                               |
+| `removed_repositories`           | `str[]` | The delta only                                                                                    |
+| `is_first_configuration`         | `bool`  | Previous list was empty                                                                           |
+| `is_cleared`                     | `bool`  | New list is empty                                                                                 |
+| `github_integration_changed`     | `bool`  |                                                                                                   |
+| `github_integration_id`          | `int?`  | PostHog-side integration id                                                                       |
+| `previous_github_integration_id` | `int?`  |                                                                                                   |
+| `space_repository_count`         | `int?`  | `subject=task` only — the channel's current list size                                             |
+| `diverged_from_space`            | `bool?` | `subject=task` only — the new task list differs from the channel's                                |
+| `was_inherited_from_space`       | `bool?` | `subject=task` only — this edit is what broke inheritance                                         |
+| `affected_space_count`           | `int?`  | `trigger=github_integration_disconnected` only                                                    |
+
+`trigger=task_created` fires only when the caller overrode the Space default. A task that
+inherits its channel's repositories is already counted by `task_created`.
+
+`trigger=github_integration_disconnected` is one aggregate row for the whole
+`pre_delete` sweep, not one row per Space.
+
+Reading note: ticking "Use these repositories for the whole space" in the desktop repository
+dialog fires both a task-level and a space-level change from a single click. Two rows is correct
+— they are two config objects — but a "changes per user" metric counts objects, not intents.
+
+### `space_context_changed`
+
+Fires when a Space's CONTEXT.md is published or cleared. Carries byte counts only; CONTEXT.md is
+customer-authored free text.
+
+| Property                 | Type   | Description                                                     |
+| ------------------------ | ------ | --------------------------------------------------------------- |
+| `action`                 | `str`  | `published` or `cleared`                                          |
+| `source`                 | `str`  | `user` or `agent`                                                 |
+| `team_id`                | `int`  |                                                                   |
+| `channel_id`             | `str`  |                                                                   |
+| `previous_version`       | `int`  | 0 when there was none                                             |
+| `new_version`            | `int?` | Null on `cleared`                                                 |
+| `is_first_version`       | `bool` |                                                                   |
+| `content_bytes`          | `int`  | Length only, never content                                        |
+| `previous_content_bytes` | `int?` | Gives edit magnitude                                              |
+| `base_version_provided`  | `bool` | Whether the client used the optimistic-concurrency guard          |
+| `versions_deleted`       | `int?` | `cleared` only                                                    |
+
+`source` is load-bearing: a loop configured with `update_context` republishes on every fire, so
+an hourly loop produces hundreds of rows a month for one Space. Filter to `source=user` for any
+human-edit question.
+
 ## TaskRun Model Events
 
 Source: `products/tasks/backend/models.py`
