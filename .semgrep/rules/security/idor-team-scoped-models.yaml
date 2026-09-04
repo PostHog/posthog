@@ -361,6 +361,7 @@ rules:
                               |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
+                              |EvaluationBackfill
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -740,6 +741,7 @@ rules:
                         |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
+                        |EvaluationBackfill
                         |Text
                         |Threshold
                         |ToleratedHash
