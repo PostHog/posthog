@@ -1,10 +1,11 @@
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 
-from products.reaper_hog.backend.logic.artefacts import Note
+from products.reaper_hog.backend.logic.artefacts import Hit, Note
 from products.reaper_hog.backend.logic.constants import SUMMARY_NOTE_AUTHOR
 from products.reaper_hog.backend.logic.converge import ClusterDraft, converge
 from products.reaper_hog.backend.logic.inventory import (
@@ -25,6 +26,8 @@ from products.reaper_hog.backend.logic.scouts.static import StaticScout
 from products.reaper_hog.backend.logic.summary import render_summary
 from products.reaper_hog.backend.models import ReaperArtefact
 
+logger = logging.getLogger(__name__)
+
 SCOUTS: tuple[Scout, ...] = (FlagsScout(), ExperimentsScout(), ArchaeologyScout(), ScenesScout(), StaticScout())
 
 
@@ -44,6 +47,7 @@ class ScanResult:
     drafts: tuple[ClusterDraft, ...]
     outcome: ScanOutcome
     note: str
+    failed_scouts: tuple[str, ...] = ()
 
 
 def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> ScanResult:
@@ -56,18 +60,22 @@ def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> Sca
         inventory = upsert_inventory(team_id=request.team_id, repository=request.repository, scope=request.scope)
         begin_scan(inventory)
 
-    try:
-        hits = [hit for scout in scouts if scout.applies_to(request.scope) for hit in scout.run(context)]
-    except Exception:
+    hits, failed = _run_scouts(scouts, context)
+    if failed and len(failed) == len([s for s in scouts if s.applies_to(request.scope)]):
         with team_scope(request.team_id):
             abandon_scan(inventory)
-        raise
+        raise RuntimeError(f"Every scout failed: {', '.join(failed)}")
     drafts = converge(hits, owner_rules=_owner_rules(repo))
 
     with team_scope(request.team_id):
         outcome = record_scan(inventory, drafts, head_sha=head_sha, now=now)
         note = render_summary(
-            repository=request.repository, scope=request.scope, head_sha=head_sha, drafts=drafts, outcome=outcome
+            repository=request.repository,
+            scope=request.scope,
+            head_sha=head_sha,
+            drafts=drafts,
+            outcome=outcome,
+            failed_scouts=failed,
         )
         ReaperArtefact.append(
             team_id=request.team_id, inventory_id=inventory.id, content=Note(author=SUMMARY_NOTE_AUTHOR, body=note)
@@ -79,7 +87,22 @@ def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> Sca
         drafts=tuple(drafts),
         outcome=outcome,
         note=note,
+        failed_scouts=failed,
     )
+
+
+def _run_scouts(scouts: tuple[Scout, ...], context: ScoutContext) -> tuple[list[Hit], tuple[str, ...]]:
+    hits: list[Hit] = []
+    failed: list[str] = []
+    for scout in scouts:
+        if not scout.applies_to(context.scope):
+            continue
+        try:
+            hits += scout.run(context)
+        except Exception:
+            logger.exception("Scout %s failed; continuing with the others", scout.name)
+            failed.append(scout.name.value)
+    return hits, tuple(failed)
 
 
 def _owner_rules(repo: RepoIndex) -> tuple[OwnerRule, ...]:
