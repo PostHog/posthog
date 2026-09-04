@@ -57,10 +57,12 @@ import {
     CurrentReviewerUser,
 } from '../components/detail/reviewerDisplay'
 import {
+    captureInboxReportAction,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
+import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import {
     EnrichedReviewer,
     SignalReport,
@@ -73,11 +75,17 @@ import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
 
+/** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
+export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
 // gone), and the activity timeline renders the whole log. Pull a generous page so early entries
 // (the first task runs, repo selection) stay visible on reports with many findings — matching the
 // limit the kickoff flow already uses to find the repo-selection artefact.
 const ARTEFACT_FETCH_LIMIT = 1000
+
+/** The report column's tabs on a PR-bearing report: the summary, or the branch diff. */
+export type ReportDetailTab = 'summary' | 'files'
 
 export interface InboxReportDetailLogicProps {
     reportId: string
@@ -93,6 +101,49 @@ export interface ReportTaskEntry {
     startedAt: string
 }
 
+/**
+ * Why an implementation task still holds this report's single implementation slot, or `null` when
+ * the slot is free. A claim makes a manual "Create PR" fail with a `signal_report_task_cap` 429.
+ *
+ * Mirrors `_implementation_slot_claim` in products/signals/backend/task_run_artefacts.py: a run
+ * that has not settled holds the slot while it works, a run that shipped a PR holds it for good,
+ * and a run that ended with no PR hands it back. Approximates the server with what the client has,
+ * which is only `latest_run` rather than every run. Unloaded tasks read as no claim, so a cold load
+ * leaves the action enabled and the 429 stays the backstop rather than blocking a legitimate first
+ * press.
+ */
+export function implementationSlotClaim(reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null {
+    let claim: ImplementationSlotClaim | null = null
+    for (const entry of reportTasks ?? []) {
+        if (entry.purpose !== 'implementation') {
+            continue
+        }
+        // A shipped PR is the better answer when one task shipped and another is still working.
+        if (getTaskPrUrl(entry.task)) {
+            return 'shipped_pr'
+        }
+        if (!TERMINAL_RUN_STATUSES.includes(entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED)) {
+            claim = 'in_flight'
+        }
+    }
+    return claim
+}
+
+/**
+ * Whether an implementation run is still moving, which is what the Create PR gate waits on.
+ *
+ * Unlike `implementationSlotClaim` this ignores the PR a settled run shipped, because a shipped PR
+ * is not going to change on its own. Reusing the slot predicate here would leave the poll running
+ * forever on a finished implementation.
+ */
+export function implementationRunInFlight(reportTasks: ReportTaskEntry[] | null): boolean {
+    return (reportTasks ?? []).some(
+        (entry) =>
+            entry.purpose === 'implementation' &&
+            !TERMINAL_RUN_STATUSES.includes(entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED)
+    )
+}
+
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
 const ACTIVE_STATUSES: SignalReportStatus[] = [
     SignalReportStatus.CANDIDATE,
@@ -105,6 +156,14 @@ const REPORT_TASKS_POLL_INTERVAL_MS = 5000
 // PR CI checks refresh cadence while the detail is open — a running build's status stays current
 // without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
 const PR_CHECKS_POLL_INTERVAL_MS = 15000
+
+// Back off the checks poll after this many consecutive failures: a PR GitHub can't return
+// checks for (deleted branch, lost integration access) re-fails on every 15s tick for nothing.
+const PR_CHECKS_MAX_CONSECUTIVE_FAILURES = 3
+
+// While backed off, still retry every Nth tick (20 × 15s = 5 min) so a transient GitHub outage
+// heals the section without the report having to be closed and reopened.
+const PR_CHECKS_FAILURE_BACKOFF_TICKS = 20
 
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
@@ -191,6 +250,7 @@ export interface inboxReportDetailLogicValues {
     chartPlacements: ChartPlacements
     chartsById: Map<string, ReportChartApi>
     currentUserGithubLogin: string | null
+    detailTab: ReportDetailTab
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
     draftThread: DraftThread | null
@@ -203,6 +263,7 @@ export interface inboxReportDetailLogicValues {
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
+    implementationSlotClaim: ImplementationSlotClaim | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
     isReResearch: boolean
@@ -212,6 +273,8 @@ export interface inboxReportDetailLogicValues {
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
+    prChecksBackedOff: boolean
+    prChecksConsecutiveFailures: number
     prChecksError: string | null
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
@@ -234,11 +297,15 @@ export interface inboxReportDetailLogicValues {
     reportTasksLoading: boolean
     selectedTask: ReportTaskEntry | null
     selectedTaskId: string | null
+    shouldPollReportTasks: boolean
     trailingCharts: ReportChartApi[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxReportDetailLogicActions {
+    createPrSuccess: () => {
+        value: true
+    } // inboxTaskKickoffLogic
     closeDraftThread: () => {
         value: true
     }
@@ -410,6 +477,9 @@ export interface inboxReportDetailLogicActions {
     searchAvailableReviewers: (query: string) => {
         query: string
     }
+    setDetailTab: (tab: ReportDetailTab) => {
+        tab: ReportDetailTab
+    }
     setEditingCommentId: (commentId: string | null) => {
         commentId: string | null
     }
@@ -457,7 +527,9 @@ export interface inboxReportDetailLogicMeta {
         isUpdatingReviewers: (optimisticReviewers: EnrichedReviewer[] | null) => boolean
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
+        shouldPollReportTasks: (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null) => boolean
         hasImplementationPr: (report: SignalReport | null) => boolean
+        prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
         inlineThreadsByFile: (prComments: readonly PullRequestCommentApi[] | null) => Record<string, ReviewThread[]>
@@ -481,6 +553,7 @@ export interface inboxReportDetailLogicMeta {
             user: null | import('~/types').UserType
         ) => AvailableReviewerOption[]
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
+        implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
             reportTasks: ReportTaskEntry[] | null,
@@ -510,6 +583,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     connect(() => ({
         // Personal GitHub connection state gates the inline comment composer (comments post as the user).
         values: [personalIntegrationsLogic, ['integrations as personalIntegrations']],
+        // Starting a PR task writes to the artefact log, which is where the Create PR gate reads from.
+        actions: [inboxTaskKickoffLogic, ['createPrSuccess']],
     })),
 
     actions({
@@ -547,6 +622,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         searchAvailableReviewers: (query: string) => ({ query }),
         // Which linked task's run log the detail view shows; null falls back to `primaryTask`.
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
+        // Summary or Files changed in the report column (PR-bearing reports only).
+        setDetailTab: (tab: ReportDetailTab) => ({ tab }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
         // Thumbs feedback at the end of the report body. Recorded server-side as a report action
@@ -647,8 +724,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // Org members with a linked GitHub identity who can be added as reviewers.
                 // Filtered server-side via `query` (the backend ranks + caps at 100) so the picker
                 // isn't limited to the alphabetical first page. Empty query loads the default page.
-                loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
-                    return await api.signalReports.availableReviewers(query)
+                loadAvailableReviewers: async ({ query }: { query?: string } = {}, breakpoint) => {
+                    const reviewers = await api.signalReports.availableReviewers(query)
+                    // Discard this result if a newer search superseded it while the request was in
+                    // flight, so a slower earlier response cannot overwrite the newer rows.
+                    breakpoint()
+                    return reviewers
                 },
             },
         ],
@@ -735,6 +816,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setReport: () => [],
             },
         ],
+        // Which tab the report column shows. The logic is keyed by report id, so each report keeps its
+        // own tab while open and a freshly opened report starts on the summary.
+        detailTab: [
+            'summary' as ReportDetailTab,
+            {
+                setDetailTab: (_, { tab }) => tab,
+            },
+        ],
         // The thumbs rating this reader gave the open report, so the row can read the choice back.
         // The logic is keyed by report id, so each report keeps its own rating for as long as it's open.
         feedbackSentiment: [
@@ -795,12 +884,21 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         // Human-readable PR checks/comments load failures (kea-loaders only exposes a boolean flag).
         // A failure usually means the branch/PR was deleted or the GitHub integration lost access.
+        // Cleared only on success (not on load start), so the section keeps showing the error while
+        // a backed-off retry is in flight instead of flashing back to the loading skeleton.
         prChecksError: [
             null as string | null,
             {
-                loadPrChecks: () => null,
                 loadPrChecksSuccess: () => null,
                 loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+            },
+        ],
+        // Consecutive failed checks fetches — feeds `prChecksBackedOff`.
+        prChecksConsecutiveFailures: [
+            0,
+            {
+                loadPrChecksSuccess: () => 0,
+                loadPrChecksFailure: (state: number) => state + 1,
             },
         ],
         prCommentsError: [
@@ -862,10 +960,27 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (s) => [s.report],
             (report: SignalReport | null): boolean => (report ? ACTIVE_STATUSES.includes(report.status) : false),
         ],
+        // Poll the artefact log while something can still change it. A report being worked is the usual
+        // case, but a `ready` report can hold an implementation run too, and that run settling is what
+        // hands the Create PR slot back. Without this clause the action stays disabled on a ready report
+        // until the pane is reopened, and the server's 429 cannot correct it because the failure runs the
+        // other way: the press is refused in the UI that the server would now accept.
+        shouldPollReportTasks: [
+            (s) => [s.isReportActive, s.reportTasks],
+            (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null): boolean =>
+                isReportActive || implementationRunInFlight(reportTasks),
+        ],
         // Whether the report has a shipped implementation PR — gates the PR checks/comments fetch + poll.
         hasImplementationPr: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
+        ],
+        // True once GitHub has failed enough consecutive times that the 15s cadence stops being worth
+        // it — the poll tick then drops to a slow retry (see PR_CHECKS_FAILURE_BACKOFF_TICKS).
+        prChecksBackedOff: [
+            (s) => [s.prChecksConsecutiveFailures],
+            (prChecksConsecutiveFailures: number): boolean =>
+                prChecksConsecutiveFailures >= PR_CHECKS_MAX_CONSECUTIVE_FAILURES,
         ],
         // Whether the current user has a personal GitHub connection — required to post review comments
         // (they're attributed to the user's own GitHub identity, not the app's).
@@ -1045,6 +1160,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 return hasInFlight && hasPriorTerminal
             },
         ],
+        implementationSlotClaim: [
+            (s) => [s.reportTasks],
+            (reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null =>
+                implementationSlotClaim(reportTasks),
+        ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
         primaryTask: [
@@ -1078,7 +1198,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache, props }) => ({
+    listeners(({ actions, values, props }) => ({
+        setDetailTab: ({ tab }) => {
+            // Reviewing the diff is the deepest engagement a report gets short of acting on it.
+            if (tab === 'files' && values.report) {
+                captureInboxReportAction({ report: values.report, actionType: 'view_diff', surface: 'detail_pane' })
+            }
+        },
         rateReport: ({ sentiment }) => {
             if (!values.report) {
                 return
@@ -1323,27 +1449,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.loadReportDiff({ artefactId: commit.id })
             }
         },
-        // Poll the artefact log only while the report is active; stop once it reaches a terminal status
-        // (or is unloaded). Tasks are re-derived via `loadReportArtefactsSuccess`. Mirrors desktop
-        // `useReportTasks` gating. The keyed disposable replaces any running interval on re-add and is
-        // torn down automatically on unmount / tab hide.
+        // A PR task started from this pane is not in the artefact log the gate was computed from, so
+        // refresh it. This is also what starts the task poll for a ready report, whose status alone
+        // never gets one going.
+        createPrSuccess: () => {
+            actions.loadReportArtefacts()
+        },
         setReport: () => {
-            if (values.isReportActive) {
-                cache.disposables.add(() => {
-                    const interval = setInterval(() => actions.loadReportArtefacts(), REPORT_TASKS_POLL_INTERVAL_MS)
-                    return () => clearInterval(interval)
-                }, 'reportTasksPoll')
-            } else {
-                cache.disposables.dispose('reportTasksPoll')
-            }
             // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
             // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
             // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
+            // A failed load leaves the value null, so gate on the error too: without it every prop
+            // churn from the shell's list poll would re-fetch (and re-fail) a PR GitHub can't serve.
             if (values.hasImplementationPr) {
-                if (values.prChecks === null && !values.prChecksLoading) {
+                if (values.prChecks === null && !values.prChecksLoading && values.prChecksError === null) {
                     actions.loadPrChecks()
                 }
-                if (values.prComments === null && !values.prCommentsLoading) {
+                if (values.prComments === null && !values.prCommentsLoading && values.prCommentsError === null) {
                     actions.loadPrComments()
                 }
             }
@@ -1364,15 +1486,36 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         actions.loadAvailableReviewers()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
-        // Register the PR-checks poll once for the lifetime of the mount — the tick re-checks whether
-        // the report has a PR, so it stays correct as the report prop churns without the interval ever
-        // being torn down and restarted (which would keep resetting the 15s cadence). Auto-disposed on
-        // unmount / hidden tab.
+        // Register the artefact-log poll once for the lifetime of the mount and let each tick decide
+        // whether to fetch. Re-arming it from `setReport` instead would reset the 5s cadence on every
+        // report prop the shell hands down, which is the starvation the PR-checks poll below avoids.
+        // Auto-disposed on unmount / hidden tab.
         cache.disposables.add(() => {
             const interval = setInterval(() => {
-                if (values.hasImplementationPr) {
-                    actions.loadPrChecks()
+                if (!values.shouldPollReportTasks) {
+                    return
                 }
+                actions.loadReportArtefacts()
+            }, REPORT_TASKS_POLL_INTERVAL_MS)
+            return () => clearInterval(interval)
+        }, 'reportTasksPoll')
+        // Register the PR-checks poll once for the lifetime of the mount — the tick re-checks whether
+        // the report has a PR (and whether GitHub keeps failing), so it stays correct as the report
+        // prop churns without the interval ever being torn down and restarted (which would keep
+        // resetting the 15s cadence). Auto-disposed on unmount / hidden tab.
+        cache.disposables.add(() => {
+            let tick = 0
+            const interval = setInterval(() => {
+                tick += 1
+                if (!values.hasImplementationPr) {
+                    return
+                }
+                // While backed off, only every Nth tick retries — enough for a transient GitHub
+                // outage to heal the section without hammering a permanently broken PR.
+                if (values.prChecksBackedOff && tick % PR_CHECKS_FAILURE_BACKOFF_TICKS !== 0) {
+                    return
+                }
+                actions.loadPrChecks()
             }, PR_CHECKS_POLL_INTERVAL_MS)
             return () => clearInterval(interval)
         }, 'prChecksPoll')

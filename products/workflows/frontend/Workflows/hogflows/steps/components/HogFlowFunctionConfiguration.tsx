@@ -7,22 +7,27 @@ import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
+import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
+import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
 // Builds the sample globals the input editor uses for autocomplete and unknown-global warnings.
 // The available globals depend on the trigger type: batch runs have no external triggering event,
 // but the worker backfills a real event.distinct_id at dequeue, so batch must expose `event` too or
 // the editor wrongly flags {event.distinct_id} as unknown.
 export function buildSampleGlobals(
-    triggerType: string | undefined,
+    trigger: { type?: string; filters?: unknown } | undefined | null,
     variables: Array<Record<string, any>> | undefined | null
 ): Record<string, any> {
+    const triggerType = trigger?.type
     const workflowVariables: Record<string, any> = {}
     variables?.forEach((variable) => {
         // Use placeholder values based on variable type
@@ -84,9 +89,75 @@ export function buildSampleGlobals(
                 name: 'John Doe',
             },
         }
+    } else if (isSlackMessageTriggerConfig(trigger)) {
+        // Property names mirror what the Slack trigger emits (slack_workflow_events.py). No
+        // person: Slack-triggered runs are person-less.
+        sampleGlobals.event = {
+            event: '$slack_message_received',
+            distinct_id: 'U0123456789',
+            properties: {
+                integration_id: 1,
+                channel: 'C0123456789',
+                channel_type: 'channel',
+                slack_team_id: 'T0123456789',
+                user: 'U0123456789',
+                bot_id: null,
+                app_id: null,
+                subtype: null,
+                text: 'Example message text',
+                ts: '1700000000.000100',
+                thread_ts: null,
+                is_thread_reply: false,
+                is_ext_shared_channel: false,
+                slack_event: {},
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+    } else if (isGithubEventTriggerConfig(trigger)) {
+        // Property names mirror what the GitHub trigger emits (github_workflow_events.py). No
+        // person: GitHub-triggered runs are person-less.
+        sampleGlobals.event = {
+            event: '$github_event_received',
+            distinct_id: 'octocat',
+            properties: {
+                integration_id: 1,
+                event_type: 'issues',
+                action: 'opened',
+                repository: 'PostHog/posthog',
+                repository_visibility: 'public',
+                sender: 'octocat',
+                bot_sender: null,
+                own_app: false,
+                author_association: 'MEMBER',
+                actor_access: 'write',
+                title: 'Example issue title',
+                body: 'Example issue body',
+                review_state: null,
+                number: 123,
+                url: 'https://github.com/PostHog/posthog/issues/123',
+                ref: '',
+                branch: null,
+                installation_id: 1,
+                github_event: {},
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
     }
 
     return sampleGlobals
+}
+
+// The AI task step's Slack thread toggle only means something when a Slack message can start
+// the workflow; on other triggers the runtime no-ops it, so hide it rather than explain it.
+export function filterInputsSchemaForTrigger<T extends { key: string }>(
+    templateId: string,
+    trigger: { type?: string; filters?: unknown } | undefined | null,
+    inputsSchema: T[]
+): T[] {
+    if (templateId === 'template-posthog-create-task' && !isSlackMessageTriggerConfig(trigger)) {
+        return inputsSchema.filter((schema) => schema.key !== 'reply_in_slack_thread')
+    }
+    return inputsSchema
 }
 
 export function HogFlowFunctionConfiguration({
@@ -97,6 +168,7 @@ export function HogFlowFunctionConfiguration({
     setMappings,
     errors,
     warnings,
+    emailFieldErrors,
 }: {
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
@@ -105,6 +177,7 @@ export function HogFlowFunctionConfiguration({
     setMappings?: (mappings: HogFunctionMappingType[]) => void
     errors?: Record<string, string>
     warnings?: Record<string, string>
+    emailFieldErrors?: EmailFieldErrors
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -140,12 +213,11 @@ export function HogFlowFunctionConfiguration({
         return <TemplateNotFoundFallback templateId={templateId} />
     }
 
-    const triggerType = workflow?.trigger?.type
-    const sampleGlobals = buildSampleGlobals(triggerType, workflow?.variables)
+    const sampleGlobals = buildSampleGlobals(workflow?.trigger, workflow?.variables)
 
     // Native push carries a long tail of optional Android/iOS override fields. Keep the core message
     // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.
-    const inputsSchema = template.inputs_schema ?? []
+    const inputsSchema = filterInputsSchemaForTrigger(templateId, workflow?.trigger, template.inputs_schema ?? [])
     const isPlatformInput = (key: string): boolean => key.startsWith('android_') || key.startsWith('ios_')
     const coreInputsSchema = isPushStep ? inputsSchema.filter((s) => !isPlatformInput(s.key)) : inputsSchema
     const androidInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('android_')) : []
@@ -155,6 +227,11 @@ export function HogFlowFunctionConfiguration({
         <CyclotronJobInputs
             errors={errors}
             warnings={warnings}
+            emailFieldErrors={emailFieldErrors}
+            // Email edits propagate live into the workflow form, where auto-save persists them
+            // (into the staged draft on active workflows), so the editor needs no save step.
+            emailLiveChanges
+            emailSaveIndicator={<WorkflowAutoSaveIndicator />}
             configuration={{ inputs: inputs as Record<string, CyclotronJobInputType>, inputs_schema: schema }}
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}

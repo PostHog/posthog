@@ -10,6 +10,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { initKeaTests } from '../init'
+import { setupInsightMocks, type SetupMocksOptions } from './mocks'
 
 export const DATA_VIZ_TEST_KEY = 'sql-test-harness'
 
@@ -54,6 +55,7 @@ export interface RenderDataVisualizationProps {
     readOnly?: boolean
     embedded?: boolean
     context?: QueryContext<DataVisualizationNode>
+    mocks?: SetupMocksOptions
 }
 
 /** Mount a SQL insight (`DataVisualizationNode`) the way the real scene does — through
@@ -69,6 +71,8 @@ export function renderDataVisualization(props: RenderDataVisualizationProps): Re
     const ffLogic = featureFlagLogic()
     ffLogic.mount()
     ffLogic.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
+
+    setupInsightMocks(props.mocks)
 
     const cachedResults = buildHogQLResponse(props.response)
 

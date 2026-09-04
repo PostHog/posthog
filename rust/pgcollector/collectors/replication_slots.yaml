@@ -1,0 +1,12 @@
+name: replication_slots
+description: Replication slots and how much WAL they are holding back.
+interval: 60s
+scope: cluster
+kind: gauge
+query: |
+  SELECT slot_name, plugin, slot_type, database, active, temporary,
+         wal_status,
+         CASE WHEN pg_is_in_recovery() THEN NULL
+              ELSE pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint END AS retained_wal_bytes,
+         safe_wal_size::bigint AS safe_wal_size
+  FROM pg_replication_slots

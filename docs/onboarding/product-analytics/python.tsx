@@ -2,10 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
-
-    const PythonEventCapture = snippets?.PythonEventCapture
+export const getPythonInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
         {
@@ -61,20 +59,32 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog will automatically start capturing events. You can also manually send
-                        events to test your integration:
-                    </Markdown>
-                    {PythonEventCapture && <PythonEventCapture />}
-                </>
-            ),
-        },
     ]
 }
+
+export const getPythonEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { Markdown, snippets } = ctx
+
+    const PythonEventCapture = snippets?.PythonEventCapture
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>
+                    Once installed, PostHog will automatically start capturing events. You can also manually send events
+                    to test your integration:
+                </Markdown>
+                {PythonEventCapture && <PythonEventCapture />}
+            </>
+        ),
+    }
+}
+
+export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getPythonInstallSteps(ctx),
+    getPythonEventStep(ctx),
+]
 
 export const PythonInstallation = createInstallation(getPythonSteps)

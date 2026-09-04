@@ -14,23 +14,21 @@ from dataclasses import dataclass
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from django.conf import settings
 
-from cachetools import TTLCache, cached
-from semantic_version import NpmSpec
-
-if TYPE_CHECKING:
-    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
-
 import modal
 import requests
+from cachetools import TTLCache, cached
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InvalidError as ModalInvalidError,
+    ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from semantic_version import NpmSpec
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
@@ -38,8 +36,6 @@ from posthog.settings import CLOUD_DEPLOYMENT
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     DEV_STACK_IMAGE_NAME,
-    POSTHOG_EXEC_PERMISSION_REGEX,
-    SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
@@ -47,27 +43,21 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
+    SandboxNetworkPolicyError,
     SandboxNotFoundError,
     SandboxNotRunningError,
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
+    SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
-from products.tasks.backend.logic.services.agentsh import (
-    AGENTSH_DAEMON_PORT,
-    BASH_ENV_SCRIPT,
-    ENV_WRAPPER_SCRIPT,
-    GH_GUARD_INSTALL_PATH,
-    SESSION_ID_FILE,
-    _hostname_from_url,
-    build_exec_prefix,
-    build_setup_script,
-    generate_bash_env_script,
-    generate_config_yaml,
-    generate_env_wrapper,
-    generate_policy_yaml,
-    read_gh_guard_script,
+from products.tasks.backend.logic.services.cpu_billing import (
+    CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
+    CPU_BILLING_STATE_PATH,
+    build_sampler_start_command,
+    compute_billed_cpu_usage_usec,
+    parse_cpu_stat_usage_usec,
 )
 from products.tasks.backend.logic.services.local_packages import (
     LocalPackage,
@@ -79,28 +69,39 @@ from products.tasks.backend.logic.services.local_skills import (
     LocalSkillsCache,
     populate_skills_directory,
 )
-from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import (
-    WORKING_DIR,
-    SandboxBase,
-    build_agent_runtime_env_prefix,
-    redact_sandbox_command,
-    wait_for_health_check,
-)
+from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
 from products.tasks.backend.models import SandboxSnapshot
 
-from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .agent_server_launcher import (
+    AGENT_SERVER_PORT as AGENT_SERVER_PORT,
+    AgentServerLaunchMixin,
+    _session_init_probe_hosts as _session_init_probe_hosts,
+)
+from .sandbox import (
+    AgentServerResult,
+    ExecutionResult,
+    ExecutionStream,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    SandboxWorkload,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
+# Self-driving runs boot the same default image as a user's task, so only the app separates them.
+# Images and snapshots are workspace-scoped in Modal, not app-scoped, so a box here still restores
+# a snapshot baked under the default app.
+SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
+
 
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
@@ -115,8 +116,6 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
 SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.11.15"
-AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
-AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
@@ -133,6 +132,34 @@ TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
 
 DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
+# Heavy, reproducible directories to prune before retrying a snapshot that hit Modal's
+# 1M-file cap. Each is a package cache or install tree the resume sandbox rebuilds, so
+# dropping them shrinks the file count without losing the run's own work.
+SNAPSHOT_PRUNE_DIR_NAMES = (
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pnpm-store",
+    ".cache",
+    ".pytest_cache",
+    ".mypy_cache",
+)
+SNAPSHOT_PRUNE_TIMEOUT_SECONDS = 90
+
+
+def _is_snapshot_file_cap_error(error: BaseException) -> bool:
+    """Whether Modal's ``ResourceExhaustedError`` is the permanent >1M-file snapshot cap
+    rather than a generic (retryable) quota/rate-limit ``RESOURCE_EXHAUSTED``.
+
+    ``ResourceExhaustedError`` is Modal's generic gRPC RESOURCE_EXHAUSTED wrapper, so we
+    key on the file-count message ("... snapshot contains more than 1000000 files") to avoid
+    classifying a transient quota/rate-limit blip as a permanent, non-retryable failure.
+    """
+    message = str(error).lower()
+    return "snapshot" in message and "more than" in message and "file" in message
+
+
 # Modal's snapshot_filesystem default timeout is 55s, which multi-GB sandbox filesystems
 # routinely exceed. The default fits the standalone snapshot activity's 10-minute budget;
 # resume snapshots run under a 5-minute activity budget and pass a tighter per-call
@@ -143,28 +170,19 @@ DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS = 8 * 60
 PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS = 30 * 60
 
-SESSION_INIT_PROBE_HOSTS = (
-    "gateway.us.posthog.com",
-    "gateway.eu.posthog.com",
-    "api.anthropic.com",
+_MODAL_NETWORK_POLICY_REJECTION_MARKERS = (
+    "outbound_domain_allowlist",
+    "outbound domain allowlist",
+    "domain allowlist",
+    "allowed domains",
 )
 
 
-def _session_init_probe_hosts() -> list[str]:
-    """Hosts the startup-failure egress probe checks. Both gateway settings
-    are included: routed products call SANDBOX_AI_GATEWAY_URL, everything
-    else SANDBOX_LLM_GATEWAY_URL, and a block on either is this probe's
-    reason to exist.
-    """
-    hosts = list(SESSION_INIT_PROBE_HOSTS)
-    mcp_host = _hostname_from_url(resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL))
-    if mcp_host and mcp_host not in hosts:
-        hosts.insert(0, mcp_host)
-    for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
-        gateway_host = _hostname_from_url(getattr(settings, setting_name, None))
-        if gateway_host and gateway_host not in hosts:
-            hosts.insert(0, gateway_host)
-    return hosts
+def _is_modal_network_policy_rejection(error: BaseException) -> bool:
+    if not isinstance(error, ModalInvalidError):
+        return False
+    message = str(error).casefold()
+    return any(marker in message for marker in _MODAL_NETWORK_POLICY_REJECTION_MARKERS)
 
 
 # Modal region mapping based on cloud deployment
@@ -192,21 +210,18 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
     ``(request, limit)`` tuple form so the box is billed at ``max(request, actual)`` and can burst
     up to the limit; otherwise emit the flat scalar, which makes request == limit (fixed size).
 
-    The burstable request floor comes from ``cpu_request_cores`` / ``memory_request_mb`` (defaulting
-    to the small floor in ``sandbox_config``). The request is clamped to the limit so it never
-    exceeds it when the configured size is at or below the requested floor.
+    The burstable request floors come from the config's ``effective_*_request`` properties — the
+    same values the usage ledger records — so what Modal reserves and what pricing bills can't
+    diverge.
     """
     cpu_limit = float(config.cpu_cores)
     memory_limit_mb = int(config.memory_gb * 1024)
     if not config.burstable_resources:
         return {"cpu": cpu_limit, "memory": memory_limit_mb}
 
-    cpu_value = (min(float(config.cpu_request_cores), cpu_limit), cpu_limit)
-    if config.is_vm:
-        return {"cpu": cpu_value, "memory": memory_limit_mb}
     return {
-        "cpu": cpu_value,
-        "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
+        "cpu": (config.effective_cpu_request_cores, cpu_limit),
+        "memory": (config.effective_memory_request_mb, memory_limit_mb),
     }
 
 
@@ -219,6 +234,13 @@ LOCAL_MODAL_DOCKERFILES = {
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
+# The notebook image bakes the notebooks SQLV2 kernel and stamps its content hash,
+# so a local build context needs the package and the module that computes the hash.
+LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
+LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
+LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
+# The base image builds the agent-shadow observer from source in its first stage.
+LOCAL_MODAL_AGENT_SHADOW_DIR = Path("products/desktop/packages/agent-shadow")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -324,6 +346,7 @@ class ImageCandidate:
     image: modal.Image
     label: str
     restored_from_snapshot: bool = False
+    has_dev_stack: bool = False
     # The image is a Modal sandbox filesystem snapshot (a resume snapshot or the
     # published dev-stack image), so a boot from it needs the post-create health probe —
     # snapshot restores can come up dead with every RPC succeeding.
@@ -477,6 +500,7 @@ def _build_canvas_template_image() -> modal.Image:
         .run_commands("npm ci --prefix /scripts --omit=dev --no-audit --no-fund")
         .add_local_file(str(builder_dir / "build.mjs"), "/scripts/canvas-builder/build.mjs", copy=True)
         .add_local_file(str(builder_dir / "manifest.json"), "/scripts/canvas-builder/manifest.json", copy=True)
+        .add_local_file(str(builder_dir / "canvas-sdk.mjs"), "/scripts/canvas-builder/canvas-sdk.mjs", copy=True)
     )
 
 
@@ -562,6 +586,11 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
 
+    if template in {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE}:
+        destination_sampler_path = context_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER
+        destination_sampler_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
+
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -572,6 +601,20 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         # latest rendered output.
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
+
+        shutil.copytree(base_dir / LOCAL_MODAL_AGENT_SHADOW_DIR, context_dir / LOCAL_MODAL_AGENT_SHADOW_DIR)
+
+    elif template == SandboxTemplate.NOTEBOOK_BASE:
+        destination_kernel_module_path = context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE
+        destination_kernel_module_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE, destination_kernel_module_path)
+        # A checkout that ran the tests locally has bytecode here, and this context
+        # bypasses .dockerignore, so drop it rather than bake it into the image.
+        shutil.copytree(
+            base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
 
     elif template == SandboxTemplate.STREAMLIT_BASE:
         # Copy all sibling files (streamlit_auth_proxy.py, etc.)
@@ -585,7 +628,7 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     return str(destination_dockerfile_path), str(context_dir)
 
 
-class ModalSandbox(SandboxBase):
+class ModalSandbox(AgentServerLaunchMixin):
     """
     Modal-based sandbox for production use.
     A box in the cloud. Sand optional.
@@ -599,14 +642,17 @@ class ModalSandbox(SandboxBase):
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
+    STREAMLIT_APP_NAME = STREAMLIT_MODAL_APP_NAME
+    SELF_DRIVING_APP_NAME = SELF_DRIVING_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = type(self)._get_app_for_template(config.template)
+        self._app = type(self)._get_app_for_config(config)
         self._sandbox_url = sandbox_url
         self.provision_diagnostics = None
+        self._destroyed = False
 
     @property
     def sandbox_url(self) -> str | None:
@@ -614,22 +660,37 @@ class ModalSandbox(SandboxBase):
         return self._sandbox_url
 
     @classmethod
-    def _get_default_app(cls) -> modal.App:
-        return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
+    def _template_app_name(cls, template: SandboxTemplate) -> str | None:
+        """App a template owns outright, or None when it shares the general-purpose apps.
+
+        Notebook and Streamlit boxes are their own products with their own images, so they stay
+        in their own app whatever the workload — neither is ever self-driving.
+        """
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            return cls.NOTEBOOK_APP_NAME
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            return cls.STREAMLIT_APP_NAME
+        return None
 
     @classmethod
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
-        if template == SandboxTemplate.NOTEBOOK_BASE:
-            return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
-        if template == SandboxTemplate.STREAMLIT_BASE:
-            return modal.App.lookup(STREAMLIT_MODAL_APP_NAME, create_if_missing=True)
-        return cls._get_default_app()
+        """App for a template alone, ignoring workload. For image builds, where the built image
+        is visible to every app in the workspace and so has no workload of its own."""
+        return modal.App.lookup(cls._template_app_name(template) or cls.DEFAULT_APP_NAME, create_if_missing=True)
+
+    @classmethod
+    def _get_app_for_config(cls, config: SandboxConfig) -> modal.App:
+        """App that owns this sandbox: the template's when it has one, otherwise the workload's."""
+        app_name = cls._template_app_name(config.template)
+        if app_name is None and config.workload == SandboxWorkload.SELF_DRIVING:
+            app_name = cls.SELF_DRIVING_APP_NAME
+        return modal.App.lookup(app_name or cls.DEFAULT_APP_NAME, create_if_missing=True)
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
             modal.enable_output()
-            app = cls._get_app_for_template(config.template)
+            app = cls._get_app_for_config(config)
             base_image = _get_template_image(config.template)
             custom_image_bare: modal.Image | None = None
             custom_image: modal.Image | None = None
@@ -684,6 +745,7 @@ class ModalSandbox(SandboxBase):
             # when creating from the previous image fails (e.g. its overlay image build errors),
             # so a broken overlay costs the local packages, never the snapshot or custom image.
             candidates: list[ImageCandidate] = []
+            requested_dev_stack = config.is_dev_stack_image
             if snapshot_image is not None and snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
                 overlaid_snapshot = _attach_local_package_mounts(
                     snapshot_image, config.template, install_dependencies=False
@@ -695,6 +757,7 @@ class ModalSandbox(SandboxBase):
                             f"snapshot image {snapshot_external_id} with local package overlay",
                             restored_from_snapshot=True,
                             snapshot_derived=True,
+                            has_dev_stack=requested_dev_stack,
                         )
                     )
                 candidates.append(
@@ -703,6 +766,7 @@ class ModalSandbox(SandboxBase):
                         f"snapshot image {snapshot_external_id}",
                         restored_from_snapshot=True,
                         snapshot_derived=True,
+                        has_dev_stack=requested_dev_stack,
                     )
                 )
             if custom_image is not None and custom_image_bare is not None:
@@ -716,6 +780,7 @@ class ModalSandbox(SandboxBase):
                             custom_image,
                             f"custom image {config.custom_image_name} with local package overlay",
                             snapshot_derived=custom_is_snapshot,
+                            has_dev_stack=requested_dev_stack,
                         )
                     )
                 candidates.append(
@@ -723,6 +788,7 @@ class ModalSandbox(SandboxBase):
                         custom_image_bare,
                         f"custom image {config.custom_image_name}",
                         snapshot_derived=custom_is_snapshot,
+                        has_dev_stack=requested_dev_stack,
                     )
                 )
             candidates.append(ImageCandidate(base_image, "base image"))
@@ -752,7 +818,7 @@ class ModalSandbox(SandboxBase):
             if config.block_network:
                 create_kwargs["block_network"] = True
 
-            if config.outbound_domain_allowlist:
+            if config.outbound_domain_allowlist is not None:
                 create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
@@ -837,15 +903,20 @@ class ModalSandbox(SandboxBase):
             if modal_output is not None:
                 sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
-            logger.info(f"Created sandbox {sandbox.id} for {config.name}")
+            logger.info(
+                f"Created sandbox {sandbox.id} for {config.name}",
+                extra={"modal_app": getattr(app, "name", None), "workload": config.workload.value},
+            )
 
             return sandbox
 
+        except SandboxNetworkPolicyError:
+            raise
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
-            )
+            ) from e
 
     @staticmethod
     def _create_from_image_candidates(
@@ -861,12 +932,23 @@ class ModalSandbox(SandboxBase):
         re-enter this chain (the wedged-restore recovery) can describe what they landed on.
         """
         for index, candidate in enumerate(candidates):
-            create_kwargs["image"] = candidate.image
+            config.dev_stack_present = candidate.has_dev_stack
+            attempt_kwargs = {**create_kwargs, "image": candidate.image, **_resource_create_kwargs(config)}
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
+                if config.outbound_domain_allowlist is not None and _is_modal_network_policy_rejection(e):
+                    raise SandboxNetworkPolicyError(
+                        "Modal rejected the requested sandbox network policy.",
+                        {
+                            "config_name": config.name,
+                            "network_policy_fingerprint": config.network_policy_fingerprint,
+                            "error": str(e),
+                        },
+                        cause=e,
+                    ) from e
                 if index == len(candidates) - 1:
                     raise
                 logger.warning(
@@ -929,7 +1011,7 @@ class ModalSandbox(SandboxBase):
             )
 
     def get_status(self) -> SandboxStatus:
-        return SandboxStatus.RUNNING if self._sandbox.poll() is None else SandboxStatus.SHUTDOWN
+        return SandboxStatus.SHUTDOWN if self._destroyed or self._sandbox.poll() is not None else SandboxStatus.RUNNING
 
     def execute(
         self,
@@ -1052,7 +1134,7 @@ class ModalSandbox(SandboxBase):
 
         return _ModalExecutionStream(process)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
@@ -1064,7 +1146,9 @@ class ModalSandbox(SandboxBase):
         try:
             self._sandbox.filesystem.write_bytes(payload, temp_path)
             mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(
+                mv_command, timeout_seconds=timeout_seconds or self.config.default_execution_timeout_seconds
+            )
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -1117,367 +1201,20 @@ class ModalSandbox(SandboxBase):
         logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
         return AgentServerResult(url=credentials.url, token=credentials.token)
 
-    def _build_agent_server_command(
-        self,
-        repo_path: str | None,
-        task_id: str,
-        run_id: str,
-        mode: str,
-        create_pr: bool,
-        auto_publish: bool = False,
-        interaction_origin: str | None = None,
-        branch: str | None = None,
-        agent_runtime: str | None = None,
-        runtime_adapter: str | None = None,
-        provider: str | None = None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
-        context_window: str | None = None,
-        fast_mode: bool | None = None,
-        initial_permission_mode: str | None = None,
-        mcp_servers_arg: str = "",
-        relay_mcp_servers_arg: str = "",
-        allowed_domains: list[str] | None = None,
-        event_ingest_token: str | None = None,
-        task_run_session_token: str | None = None,
-        event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
-        repo_ready_file: str | None = None,
-        rtk_enabled: bool = True,
-        posthog_exec_permission_regex: str | None = None,
-    ) -> str:
-        env_prefix = build_agent_runtime_env_prefix(
-            interaction_origin=interaction_origin,
-            agent_runtime=agent_runtime,
-            sandbox_id=self.id,
-            runtime_adapter=runtime_adapter,
-            provider=provider,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            context_window=context_window,
-            fast_mode=fast_mode,
-            initial_permission_mode=initial_permission_mode,
-            event_ingest_token=event_ingest_token,
-            task_run_session_token=task_run_session_token,
-            event_ingest_url=event_ingest_url,
-            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
-            rtk_enabled=rtk_enabled,
-        )
-        create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
-        # Only append when opted in: agent-server builds without the option reject unknown
-        # flags, so default runs (and resumes of old snapshots) must not see it.
-        auto_publish_flag = " --autoPublish true" if auto_publish else ""
-        repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
-        branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
-        domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
-        repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
-        exec_permission_flag = (
-            f" --posthogExecPermissionRegex {shlex.quote(posthog_exec_permission_regex)}"
-            if posthog_exec_permission_regex
-            else ""
-        )
-        # Scope BASH_ENV to the agent-server process (not the container env) so only the
-        # agent's per-command tool shells re-source the refreshed token. Backend maintenance
-        # execs (clone/checkout/token injection) must not source it — the script could be
-        # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
-        unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
-        server_cmd = (
-            f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
-            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
-            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
-        )
-
-        if repo_ready_file:
-            # Keep the adapter process from inheriting a repository cwd that does not
-            # exist yet, even if an overlaid agent-server mishandles its readiness flag.
-            wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
-            server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
-
-        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
-        initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
-
-        if allowed_domains is not None:
-            return (
-                f"cd /scripts && {initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
-            )
-        else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
-
-    def _diagnose_startup_failure(self, allowed_domains: list[str] | None) -> dict[str, str]:
-        diagnostics: dict[str, str] = {}
-        try:
-            if not self.is_running():
-                poll = self._sandbox.poll()
-                diagnostics["sandbox_terminated"] = "true"
-                diagnostics["failure_reason"] = (
-                    f"sandbox terminated before becoming healthy (poll={poll}); "
-                    "the VM/container exited (OOM, init exit, or reaping) rather than egress being blocked"
-                )
-                return diagnostics
-
-            diagnostics["sandbox_terminated"] = "false"
-            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
-            diagnostics["log"] = log_result.stdout
-            health_result = self.execute(
-                f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
-                timeout_seconds=5,
-            )
-            diagnostics["health_response"] = health_result.stdout.strip()[:500]
-
-            egress = self._probe_session_init_egress()
-            diagnostics["egress_probe"] = egress
-            blocked = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
-            if blocked:
-                diagnostics["failure_reason"] = "egress blocked to required session-init host(s): " + "; ".join(blocked)
-            else:
-                diagnostics["failure_reason"] = (
-                    "agent server alive but never reported hasSession=true; no egress block detected, "
-                    "inspect agent-server log"
-                )
-        except Exception as e:
-            diagnostics.setdefault("failure_reason", f"health check failed; diagnostics unavailable: {e}")
-        return diagnostics
-
-    def _probe_session_init_egress(self) -> str:
-        hosts = _session_init_probe_hosts()
-        checks = "; ".join(
-            f"printf '%s ' {shlex.quote(host)}; "
-            f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
-            for host in hosts
-        )
-        return self.execute(checks, timeout_seconds=30).stdout.strip()
-
-    def start_agent_server(
-        self,
-        repository: str | None,
-        task_id: str,
-        run_id: str,
-        mode: str = "background",
-        create_pr: bool = True,
-        auto_publish: bool = False,
-        interaction_origin: str | None = None,
-        branch: str | None = None,
-        agent_runtime: str | None = None,
-        runtime_adapter: str | None = None,
-        provider: str | None = None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
-        context_window: str | None = None,
-        fast_mode: bool | None = None,
-        initial_permission_mode: str | None = None,
-        mcp_configs: list[McpServerConfig] | None = None,
-        relayed_mcp_servers: list[str] | None = None,
-        allowed_domains: list[str] | None = None,
-        event_ingest_token: str | None = None,
-        task_run_session_token: str | None = None,
-        event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
-        repo_ready_file: str | None = None,
-        wait_for_health: bool = True,
-        rtk_enabled: bool = True,
-    ) -> None:
-        """Start the agent-server HTTP server in the sandbox.
-
-        The sandbox URL and token should be obtained via get_connect_credentials()
-        before calling this method. The agent-server runs on port 8080 which is
-        exposed via Modal's connect token mechanism.
-        """
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        if self._agent_server_is_healthy():
-            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-            return
-        self._free_agent_server_port()
+        credentials = self._sandbox.create_connect_token(user_metadata=user_metadata, port=port)
 
-        repo_path: str | None = None
-        if repository:
-            org, repo = repository.lower().split("/")
-            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        logger.info(f"Minted preview connect credentials for sandbox {self.id} on port {port}")
+        return AgentServerResult(url=credentials.url, token=credentials.token)
 
-        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
-        # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
-        # pre-shim filesystem snapshot — or any window where the base image lags this backend —
-        # would otherwise leave gh with no token once the frozen launch-env token is unset.
-        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
-        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
-
-        if allowed_domains is not None:
-            self._setup_agentsh(WORKING_DIR, allowed_domains)
-
-        mcp_servers_arg = ""
-        if mcp_configs:
-            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
-            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
-
-        relay_mcp_servers_arg = ""
-        if relayed_mcp_servers:
-            relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
-
-        if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
-            raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
-
-        if auto_publish and not self.agent_server_supports_auto_publish():
-            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
-            auto_publish = False
-
-        exec_permission_regex: str | None = POSTHOG_EXEC_PERMISSION_REGEX
-        if not self.agent_server_supports_exec_permission_regex():
-            logger.warning(
-                f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
-                "exec sub-tools will not prompt"
-            )
-            exec_permission_regex = None
-
-        command = self._build_agent_server_command(
-            repo_path,
-            task_id,
-            run_id,
-            mode,
-            create_pr,
-            auto_publish,
-            interaction_origin,
-            branch,
-            agent_runtime,
-            runtime_adapter,
-            provider,
-            model,
-            reasoning_effort,
-            context_window=context_window,
-            fast_mode=fast_mode,
-            initial_permission_mode=initial_permission_mode,
-            mcp_servers_arg=mcp_servers_arg,
-            relay_mcp_servers_arg=relay_mcp_servers_arg,
-            allowed_domains=allowed_domains,
-            event_ingest_token=event_ingest_token,
-            task_run_session_token=task_run_session_token,
-            event_ingest_url=event_ingest_url,
-            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
-            repo_ready_file=repo_ready_file,
-            rtk_enabled=rtk_enabled,
-            posthog_exec_permission_regex=exec_permission_regex,
-        )
-
-        logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        launch_result = self.execute(command, timeout_seconds=30)
-        if launch_result.exit_code != 0:
-            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {launch_result.stderr}")
-            raise SandboxExecutionError(
-                "Agent-server failed to start",
-                {"sandbox_id": self.id, "stderr": launch_result.stderr, "exit_code": str(launch_result.exit_code)},
-                cause=RuntimeError(launch_result.stderr or "launch command returned non-zero exit"),
-            )
-
-        if wait_for_health:
-            self.wait_for_agent_server_ready(allowed_domains)
-
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check():
-            logger.info(f"Agent-server ready in sandbox {self.id}")
-            return
-        diagnostics = self._diagnose_startup_failure(allowed_domains)
-        raise SandboxExecutionError(
-            "Agent-server failed to start",
-            {"sandbox_id": self.id, **diagnostics},
-            cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
-        )
-
-    def mark_repo_ready(self, repo_ready_file: str) -> None:
-        self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
-
-    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
-        if allowed_domains is not None:
-            logger.info("Configuring agentsh in sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains))
-        else:
-            logger.info("Configuring agentsh in sandbox %s (allow-all mode)", self.id)
-
-        config_yaml = generate_config_yaml(enable_ptrace=True, full_trace=True)
-        policy_yaml = generate_policy_yaml(allowed_domains)
-
-        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
-        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
-        self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
-        self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
-        self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
-        self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
-
-        setup_script = build_setup_script(workspace_path)
-        result = self.execute(setup_script, timeout_seconds=30)
-        if not self._agentsh_daemon_is_healthy():
-            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
-            logger.error(
-                "agentsh daemon failed to start in sandbox %s (setup exit_code=%s); stderr=%r agentsh_log=%r",
-                self.id,
-                result.exit_code,
-                result.stderr.strip()[:1000],
-                agentsh_log.stdout.strip()[:2000],
-            )
-            raise SandboxExecutionError(
-                "Failed to start agentsh daemon",
-                {
-                    "sandbox_id": self.id,
-                    "stderr": result.stderr,
-                    "stdout": result.stdout,
-                    "exit_code": result.exit_code,
-                    "agentsh_log": agentsh_log.stdout,
-                },
-                cause=RuntimeError(result.stderr or "agentsh daemon health check failed"),
-            )
-
-        session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
-        if session_check.exit_code != 0 or not session_check.stdout.strip():
-            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
-            logger.error(
-                "agentsh session creation failed in sandbox %s; stderr=%r agentsh_log=%r",
-                self.id,
-                session_check.stderr.strip()[:1000],
-                agentsh_log.stdout.strip()[:2000],
-            )
-            raise SandboxExecutionError(
-                "Failed to create agentsh session",
-                {
-                    "sandbox_id": self.id,
-                    "stderr": session_check.stderr,
-                    "agentsh_log": agentsh_log.stdout,
-                },
-                cause=RuntimeError("agentsh session create failed"),
-            )
-
-        logger.info("agentsh daemon started and session created in sandbox %s", self.id)
-
-    def _agentsh_daemon_is_healthy(self, max_attempts: int = 30, poll_interval: float = 0.5) -> bool:
-        health_script = (
-            f"for i in $(seq 1 {max_attempts}); do "
-            f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{AGENTSH_DAEMON_PORT}/health); "
-            f'  [ "$status" = "200" ] && exit 0; '
-            f'  [ "$i" -lt {max_attempts} ] && sleep {poll_interval}; '
-            f"done; "
-            f"exit 1"
-        )
-        result = self.execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
-        return result.exit_code == 0
-
-    def _wait_for_health_check(
-        self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
-    ) -> bool:
-        """Poll health endpoint until server is ready (single remote call)."""
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
-
-    def _agent_server_is_healthy(self) -> bool:
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
-
-    def read_agent_server_session_init_ms(self) -> int | None:
-        return self._read_health_session_init_ms(AGENT_SERVER_PORT)
-
-    def _free_agent_server_port(self) -> None:
-        self.execute(
-            "pkill -TERM -f agent-server 2>/dev/null || true; "
-            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
-            "pkill -KILL -f agent-server 2>/dev/null || true",
-            timeout_seconds=15,
+    def _termination_failure_reason(self) -> str:
+        poll = self._sandbox.poll()
+        return (
+            f"sandbox terminated before becoming healthy (poll={poll}); "
+            "the VM/container exited (OOM, init exit, or reaping) rather than egress being blocked"
         )
 
     def _snapshot_filesystem_image(
@@ -1507,6 +1244,27 @@ class ModalSandbox(SandboxBase):
                 logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {image.object_id}")
             return image.object_id
 
+        except ModalResourceExhaustedError as e:
+            if _is_snapshot_file_cap_error(e):
+                # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. Permanent, not
+                # transient: classify it separately so it neither retries forever nor mints a generic
+                # captured issue.
+                logger.warning(f"Filesystem snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
+                raise SnapshotFileLimitExceededError(
+                    f"Filesystem snapshot exceeds Modal's file-count cap: {e}",
+                    {**error_context, "error": str(e)},
+                    cause=e,
+                )
+            # A generic RESOURCE_EXHAUSTED (server-side quota / rate limit) is transient — let the
+            # caller's retry recover it instead of failing permanently.
+            logger.warning(f"Transient resource-exhausted error creating snapshot for sandbox {self.id}: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient resource-exhausted error creating snapshot: {e}",
+                {**error_context, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
+
         except TRANSIENT_SNAPSHOT_ERRORS as e:
             # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
             # skip error-tracking capture to avoid a fresh issue for every recoverable deadline.
@@ -1526,6 +1284,22 @@ class ModalSandbox(SandboxBase):
         return self._snapshot_filesystem_image(
             timeout_seconds=timeout_seconds if timeout_seconds is not None else FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS
         )
+
+    def prune_snapshot_heavy_dirs(self, path: str) -> None:
+        """Delete reproducible package/cache trees under ``path`` so a later snapshot fits under
+        Modal's file-count cap. Best-effort: a failure here must not crash the caller — a partial
+        prune may already have shrunk the tree enough, and the caller decides what to do next.
+        """
+        quoted_path = shlex.quote(path)
+        name_predicate = " -o ".join(f"-name {shlex.quote(name)}" for name in SNAPSHOT_PRUNE_DIR_NAMES)
+        prune_command = (
+            f"find {quoted_path} -type d \\( {name_predicate} \\) -prune -exec rm -rf {{}} + 2>/dev/null || true"
+        )
+        try:
+            self.execute(prune_command, timeout_seconds=SNAPSHOT_PRUNE_TIMEOUT_SECONDS)
+            logger.info(f"Pruned heavy directories under {path} for sandbox {self.id}")
+        except Exception as e:
+            logger.warning(f"Best-effort prune of heavy directories under {path} failed for sandbox {self.id}: {e}")
 
     def create_directory_snapshot(self, path: str) -> str:
         if not self.is_running():
@@ -1552,6 +1326,27 @@ class ModalSandbox(SandboxBase):
             logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")
 
             return snapshot_id
+
+        except ModalResourceExhaustedError as e:
+            if _is_snapshot_file_cap_error(e):
+                # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. This is permanent,
+                # not transient — retrying the same tree cannot succeed — so classify it separately
+                # (the caller prunes the tree and retries) instead of misclassifying it as a generic error.
+                logger.warning(f"Directory snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
+                raise SnapshotFileLimitExceededError(
+                    f"Directory snapshot exceeds Modal's file-count cap: {e}",
+                    {"sandbox_id": self.id, "path": path, "error": str(e)},
+                    cause=e,
+                )
+            # A generic RESOURCE_EXHAUSTED (server-side quota / rate limit) is transient — let the
+            # caller's retry recover it instead of failing permanently.
+            logger.warning(f"Transient resource-exhausted error creating directory snapshot for sandbox {self.id}: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient resource-exhausted error creating directory snapshot: {e}",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
 
         except TRANSIENT_SNAPSHOT_ERRORS as e:
             logger.warning(f"Transient error creating directory snapshot for sandbox {self.id}, will retry: {e}")
@@ -1590,12 +1385,42 @@ class ModalSandbox(SandboxBase):
     def destroy(self) -> None:
         try:
             self._sandbox.terminate()
+            self._destroyed = True
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
+
+    def read_cpu_usage_usec(self) -> int | None:
+        try:
+            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        except Exception:
+            cpu_stat = None
+        if cpu_stat is not None and (usage := parse_cpu_stat_usage_usec(cpu_stat)) is not None:
+            return usage
+        try:
+            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            if cpuacct_usage.strip():
+                return int(cpuacct_usage) // 1000
+        except Exception:
+            pass
+        return None
+
+    def _cpu_billing_request_cores(self) -> float:
+        return self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+
+    def start_cpu_billing_sampler(self) -> bool:
+        result = self.execute(build_sampler_start_command(self._cpu_billing_request_cores()), timeout_seconds=10)
+        return result.exit_code == 0
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
+        state_text = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH)
+        current_cpu = self.read_cpu_usage_usec()
+        if current_cpu is None:
+            return None
+        return compute_billed_cpu_usage_usec(state_text, current_cpu, self._cpu_billing_request_cores(), time.time_ns())
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

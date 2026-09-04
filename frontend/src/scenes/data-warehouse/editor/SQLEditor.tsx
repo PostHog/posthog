@@ -34,6 +34,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { ExpressionModal } from '../ExpressionModal'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
@@ -72,8 +73,12 @@ interface SQLEditorProps {
     /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
     onCancelQuery?: () => void
     cancelQueryLoading?: boolean
+    /** Drop the toolbar's run button, for hosts that offer the run affordance themselves. */
+    hideRunButton?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
+    /** Floor for a dragged query pane. Notebook cells pass a smaller one than the scene. */
+    queryPaneMinHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
 }
@@ -92,8 +97,10 @@ export function SQLEditor({
     runQueryTooltip,
     onCancelQuery,
     cancelQueryLoading,
+    hideRunButton,
     onShareTab,
     queryPaneDefaultHeight,
+    queryPaneMinHeight,
     autoFocusQueryPane,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
@@ -124,6 +131,7 @@ export function SQLEditor({
             sidebarRef,
             databaseTreeRef,
             queryPaneDefaultHeight,
+            queryPaneMinHeight,
             biEditorResizerProps: {
                 containerRef: biEditorRef,
                 logicKey: 'bi-editor-pane',
@@ -154,10 +162,10 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }
-    }, [mode, tabId, queryPaneDefaultHeight])
+    }, [mode, tabId, queryPaneDefaultHeight, queryPaneMinHeight])
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
-        null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
+        null as [Monaco, importedEditor.IStandaloneCodeEditor | null] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
@@ -166,6 +174,21 @@ export function SQLEditor({
             setMonacoAndEditor(null)
         }
     })
+
+    // The SQL/BI view toggle and the sidebar "Query" action tear the editor widget down and
+    // rebuild it while this scene stays mounted. Nothing else clears the cached reference, so the
+    // logic keeps a disposed editor as a prop. Drop only the editor the instant Monaco disposes it,
+    // and keep the Monaco namespace: `Uri` and `editor.createModel`/`getModel` stay valid after the
+    // widget is gone, so createTab can still prepare a tab before the next editor mounts.
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+        const disposable = editor.onDidDispose(() =>
+            setMonacoAndEditor((current) => (current ? [current[0], null] : null))
+        )
+        return () => disposable.dispose()
+    }, [editor])
 
     const logic = sqlEditorLogic({
         tabId: tabId || '',
@@ -280,6 +303,7 @@ export function SQLEditor({
                                                             runQueryTooltip={runQueryTooltip}
                                                             onCancelQuery={onCancelQuery}
                                                             cancelQueryLoading={cancelQueryLoading}
+                                                            hideRunButton={hideRunButton}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
                                                         />
@@ -293,6 +317,7 @@ export function SQLEditor({
                                             <MaterializationModal tabId={tabId || ''} />
                                             <AccessControlModal />
                                             <ViewLinkModal />
+                                            <ExpressionModal />
                                         </>
                                     ) : null}
                                 </BindLogic>
@@ -386,6 +411,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         inProgressViewEdits,
         isSourceQueryLastRun,
         isMultiQuery,
+        selectedConnectionId,
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
     const {
@@ -426,6 +452,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         AccessControlLevel.Editor
     )
 
+    // A direct connection's table names only resolve while it is selected, and an endpoint serves data from PostHog.
+    const saveAsEndpointDisabledReason = selectedConnectionId
+        ? "Endpoints can't query a direct connection. Switch the connection to PostHog (ClickHouse) and query a synced table instead."
+        : saveAsEndpointAccessDisabledReason
+
     const continueInNotebookAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Notebook,
         AccessControlLevel.Editor
@@ -457,7 +488,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                     item.action === 'view'
                         ? saveAsViewAccessDisabledReason
                         : item.action === 'endpoint'
-                          ? saveAsEndpointAccessDisabledReason
+                          ? saveAsEndpointDisabledReason
                           : undefined,
             })),
         [
@@ -467,7 +498,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             saveAsMenuItems.secondary,
             saveAsView,
             saveAsViewAccessDisabledReason,
-            saveAsEndpointAccessDisabledReason,
+            saveAsEndpointDisabledReason,
         ]
     )
 
@@ -666,7 +697,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                 label: 'Save as endpoint...',
                                                                 disabledReason:
                                                                     saveAsDisabledReason ??
-                                                                    saveAsEndpointAccessDisabledReason,
+                                                                    saveAsEndpointDisabledReason,
                                                                 onClick: () => saveAsEndpoint(),
                                                             },
                                                         ]}
@@ -733,8 +764,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                         {
                                                             label: 'Save as endpoint...',
                                                             disabledReason:
-                                                                saveAsDisabledReason ??
-                                                                saveAsEndpointAccessDisabledReason,
+                                                                saveAsDisabledReason ?? saveAsEndpointDisabledReason,
                                                             onClick: () => saveAsEndpoint(),
                                                         },
                                                     ]}
@@ -801,7 +831,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     disabledReason={
                                         saveAsDisabledReason ??
                                         (saveAsMenuItems.primary.action === 'endpoint'
-                                            ? saveAsEndpointAccessDisabledReason
+                                            ? saveAsEndpointDisabledReason
                                             : saveAsMenuItems.primary.action === 'view'
                                               ? saveAsViewAccessDisabledReason
                                               : undefined)

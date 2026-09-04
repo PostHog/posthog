@@ -88,6 +88,18 @@ export interface AuditActorServiceAccountApi {
     handle: string
 }
 
+/**
+ * * `personal` - Personal
+ * * `team` - Team
+ */
+export type MCPAgentGrantScopeEnumApi = (typeof MCPAgentGrantScopeEnumApi)[keyof typeof MCPAgentGrantScopeEnumApi]
+
+export const MCPAgentGrantScopeEnumApi = {
+    Personal: 'personal',
+    Team: 'team',
+} as const
+
+export const MCPAuditEventApiGrantScope = { ...MCPAgentGrantScopeEnumApi, ...BlankEnumApi } as const
 export interface MCPAuditEventApi {
     readonly id: string
     readonly created_at: string
@@ -108,6 +120,13 @@ export interface MCPAuditEventApi {
     readonly actor_service_account: AuditActorServiceAccountApi | null
     /** Denormalized actor label (email or handle) that survives deletion. */
     readonly actor_label: string
+    /** Member whose connection an agent call used. Null for member calls and for owners whose account has since been deleted. */
+    readonly credential_owner: UserBasicApi | null
+    /** Scope of the agent grant the call used. Blank for member calls.
+     *
+     * * `personal` - Personal
+     * * `team` - Team */
+    readonly grant_scope: (typeof MCPAuditEventApiGrantScope)[keyof typeof MCPAuditEventApiGrantScope]
 }
 
 export interface PaginatedMCPAuditEventListApi {
@@ -436,11 +455,18 @@ export const MCPServiceAccountStatusEnumApi = {
 } as const
 
 /**
- * One agent's access to a gateway server.
+ * One agent's access to a gateway server, on behalf of one member.
  */
 export interface GatewayAgentAccessApi {
     /** Service account granted access. */
     service_account_id: string
+    /** The member whose connection the agent uses. */
+    user: UserBasicApi
+    /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+     *
+     * * `personal` - Personal
+     * * `team` - Team */
+    scope: MCPAgentGrantScopeEnumApi
     /** Agent display name. */
     name: string
     /** Agent identity handle, e.g. posthog-support. */
@@ -455,7 +481,7 @@ export interface GatewayAgentAccessApi {
      * @nullable
      */
     last_active_at: string | null
-    /** Admin who shared this server with the agent. */
+    /** Member who shared this server with the agent. */
     granted_by: UserBasicApi | null
 }
 
@@ -473,6 +499,8 @@ export interface MCPGatewayServerApi {
      * * `api_key` - API Key
      * * `oauth` - OAuth */
     readonly template_auth_type: MCPAuthTypeEnumApi | null
+    /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
+    readonly auth_type: MCPAuthTypeEnumApi | null
     readonly is_team_enabled: boolean
     /** Deprecated brand icon key from the linked template. Empty for custom servers. */
     readonly icon_key: string
@@ -698,6 +726,7 @@ export type AgentKeyEnumApi = (typeof AgentKeyEnumApi)[keyof typeof AgentKeyEnum
 export const AgentKeyEnumApi = {
     Support: 'support',
     Scout: 'scout',
+    Workflow: 'workflow',
 } as const
 
 /**
@@ -723,10 +752,19 @@ export const ConnectionStateEnumApi = {
 export interface MCPServiceAccountServerApi {
     /** Gateway server granted to the agent. */
     id: string
+    /** The member whose connection the agent uses. */
+    shared_by: UserBasicApi
+    /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+     *
+     * * `personal` - Personal
+     * * `team` - Team */
+    scope: MCPAgentGrantScopeEnumApi
     /** Server display name. */
     name: string
     /** Server description. */
     description: string
+    /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+    url: string
     /** Deprecated brand icon key. Empty for custom servers. */
     icon_key: string
     /** Brand domain. Empty for custom servers. */
@@ -739,6 +777,8 @@ export interface MCPServiceAccountServerApi {
      * * `disabled` - disabled
      * * `missing_credential` - missing_credential */
     connection_state: ConnectionStateEnumApi
+    /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+    reachable: boolean
 }
 
 export interface MCPServiceAccountApi {
@@ -793,10 +833,17 @@ export interface PatchedMCPServiceAccountUpdateApi {
 }
 
 export interface ServiceAccountAccessUpdateApi {
-    /** Gateway server to grant or revoke. */
+    /** Gateway server to share or stop sharing. */
     gateway_server_id: string
-    /** True grants access, false revokes it. */
+    /** True shares the caller's own connection with the agent, false removes the caller's share. */
     enabled: boolean
+    /** Applies to the caller's own share, and only alongside enabled=true. 'personal' lets the agent use the connection when it works for the caller. 'team' lets it use the connection for the whole project's agent runs, including runs nobody started. It never lets another person use the connection. Defaults to personal, so re-sharing without this field resets the caller's share to personal.
+     *
+     * * `personal` - Personal
+     * * `team` - Team */
+    scope?: MCPAgentGrantScopeEnumApi
+    /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
+    all?: boolean
     /**
      * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
      * @maxItems 1000
@@ -829,7 +876,8 @@ export interface MCPServerInstallationApi {
     display_name?: string
     /** @maxLength 2048 */
     url?: string
-    description?: string
+    /** Installation description, falling back to the linked template description. */
+    readonly description: string
     auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
     readonly scope: MCPServerInstallationScopeEnumApi
@@ -1061,15 +1109,18 @@ export interface InstallCustomApi {
     client_secret?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
-    /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+    /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
      *
      * * `personal` - personal
      * * `shared` - shared */
     scope?: MCPInstallationScopeEnumApi
     /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
     team_enabled?: boolean
-    /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-    agent_ids?: string[]
+    /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+     *
+     * * `personal` - Personal
+     * * `team` - Team */
+    agent_scope?: MCPAgentGrantScopeEnumApi
     /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
     return_path?: string
 }
@@ -1083,15 +1134,18 @@ export interface InstallTemplateApi {
     api_key?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
-    /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+    /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
      *
      * * `personal` - personal
      * * `shared` - shared */
     scope?: MCPInstallationScopeEnumApi
     /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
     team_enabled?: boolean
-    /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-    agent_ids?: string[]
+    /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+     *
+     * * `personal` - Personal
+     * * `team` - Team */
+    agent_scope?: MCPAgentGrantScopeEnumApi
     /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
     return_path?: string
 }
@@ -1102,7 +1156,6 @@ export interface MCPServerTemplateApi {
     name: string
     /** @maxLength 2048 */
     url: string
-    /** @maxLength 2048 */
     docs_url?: string
     description?: string
     auth_type?: MCPAuthTypeEnumApi

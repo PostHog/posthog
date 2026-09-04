@@ -6,13 +6,10 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux import MuxResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import ENDPOINTS, MUX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MuxSourceConfig:
@@ -20,15 +17,6 @@ def _config() -> MuxSourceConfig:
 
 
 class TestMuxSourceConfig:
-    def test_source_type(self) -> None:
-        assert MuxSource().source_type == ExternalDataSourceType.MUX
-
-    def test_source_config_fields(self) -> None:
-        config = MuxSource().get_source_config
-        assert config.name.value == "Mux"
-        field_names = {f.name for f in config.fields}
-        assert field_names == {"access_token_id", "secret_key"}
-
     def test_secret_key_is_marked_secret(self) -> None:
         fields = {f.name: f for f in MuxSource().get_source_config.fields}
         secret_field, token_field = fields["secret_key"], fields["access_token_id"]
@@ -119,13 +107,6 @@ class TestMuxNonRetryableErrors:
 
 
 class TestMuxResumableWiring:
-    def test_get_resumable_source_manager_binds_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = MuxSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MuxResumeConfig
-
     def test_source_for_pipeline_plumbs_config_and_schema(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
         sentinel = MagicMock()

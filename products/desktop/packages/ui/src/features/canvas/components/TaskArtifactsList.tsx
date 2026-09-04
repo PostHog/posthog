@@ -1,21 +1,25 @@
 import {
   ArrowSquareOutIcon,
+  CaretDownIcon,
   ChatCircleIcon,
   DownloadSimpleIcon,
-  EyeIcon,
   PackageIcon,
   SlackLogoIcon,
 } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
-import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
-  SESSION_SERVICE,
-  type SessionService,
-} from "@posthog/core/sessions/sessionService";
-import { useService } from "@posthog/di/react";
+  getPostHogObjectArtifactMetadata,
+  type RunArtifactVersions,
+  runArtifactVersionKey,
+} from "@posthog/core/canvas/runArtifactSchemas";
+import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -25,11 +29,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
+import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   buildRows,
   commentTargets,
+  type RunFile,
 } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
@@ -39,147 +46,70 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/components/countArtifactUploads";
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
+import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
+import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
+import {
+  ArtifactCard,
+  stopCardOpen,
+} from "@posthog/ui/primitives/ArtifactCard";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
-import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { type ReactNode, useMemo, useState } from "react";
+import {
+  getObjectKind,
+  POSTHOG_OBJECT_ICON_COLOR,
+} from "@posthog/ui/utils/objectKinds";
+import { useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
 
-function ArtifactListRow({
-  icon,
-  title,
-  detail,
-  external,
-  onOpen,
-  onOpenExternal,
-  fileActions,
-  onHoverStart,
-}: {
-  icon: ReactNode;
-  title: string;
-  detail?: ReactNode;
-  external?: boolean;
-  onOpen?: () => void;
-  /** Renders a trailing button that leaves the app instead of opening the
-   *  artifact in place. Absent when there is nowhere safe to send the user. */
-  onOpenExternal?: () => void;
-  fileActions?: {
-    onDownload: () => void;
-    downloading: boolean;
-  };
-  onHoverStart?: () => void;
-}) {
+interface CurrentUser {
+  id?: number;
+  first_name?: string | null;
+}
+
+function CommentCountBadge({ count }: { count: number }) {
+  if (count === 0) return null;
   return (
-    // overflow-hidden so each half's hover fill is clipped to the row's radius.
-    <div className="flex w-full items-center overflow-hidden rounded-md border border-border bg-muted text-[13px]">
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={!onOpen}
-        onPointerEnter={onHoverStart}
-        onFocus={onHoverStart}
-        className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition-colors enabled:hover:bg-gray-3"
-      >
-        {icon}
-        <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
-        {detail && (
-          <span className="shrink-0 text-muted-foreground">{detail}</span>
-        )}
-        {external && (
-          <ArrowSquareOutIcon size={12} className="shrink-0 text-gray-9" />
-        )}
-      </button>
-      {onOpenExternal && (
-        <button
-          type="button"
-          onClick={onOpenExternal}
-          aria-label={`Open ${title} externally`}
-          className="flex shrink-0 items-center self-stretch border-border border-l px-2 text-muted-foreground transition-colors hover:bg-gray-3 hover:text-foreground"
-        >
-          <ArrowSquareOutIcon size={12} />
-        </button>
-      )}
-      {fileActions && onOpen && (
-        <div className="flex shrink-0 items-center gap-0.5 border-border border-l px-1">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="default"
-                  size="icon-sm"
-                  aria-label={`View ${title}`}
-                  onClick={onOpen}
-                />
-              }
-            >
-              <EyeIcon size={14} />
-            </TooltipTrigger>
-            <TooltipContent>View</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="default"
-                  size="icon-sm"
-                  aria-label={`Download ${title}`}
-                  disabled={fileActions.downloading}
-                  onClick={fileActions.onDownload}
-                />
-              }
-            >
-              <DownloadSimpleIcon size={14} />
-            </TooltipTrigger>
-            <TooltipContent>Download</TooltipContent>
-          </Tooltip>
-        </div>
-      )}
-    </div>
+    <Badge>
+      <ChatCircleIcon />
+      {count}
+    </Badge>
   );
 }
 
 function PrRow({
   url,
+  ts,
   openInPlaceTaskId,
 }: {
   url: string;
+  ts: number;
   openInPlaceTaskId?: string;
 }) {
   const { safeUrl, title, stateLabel, Icon, iconColor } = usePrArtifact(url);
+  const meta = [stateLabel, ts ? formatRelativeTimeShort(ts) : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const [countsWanted, setCountsWanted] = useState(false);
   const comments = usePrComments(countsWanted ? safeUrl : null);
   const threads = usePrReviewThreads(countsWanted ? safeUrl : null);
 
-  const commentCount =
+  const prCommentCount =
     (comments.data?.length ?? 0) +
     (threads.data ?? []).reduce(
       (sum, thread) => sum + thread.comments.length,
       0,
     );
-  const detailParts = [
-    stateLabel,
-    comments.data || threads.data
-      ? `${commentCount} ${commentCount === 1 ? "comment" : "comments"}`
-      : null,
-  ].filter(Boolean);
 
   return (
-    <ArtifactListRow
-      icon={
-        <Icon
-          size={14}
-          weight="bold"
-          className="shrink-0"
-          style={{ color: iconColor }}
-        />
-      }
+    <ArtifactCard
+      icon={<Icon size={16} weight="bold" style={{ color: iconColor }} />}
       title={title}
-      detail={detailParts.join(" · ") || null}
+      meta={meta}
       onHoverStart={() => setCountsWanted(true)}
       onOpen={
         safeUrl
@@ -189,7 +119,24 @@ function PrRow({
                 : openExternalUrl(safeUrl)
           : undefined
       }
-      onOpenExternal={safeUrl ? () => openExternalUrl(safeUrl) : undefined}
+      actions={
+        <>
+          <CommentCountBadge count={prCommentCount} />
+          {safeUrl && (
+            <Button
+              variant="default"
+              size="icon-sm"
+              aria-label={`Open ${title} externally`}
+              onClick={(event) => {
+                stopCardOpen(event);
+                openExternalUrl(safeUrl);
+              }}
+            >
+              <ArrowSquareOutIcon size={14} />
+            </Button>
+          )}
+        </>
+      }
     />
   );
 }
@@ -197,111 +144,241 @@ function PrRow({
 function CanvasRow({
   name,
   url,
+  ts,
   commentCount,
 }: {
   name: string;
   url: string | null;
+  ts: number;
   commentCount: number;
 }) {
   const open = canvasArtifactOpenHandler(url);
+  const meta = ts ? `Canvas · ${formatRelativeTimeShort(ts)}` : "Canvas";
   return (
-    <ArtifactListRow
-      icon={iconForTemplate("", { size: 14, className: "text-violet-9" })}
+    <ArtifactCard
+      icon={iconForTemplate("", { size: 16, className: "text-amber-11" })}
       title={name}
-      detail={
-        commentCount > 0 ? (
-          <Badge>
-            <ChatCircleIcon />
-            {commentCount}
-          </Badge>
-        ) : (
-          "Canvas"
-        )
-      }
+      meta={meta}
       onOpen={open}
+      actions={<CommentCountBadge count={commentCount} />}
     />
   );
 }
 
+function wasEditedByCurrentUser(
+  artifact: RunFile,
+  currentUserId: number | undefined,
+): boolean {
+  return (
+    artifact.uploaded_by === "user" &&
+    currentUserId !== undefined &&
+    artifact.uploaded_by_user_id === currentUserId
+  );
+}
+
+/** Who a version came from, named rather than described. */
+function uploaderLabel(
+  artifact: RunFile,
+  currentUser: CurrentUser | undefined,
+): string {
+  if (artifact.uploaded_by !== "user") return "Agent";
+  if (wasEditedByCurrentUser(artifact, currentUser?.id)) {
+    return currentUser?.first_name?.trim() || "You";
+  }
+  return "Teammate";
+}
+
+/** Compact one-based version label: v1 is oldest, v{total} is newest. */
+function versionShortLabel(index: number, total: number): string {
+  return `v${total - index}`;
+}
+
+function fileVersionMenuLabel(
+  artifact: RunFile,
+  index: number,
+  total: number,
+  currentUser: CurrentUser | undefined,
+): string {
+  return [
+    versionShortLabel(index, total),
+    uploaderLabel(artifact, currentUser),
+    artifact.uploaded_at ? formatRelativeTimeShort(artifact.uploaded_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function FileRow({
   taskId,
-  runId,
-  artifactId,
-  name,
-  size,
+  group,
   commentCount,
+  currentUser,
 }: {
   taskId: string;
-  runId: string | null;
-  artifactId: string | null;
-  name: string;
-  size: number | undefined;
+  group: RunArtifactVersions<RunFile>;
   /** Supplied by the pane's single comments query so each row doesn't fetch. */
   commentCount: number;
+  currentUser: CurrentUser | undefined;
 }) {
-  const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const [downloading, setDownloading] = useState(false);
-  const canOpen = !!runId && !!artifactId;
-  const sizeLabel = formatFileSize(size);
+  const { download, downloadingId } = useArtifactDownload();
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const pickedIndex = group.versions.findIndex(
+    (version) => runArtifactVersionKey(version) === selectedKey,
+  );
+  const newestVisibleIndex = group.versions.findIndex(
+    (version) => !version.dismissed_at,
+  );
+  const selectedIndex =
+    pickedIndex >= 0 ? pickedIndex : Math.max(newestVisibleIndex, 0);
+  const selected = group.versions[selectedIndex] ?? group.latest;
+  const canOpen = !!selected.id;
   const onOpen = canOpen
     ? () => {
         openArtifactTab(taskId, {
-          runId: runId as string,
-          artifactId: artifactId as string,
-          name,
+          runId: selected.runId,
+          artifactId: selected.id as string,
+          name: group.name,
         });
       }
     : undefined;
   const onDownload = canOpen
-    ? async () => {
-        setDownloading(true);
-        try {
-          const url = await sessionService.getCloudAttachmentPreviewUrl(
-            taskId,
-            runId as string,
-            artifactId as string,
-          );
-          if (!url) {
-            toast.error("This file is no longer available");
-            return;
-          }
-          const response = await fetch(url);
-          if (!response.ok) throw new Error("Artifact download failed");
-          const objectUrl = URL.createObjectURL(await response.blob());
-          const anchor = document.createElement("a");
-          anchor.href = objectUrl;
-          anchor.download = name;
-          anchor.click();
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          toast.error("Couldn't download file");
-        } finally {
-          setDownloading(false);
-        }
+    ? () => {
+        void download({
+          taskId,
+          runId: selected.runId,
+          artifactId: selected.id as string,
+          name: group.name,
+        });
       }
     : undefined;
+  const metaText = [
+    uploaderLabel(selected, currentUser),
+    selected.uploaded_at ? formatRelativeTimeShort(selected.uploaded_at) : null,
+    formatFileSize(selected.size),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <ArtifactListRow
-      icon={<FileIcon filename={name} size={14} />}
-      title={name}
-      detail={
-        <div className="flex items-center gap-1.5">
-          <span>{sizeLabel ? `File · ${sizeLabel}` : "File"}</span>
-          {commentCount > 0 && (
-            <Badge>
-              <ChatCircleIcon />
-              {commentCount}
-            </Badge>
+    <ArtifactCard
+      icon={<FileIcon filename={group.name} size={18} />}
+      title={group.name}
+      meta={
+        <>
+          {metaText && <span className="truncate">{metaText}</span>}
+          {group.versions.length > 1 && (
+            <>
+              {metaText && <span>·</span>}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={`Choose a version of ${group.name}`}
+                      onClick={stopCardOpen}
+                      className="flex shrink-0 cursor-pointer items-center gap-0.5 text-foreground"
+                    >
+                      {versionShortLabel(selectedIndex, group.versions.length)}
+                      <CaretDownIcon size={10} />
+                    </button>
+                  }
+                />
+                {/* w-max: the default popup width tracks the anchor, and this
+                    trigger is a couple of characters wide, so version labels
+                    would be cut off. */}
+                <DropdownMenuContent align="start" className="w-max">
+                  {group.versions.map((version, index) => (
+                    <DropdownMenuItem
+                      key={runArtifactVersionKey(version)}
+                      onClick={() =>
+                        setSelectedKey(runArtifactVersionKey(version))
+                      }
+                    >
+                      {fileVersionMenuLabel(
+                        version,
+                        index,
+                        group.versions.length,
+                        currentUser,
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
-        </div>
+        </>
       }
       onOpen={onOpen}
-      fileActions={
-        onDownload
-          ? { onDownload: () => void onDownload(), downloading }
-          : undefined
+      actions={
+        <>
+          <CommentCountBadge count={commentCount} />
+          {onDownload && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="default"
+                    size="icon-sm"
+                    aria-label={`Download ${group.name}`}
+                    disabled={downloadingId === selected.id}
+                    onClick={(event) => {
+                      stopCardOpen(event);
+                      onDownload();
+                    }}
+                  />
+                }
+              >
+                <DownloadSimpleIcon size={14} />
+              </TooltipTrigger>
+              <TooltipContent>Download</TooltipContent>
+            </Tooltip>
+          )}
+        </>
       }
+    />
+  );
+}
+
+function PostHogObjectRow({
+  taskId,
+  artifactId,
+  runId,
+  name,
+  objectKind,
+  occurrenceCount,
+  uploadedAt,
+  commentCount,
+}: {
+  taskId: string;
+  artifactId: string;
+  runId: string;
+  name: string;
+  objectKind: string;
+  occurrenceCount: number;
+  uploadedAt: string | undefined;
+  commentCount: number;
+}) {
+  const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const object = getObjectKind(objectKind);
+  const ObjectIcon = object.icon;
+  const meta = [
+    object.kindLabel,
+    occurrenceCount > 1 ? `Referenced ${occurrenceCount} times` : null,
+    uploadedAt ? formatRelativeTimeShort(uploadedAt) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <ArtifactCard
+      icon={<ObjectIcon size={16} color={POSTHOG_OBJECT_ICON_COLOR} />}
+      title={name}
+      meta={meta}
+      onOpen={() =>
+        openArtifactTab(taskId, { runId, artifactId, name, objectKind })
+      }
+      actions={<CommentCountBadge count={commentCount} />}
     />
   );
 }
@@ -317,8 +394,20 @@ export function TaskArtifactsList({
    *  open externally rather than into a review pane nobody is showing. */
   canOpenInPlace?: boolean;
 }) {
-  const commentsEnabled = useCommentsEnabled();
-  const { runs } = useTaskRuns(task.id);
+  // A finished upload_artifact tool call re-keys the runs query, so a file
+  // the agent just delivered shows up now rather than on the next poll.
+  const events = useSessionSelector(task.id, (session) => session?.events);
+  const completedUploads = useCompletedArtifactUploads(events ?? []);
+  // Occurrence counts move without changing the entry count when a turn
+  // re-cites an already registered object, so the key sums them too.
+  const referenceRefreshKey = useSessionSelector(task.id, (session) =>
+    (session?.cloudArtifacts ?? []).reduce((sum, artifact) => {
+      const reference = getPostHogObjectArtifactMetadata(artifact);
+      return reference ? sum + 1 + reference.occurrence_count : sum;
+    }, 0),
+  );
+  const { runs } = useTaskRuns(task.id, completedUploads + referenceRefreshKey);
+  const { data: currentUser } = useMeQuery();
   const rows = useMemo(
     () => buildRows(task, timeline, runs),
     [task, timeline, runs],
@@ -326,12 +415,8 @@ export function TaskArtifactsList({
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);
-  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
-    enabled: commentsEnabled,
-  });
-  const comments = commentsEnabled
-    ? (commentsQuery.data ?? EMPTY_COMMENTS)
-    : EMPTY_COMMENTS;
+  const commentsQuery = useCommentsForTargetsQuery(targets, task.id);
+  const comments = commentsQuery.data ?? EMPTY_COMMENTS;
   // Open threads only, so a row's badge agrees with what the Comments tab
   // shows on the same resource.
   const openCountByItem = useMemo(() => {
@@ -368,6 +453,7 @@ export function TaskArtifactsList({
           <PrRow
             key={row.key}
             url={row.url}
+            ts={row.ts}
             openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
           />
         ) : row.kind === "canvas" ? (
@@ -375,6 +461,7 @@ export function TaskArtifactsList({
             key={row.key}
             name={row.name}
             url={row.url}
+            ts={row.ts}
             commentCount={
               row.dashboardId ? (openCountByItem.get(row.dashboardId) ?? 0) : 0
             }
@@ -383,22 +470,44 @@ export function TaskArtifactsList({
           <FileRow
             key={row.key}
             taskId={task.id}
-            runId={row.runId}
-            artifactId={row.artifactId}
-            name={row.name}
-            size={row.size}
+            group={row.group}
             commentCount={
               row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
             }
+            currentUser={currentUser}
+          />
+        ) : row.kind === "posthog_object" ? (
+          <PostHogObjectRow
+            key={row.key}
+            taskId={task.id}
+            artifactId={row.artifactId}
+            runId={row.runId}
+            name={row.name}
+            objectKind={row.metadata.object_kind}
+            occurrenceCount={row.metadata.occurrence_count}
+            uploadedAt={row.uploadedAt}
+            commentCount={openCountByItem.get(row.artifactId) ?? 0}
           />
         ) : (
-          <ArtifactListRow
+          <ArtifactCard
             key={row.key}
-            icon={<SlackLogoIcon size={14} className="shrink-0 text-gray-11" />}
+            icon={<SlackLogoIcon size={16} className="text-gray-11" />}
             title="Slack thread"
-            detail="External"
-            external
+            meta="External"
             onOpen={() => openExternalUrl(row.url)}
+            actions={
+              <Button
+                variant="default"
+                size="icon-sm"
+                aria-label="Open Slack thread externally"
+                onClick={(event) => {
+                  stopCardOpen(event);
+                  openExternalUrl(row.url);
+                }}
+              >
+                <ArrowSquareOutIcon size={14} />
+              </Button>
+            }
           />
         ),
       )}

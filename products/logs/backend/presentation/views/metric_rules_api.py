@@ -22,8 +22,8 @@ from posthog.event_usage import report_user_action
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.logs.backend.models import (
     MAX_ENABLED_METRIC_RULES,
     MAX_METRIC_RULE_GROUP_BY_KEYS,
@@ -230,7 +230,10 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsMetricRule.objects.unscoped().order_by("created_at")
     serializer_class = LogsMetricRuleSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-metric-rules"
+    # A rule's output is only readable in the Metrics product, so the Metrics alpha flag is what
+    # admits a team. Whether a rule then runs is a separate, ops-level decision: ingestion checks
+    # its own LOGS_METRICS_RULES_ENABLED_TEAMS allowlist, which no feature flag feeds.
+    posthog_feature_flag = "metrics"
     permission_classes = [PostHogFeatureFlagPermission, MetricRuleCanonicalTeamPermission]
 
     @cached_property

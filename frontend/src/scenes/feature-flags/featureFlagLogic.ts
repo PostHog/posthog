@@ -1,5 +1,4 @@
 import { CronExpressionParser } from 'cron-parser'
-import cronstrue from 'cronstrue'
 import {
     MakeLogicType,
     actions,
@@ -25,20 +24,25 @@ import { createElement } from 'react'
 import api, { PaginatedResponse } from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
+import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { stringifyWithBigInts } from 'lib/utils/json'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -61,7 +65,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
-    FeatureFlagStatusResponse,
+    FeatureFlagStatus,
     FeatureFlagType,
     FilterLogicalOperator,
     InsightModel,
@@ -77,6 +81,7 @@ import {
     RecordingUniversalFilters,
     RecurrenceInterval,
     ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
     ScheduledChangeType,
     Survey,
     SurveyQuestionType,
@@ -87,8 +92,13 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
+    featureFlagsList,
+    featureFlagsStatusRetrieve,
 } from 'products/feature_flags/frontend/generated/api'
-import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    CopyFlagsDependencyRequirementsResponseApi,
+    FeatureFlagStatusResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -117,9 +127,17 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import {
+    ScheduleOccurrence,
+    expandScheduleOccurrences,
+    hasDeniedApprovalRequest,
+    isSchedulePaused,
+} from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
+
+const TAB_SEARCH_PARAM = 'tab'
 
 export function hasDirectFlagDependency(featureFlag: FeatureFlagType): boolean {
     const groups = featureFlag.filters?.groups
@@ -249,26 +267,6 @@ interface PairedPresetDefinition {
     disableCron: string
 }
 
-/** Human-readable description of a 5-field cron expression, or an error string. Returns null for empty input. */
-export function describeCron(expr: string | null): string | null {
-    if (!expr) {
-        return null
-    }
-    const fields = expr.trim().split(/\s+/)
-    if (fields.length !== 5) {
-        return 'Invalid cron expression'
-    }
-    try {
-        // Validate with cron-parser first — cronstrue is lenient and can
-        // produce garbled output (e.g. "Monday through undefined") for
-        // syntactically incomplete expressions like "0 9 * * 1-".
-        CronExpressionParser.parse(expr)
-        return cronstrue.toString(expr)
-    } catch {
-        return 'Invalid cron expression'
-    }
-}
-
 /**
  * Schedule pickers operate on the browser's wall clock, but users expect the time they enter
  * to be interpreted in the project's timezone (shown via `ScheduleTimezoneHint`).
@@ -317,6 +315,13 @@ export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): nu
     return epoch(b) - epoch(a) || b.id - a.id
 }
 
+// A one-time schedule whose approval request was rejected or expired will never apply: the
+// applier skips it at fire time. It reads as terminal in the UI and sorts with history.
+// Recurring schedules are excluded because each occurrence is re-gated with a fresh request.
+export function isScheduleDeniedApproval(sc: ScheduledChangeType): boolean {
+    return !sc.is_recurring && !sc.recurrence_interval && !sc.cron_expression && hasDeniedApprovalRequest(sc)
+}
+
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
     business_hours: {
         label: 'Business hours',
@@ -331,6 +336,10 @@ export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, Pai
         disableCron: '59 23 * * 5',
     },
 }
+
+/** Resolution state of the schedule creation form: unknown while schedules first load,
+ * then collapsed behind a button when the flag already has a plan to read. */
+export type ScheduleFormState = 'loading' | 'collapsed' | 'expanded'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
     variants?: MultivariateFlagVariant[]
@@ -378,7 +387,6 @@ export const NEW_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     bucketing_identifier: null,
-    _should_create_usage_dashboard: true,
 }
 const NEW_VARIANT = {
     key: '',
@@ -456,6 +464,47 @@ export function validateFeatureFlagVariantKey(key: string): string | undefined {
             : undefined
 }
 
+function getVariantRolloutSum(variants: MultivariateFlagVariant[] = []): number {
+    return variants.reduce((sum, { rollout_percentage }) => sum + (rollout_percentage || 0), 0)
+}
+
+// Absorbs float drift (0.01/64.04/35.95 adds up to 100.00000000000001) while staying below the
+// 0.01 this form can express. Mirrored by products/feature_flags/backend/variant_rollout.py.
+const ROLLOUT_SUM_TOLERANCE = 1e-9
+
+/** Reason string when variant rollouts do not add up, otherwise undefined.
+ * Boolean flags carry no variants and are exempt. */
+export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]): string | undefined {
+    if (!variants?.length) {
+        return undefined
+    }
+    const rolloutSum = getVariantRolloutSum(variants)
+    if (Math.abs(rolloutSum - 100) <= ROLLOUT_SUM_TOLERANCE) {
+        return undefined
+    }
+    // Hides float artifacts (99.05000000000001), but stays finer than the tolerance above so a
+    // rejected total never reads as exactly 100.
+    const displayedSum = parseFloat(rolloutSum.toFixed(10))
+    return `Percentage rollouts for variants must sum to 100 (currently ${displayedSum}).`
+}
+
+/** Reason string when the project requires flag tags and none are set, otherwise undefined. */
+export function validateFeatureFlagTags(
+    tags: string[] | undefined,
+    { required, isNewFlag, hadTags }: { required: boolean; isNewFlag: boolean; hadTags: boolean }
+): string | undefined {
+    // Count named tags, not entries. `cleanTag` trims without dropping empties, so a `['']` would
+    // otherwise pass here and be rejected by the server, which normalizes blanks away.
+    if (!required || tags?.some((tag) => tag.trim().length > 0)) {
+        return undefined
+    }
+    if (isNewFlag) {
+        return 'Add at least one tag. This project requires new feature flags to be tagged.'
+    }
+    // Flags that predate the setting stay editable, so only block emptying one that already has tags.
+    return hadTags ? 'Keep at least one tag. This project requires feature flags to stay tagged.' : undefined
+}
+
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
@@ -468,6 +517,10 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
 
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
+}
+
+function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
+    return removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(id)
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -676,6 +729,13 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     }
 }
 
+// Shape a freshly-loaded server flag into the `originalFeatureFlag` baseline the dirty check
+// compares against. Callers must pass server-authoritative state — never the in-progress
+// working copy — or an unsaved edit would be folded into the baseline and read as clean.
+function toFeatureFlagBaseline(flag: FeatureFlagType | null): FeatureFlagType | null {
+    return flag ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(flag)) as FeatureFlagType) : null
+}
+
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to
 // render the release conditions in the correct order.
 function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
@@ -702,8 +762,10 @@ export interface featureFlagLogicValues {
     activeRecurringSchedules: ScheduledChangeType[]
     activeSchedules: ScheduledChangeType[]
     activeTab: FeatureFlagsTab
+    advancedExpanded: boolean | null
+    advancedPanelOpen: boolean
     aggregationTargetName: string
-    areVariantRolloutsValid: boolean
+    availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
     canCreateEarlyAccessFeature: boolean
     canCreatePairedSchedule: boolean
@@ -738,7 +800,6 @@ export interface featureFlagLogicValues {
     featureFlagErrors: DeepPartialMap<
         {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -772,7 +833,7 @@ export interface featureFlagLogicValues {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -790,7 +851,6 @@ export interface featureFlagLogicValues {
     featureFlagValidationErrors: DeepPartialMap<
         {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -824,14 +884,14 @@ export interface featureFlagLogicValues {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         },
         ValidationErrorType
     >
     flagIntent: FlagIntent | null
-    flagStatus: FeatureFlagStatusResponse | null
+    flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
     flagTypeString:
@@ -875,17 +935,26 @@ export interface featureFlagLogicValues {
     repeatsValue: RecurrenceInterval | 'cron' | 'none'
     roleBasedAccessEnabled: boolean
     scheduleDateMarker: any
+    scheduleDefaultsAppliedFromFlag: boolean
+    scheduleFormCollapsible: boolean
+    scheduleFormManuallyExpanded: boolean | null
+    scheduleFormState: ScheduleFormState
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
     schedulePreset: PairedPresetKey | null
+    scheduleTimelineOccurrences: ScheduleOccurrence[]
     scheduledChange: ScheduledChangeType
     scheduledChangeLoading: boolean
     scheduledChangeOperation: ScheduledChangeOperationType
     scheduledChanges: ScheduledChangeType[]
+    scheduledChangesLoaded: boolean
     scheduledChangesLoading: boolean
+    selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
     showImplementation: boolean
+    showStaleFlagBanner: boolean
     sidePanelContext: SidePanelSceneContext | null
+    tagsRequired: boolean
     templateExpanded: boolean
     templates: Array<{
         description: string
@@ -897,7 +966,6 @@ export interface featureFlagLogicValues {
     urlIntentApplied: boolean
     urlTemplateApplied: boolean
     variantErrors: VariantError[]
-    variantRolloutSum: number
     variants: MultivariateFlagVariant[]
 }
 
@@ -918,6 +986,9 @@ export interface featureFlagLogicActions {
     } // sidePanelStateLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addVariant: () => {
+        value: true
+    }
+    applyScheduleDefaultsFromFlag: () => {
         value: true
     }
     applyTemplate: (templateId: string) => {
@@ -971,18 +1042,10 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     createScheduledChangeSuccess: (
-        scheduledChange:
-            | {
-                  scheduled_change: ScheduledChangeType
-              }
-            | undefined,
+        scheduledChange: ScheduledChangeType | undefined,
         payload?: any
     ) => {
-        scheduledChange:
-            | {
-                  scheduled_change: ScheduledChangeType
-              }
-            | undefined
+        scheduledChange: ScheduledChangeType | undefined
         payload?: any
     }
     createStaticCohort: () => any
@@ -1059,9 +1122,6 @@ export interface featureFlagLogicActions {
     enrichUsageDashboard: () => {
         value: true
     }
-    generateUsageDashboard: () => {
-        value: true
-    }
     loadCopyDependencyRequirements: () => {
         value: true
     }
@@ -1115,7 +1175,7 @@ export interface featureFlagLogicActions {
         error: string
         errorObject?: any
     }
-    loadFeatureFlagStatus: () => any
+    loadFeatureFlagStatus: (_: void) => void
     loadFeatureFlagStatusFailure: (
         error: string,
         errorObject?: any
@@ -1124,11 +1184,11 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     loadFeatureFlagStatusSuccess: (
-        flagStatus: Promise<FeatureFlagStatusResponse> | null,
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null,
+        payload?: void
     ) => {
-        flagStatus: Promise<FeatureFlagStatusResponse> | null
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null
+        payload?: void
     }
     loadFeatureFlagSuccess: (
         featureFlag: FeatureFlagType,
@@ -1232,7 +1292,6 @@ export interface featureFlagLogicActions {
     resetEncryptedPayload: () => {}
     resetFeatureFlag: (values?: {
         _create_in_folder?: string | null | undefined
-        _should_create_usage_dashboard?: boolean | undefined
         active: boolean
         archived: boolean
         bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1266,13 +1325,12 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         values?: {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1306,10 +1364,13 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
+    }
+    resetScheduleFormExpanded: () => {
+        value: true
     }
     restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => {
         featureFlag: Partial<FeatureFlagType>
@@ -1356,8 +1417,8 @@ export interface featureFlagLogicActions {
     setAccessDeniedToFeatureFlag: () => {
         value: true
     }
-    setActiveTab: (tab: FeatureFlagsTab) => {
-        tab: FeatureFlagsTab
+    setAdvancedExpanded: (expanded: boolean) => {
+        expanded: boolean
     }
     setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => {
         bucketingIdentifier: FeatureFlagBucketingIdentifier | null
@@ -1413,7 +1474,6 @@ export interface featureFlagLogicActions {
     setFeatureFlagValues: (
         values: DeepPartial<{
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1447,14 +1507,13 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }>
     ) => {
         values: DeepPartial<{
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1488,7 +1547,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }>
@@ -1508,6 +1567,9 @@ export interface featureFlagLogicActions {
     setOpenVariants: (openVariants: string[]) => {
         openVariants: string[]
     }
+    setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => {
+        featureFlag: FeatureFlagType | null
+    }
     setPayloadExpanded: (expanded: boolean) => {
         expanded: boolean
     }
@@ -1522,6 +1584,9 @@ export interface featureFlagLogicActions {
     }
     setScheduleDateMarker: (dateMarker: any) => {
         dateMarker: any
+    }
+    setScheduleFormExpanded: (expanded: boolean) => {
+        expanded: boolean
     }
     setSchedulePayload: (
         filters: FeatureFlagType['filters'] | null,
@@ -1541,6 +1606,9 @@ export interface featureFlagLogicActions {
     }
     setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => {
         changeType: ScheduledChangeOperationType
+    }
+    setSelectedTab: (tab: FeatureFlagsTab) => {
+        tab: FeatureFlagsTab
     }
     setShowImplementation: (show: boolean) => {
         show: boolean
@@ -1580,7 +1648,6 @@ export interface featureFlagLogicActions {
     }
     submitFeatureFlagRequest: (featureFlag: {
         _create_in_folder?: string | null | undefined
-        _should_create_usage_dashboard?: boolean | undefined
         active: boolean
         archived: boolean
         bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1614,13 +1681,12 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1654,14 +1720,13 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
     }
     submitFeatureFlagSuccess: (featureFlag: {
         _create_in_folder?: string | null | undefined
-        _should_create_usage_dashboard?: boolean | undefined
         active: boolean
         archived: boolean
         bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1695,13 +1760,12 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1735,7 +1799,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -1859,6 +1923,8 @@ export interface featureFlagLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
+        availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
+        activeTab: (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]) => FeatureFlagsTab
         hasUnsavedChanges: (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null) => boolean
         isFormDirty: (
             originalFeatureFlag: FeatureFlagType | null,
@@ -1878,8 +1944,6 @@ export interface featureFlagLogicMeta {
         ) => boolean
         variants: (featureFlag: FeatureFlagType) => MultivariateFlagVariant[]
         nonEmptyVariants: (variants: MultivariateFlagVariant[]) => MultivariateFlagVariant[]
-        variantRolloutSum: (variants: MultivariateFlagVariant[]) => number
-        areVariantRolloutsValid: (variants: MultivariateFlagVariant[], variantRolloutSum: number) => boolean
         aggregationTargetName: (
             featureFlag: FeatureFlagType,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
@@ -1889,12 +1953,20 @@ export interface featureFlagLogicMeta {
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
         hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
+        tagsRequired: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        advancedPanelOpen: (
+            advancedExpanded: boolean | null,
+            expandAdvancedOnEdit: boolean,
+            tagsRequired: boolean,
+            featureFlag: FeatureFlagType
+        ) => boolean
         earlyAccessFeaturesList: (featureFlag: FeatureFlagType) => MinimalEarlyAccessFeatureType[]
         featureFlagKey: (featureFlag: FeatureFlagType) => string
         canCreateEarlyAccessFeature: (featureFlag: FeatureFlagType, variants: MultivariateFlagVariant[]) => boolean
         hasSurveys: (featureFlag: FeatureFlagType) => boolean | null
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
+        showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         variantErrors: (variants: MultivariateFlagVariant[]) => VariantError[]
@@ -1922,6 +1994,17 @@ export interface featureFlagLogicMeta {
             pausedRecurringSchedules: ScheduledChangeType[],
             upcomingOneTimeSchedules: ScheduledChangeType[]
         ) => ScheduledChangeType[]
+        scheduleTimelineOccurrences: (
+            scheduledChanges: ScheduledChangeType[],
+            featureFlag: FeatureFlagType
+        ) => ScheduleOccurrence[]
+        scheduleFormCollapsible: (activeSchedules: ScheduledChangeType[]) => boolean
+        scheduleFormState: (
+            scheduleFormManuallyExpanded: boolean | null,
+            scheduleFormCollapsible: boolean,
+            scheduledChangesLoading: boolean,
+            scheduledChangesLoaded: boolean
+        ) => ScheduleFormState
         emailDomain: (user: UserType | null) => string
         templates: (emailDomain: string) => Array<{
             description: string
@@ -1977,8 +2060,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        // Re-establishes the saved-state baseline the unsaved-changes guard diffs against.
+        // Only dispatch with server-authoritative state, so in-progress edits stay dirty.
+        setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
-        setActiveTab: (tab: FeatureFlagsTab) => ({ tab }),
+        setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -1997,7 +2083,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             expandAdvanced: options?.expandAdvanced ?? false,
         }),
         distributeVariantsEqually: true,
-        generateUsageDashboard: true,
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
@@ -2009,6 +2094,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ copyDependencyRequirements }),
         loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
+        resetScheduleFormExpanded: true,
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
             active: FeatureFlagType['active'] | null,
@@ -2050,12 +2137,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
+        setAdvancedExpanded: (expanded: boolean) => ({ expanded }),
         setPayloadExpanded: (expanded: boolean) => ({ expanded }),
         setTemplateExpanded: (expanded: boolean) => ({ expanded }),
         applyUrlTemplate: (templateId: string) => ({ templateId }),
         applyTemplate: (templateId: string) => ({ templateId }),
         setFlagIntent: (intent: FlagIntent | null) => ({ intent }),
         applyUrlIntent: true,
+        applyScheduleDefaultsFromFlag: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -2063,14 +2152,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
             },
-            errors: ({ key, filters, is_remote_configuration }) => {
+            errors: ({ key, filters, is_remote_configuration, tags }) => {
+                const rolloutSumError = validateVariantRolloutSum(filters?.multivariate?.variants)
                 return {
                     key: validateFeatureFlagKey(key),
+                    // Cast because kea-forms types a `string[]` field's error as `string[]`, while
+                    // LemonField only renders a plain string.
+                    tags: validateFeatureFlagTags(tags, {
+                        required: values.tagsRequired,
+                        isNewFlag: !values.featureFlag.id,
+                        hadTags: !!values.originalFeatureFlag?.tags?.length,
+                    }) as any,
                     filters: {
                         multivariate: {
                             variants: filters?.multivariate?.variants?.map(
                                 ({ key: variantKey }: MultivariateFlagVariant) => ({
                                     key: validateFeatureFlagVariantKey(variantKey),
+                                    // One string on the array key (the usual form) can't say which
+                                    // panels to expand, so the set-level error fans out per index.
+                                    rollout_percentage: rolloutSumError,
                                 })
                             ),
                         },
@@ -2096,19 +2196,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         originalFeatureFlag: [
             null as FeatureFlagType | null,
             {
-                loadFeatureFlagSuccess: (_, { featureFlag }) => {
-                    // Transform the original flag when it's first loaded
-                    // Apply the same transformations we'd use when sending it back
-                    return featureFlag
-                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
-                        : null
-                },
-                setFeatureFlag: (_, { featureFlag }) => {
-                    // Also set originalFeatureFlag when flag is set from cache (e.g., from list view)
-                    return featureFlag
-                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
-                        : null
-                },
+                // Baseline the saved server state on load. NOT on every setFeatureFlag: a
+                // mid-edit setFeatureFlag (tag save, active/archive sync, cache reconcile) would
+                // otherwise re-baseline to the already-edited working copy, making the
+                // unsaved-changes guard read clean and silently discard release-condition edits on
+                // navigation. Server-authoritative re-baselines flow through setOriginalFeatureFlag.
+                loadFeatureFlagSuccess: (_, { featureFlag }) => toFeatureFlagBaseline(featureFlag),
+                setOriginalFeatureFlag: (_, { featureFlag }) => featureFlag,
             },
         ],
         featureFlag: [
@@ -2343,10 +2437,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
-        activeTab: [
+        selectedTab: [
             FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
             {
-                setActiveTab: (_, { tab }) => tab,
+                setSelectedTab: (_, { tab }) => tab,
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
@@ -2434,6 +2528,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as any,
             {
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
+            },
+        ],
+        // Null until the user opens or closes the form; the default is derived from
+        // whether the flag already has active schedules (see scheduleFormState).
+        scheduleFormManuallyExpanded: [
+            null as boolean | null,
+            {
+                setScheduleFormExpanded: (_, { expanded }) => expanded,
+                // A create adds to the plan, so the form returns to the default that the plan
+                // implies. Without this the form stays open for the rest of the mount, and the
+                // "Schedule a change" button stays hidden behind it.
+                createScheduledChangeSuccess: () => null,
+                resetScheduleFormExpanded: () => null,
+            },
+        ],
+        // Distinguishes the first load from refetches, so the schedule header only
+        // shows a skeleton once per mount instead of on every reload after a mutation.
+        scheduledChangesLoaded: [
+            false,
+            {
+                loadScheduledChangesSuccess: () => true,
+                loadScheduledChangesFailure: () => true,
             },
         ],
         schedulePayload: [
@@ -2552,6 +2668,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        advancedExpanded: [
+            // `null` means the person has not touched the panel yet, so `advancedPanelOpen` still
+            // decides for them. Re-entering edit mode returns to that, so the overview pencil can
+            // reopen the panel after they collapsed it in an earlier edit.
+            null as boolean | null,
+            {
+                setAdvancedExpanded: (_, { expanded }) => expanded,
+                editFeatureFlag: () => null,
+            },
+        ],
         payloadExpanded: [
             false,
             {
@@ -2581,6 +2707,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 applyUrlIntent: () => true,
                 loadFeatureFlag: () => false,
+            },
+        ],
+        // Unlike urlTemplateApplied/urlIntentApplied, this does not reset on loadFeatureFlag:
+        // it corrects the schedule form's default exactly once, the first time the real flag
+        // loads. Resetting it on every load would let a later reload (e.g. clicking Edit)
+        // reapply the default and wipe a scheduled change the user is still drafting.
+        scheduleDefaultsAppliedFromFlag: [
+            false,
+            {
+                applyScheduleDefaultsFromFlag: () => true,
             },
         ],
         flagIntent: [
@@ -2758,7 +2894,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let baseFlagConfig: typeof NEW_FLAG = {
                         ...NEW_FLAG,
                         ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
-                        _should_create_usage_dashboard: true,
                     }
 
                     if (flagType !== 'remote_config') {
@@ -2831,7 +2966,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return {
                     ...NEW_FLAG,
                     ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
-                    _should_create_usage_dashboard: true,
                 }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
@@ -2886,6 +3020,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 "You don't have permission to edit this feature flag. Contact your administrator to request editing rights."
                         )
                     }
+                    // Duplicate-key (`unique`/`key`) is toasted in the saveFeatureFlagFailure listener so
+                    // the throw runs immediately and the form doesn't stay skeletoned during the lookup.
                     throw error
                 }
             },
@@ -3164,13 +3300,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        // A server verdict about the saved flag, so it does not follow the working copy. Every
+        // mutation that can change staleness or rollout must dispatch this again, or the stale
+        // banner outlives the change the reader just made.
         flagStatus: [
-            null as FeatureFlagStatusResponse | null,
+            null as FeatureFlagStatusResponseApi | null,
             {
-                loadFeatureFlagStatus: () => {
+                loadFeatureFlagStatus: async (_: void, breakpoint) => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return api.featureFlags.getStatus(currentProjectId, props.id)
+                        try {
+                            const status = await featureFlagsStatusRetrieve(String(currentProjectId), props.id)
+                            // A mutation can start a newer status request while this one is open. Discard
+                            // this response if so, or a slow earlier request would overwrite the newer verdict.
+                            breakpoint()
+                            return status
+                        } catch (error) {
+                            // The failure reducer nulls the verdict, so a superseded request that fails
+                            // late would erase the verdict a newer request already wrote. Breakpoint
+                            // first: kea-loaders swallows that and dispatches no failure.
+                            breakpoint()
+                            throw error
+                        }
                     }
                     return null
                 },
@@ -3206,6 +3357,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         projectsWithCurrentFlag: {
             projectFlagActiveUpdated: (state, { teamId, flagId, active }) =>
                 state.map((p) => (p.team_id === teamId && p.flag_id === flagId ? { ...p, active } : p)),
+        },
+        // kea-loaders keeps the prior value when a refetch fails, so a failed status refresh after a
+        // mutation would leave the banner rendering a verdict for a flag that no longer has it. Drop
+        // the verdict when a refetch starts or fails; only a successful load may show the banner.
+        flagStatus: {
+            loadFeatureFlagStatus: () => null,
+            loadFeatureFlagStatusFailure: () => null,
         },
     }),
     listeners(({ actions, values, props, sharedListeners }) => ({
@@ -3328,6 +3486,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         createPairedSchedule: async () => {
             const resetScheduleForm = (): void => {
+                actions.resetScheduleFormExpanded()
                 actions.setSchedulePreset(null)
                 actions.setScheduleDateMarker(null)
                 actions.setIsRecurring(false)
@@ -3384,8 +3543,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             // Create the enable schedule first
+            let enableSchedule: ScheduledChangeType
             try {
-                await api.featureFlags.createScheduledChange(currentProjectId, {
+                enableSchedule = await api.featureFlags.createScheduledChange(currentProjectId, {
                     ...basePayload,
                     payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
                     cron_expression: enableCron,
@@ -3397,8 +3557,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             // Create the disable schedule
+            let disableSchedule: ScheduledChangeType
             try {
-                await api.featureFlags.createScheduledChange(currentProjectId, {
+                disableSchedule = await api.featureFlags.createScheduledChange(currentProjectId, {
                     ...basePayload,
                     payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: false },
                     cron_expression: disableCron,
@@ -3414,17 +3575,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             // Both succeeded
-            lemonToast.success('Paired schedules created')
+            const pairIsPendingApproval = [enableSchedule, disableSchedule].some(
+                (schedule) => schedule?.change_request?.state === ScheduledChangeRequestState.Pending
+            )
+            if (pairIsPendingApproval) {
+                lemonToast.success(
+                    'Paired schedules created - pending approval. Schedules that are not approved before their scheduled time will be skipped.'
+                )
+            } else {
+                lemonToast.success('Paired schedules created')
+            }
             resetScheduleForm()
             eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
         },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
-        generateUsageDashboard: async () => {
-            if (props.id) {
-                await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
-                actions.loadFeatureFlag()
-            }
-        },
         enrichUsageDashboard: async (_, breakpoint) => {
             if (props.id) {
                 await breakpoint(1000) // in ms
@@ -3439,17 +3603,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const formErrors = values.featureFlagErrors as DeepPartialMap<FeatureFlagType, ValidationErrorType>
             const filtersErrors = formErrors?.filters as any
             const variantErrorsList = filtersErrors?.multivariate?.variants as
-                | Array<{ key?: string } | undefined>
+                | Array<{ key?: string; rollout_percentage?: string } | undefined>
                 | undefined
             const variantKeysWithErrors =
                 variantErrorsList
-                    ?.map((err, index) => (err?.key ? `variant-${index}` : null))
+                    ?.map((err, index) => (err?.key || err?.rollout_percentage ? `variant-${index}` : null))
                     .filter((key): key is string => key !== null) ?? []
             if (variantKeysWithErrors.length) {
                 actions.setOpenVariants(Array.from(new Set([...values.openVariants, ...variantKeysWithErrors])))
             }
             if (filtersErrors?.payloads?.true && !values.payloadExpanded) {
                 actions.setPayloadExpanded(true)
+            }
+            if (formErrors?.tags && !values.advancedPanelOpen) {
+                actions.setAdvancedExpanded(true)
             }
             // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
             // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
@@ -3470,8 +3637,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             actions.setFeatureFlag(featureFlag)
+            // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
+            actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
             actions.updateFlag(featureFlag)
-            featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
+            actions.loadFeatureFlagStatus()
+            if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
+                router.actions.replace(urls.featureFlag(featureFlag.id))
+            }
             actions.editFeatureFlag(false)
 
             const isCreate = props.id === 'new'
@@ -3504,19 +3676,57 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Set all completed tasks at once to avoid conflicts
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
-        saveFeatureFlagFailure: ({ errorObject }) => {
+        saveFeatureFlagFailure: async ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
-                // Redirect to detail page so user can see the CR banner
-                router.actions.replace(urls.featureFlag(values.featureFlag.id))
-                actions.editFeatureFlag(false)
+                if (isOnFeatureFlagPage(props.id)) {
+                    // Redirect to detail page so user can see the CR banner
+                    router.actions.replace(urls.featureFlag(values.featureFlag.id))
+                    actions.editFeatureFlag(false)
+                }
                 return
+            }
+
+            if (errorObject?.code !== 'unique' || errorObject?.attr !== 'key') {
+                return
+            }
+            const message = `Save feature flag failed: ${errorObject.detail}`
+            const key = values.featureFlag.key
+            if (!key) {
+                lemonToast.error(message)
+                return
+            }
+            // The backend rejects on an exact key match, so pick the exact match out of the
+            // case-insensitive list rather than trusting its newest-first ordering.
+            const existing = await featureFlagsList(String(values.currentProjectId), { key }).catch(() => null)
+            const existingFlagId = existing?.results?.find((flag) => flag.key === key)?.id ?? null
+            if (existingFlagId) {
+                lemonToast.error(message, {
+                    button: {
+                        label: 'View existing flag',
+                        action: () => {
+                            window.open(urls.featureFlag(existingFlagId), '_blank')
+                        },
+                    },
+                })
+            } else {
+                lemonToast.error(message)
             }
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
-                actions.setFeatureFlag(featureFlagActiveUpdate)
+                // Only active/version were persisted, so fold just those onto the working copy and
+                // the baseline. Taking the whole server flag would drop any in-progress edit and
+                // re-baseline over it, leaving the guard clean.
+                const persisted = { active: featureFlagActiveUpdate.active, version: featureFlagActiveUpdate.version }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
@@ -3537,23 +3747,63 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     version: updatedFlag.version ?? values.featureFlag.version,
                 }
                 actions.setFeatureFlag(syncedFlag)
+                // Only active/version were persisted — fold them onto the baseline rather than the
+                // working copy, so any in-progress edits stay dirty instead of being swallowed.
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({
+                        ...values.originalFeatureFlag,
+                        active: newActive,
+                        version: syncedFlag.version,
+                    })
+                }
                 actions.updateFlag(syncedFlag)
                 refreshTreeItem('feature_flag', String(flagId))
+                // Disabling changes the staleness verdict, so refetch it as the other mutation
+                // paths do, or the stale banner outlives the toggle made from the Projects tab.
+                actions.loadFeatureFlagStatus()
             }
         },
         refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
             // Reconcile the cache-painted flag with the freshly fetched server state, and keep
             // the list cache in sync so the two views agree.
             if (featureFlagRefresh) {
-                actions.setFeatureFlag(featureFlagRefresh)
+                if (values.originalFeatureFlag) {
+                    // This refresh exists to correct a stale cached `active`, and it lands while the
+                    // page is already interactive (its own loader key means no skeleton). Replacing
+                    // the whole flag here would discard an edit made during the request and
+                    // re-baseline over it, so the guard would read clean and lose it silently.
+                    const persisted = {
+                        active: featureFlagRefresh.active,
+                        archived: featureFlagRefresh.archived,
+                        version: featureFlagRefresh.version,
+                    }
+                    actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setFeatureFlag(featureFlagRefresh)
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
+                }
                 actions.updateFlag(featureFlagRefresh)
             }
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
-                actions.setFeatureFlag(featureFlagActiveUpdate)
+                // Archiving also disables the flag, so archived/active/version are the persisted
+                // fields. Fold only those, for the same reason as the active toggle above.
+                const persisted = {
+                    archived: featureFlagActiveUpdate.archived,
+                    active: featureFlagActiveUpdate.active,
+                    version: featureFlagActiveUpdate.version,
+                }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {
@@ -3607,6 +3857,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         refreshTreeItem('feature_flag', String(featureFlag.id))
                     }
                     actions.loadFeatureFlag()
+                    // The flag is no longer deleted, so its real verdict may differ from the retained
+                    // DELETED one. Refetch it so the banner reflects the restored flag.
+                    actions.loadFeatureFlagStatus()
                 },
             })
         },
@@ -3618,6 +3871,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            // A ?tab=schedule deep link selects the tab before this load finishes, so the
+            // schedule form's default was computed against the NEW_FLAG placeholder. Correct
+            // it once against the loaded flag; only on the first load, so a later reload (e.g.
+            // clicking Edit) does not overwrite a scheduled change the user is still drafting.
+            if (
+                featureFlag &&
+                values.selectedTab === FeatureFlagsTab.SCHEDULE &&
+                !values.scheduleDefaultsAppliedFromFlag
+            ) {
+                actions.setSchedulePayload(NEW_FLAG.filters, !featureFlag.active, {}, null, null)
+                // An unsaved flag has no id to scope the request to, and the scheduled-changes
+                // endpoint drops an empty record_id filter and returns every flag's scheduled
+                // changes for the project instead of none
+                if (featureFlag.id) {
+                    actions.loadScheduledChanges()
+                }
+                actions.applyScheduleDefaultsFromFlag()
+            }
             if (values.copyDestinationProject) {
                 actions.loadCopyDependencyRequirements()
             }
@@ -3724,7 +3995,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     eventUsageLogic.actions.reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
                 } else {
                     const errorMessage =
-                        failure?.error_message ?? JSON.stringify(featureFlagCopy?.failed ?? featureFlagCopy)
+                        failure?.error_message ?? stringifyWithBigInts(featureFlagCopy?.failed ?? featureFlagCopy)
                     lemonToast.error(`Error while copying feature flag: ${errorMessage}`)
                     eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
                 }
@@ -3763,7 +4034,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
-                lemonToast.success('Change scheduled successfully')
+                if (scheduledChange.change_request?.state === ScheduledChangeRequestState.Pending) {
+                    lemonToast.success(
+                        'Change scheduled - pending approval. It will be skipped if not approved before the scheduled time.'
+                    )
+                } else {
+                    lemonToast.success('Change scheduled successfully')
+                }
                 actions.setScheduleDateMarker(null)
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
@@ -3804,13 +4081,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
             }
         },
-        setActiveTab: ({ tab }) => {
+        setSelectedTab: ({ tab }) => {
             // Reset payload when opening schedule tab. The default operation is UpdateStatus,
             // so default active to the opposite of the current flag state.
             if (tab === FeatureFlagsTab.SCHEDULE) {
                 const oppositeActive = !values.featureFlag.active
                 actions.setSchedulePayload(NEW_FLAG.filters, oppositeActive, {}, null, null)
-                actions.loadScheduledChanges()
+                // An unsaved flag has no id to scope the request to, and the scheduled-changes
+                // endpoint drops an empty record_id filter and returns every flag's scheduled
+                // changes for the project instead of none
+                if (values.featureFlag.id) {
+                    actions.loadScheduledChanges()
+                }
             }
         },
         createScheduledChangeFailure: ({ error }) => {
@@ -3882,6 +4164,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name,
                 })
                 actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, name: savedFlag.name })
+                }
                 actions.updateFlag({ ...flag, name: savedFlag.name })
                 lemonToast.success('Description saved')
             } catch {
@@ -3897,6 +4182,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // user's intent without waiting for the API.
             const previousTags = flag.tags
             actions.setFeatureFlag({ ...flag, tags })
+            // Tags are the only field being saved here — track them on the baseline directly so a
+            // concurrent release-condition edit isn't folded into it and silently marked as saved.
+            const baselineForTags = values.originalFeatureFlag
+            if (baselineForTags) {
+                actions.setOriginalFeatureFlag({ ...baselineForTags, tags })
+            }
             actions.updateFlag({ ...flag, tags })
 
             // Debounce — rapid changes (e.g. quickly removing several chips) collapse into a
@@ -3922,6 +4213,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
                 if (!setsEqual) {
                     actions.setFeatureFlag({ ...flag, tags: serverTags })
+                    if (values.originalFeatureFlag) {
+                        actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: serverTags })
+                    }
                     actions.updateFlag({ ...flag, tags: serverTags })
                 }
             } catch (error: any) {
@@ -3930,8 +4224,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     throw error
                 }
                 actions.setFeatureFlag({ ...flag, tags: previousTags })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: previousTags })
+                }
                 actions.updateFlag({ ...flag, tags: previousTags })
-                lemonToast.error('Failed to save tags')
+                // The server explains rule failures such as a project that requires tags, so show
+                // its message rather than a generic one the user cannot act on.
+                lemonToast.error(error?.detail || 'Failed to save tags')
             }
         },
         editFeatureFlag: async ({ editing }) => {
@@ -4014,6 +4313,34 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        // Which tabs the flag offers; FeatureFlag.tsx renders exactly this set
+        availableTabs: [
+            (s) => [s.featureFlag, s.props],
+            (featureFlag: FeatureFlagType, props: FeatureFlagLogicProps): FeatureFlagsTab[] => {
+                const tabs = [FeatureFlagsTab.OVERVIEW]
+                if (props.id) {
+                    tabs.push(FeatureFlagsTab.USAGE, FeatureFlagsTab.PROJECTS, FeatureFlagsTab.SCHEDULE)
+                }
+                if (featureFlag.id) {
+                    tabs.push(FeatureFlagsTab.HISTORY)
+                }
+                if (featureFlag.can_edit) {
+                    tabs.push(FeatureFlagsTab.PERMISSIONS)
+                }
+                tabs.push(FeatureFlagsTab.FEEDBACK, FeatureFlagsTab.EXPERIMENTS)
+                if (props.id) {
+                    tabs.push(FeatureFlagsTab.TESTING)
+                }
+                return tabs
+            },
+        ],
+        // Clamped in a selector rather than in urlToAction so it re-derives when the flag
+        // loads (a deep-linked tab can arrive before `can_edit` is known)
+        activeTab: [
+            (s) => [s.selectedTab, s.availableTabs],
+            (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]): FeatureFlagsTab =>
+                availableTabs.includes(selectedTab) ? selectedTab : FeatureFlagsTab.OVERVIEW,
+        ],
         hasUnsavedChanges: [
             (s) => [s.featureFlag, s.originalFeatureFlag],
             (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null): boolean => {
@@ -4021,8 +4348,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // New flag — compare against form defaults via featureFlagChanged instead
                     return false
                 }
-                const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
-                return !objectsEqual(currentCleaned, originalFeatureFlag)
+                // Same transform as the baseline, so both sides of the diff stay in step by
+                // construction rather than by keeping two copies of it in sync.
+                return !objectsEqual(toFeatureFlagBaseline(featureFlag), originalFeatureFlag)
             },
         ],
         isFormDirty: [
@@ -4070,17 +4398,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         nonEmptyVariants: [
             (s) => [s.variants],
             (variants: MultivariateFlagVariant[]) => variants.filter(({ key }) => !!key),
-        ],
-        variantRolloutSum: [
-            (s) => [s.variants],
-            (variants: MultivariateFlagVariant[]) =>
-                variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0),
-        ],
-        areVariantRolloutsValid: [
-            (s) => [s.variants, s.variantRolloutSum],
-            (variants: MultivariateFlagVariant[], variantRolloutSum: number) =>
-                variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
-                variantRolloutSum === 100,
         ],
         aggregationTargetName: [
             (s) => [s.featureFlag, s.aggregationLabel],
@@ -4151,6 +4468,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return (featureFlag?.features?.length || 0) > 0
             },
         ],
+        tagsRequired: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+                !!currentTeam?.feature_flag_policy_config?.require_tags,
+        ],
+        advancedPanelOpen: [
+            (s) => [s.advancedExpanded, s.expandAdvancedOnEdit, s.tagsRequired, s.featureFlag],
+            (
+                advancedExpanded: boolean | null,
+                expandAdvancedOnEdit: boolean,
+                tagsRequired: boolean,
+                featureFlag: FeatureFlagType
+            ): boolean =>
+                // A new flag that needs a tag opens the panel up front, so the person sees the tag
+                // input before they submit rather than after a rejected save.
+                advancedExpanded ?? (expandAdvancedOnEdit || (!featureFlag.id && tagsRequired)),
+        ],
         earlyAccessFeaturesList: [
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
@@ -4191,6 +4525,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
                 return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        // The status endpoint serializes a StrEnum through a CharField, so it answers with the
+        // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
+        // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
+        showStaleFlagBanner: [
+            (s) => [s.featureFlag, s.flagStatus],
+            (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null): boolean => {
+                // The reducer nulls `flagStatus` when a load starts or fails, so only a settled,
+                // successful verdict reaches this comparison.
+                if (flagStatus?.status !== FeatureFlagStatus.STALE) {
+                    return false
+                }
+                return Boolean(
+                    featureFlag.id &&
+                    !featureFlag.deleted &&
+                    !featureFlag.archived &&
+                    !featureFlag.is_remote_configuration
+                )
             },
         ],
         isDraftExperiment: [
@@ -4276,21 +4629,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         pausedRecurringSchedules: [
             (s) => [s.scheduledChanges],
             (scheduledChanges: ScheduledChangeType[]) =>
-                scheduledChanges.filter(
-                    (sc) => !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression) && !sc.executed_at
-                ),
+                scheduledChanges.filter((sc) => isSchedulePaused(sc) && !sc.executed_at),
         ],
         upcomingOneTimeSchedules: [
             (s) => [s.scheduledChanges],
             (scheduledChanges: ScheduledChangeType[]) =>
                 scheduledChanges.filter(
-                    (sc) => !sc.is_recurring && !sc.recurrence_interval && !sc.cron_expression && !sc.executed_at
+                    (sc) =>
+                        !sc.is_recurring &&
+                        !sc.recurrence_interval &&
+                        !sc.cron_expression &&
+                        !sc.executed_at &&
+                        !isScheduleDeniedApproval(sc)
                 ),
         ],
         completedSchedules: [
             (s) => [s.scheduledChanges],
             (scheduledChanges: ScheduledChangeType[]) =>
-                scheduledChanges.filter((sc) => !!sc.executed_at).sort(byExecutedAt),
+                scheduledChanges.filter((sc) => !!sc.executed_at || isScheduleDeniedApproval(sc)).sort(byExecutedAt),
         ],
         activeSchedules: [
             (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
@@ -4300,6 +4656,43 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 pausedRecurring: ScheduledChangeType[],
                 upcomingOneTime: ScheduledChangeType[]
             ) => [...activeRecurring, ...pausedRecurring, ...upcomingOneTime].sort(byScheduledAt),
+        ],
+        scheduleTimelineOccurrences: [
+            // Raw scheduled changes, not activeSchedules: the expansion owns occurrence
+            // eligibility (executed, paused, denied) so its filters stay live and tested.
+            (s) => [s.scheduledChanges, s.featureFlag],
+            (scheduledChanges: ScheduledChangeType[], featureFlag: FeatureFlagType): ScheduleOccurrence[] =>
+                expandScheduleOccurrences(scheduledChanges, featureFlag, dayjs()),
+        ],
+        // The form can collapse only when there is a plan to read; the close button uses this too.
+        scheduleFormCollapsible: [
+            (s) => [s.activeSchedules],
+            (activeSchedules: ScheduledChangeType[]): boolean => activeSchedules.length > 0,
+        ],
+        scheduleFormState: [
+            (s) => [
+                s.scheduleFormManuallyExpanded,
+                s.scheduleFormCollapsible,
+                s.scheduledChangesLoading,
+                s.scheduledChangesLoaded,
+            ],
+            (
+                scheduleFormManuallyExpanded: boolean | null,
+                scheduleFormCollapsible: boolean,
+                scheduledChangesLoading: boolean,
+                scheduledChangesLoaded: boolean
+            ): ScheduleFormState => {
+                if (scheduleFormManuallyExpanded !== null) {
+                    // A manual collapse holds only while a plan remains to read. When the last
+                    // schedule goes, the form must open again, because the empty state tells the
+                    // user to use the form above it.
+                    return scheduleFormManuallyExpanded || !scheduleFormCollapsible ? 'expanded' : 'collapsed'
+                }
+                if (scheduledChangesLoading && !scheduledChangesLoaded) {
+                    return 'loading'
+                }
+                return scheduleFormCollapsible ? 'collapsed' : 'expanded'
+            },
         ],
         emailDomain: [
             (s) => [s.user],
@@ -4410,6 +4803,32 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ],
         ],
     }),
+    trackedActionToUrl(({ props, values }) => ({
+        setSelectedTab: () => {
+            // The logic outlives the scene in places (e.g. the flag is embedded elsewhere),
+            // so only rewrite the URL while we're actually on this flag's page
+            if (!isOnFeatureFlagPage(props.id)) {
+                return
+            }
+
+            // The URL carries selectedTab (the requested tab), not the clamped activeTab, so the
+            // write round-trips with what urlToAction reads and never depends on availableTabs,
+            // which is provisional until the flag loads. A deep link to a tab the user cannot see
+            // yet (e.g. permissions before `can_edit` is known) stays in the URL this way.
+            const searchParams = { ...router.values.searchParams }
+            if (values.selectedTab === FeatureFlagsTab.OVERVIEW) {
+                delete searchParams[TAB_SEARCH_PARAM]
+            } else {
+                searchParams[TAB_SEARCH_PARAM] = values.selectedTab
+            }
+            // `activity` deep-links to one activity item, which only exists on the history tab
+            if (values.selectedTab !== FeatureFlagsTab.HISTORY) {
+                delete searchParams[ACTIVITY_SEARCH_PARAM]
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+    })),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method, initial }) => {
             // Don't disturb in-progress edits when a same-pathname PUSH slips through
@@ -4429,9 +4848,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
 
-            // Open the History tab when deep-linking to a specific activity item
-            if (searchParams.activity != null) {
-                actions.setActiveTab(FeatureFlagsTab.HISTORY)
+            // The URL is the source of truth for the selected tab, so `?tab=usage` deep-links
+            // and survives a reload. `?activity=` still implies the history tab.
+            const tabFromUrl = searchParams[TAB_SEARCH_PARAM]
+            const targetTab = isFeatureFlagsTab(tabFromUrl)
+                ? tabFromUrl
+                : searchParams[ACTIVITY_SEARCH_PARAM] != null
+                  ? FeatureFlagsTab.HISTORY
+                  : FeatureFlagsTab.OVERVIEW
+            if (targetTab !== values.selectedTab) {
+                actions.setSelectedTab(targetTab)
             }
 
             if (method === 'PUSH') {
@@ -4488,11 +4914,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
 
     afterMount(({ props, actions }) => {
-        // Open the History tab when deep-linking to a specific activity item on initial page load
-        if (router.values.searchParams.activity != null) {
-            actions.setActiveTab(FeatureFlagsTab.HISTORY)
-        }
-
         if (
             props.id === 'new' &&
             (router.values.searchParams.sourceId ||
@@ -4510,6 +4931,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         if (foundFlag) {
             const formatPayloadsWithFlag = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloadsWithFlag)
+            // The cache paint is the initial load for a list-navigated flag, so seed the baseline.
+            actions.setOriginalFeatureFlag(toFeatureFlagBaseline(formatPayloadsWithFlag))
             actions.loadRelatedInsights()
             actions.loadFeatureFlagStatus()
             actions.loadDependentFlags()

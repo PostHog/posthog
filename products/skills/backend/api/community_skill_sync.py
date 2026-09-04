@@ -10,9 +10,16 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.egress.github.transport import github_request
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
-from .skill_serializers import RESERVED_SKILL_NAMES, SKILL_NAME_PATTERN, validate_skill_file_path
-from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
+from .skill_serializers import validate_skill_file_path
+from .skill_services import (
+    MAX_SKILL_BODY_BYTES,
+    MAX_SKILL_FILE_BYTES,
+    MAX_SKILL_FILE_COUNT,
+    RESERVED_SKILL_NAMES,
+    SKILL_NAME_PATTERN,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -133,7 +140,7 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
 
     for field in _CHECKED_CHAR_FIELDS:
         value = _text(entry, field, f"'{field}'")
-        max_length = _field_max_length(CommunitySkill, field)
+        max_length = SPEC_DESCRIPTION_MAX_LENGTH if field == "description" else _field_max_length(CommunitySkill, field)
         if max_length is not None and len(value) > max_length:
             raise ValueError(f"'{field}' exceeds the {max_length} character limit")
 
@@ -201,7 +208,9 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         # .get return None, which these non-nullable JSON columns reject at insert time.
         "allowed_tools": entry.get("allowed_tools") or [],
         "metadata": entry.get("metadata") or {},
-        "tags": entry.get("tags") or [],
+        # Store tags lowercased so the tag/search filters match regardless of how a contributor
+        # capitalized them in frontmatter (_validate_entry_shape guarantees a list of strings).
+        "tags": [t.lower() for t in (entry.get("tags") or [])],
         "trust_tier": trust_tier,
         "author_handle": _text(entry, "author_handle", "'author_handle'"),
         "github_url": _text(entry, "github_url", "'github_url'"),

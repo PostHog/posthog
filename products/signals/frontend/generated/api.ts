@@ -41,12 +41,17 @@ import type {
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
+    ScoutChatTaskApi,
+    ScoutChatTaskCreateApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
     ScoutRunIdsBatchRequestApi,
+    ScoutSuggestionItemApi,
+    ScoutSuggestionRefreshApi,
+    ScoutSuggestionSetApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -74,12 +79,14 @@ import type {
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
     SignalsScoutConfigListParams,
+    SignalsScoutConfigSyncParams,
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
+    SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -460,15 +467,18 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * Transition a report to a new state. The model validates allowed transitions.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
- * fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
- * and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
- * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+ * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
+ * snooze_for) are read, and only snooze_for is ever forwarded to transition_to. Any
+ * other key is ignored, so internal transition_to kwargs (reset_weight, error, ...)
+ * can't be injected.
  *
  * Body: {
  *     "state": "suppressed" | "potential" | "resolved",
  *     # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
  *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
+ *     # Optional, only allowed with dismissal_reason == "wrong_repo":
+ *     "corrected_repository": "owner/repo the report should have targeted",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
  * }
@@ -550,7 +560,7 @@ export const getSignalsReportArtefactsCreateUrl = (projectId: string, reportId: 
 }
 
 /**
- * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
 export const signalsReportArtefactsCreate = async (
@@ -618,7 +628,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains).
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -715,6 +725,27 @@ export const signalsScoutCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalScoutCreateApi),
+    })
+}
+
+export const getSignalsScoutChatTasksCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/chat_tasks/`
+}
+
+/**
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * @summary Start a scout chat task
+ */
+export const signalsScoutChatTasksCreate = async (
+    projectId: string,
+    scoutChatTaskCreateApi: ScoutChatTaskCreateApi,
+    options?: RequestInit
+): Promise<ScoutChatTaskApi> => {
+    return apiMutator<ScoutChatTaskApi>(getSignalsScoutChatTasksCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutChatTaskCreateApi),
     })
 }
 
@@ -816,7 +847,7 @@ export const getSignalsScoutConfigRunUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota, daily report limit, or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const signalsScoutConfigRun = async (
@@ -830,19 +861,32 @@ export const signalsScoutConfigRun = async (
     })
 }
 
-export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/configs/sync/`
+export const getSignalsScoutConfigSyncUrl = (projectId: string, params?: SignalsScoutConfigSyncParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/configs/sync/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/sync/`
 }
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
  * @summary Sync scout configs
  */
 export const signalsScoutConfigSync = async (
     projectId: string,
+    params?: SignalsScoutConfigSyncParams,
     options?: RequestInit
 ): Promise<SignalScoutConfigApi[]> => {
-    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId, params), {
         ...options,
         method: 'POST',
     })
@@ -911,7 +955,7 @@ export const getSignalsScoutNotesListUrl = (projectId: string, params?: SignalsS
 }
 
 /**
- * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Results capped at 500.
+ * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Results capped at 500.
  * @summary List scout notes
  */
 export const signalsScoutNotesList = async (
@@ -930,7 +974,7 @@ export const getSignalsScoutNotesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */
 export const signalsScoutNotesCreate = async (
@@ -1281,6 +1325,40 @@ export const signalsScoutRunsFindingsSummary = async (
     })
 }
 
+export const getSignalsScoutRunsRecentPerScoutUrl = (
+    projectId: string,
+    params?: SignalsScoutRunsRecentPerScoutParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/recent-per-scout/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/recent-per-scout/`
+}
+
+/**
+ * Return the most recent `per_scout_limit` runs of *every* configured scout on the project (default 25), newest-first across the fleet. The per-scout probe is the point: a fleet-wide time window has to serve hourly and weekly scouts from one result cap, so the busy scouts crowd out the sparse ones and a scout's visible history shrinks as the rest of the fleet gets busier. Probing each `skill_name` gives every scout the same depth of history whatever its schedule, and bounds the response at scouts x `per_scout_limit` rather than at the fleet's run rate. Only scouts that still have a config are covered, so runs left behind by a deleted or renamed scout are excluded. Runs older than the staleness guard are excluded too, so a scout that stopped running reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, which each scout's own cadence extends. Use `list` instead when you want a literal time window or a text/emitted filter. Strictly team-scoped.
+ * @summary List each scout's most recent runs
+ */
+export const signalsScoutRunsRecentPerScout = async (
+    projectId: string,
+    params?: SignalsScoutRunsRecentPerScoutParams,
+    options?: RequestInit
+): Promise<SignalScoutRunSummaryApi[]> => {
+    return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsRecentPerScoutUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: SignalsScoutScratchpadSearchParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1298,7 +1376,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (
@@ -1317,7 +1395,7 @@ export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
 }
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRemember = async (
@@ -1351,6 +1429,61 @@ export const signalsScoutScratchpadForget = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(forgetRequestApi),
+    })
+}
+
+export const getSignalsScoutSuggestionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/suggestions/`
+}
+
+/**
+ * Return the pre-computed scout suggestions for this project: up to five picks, best first, each either a PostHog-authored scout to turn on or a drafted custom scout. Dismissed and already-created suggestions are omitted. An empty `items` with status `empty` means no batch has been generated yet; the interactive `scout-chat-tasks` path still works.
+ * @summary Get suggested scouts for this project
+ */
+export const signalsScoutSuggestionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutSuggestionSetApi> => {
+    return apiMutator<ScoutSuggestionSetApi>(getSignalsScoutSuggestionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutSuggestionsDismissUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/suggestions/${id}/dismiss/`
+}
+
+/**
+ * Hide one suggestion from this project's batch. Dismissal is remembered across refreshes by skill name, so the same suggestion is not shown again.
+ * @summary Dismiss a suggested scout
+ */
+export const signalsScoutSuggestionsDismiss = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutSuggestionItemApi> => {
+    return apiMutator<ScoutSuggestionItemApi>(getSignalsScoutSuggestionsDismissUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsScoutSuggestionsRefreshUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/suggestions/refresh/`
+}
+
+/**
+ * Re-run the suggestion scan for this project now instead of waiting for the scheduled refresh. Runs headlessly; poll the list endpoint for the new batch (`generated_at` advances). Capped per project per day.
+ * @summary Refresh suggested scouts
+ */
+export const signalsScoutSuggestionsRefresh = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutSuggestionRefreshApi> => {
+    return apiMutator<ScoutSuggestionRefreshApi>(getSignalsScoutSuggestionsRefreshUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

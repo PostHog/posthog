@@ -16,6 +16,7 @@ export interface LemonCollapsePanel<K extends React.Key> {
     content: ReactNode
     dataAttr?: string
     className?: string
+    bodyClassName?: string
 }
 
 interface LemonCollapsePropsBase<K extends React.Key> {
@@ -27,7 +28,8 @@ interface LemonCollapsePropsBase<K extends React.Key> {
 }
 
 interface LemonCollapsePropsSingle<K extends React.Key> extends LemonCollapsePropsBase<K> {
-    activeKey?: K
+    /** Pass this to control the panel. `null` or `undefined` then means closed, not uncontrolled. */
+    activeKey?: K | null
     defaultActiveKey?: K
     onChange?: (activeKey: K | null) => void
     multiple?: false
@@ -75,7 +77,10 @@ export function LemonCollapse<K extends React.Key>({
     } else {
         // eslint-disable-next-line react-hooks/rules-of-hooks
         const [localActiveKey, setLocalActiveKey] = useState<K | null>(props.defaultActiveKey ?? null)
-        const effectiveActiveKey = props.activeKey ?? localActiveKey
+        // Read the presence of `activeKey` rather than its value. A caller that controls the panel
+        // has no other way to say "closed", so falling back on a nullish value would reopen the
+        // panel from whatever the user last clicked.
+        const effectiveActiveKey = 'activeKey' in props ? (props.activeKey ?? null) : localActiveKey
         isPanelExpanded = (key: K) => key === effectiveActiveKey
         onPanelChange = (key: K, isExpanded: boolean): void => {
             props.onChange?.(isExpanded ? key : null)
@@ -110,6 +115,7 @@ interface LemonCollapsePanelProps {
     size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
     className?: string
+    bodyClassName?: string
     dataAttr?: string
     onHeaderClick?: () => void
 }
@@ -125,6 +131,7 @@ function LemonCollapsePanel({
     isExpanded,
     size,
     className,
+    bodyClassName,
     dataAttr,
     indexUnexpanableHeader,
     onChange,
@@ -176,7 +183,7 @@ function LemonCollapsePanel({
             {rendered && (
                 <div
                     ref={bodyRef}
-                    className="LemonCollapsePanel__body"
+                    className={clsx('LemonCollapsePanel__body', bodyClassName)}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: shown ? contentHeight : 0 }}
                     aria-busy={rendered !== shown}

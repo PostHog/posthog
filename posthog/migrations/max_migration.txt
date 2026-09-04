@@ -1,1 +1,1 @@
-1294_add_google_calendar_integration_kind
+1340_drop_userproductlist_reason_columns

@@ -6,9 +6,14 @@ import type {
   PiMcpPermissionResponseCommand,
   RpcCommand,
 } from "@posthog/agent/pi/rpc-transport";
-import type {
-  PiPersistedSessionConfig,
-  PiQueueSnapshot,
+import {
+  type PiExtensionSessionEvent,
+  type PiPersistedSessionConfig,
+  type PiQueueSnapshot,
+  type PiUsageStats,
+  piExtensionSessionEventSchema,
+  piExtensionUIResponseSchema,
+  type RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
   type AgentConversationEvent,
@@ -26,7 +31,10 @@ import {
   isTerminalStatus,
   progressNotificationParams,
 } from "../cloud-task/schemas";
-import type { PiSession } from "./piSessionController";
+import type {
+  PiConversationEventContext,
+  PiSession,
+} from "./piSessionController";
 
 function createTerminalPiRpcClient(
   runId: string,
@@ -66,6 +74,16 @@ function createTerminalPiRpcClient(
   };
 }
 
+function extensionMessageFromLogEntry(entry: StoredLogEntry): unknown {
+  if (
+    entry.type === "pi_extension_event" &&
+    entry.notification?.method === "_posthog/pi_extension_event"
+  ) {
+    return entry.notification.params;
+  }
+  return entry;
+}
+
 function permissionDescription(
   content: unknown[] | undefined,
 ): string | undefined {
@@ -88,6 +106,26 @@ function permissionDescription(
   return undefined;
 }
 
+interface CloudTurnUsage {
+  contextTokens: number | null;
+  contextWindow: number | null;
+}
+
+function emptyTurnUsage(): CloudTurnUsage {
+  return {
+    contextTokens: null,
+    contextWindow: null,
+  };
+}
+
+function isCompletedCompaction(event: AgentConversationEvent): boolean {
+  return (
+    event.type === "runtime_status" &&
+    event.status === "compacting" &&
+    event.isComplete === true
+  );
+}
+
 export interface CloudPiSessionContext {
   taskId: string;
   runId: string;
@@ -102,6 +140,7 @@ export class CloudPiSessionClient implements PiSession {
   private readonly terminalClient: PiRemoteRpcClient;
   private runStatus: TaskRunStatus;
   private snapshotEvents: AgentConversationEvent[] = [];
+  private turnUsage: CloudTurnUsage = emptyTurnUsage();
   private snapshotReady = false;
   private resolveSnapshot: () => void = () => {};
   private rejectSnapshot: (error: unknown) => void = () => {};
@@ -119,6 +158,7 @@ export class CloudPiSessionClient implements PiSession {
     },
   );
   private terminalEventSent = false;
+  private readonly resolvedExtensionRequestIds = new Set<string>();
   private resolveTerminalStatus: () => void = () => {};
   private readonly terminalStatusReceived = new Promise<void>((resolve) => {
     this.resolveTerminalStatus = resolve;
@@ -214,6 +254,36 @@ export class CloudPiSessionClient implements PiSession {
     }
   }
 
+  usageStats(): PiUsageStats | undefined {
+    const { contextTokens, contextWindow } = this.turnUsage;
+    if (contextWindow === null) {
+      return undefined;
+    }
+
+    return {
+      contextUsage: {
+        tokens: contextTokens,
+        contextWindow,
+        percent: null,
+      },
+    };
+  }
+
+  private accumulateTurnUsage(events: AgentConversationEvent[]): void {
+    for (const event of events) {
+      if (isCompletedCompaction(event)) {
+        this.turnUsage.contextTokens = null;
+        continue;
+      }
+      if (event.type !== "turn_completed" || !event.usage) {
+        continue;
+      }
+      this.turnUsage.contextTokens = event.usage.contextTokens ?? null;
+      this.turnUsage.contextWindow =
+        event.usage.contextWindow ?? this.turnUsage.contextWindow;
+    }
+  }
+
   health(): Promise<PiRuntimeHealth> {
     if (this.runStatus === "in_progress") {
       return Promise.resolve({ state: "streaming" });
@@ -229,11 +299,65 @@ export class CloudPiSessionClient implements PiSession {
     return this.snapshotEvents;
   }
 
+  onExtensionEvent(
+    onEvent: (event: PiExtensionSessionEvent) => void,
+    onError: (error: unknown) => void,
+  ): () => void {
+    let active = true;
+    const unsubscribe = this.cloudTaskClient.subscribe(
+      this.context.taskId,
+      this.context.runId,
+      (update) => {
+        if (update.kind !== "logs" && update.kind !== "snapshot") {
+          return;
+        }
+        for (const event of this.getExtensionEvents(update.newEntries)) {
+          onEvent(event);
+        }
+      },
+      onError,
+      () => {
+        if (!active) {
+          return;
+        }
+        void this.cloudTaskClient
+          .watch({
+            taskId: this.context.taskId,
+            runId: this.context.runId,
+            apiHost: this.context.apiHost,
+            teamId: this.context.teamId,
+          })
+          .catch(onError);
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }
+
+  async respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void> {
+    const result = await this.cloudTaskClient.sendCommand({
+      taskId: this.context.taskId,
+      id: response.id,
+      runId: this.context.runId,
+      apiHost: this.context.apiHost,
+      teamId: this.context.teamId,
+      method: "pi/rpc",
+      params: { command: response },
+    });
+    if (!result.success) {
+      throw new Error(result.error ?? "Pi extension UI response failed");
+    }
+  }
+
   onMcpToolPermissionRequest(
     onRequest: (request: McpToolPermissionRequest) => void,
     onError: (error: unknown) => void,
   ): () => void {
-    return this.cloudTaskClient.subscribe(
+    let active = true;
+    const unsubscribe = this.cloudTaskClient.subscribe(
       this.context.taskId,
       this.context.runId,
       (update) => {
@@ -256,8 +380,25 @@ export class CloudPiSessionClient implements PiSession {
         });
       },
       onError,
-      () => {},
+      () => {
+        if (!active) {
+          return;
+        }
+        void this.cloudTaskClient
+          .watch({
+            taskId: this.context.taskId,
+            runId: this.context.runId,
+            apiHost: this.context.apiHost,
+            teamId: this.context.teamId,
+          })
+          .catch(onError);
+      },
     );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }
 
   async respondMcpToolPermission(
@@ -286,7 +427,10 @@ export class CloudPiSessionClient implements PiSession {
   }
 
   onConversationEvent(
-    onEvent: (event: AgentConversationEvent) => void,
+    onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void,
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): () => void {
@@ -332,14 +476,22 @@ export class CloudPiSessionClient implements PiSession {
 
   private handleUpdate(
     update: CloudTaskUpdatePayload,
-    onEvent: (event: AgentConversationEvent) => void,
+    onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void,
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): void {
+    // A snapshot's historical pi_run_started only proves the runtime is ready
+    // to take commands when the sandbox behind it is still alive. On a resume
+    // whose sandbox has stopped the sandbox reports dead, so we hold off until a
+    // fresh start arrives over the live log stream. The run status fetched when
+    // the session opened can lag reality, so trust the snapshot's own signals.
     const snapshotCanProveReadiness =
       update.kind === "snapshot" &&
-      this.context.runStatus === "in_progress" &&
-      update.status === "in_progress";
+      update.status === "in_progress" &&
+      update.sandboxAlive !== false;
     const hasCurrentReadinessEvent =
       (update.kind === "logs" || snapshotCanProveReadiness) &&
       update.newEntries.some((entry) => entry.type === "pi_run_started");
@@ -369,10 +521,12 @@ export class CloudPiSessionClient implements PiSession {
       );
 
       this.snapshotEvents = events;
+      this.turnUsage = emptyTurnUsage();
+      this.accumulateTurnUsage(events);
       this.markSnapshotReady();
       for (const event of events) {
         if (!event.sourceId || !previousSourceIds.has(event.sourceId)) {
-          onEvent(event);
+          onEvent(event, { isLive: false });
         }
       }
     } else if (update.kind === "logs") {
@@ -390,9 +544,10 @@ export class CloudPiSessionClient implements PiSession {
         (event) => !event.sourceId || !existingSourceIds.has(event.sourceId),
       );
       this.snapshotEvents = [...this.snapshotEvents, ...newEvents];
+      this.accumulateTurnUsage(newEvents);
       this.markSnapshotReady();
       for (const event of newEvents) {
-        onEvent(event);
+        onEvent(event, { isLive: true });
       }
     }
 
@@ -408,7 +563,16 @@ export class CloudPiSessionClient implements PiSession {
       this.resolveTerminalStatus();
       if (!this.terminalEventSent) {
         this.terminalEventSent = true;
-        onEvent({ type: "turn_completed", timestamp: Date.now() });
+        const stopReason =
+          this.runStatus === "completed"
+            ? "end_turn"
+            : this.runStatus === "cancelled"
+              ? "cancelled"
+              : "failed";
+        onEvent(
+          { type: "turn_completed", timestamp: Date.now(), stopReason },
+          { isLive: update.kind === "status" },
+        );
       }
     }
 
@@ -424,6 +588,33 @@ export class CloudPiSessionClient implements PiSession {
         }),
       );
     }
+  }
+
+  private getExtensionEvents(
+    entries: StoredLogEntry[],
+  ): PiExtensionSessionEvent[] {
+    for (const entry of entries) {
+      const message = extensionMessageFromLogEntry(entry);
+      const response = piExtensionUIResponseSchema.safeParse(message);
+      if (response.success) {
+        this.resolvedExtensionRequestIds.add(response.data.id);
+      }
+    }
+
+    const events: PiExtensionSessionEvent[] = [];
+    for (const entry of entries) {
+      const message = extensionMessageFromLogEntry(entry);
+      const event = piExtensionSessionEventSchema.safeParse(message);
+      if (
+        event.success &&
+        (event.data.type === "extension_error" ||
+          event.data.type === "extension_ui_response" ||
+          !this.resolvedExtensionRequestIds.has(event.data.id))
+      ) {
+        events.push(event.data);
+      }
+    }
+    return events;
   }
 
   private getConversationEvents(

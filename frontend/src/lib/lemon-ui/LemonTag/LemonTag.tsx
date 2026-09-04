@@ -26,6 +26,8 @@ export interface LemonTagProps {
     children: React.ReactNode
     size?: 'small' | 'medium'
     weight?: 'normal'
+    /** Let long content wrap (breaking mid-word if needed) instead of keeping the tag on one unshrinkable line. */
+    wrap?: boolean
     icon?: JSX.Element
     closable?: boolean
     onClose?: () => void
@@ -50,6 +52,7 @@ export const LemonTag: React.FunctionComponent<
         className,
         size = 'medium',
         weight,
+        wrap,
         icon,
         closable,
         onClose,
@@ -75,6 +78,7 @@ export const LemonTag: React.FunctionComponent<
                 disabledReason ? 'cursor-not-allowed' : isClickable ? 'cursor-pointer' : undefined,
                 `LemonTag--${type}`,
                 weight && `LemonTag--${weight}`,
+                wrap && 'LemonTag--wrap',
                 closeOnClick && 'LemonTag--close-on-click',
                 className
             )}

@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { webAnalyticsAchievementsLogic } from 'scenes/web-analytics/achievements/webAnalyticsAchievementsLogic'
-import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
+import { BREAKDOWN_NULL_DISPLAY, exactMatchOperatorFor } from 'scenes/web-analytics/common'
 
 import {
     ProductIntentContext,
@@ -26,12 +26,14 @@ import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generate
  * Build a property filter for a breakdown value. When the value is the
  * BREAKDOWN_NULL_DISPLAY placeholder ("(none)"), the property isn't literally
  * set to "(none)" — it just isn't set — so use IsNotSet instead of an exact
- * match.
+ * match. Otherwise `exactMatchOperatorFor` decides which exact match handles a
+ * path-cleaned value.
  */
 const buildBreakdownPropertyFilter = (
     key: string,
     type: PropertyFilterType.Event | PropertyFilterType.Session | PropertyFilterType.Person,
-    value: string
+    value: string,
+    doPathCleaning?: boolean
 ): AnyPropertyFilter => {
     if (value === BREAKDOWN_NULL_DISPLAY) {
         return {
@@ -45,7 +47,7 @@ const buildBreakdownPropertyFilter = (
         key,
         type,
         value: [value],
-        operator: PropertyOperator.Exact,
+        operator: exactMatchOperatorFor(key, type, doPathCleaning),
     } as AnyPropertyFilter
 }
 
@@ -106,6 +108,8 @@ interface ReplayButtonProps {
     /** Web analytics filters test accounts by default; session replay doesn't. Forward it so the
      *  recordings page matches the row count. */
     filter_test_accounts?: boolean
+    /** Web analytics can clean paths; session replay can't, so the operator has to clean both sides. */
+    doPathCleaning?: boolean
 }
 
 export const ReplayButton = ({
@@ -115,6 +119,7 @@ export const ReplayButton = ({
     value,
     properties,
     filter_test_accounts,
+    doPathCleaning,
 }: ReplayButtonProps): JSX.Element => {
     const extraFilters: UniversalFiltersGroupValue[] = (properties ?? []) as UniversalFiltersGroupValue[]
 
@@ -139,7 +144,12 @@ export const ReplayButton = ({
 
     const renderButton = (filters: Partial<RecordingUniversalFilters>): JSX.Element => (
         <div onClick={handleClick}>
-            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            <ViewRecordingsPlaylistButton
+                filters={filters}
+                type="tertiary"
+                size="xsmall"
+                tooltip="View session recordings for this segment"
+            />
         </div>
     )
 
@@ -226,5 +236,5 @@ export const ReplayButton = ({
         return <></>
     }
 
-    return renderButton(buildFilters([buildBreakdownPropertyFilter(key, type, value)]))
+    return renderButton(buildFilters([buildBreakdownPropertyFilter(key, type, value, doPathCleaning)]))
 }

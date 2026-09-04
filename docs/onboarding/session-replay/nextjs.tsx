@@ -1,10 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getNextJSClientSteps as getNextJSStepsPA } from '../product-analytics/nextjs'
+import { getNextJSClientSteps } from '../product-analytics/nextjs'
 import { StepDefinition } from '../steps'
-import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
+import { sessionReplayFinalStep } from './_snippets/session-replay-final-step'
 
-export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =>
-    createSessionReplayStepsFromPA(getNextJSStepsPA, ctx)
+export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNextJSClientSteps(ctx),
+    sessionReplayFinalStep(ctx),
+]
 
 export const NextJSInstallation = createInstallation(getNextJSSteps)

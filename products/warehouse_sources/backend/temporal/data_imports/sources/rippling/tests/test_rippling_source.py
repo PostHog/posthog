@@ -1,19 +1,24 @@
+import json
+from collections.abc import Iterable
+from typing import Any, cast
+from urllib.parse import urlparse
+
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
     RipplingSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling import RipplingResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import (
     ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    RIPPLING_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source import RipplingSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# The REST framework builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
 class TestRipplingSource:
@@ -21,28 +26,6 @@ class TestRipplingSource:
         self.source = RipplingSource()
         self.team_id = 123
         self.config = RipplingSourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RIPPLING
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Rippling"
-        assert config.label == "Rippling"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/rippling.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_api_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -74,20 +57,6 @@ class TestRipplingSource:
         assert all(schema.supports_incremental for schema in schemas)
         assert all(schema.supports_append for schema in schemas)
 
-    def test_schemas_advertise_their_fields(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["workers"].incremental_fields == INCREMENTAL_FIELDS["workers"]
-        assert {f["field"] for f in schemas["workers"].incremental_fields} == {"updated_at", "created_at"}
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["workers"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "workers"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -107,41 +76,48 @@ class TestRipplingSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_token)
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
+    def test_version_declaration_defaults_to_v2_with_v1_supported(self):
+        # Rippling's REST API version is bound to the token account-side, so both labels issue the
+        # same requests; the default tracks the newest label without repinning existing v1 sources.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+        assert self.source.deprecated_versions == ()
+
+    @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
+    @pytest.mark.parametrize("endpoint", ["workers", "work_locations"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_path_is_identical_for_every_version(self, mock_session, endpoint, pinned_version):
+        # The pin only records which Rippling tier a source targets; it must never change the wire.
+        # A future v2 branch that switched paths or injected a `Rippling-Api-Version` header would
+        # break existing v1 syncs and silently override the customer's token-bound version.
+        session = mock_session.return_value
+        session.headers = {}
+        captured: list[Any] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            captured.append(request)
+            prepared = mock.MagicMock()
+            prepared.url = request.url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        page = Response()
+        page.status_code = 200
+        page._content = json.dumps({"results": [], "next_link": None}).encode()
+        session.send.return_value = page
+
         inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is RipplingResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source.rippling_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_rippling_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "workers"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2024-10-01T00:00:00"
-        inputs.incremental_field = "updated_at"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_rippling_source.assert_called_once()
-        kwargs = mock_rippling_source.call_args.kwargs
-        assert kwargs["api_token"] == "api-token"
-        assert kwargs["endpoint"] == "workers"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2024-10-01T00:00:00"
-        assert kwargs["incremental_field"] == "updated_at"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source.rippling_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_rippling_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "companies"
+        inputs.schema_name = endpoint
+        inputs.api_version = pinned_version
         inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-10-01T00:00:00"
+        inputs.db_incremental_field_last_value = None
         inputs.incremental_field = None
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        response = self.source.source_for_pipeline(self.config, manager, inputs)
+        list(cast(Iterable[Any], response.items()))
 
-        assert mock_rippling_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert captured, "expected at least one request"
+        assert urlparse(captured[0].url).path == RIPPLING_ENDPOINTS[endpoint].path
+        assert "Rippling-Api-Version" not in (captured[0].headers or {})

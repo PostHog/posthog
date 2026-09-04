@@ -25,14 +25,9 @@ export const oAuthTokenResponse = z.object({
   scope: z.string().optional().default(""),
   refresh_token: z.string().optional(),
   scoped_organizations: z.array(z.string()).optional(),
+  scoped_teams: z.array(z.number()).optional(),
 });
 export type OAuthTokenResponse = z.infer<typeof oAuthTokenResponse>;
-
-export const startFlowInput = z.object({
-  region: cloudRegion,
-});
-export type StartFlowInput = z.infer<typeof startFlowInput>;
-
 export const startFlowOutput = z.object({
   success: z.boolean(),
   data: oAuthTokenResponse.optional(),
@@ -40,16 +35,6 @@ export const startFlowOutput = z.object({
   errorCode: oAuthErrorCode.optional(),
 });
 export type StartFlowOutput = z.infer<typeof startFlowOutput>;
-
-export const startSignupFlowInput = startFlowInput;
-export type StartSignupFlowInput = z.infer<typeof startSignupFlowInput>;
-
-export const refreshTokenInput = z.object({
-  refreshToken: z.string(),
-  region: cloudRegion,
-});
-export type RefreshTokenInput = z.infer<typeof refreshTokenInput>;
-
 export const refreshTokenOutput = z.object({
   success: z.boolean(),
   data: oAuthTokenResponse.optional(),
@@ -63,8 +48,3 @@ export const cancelFlowOutput = z.object({
   error: z.string().optional(),
 });
 export type CancelFlowOutput = z.infer<typeof cancelFlowOutput>;
-
-export const openExternalUrlInput = z.object({
-  url: z.string().url(),
-});
-export type OpenExternalUrlInput = z.infer<typeof openExternalUrlInput>;

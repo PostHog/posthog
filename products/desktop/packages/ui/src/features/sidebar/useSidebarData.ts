@@ -13,7 +13,6 @@ import { groupByRepository } from "@posthog/core/sidebar/groupTasks";
 import type {
   SidebarData,
   TaskData,
-  TaskGroup,
 } from "@posthog/core/sidebar/sidebarData.types";
 import { computeSummaryIds } from "@posthog/core/sidebar/summaryIds";
 import type { AppView } from "@posthog/ui/router/useAppView";
@@ -29,7 +28,7 @@ import { usePinnedTasks } from "./usePinnedTasks";
 import { useSidebarSessionMap } from "./useSidebarSessionMap";
 import { useTaskViewed } from "./useTaskViewed";
 
-export type { SidebarData, TaskData, TaskGroup };
+export type { SidebarData, TaskData };
 
 interface UseSidebarDataProps {
   activeView: AppView;
@@ -78,7 +77,7 @@ export function useSidebarData({
     useTaskSummaries(summaryIds, { enabled: !showAllUsers });
   const { data: fullTasks = [], isLoading: isTasksLoading } = useTasks(
     { showAllUsers, showInternal },
-    { enabled: showAllUsers },
+    { enabled: showAllUsers, subscribed: showAllUsers },
   );
   const { data: slackTasks = [] } = useSlackTasks({
     enabled: !showAllUsers,

@@ -1,6 +1,7 @@
+import { RecipeNormalizer } from '@posthog/llm-normalizer'
+
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { RecipeNormalizer } from './normalizer'
 import { AnthropicInputMessage, CompatMessage, OpenAICompletionMessage } from './types'
 import {
     asString,
@@ -12,6 +13,7 @@ import {
     getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
+    getSummarizationLookupDateRange,
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
@@ -135,6 +137,24 @@ describe('mapEvaluationRunRow', () => {
 
         expect(run.result).toBeNull()
         expect(run.applicable).toBe(false)
+    })
+})
+
+describe('getSummarizationLookupDateRange', () => {
+    it('brackets the entity timestamp by a day either side', () => {
+        expect(getSummarizationLookupDateRange('2026-01-01T00:00:00Z')).toEqual({
+            date_from: '2025-12-31T00:00:00.000Z',
+            date_to: '2026-01-02T00:00:00.000Z',
+        })
+    })
+
+    // Without the guard, dayjs anchors on now, so the window never contains an older entity
+    // and the endpoint answers 404 instead of falling back to its own default.
+    it.each([
+        ['missing', undefined],
+        ['unparseable', 'not a timestamp'],
+    ])('sends no window at all when the timestamp is %s', (_, createdAt) => {
+        expect(getSummarizationLookupDateRange(createdAt)).toEqual({})
     })
 })
 
@@ -2159,7 +2179,12 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             expect(normalizeMessage(message, 'assistant')).toEqual([{ role: 'user', content: 'Hi' }])
         })
 
-        it('normalizes tool_call_response parts into tool messages', () => {
+        it.each([
+            ['the schema response key', { response: 'Sunny, 25°C' }],
+            ['the spec example result key', { result: 'Sunny, 25°C' }],
+            ['both keys, preferring response', { response: 'Sunny, 25°C', result: 'stale' }],
+            ['a null response falling back to result', { response: null, result: 'Sunny, 25°C' }],
+        ])('normalizes tool_call_response parts into tool messages from %s', (_label, resultFields) => {
             const message = {
                 role: 'user',
                 parts: [
@@ -2167,7 +2192,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                         type: 'tool_call_response',
                         id: 'call_abc',
                         name: 'get_weather',
-                        result: 'Sunny, 25°C',
+                        ...resultFields,
                     },
                 ],
             }
@@ -2177,7 +2202,24 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ])
         })
 
-        it('stringifies non-string tool_call_response results', () => {
+        it('keeps an empty string response over a stale result', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    {
+                        type: 'tool_call_response',
+                        id: 'call_abc',
+                        name: 'get_weather',
+                        response: '',
+                        result: 'stale',
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'tool', content: '', tool_call_id: 'call_abc' }])
+        })
+
+        it.each(['response', 'result'])('stringifies non-string tool_call_response %s values', (field) => {
             const message = {
                 role: 'user',
                 parts: [
@@ -2185,7 +2227,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                         type: 'tool_call_response',
                         id: 'call_1',
                         name: 'get_data',
-                        result: { temperature: 25, unit: 'C' },
+                        [field]: { temperature: 25, unit: 'C' },
                     },
                 ],
             }
@@ -2287,6 +2329,143 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             }
 
             expect(normalizeMessage(message, 'user')).toEqual([{ role: 'assistant', content: '' }])
+        })
+
+        it('normalizes reasoning parts into thinking messages without an empty primary', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    { type: 'reasoning', content: 'The user wants the forecast.' },
+                    { type: 'text', content: 'Here is the forecast.' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'assistant', content: 'Here is the forecast.' },
+                { role: 'assistant (thinking)', content: 'The user wants the forecast.' },
+            ])
+        })
+
+        it('normalizes a reasoning-only message into just a thinking message', () => {
+            const message = {
+                role: 'assistant',
+                parts: [{ type: 'reasoning', content: 'Considering options.' }],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'assistant (thinking)', content: 'Considering options.' },
+            ])
+        })
+
+        it('normalizes server_tool_call parts into tool calls', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    {
+                        type: 'server_tool_call',
+                        id: 'st_1',
+                        name: 'web_search',
+                        server_tool_call: { type: 'web_search', query: 'weather in Montreal' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'st_1',
+                            function: {
+                                name: 'web_search',
+                                arguments: { type: 'web_search', query: 'weather in Montreal' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('normalizes server_tool_call_response parts into tool messages', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    {
+                        type: 'server_tool_call_response',
+                        id: 'st_1',
+                        server_tool_call_response: { type: 'web_search', status: 'completed' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'tool',
+                    content: '{"type":"web_search","status":"completed"}',
+                    tool_call_id: 'st_1',
+                },
+            ])
+        })
+
+        it('normalizes image blob parts into data-URI image items', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    { type: 'text', content: 'What is in this picture?' },
+                    { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'aGVsbG8=' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'user', content: 'What is in this picture?' },
+                { role: 'user', content: [{ type: 'image', image: 'data:image/png;base64,aGVsbG8=' }] },
+            ])
+        })
+
+        it('normalizes image uri parts into image items', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    { type: 'uri', modality: 'image', mime_type: 'image/jpeg', uri: 'https://example.com/cat.jpg' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'user', content: [{ type: 'image', image: 'https://example.com/cat.jpg' }] },
+            ])
+        })
+
+        it.each([
+            [
+                'a non-image blob',
+                { type: 'blob', modality: 'audio', mime_type: 'audio/mp3', content: 'aGVsbG8=' },
+                '[audio]',
+            ],
+            [
+                'a non-image uri',
+                { type: 'uri', modality: 'document', mime_type: 'application/pdf', uri: 'https://example.com/doc.pdf' },
+                '[document: https://example.com/doc.pdf]',
+            ],
+            ['a file reference', { type: 'file', modality: 'document', file_id: 'file_123' }, '[file: file_123]'],
+        ])('normalizes %s into a text marker', (_label, part, expectedContent) => {
+            const message = { role: 'user', parts: [part] }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'user', content: expectedContent }])
+        })
+
+        it.each([
+            [
+                'its summary when present',
+                { type: 'compaction', id: 'c1', content: 'Earlier turns covered pricing.' },
+                'Earlier turns covered pricing.',
+            ],
+            ['a marker when the summary is absent', { type: 'compaction', id: 'c1' }, '[conversation compacted]'],
+        ])('normalizes compaction parts into %s', (_label, part, expectedContent) => {
+            const message = { role: 'user', parts: [part] }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'user', content: expectedContent }])
         })
     })
 

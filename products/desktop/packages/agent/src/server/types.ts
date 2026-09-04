@@ -35,6 +35,7 @@ export interface AgentServerConfig {
   taskId: string;
   runId: string;
   sandboxId?: string;
+  launcherToProcessMs?: number;
   createPr?: boolean;
   // User-opted auto-publish: push and open a draft PR on completion even for
   // manual (non-automated-origin) cloud runs. createPr=false still wins.
@@ -48,7 +49,7 @@ export interface AgentServerConfig {
   posthogExecPermissionRegex?: string;
   /**
    * Names of desktop-only local MCP servers to expose through loopback relay
-   * endpoints (docs/cloud-mcp-relay.md). Names only; the desktop resolves
+   * endpoints (docs/CLOUD-MCP-RELAY.md). Names only; the desktop resolves
    * each name against local config at execution time.
    */
   relayMcpServers?: string[];

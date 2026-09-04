@@ -5,10 +5,10 @@ use batch_ingestion::process_batch;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
-    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CACHE_LEN, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
-    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, RECV_DEQUEUED,
-    SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    BATCH_ACQUIRE_TIME, CACHE_FILL_RATIO, CACHE_LEN, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
+    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, OFFSET_STORE_FAILURES,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
+    UPDATES_SEEN, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 
@@ -118,7 +118,7 @@ pub async fn update_consumer_loop(
         ];
         for (cap, label, len) in per_cache {
             let cap_f = cap as f64;
-            metrics::gauge!(CACHE_CONSUMED, &[("cache", label)]).set(if cap_f > 0.0 {
+            metrics::gauge!(CACHE_FILL_RATIO, &[("cache", label)]).set(if cap_f > 0.0 {
                 len as f64 / cap_f
             } else {
                 0.0
@@ -154,6 +154,16 @@ pub async fn update_producer_loop(
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     let drain_interval = Duration::from_secs(config.producer_drain_interval_secs);
+
+    // These fire per event or per update, so resolve the handles once instead of
+    // paying a registry lookup (hash + CAS + handle drop) on every increment.
+    // Safe only because main installs the metrics recorder before spawning us.
+    let events_received = metrics::counter!(EVENTS_RECEIVED);
+    let updates_seen = metrics::counter!(UPDATES_SEEN);
+    let updates_per_event = metrics::histogram!(UPDATES_PER_EVENT);
+    let compacted_updates = metrics::counter!(COMPACTED_UPDATES);
+    let updates_filtered_by_cache = metrics::counter!(UPDATES_FILTERED_BY_CACHE);
+    let skipped_due_to_team_filter = metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER);
     loop {
         // The timer arm is what lets the flush check at the bottom of the loop run while no
         // events are arriving. Without it the loop parks in json_recv(), so a partial compaction
@@ -199,7 +209,7 @@ pub async fn update_producer_loop(
             match offset.store() {
                 Ok(_) => (),
                 Err(e) => {
-                    metrics::counter!(UPDATE_PRODUCER_OFFSET, &[("op", "store_fail")]).increment(1);
+                    metrics::counter!(OFFSET_STORE_FAILURES).increment(1);
                     // TODO: consumer json_recv() should expose the source partition ID too
                     error!("update_producer_loop: failed to store offset {curr_offset}, got: {e}");
                 }
@@ -209,7 +219,7 @@ pub async fn update_producer_loop(
                 .filter_mode
                 .should_process(&config.filtered_teams.teams, event.team_id)
             {
-                metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
+                skipped_due_to_team_filter.increment(1);
                 continue;
             }
 
@@ -218,16 +228,16 @@ pub async fn update_producer_loop(
                 config.eventdef_last_seen_floor_secs,
             );
 
-            metrics::counter!(EVENTS_RECEIVED).increment(1);
-            metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
-            metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
+            events_received.increment(1);
+            updates_seen.increment(updates.len() as u64);
+            updates_per_event.record(updates.len() as f64);
 
             for update in updates {
-                if batch.contains(&update) {
-                    metrics::counter!(COMPACTED_UPDATES).increment(1);
-                    continue;
+                // insert returns false on duplicates, so one hash covers the
+                // membership check and the insert.
+                if !batch.insert(update) {
+                    compacted_updates.increment(1);
                 }
-                batch.insert(update);
             }
         }
 
@@ -242,15 +252,13 @@ pub async fn update_producer_loop(
             for update in batch.drain() {
                 if shared_cache.contains_key(&update) {
                     // kept for back-compat; equivalent to sum(prop_defs_cache_hits)
-                    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
+                    updates_filtered_by_cache.increment(1);
                     continue;
                 }
 
-                // TEMPORARY: both old (v1) and new (v2) write paths will utilize the old
-                // not-great caching strategy for now: optimistically add entries before
-                // they are safely persisted to Postgres, and painfully extract them
-                // when batch writes fail. This may be a fine trade for now, since
-                // v2 batch writes fail much less often than v1
+                // Optimistic caching: entries go in before they are persisted, and are evicted
+                // again if the batch write fails. That trade is acceptable because batch writes
+                // rarely fail, and the alternative costs a second pass over every batch.
                 shared_cache.insert(update.clone());
 
                 match channel.try_send(update) {

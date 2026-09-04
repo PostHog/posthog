@@ -5,8 +5,10 @@ import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { getPostHogClient } from '@/lib/posthog'
 import { buildMCPAnalyticsGroups, buildMCPContextProperties } from '@/lib/posthog/analytics'
 import type { AnalyticsEvent } from '@/lib/posthog/analytics'
+import { resolveScopePreset } from '@/lib/scope-preset'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
+import { sanitizeHeaderValue } from '@/lib/utils'
 import type { Context, Env, State } from '@/tools/types'
 
 import type { CliConfig } from './config'
@@ -53,7 +55,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         baseUrl: config.host.replace(/\/+$/, ''),
         clientUserAgent: `posthog-cli api`,
         mcpClientName: 'posthog-cli',
-        mcpClientVersion: process.env.POSTHOG_CLI_VERSION,
+        mcpClientVersion: sanitizeHeaderValue(process.env.POSTHOG_CLI_VERSION),
         mcpConsumer: 'posthog-cli',
     })
     const stateManager = new StateManager(cache, api)
@@ -70,9 +72,10 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         trackEvent: (event: AnalyticsEvent, properties: Record<string, unknown> = {}) => {
             const capture = (async (): Promise<void> => {
                 try {
-                    const [distinctId, analyticsContext] = await Promise.all([
+                    const [distinctId, analyticsContext, apiKey] = await Promise.all([
                         stateManager.getDistinctId().catch(() => undefined),
                         stateManager.getAnalyticsContext().catch(() => undefined),
+                        stateManager.getApiKey().catch(() => undefined),
                     ])
                     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
 
@@ -86,6 +89,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                             $mcp_client_name: 'posthog-cli',
                             $mcp_consumer: 'posthog-cli',
                             $mcp_mode: 'cli',
+                            $mcp_scope_preset: resolveScopePreset(apiKey?.scopes),
                             $mcp_version: config.version,
                             ...(cliInvocationId ? { cli_invocation_id: cliInvocationId } : {}),
                             ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),

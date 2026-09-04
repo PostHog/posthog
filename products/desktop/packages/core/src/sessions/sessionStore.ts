@@ -25,12 +25,15 @@ export interface SessionState {
   sessions: Record<string, AgentSession>;
   /** Index mapping taskId -> taskRunId for O(1) lookups */
   taskIdIndex: Record<string, string>;
+  /** Task ids whose first/resumed agent session is being created. */
+  startingTaskIds: Record<string, true>;
 }
 
 export const sessionStore = createStore<SessionState>()(
   immer(() => ({
     sessions: {},
     taskIdIndex: {},
+    startingTaskIds: {},
   })),
 );
 
@@ -94,6 +97,7 @@ export const sessionStoreSetters = {
 
       state.sessions[session.taskRunId] = session;
       state.taskIdIndex[session.taskId] = session.taskRunId;
+      delete state.startingTaskIds[session.taskId];
     });
   },
 
@@ -102,8 +106,21 @@ export const sessionStoreSetters = {
       const session = state.sessions[taskRunId];
       if (session) {
         delete state.taskIdIndex[session.taskId];
+        delete state.startingTaskIds[session.taskId];
       }
       delete state.sessions[taskRunId];
+    });
+  },
+
+  setTaskStarting: (taskId: string) => {
+    sessionStore.setState((state) => {
+      state.startingTaskIds[taskId] = true;
+    });
+  },
+
+  clearTaskStarting: (taskId: string) => {
+    sessionStore.setState((state) => {
+      delete state.startingTaskIds[taskId];
     });
   },
 
@@ -145,6 +162,7 @@ export const sessionStoreSetters = {
       if (session && session.events.length > 0) {
         session.events = [];
         session.processedLineCount = 0;
+        session.transcriptWindowStart = 0;
       }
     });
   },
@@ -152,6 +170,10 @@ export const sessionStoreSetters = {
   /**
    * Replace a session's transcript in place (rehydration after eviction),
    * preserving its live status/config. No-op if the session is gone.
+   *
+   * The restore reads a whole log rather than a window, so it also retires any
+   * paging index: left behind, it would offer to prepend chain entries the
+   * restored transcript already holds.
    */
   restoreEvents: (
     taskRunId: string,
@@ -164,6 +186,7 @@ export const sessionStoreSetters = {
         for (const event of events) Object.freeze(event);
         session.events = events;
         session.processedLineCount = lineCount;
+        session.transcriptWindowStart = 0;
       }
     });
   },
@@ -404,6 +427,18 @@ export const sessionStoreSetters = {
     });
   },
 
+  removeOptimisticItems: (taskRunId: string, ids: string[]): void => {
+    const removed = new Set(ids);
+    sessionStore.setState((state) => {
+      const session = state.sessions[taskRunId];
+      if (session) {
+        session.optimisticItems = session.optimisticItems.filter(
+          (item) => !removed.has(item.id),
+        );
+      }
+    });
+  },
+
   replaceOptimisticWithEvent: (taskRunId: string, event: AcpMessage): void => {
     sessionStore.setState((state) => {
       const session = state.sessions[taskRunId];
@@ -430,6 +465,7 @@ export const sessionStoreSetters = {
     sessionStore.setState((state) => {
       state.sessions = {};
       state.taskIdIndex = {};
+      state.startingTaskIds = {};
     });
   },
 };

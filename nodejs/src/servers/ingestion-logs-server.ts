@@ -2,6 +2,8 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -24,6 +26,7 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '~/logs/outputs/producers'
 import { createLogsOutputsRegistry } from '~/logs/outputs/registry'
+import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
@@ -54,6 +57,7 @@ export type IngestionLogsServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
+    UsageIngestionConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -125,6 +129,7 @@ export class IngestionLogsServer implements NodeServer {
         const metricsEmitter = this.config.LOGS_METRICS_RULES_EXPORT_URL
             ? new LogsMetricsEmitter(this.config.LOGS_METRICS_RULES_EXPORT_URL)
             : undefined
+        const retentionRulesCache = new RetentionRulesCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -152,6 +157,10 @@ export class IngestionLogsServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
+            const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'logs'), {
+                unit: 'bytes',
+                isTeamEnabled: usageReportTeamMatcher(this.config),
+            })
             const consumer = new LogsIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
@@ -160,6 +169,8 @@ export class IngestionLogsServer implements NodeServer {
                 metricRulesCache,
                 metricsEmitter,
                 logsTransformer,
+                retentionRulesCache,
+                usageBatch,
             })
             await consumer.start()
             return consumer.service

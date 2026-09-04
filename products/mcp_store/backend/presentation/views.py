@@ -1,8 +1,10 @@
 import re
 import json
 import time
+import uuid
 import hashlib
 import secrets
+from collections import Counter
 from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, cast
@@ -11,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import DomainNameValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
@@ -44,19 +46,19 @@ from posthog.rate_limit import (
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
-from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
-from ..facade.api import resolve_member_tool_states
+from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
+    AGENT_GRANT_SCOPE_CHOICES,
     APPROVAL_STATES,
+    MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
     MCPServerInstallationTool,
     MCPServerTemplate,
-    MCPServiceAccount,
     MCPServiceAccountServerAccess,
     MCPToolPolicy,
     SensitiveConfig,
@@ -64,6 +66,7 @@ from ..models import (
 )
 from ..oauth import (
     DcrClientRegistration,
+    DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
@@ -72,6 +75,7 @@ from ..oauth import (
     oauth_resource,
     register_dcr_client,
     requested_oauth_scopes,
+    resolve_template_oauth_credentials,
     select_token_endpoint_auth_method,
 )
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
@@ -105,7 +109,20 @@ class DCRNotSupportedError(Exception):
 
 
 class DCRRegistrationFailedError(Exception):
-    """Raised when Dynamic Client Registration fails."""
+    """Raised when Dynamic Client Registration fails.
+
+    `detail` holds a short, user-safe message from the provider when one exists.
+    """
+
+    def __init__(self, detail: str | None = None) -> None:
+        super().__init__(detail or "")
+        self.detail = detail
+
+
+def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
+    if error.detail:
+        return f"OAuth registration failed. {error.detail}"
+    return "OAuth registration failed."
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -182,13 +199,21 @@ def _template_uses_dcr(template: MCPServerTemplate) -> bool:
     detects this implicitly — the user-facing ``auth_type`` stays ``"oauth"``
     so neither the API nor the UI needs to know about DCR as a concept.
 
-    Operators seed a DCR template by populating (name, url, oauth_metadata,
-    icon, category, docs_url) and leaving ``oauth_credentials`` empty.
+    A catalog credential source also identifies a shared client without copying
+    its secret into the template row.
     """
     if template.auth_type != "oauth":
         return False
     credentials = template.oauth_credentials or {}
-    return not credentials.get("client_id")
+    return not template.oauth_credentials_source and not credentials.get("client_id")
+
+
+def _template_shared_client_id(template: MCPServerTemplate) -> str:
+    credentials = resolve_template_oauth_credentials(template)
+    client_id = credentials.get("client_id", "")
+    if not client_id:
+        raise ValueError("Template OAuth client is not configured")
+    return client_id
 
 
 # The domain becomes a path segment of img.logo.dev/{domain} and part of the icon cache key.
@@ -263,6 +288,9 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField(
+        help_text="Installation description, falling back to the linked template description."
+    )
     icon_domain = serializers.CharField(
         source="template.icon_domain",
         read_only=True,
@@ -325,6 +353,13 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             return obj.template.name
         return ""
 
+    def get_description(self, obj: MCPServerInstallation) -> str:
+        if obj.description:
+            return obj.description
+        if obj.template:
+            return obj.template.description
+        return ""
+
     def get_needs_reauth(self, obj: MCPServerInstallation) -> bool:
         if obj.auth_type != "oauth":
             return False
@@ -352,6 +387,11 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         return request.user.id == obj.user_id
 
 
+class MCPInstallationScope(models.TextChoices):
+    PERSONAL = "personal", "personal"
+    SHARED = "shared", "shared"
+
+
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
@@ -365,10 +405,13 @@ class InstallCustomSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
-        help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
+        help_text=(
+            "'personal' is per-user; 'shared' makes the credential available to project members. "
+            "PostHog agents get access to the connection automatically; see agent_scope."
+        ),
     )
     # Team-wide install options remain admin-only. Agent grants follow the
     # team's allow_member_agent_access setting.
@@ -377,13 +420,14 @@ class InstallCustomSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the server starts enabled for the whole team. Non-default values are admin-only.",
     )
-    agent_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    agent_scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
         required=False,
-        default=list,
         help_text=(
-            "Service accounts to share the server with at install time. "
-            "Available to members when team settings allow member-managed agent access."
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets "
+            "PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. "
+            "Grants are created when the caller may manage agent access: project admins always, members "
+            "when team settings allow it. Sending a value without that permission is rejected."
         ),
     )
     return_path = serializers.CharField(
@@ -394,7 +438,8 @@ class InstallCustomSerializer(serializers.Serializer):
     )
 
     def validate_url(self, value: str) -> str:
-        allowed, error = is_url_allowed(value)
+        team = self.context.get("team")
+        allowed, error = check_mcp_url_policy(value, getattr(team, "id", None))
         if not allowed:
             raise serializers.ValidationError(f"URL not allowed: {error}")
         return value
@@ -411,10 +456,13 @@ class InstallTemplateSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
-        help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
+        help_text=(
+            "'personal' is per-user; 'shared' makes the credential available to project members. "
+            "PostHog agents get access to the connection automatically; see agent_scope."
+        ),
     )
     # Team-wide install options remain admin-only. Agent grants follow the
     # team's allow_member_agent_access setting.
@@ -423,13 +471,14 @@ class InstallTemplateSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the server starts enabled for the whole team. Non-default values are admin-only.",
     )
-    agent_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    agent_scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
         required=False,
-        default=list,
         help_text=(
-            "Service accounts to share the server with at install time. "
-            "Available to members when team settings allow member-managed agent access."
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets "
+            "PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. "
+            "Grants are created when the caller may manage agent access: project admins always, members "
+            "when team settings allow it. Sending a value without that permission is rejected."
         ),
     )
     return_path = serializers.CharField(
@@ -554,24 +603,34 @@ def _installation_display_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
-def _unique_server_slug(name: str, url: str, used: set[str]) -> str:
-    """A short lowercase identifier callers use to namespace tool names.
-
-    Stable across requests because callers iterate installations in id order, and
-    unique within a response because two connections can legitimately share a
-    display name (for example a personal and a shared install of one server).
-    """
+def _server_slug_base(name: str, url: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     if not base:
         base = re.sub(r"[^a-z0-9]+", "-", (urlparse(url).hostname or "server").lower()).strip("-")
-    slug = base or "server"
-    if slug in used:
-        suffix = 2
-        while f"{slug}-{suffix}" in used:
-            suffix += 1
-        slug = f"{slug}-{suffix}"
-    used.add(slug)
-    return slug
+    return base or "server"
+
+
+def _disambiguated_server_slug(base: str, installation_id: uuid.UUID) -> str:
+    """Suffix a slug with a stable fragment of its installation id.
+
+    Two connections can legitimately share a display name — a personal and a shared
+    install of one server. Numbering them by position (`linear`, `linear-2`) would
+    reshuffle whenever one becomes unavailable, so a tool name an agent read from
+    `search` could resolve to a *different* connection on a later command. Keying the
+    suffix to the installation makes a namespaced name mean one connection for good.
+
+    The `--` separator keeps a disambiguated slug from ever colliding with a bare base:
+    `_server_slug_base` collapses every run of non-alphanumerics to a single `-`, so no
+    base can contain `--`. Without that, a connection named to match a generated slug
+    (say `linear--abcdef`) would produce that exact bare slug and route another user's
+    gateway call — resolved by first match — to the wrong server.
+
+    The fragment comes from the tail of the id, not the head: ids are UUIDv7, whose
+    leading hex is a millisecond timestamp shared by every install created in the same
+    ~4.6h window. Two same-named connections would collide on `hex[:6]`; the trailing
+    hex is the random component that actually tells them apart.
+    """
+    return f"{base}--{installation_id.hex[-6:]}"
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -654,7 +713,10 @@ class AvailableToolsResponseSerializer(serializers.Serializer):
 
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
-    scope_object_read_actions = ["list", "retrieve", "authorize", "list_tools"]
+    # An action in neither list derives no scope, and APIScopePermission rejects
+    # personal-API-key and OAuth callers outright for those — so an agent surface would
+    # get a 403 that session-authenticated tests never see.
+    scope_object_read_actions = ["list", "retrieve", "authorize", "list_tools", "available_tools"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -821,6 +883,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "mcp_store install blocked",
             properties={"server_url": url, "reason": reason},
             team=self.team,
+            request=self.request,
         )
         raise PermissionDenied("This server is disabled for your team.")
 
@@ -837,38 +900,25 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _wants_team_gateway_options(data: dict) -> bool:
         return not data.get("team_enabled", True)
 
+    def _can_manage_agent_access(self) -> bool:
+        return self._is_project_admin() or members_can_manage_agent_access(self.team_id)
+
     def _validate_gateway_options(self, data: dict) -> None:
-        """Validate team-level options and agent grants before creating rows."""
+        """Validate team-level options and the agent grant scope before creating rows."""
         if self._wants_team_gateway_options(data) and not self._is_project_admin():
             raise PermissionDenied("Only project admins can set team availability.")
-
-        agent_ids = set(data.get("agent_ids") or [])
-        if not agent_ids:
-            return
-        if not self._is_project_admin() and not members_can_manage_agent_access(self.team_id):
+        if data.get("agent_scope") is not None and not self._can_manage_agent_access():
             raise PermissionDenied("Only project admins can share servers with agents in this project.")
-
-        built_in_agent_ids = {account.id for account in sync_built_in_agents(self.team)}
-        if not agent_ids.issubset(built_in_agent_ids):
-            raise serializers.ValidationError({"agent_ids": "Select only the PostHog agents listed for this project."})
 
     def _apply_gateway_options(self, installation: MCPServerInstallation, data: dict) -> None:
         """Register the installation with the gateway and apply install-time
-        team options (enablement, personal connections, agent shares).
+        team options (enablement, agent shares).
 
         Called only once the install is persisted for good; `_validate_gateway_options`
-        has already gated team options and agent grants.
+        has already gated team options and the agent scope.
         """
-        agent_ids = set(data.get("agent_ids") or [])
-        accounts_by_id = {
-            account.id: account for account in MCPServiceAccount.objects.for_team(self.team_id).filter(id__in=agent_ids)
-        }
-        if agent_ids != set(accounts_by_id):
-            raise serializers.ValidationError(
-                {"agent_ids": "One or more selected PostHog agents are no longer available. Refresh and try again."}
-            )
-
-        server = link_installation_to_gateway(installation, created_by=cast(User, self.request.user))
+        user = cast(User, self.request.user)
+        server = link_installation_to_gateway(installation, created_by=user)
 
         if self._wants_team_gateway_options(data):
             team_enabled = data.get("team_enabled", True)
@@ -876,16 +926,49 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 server.is_team_enabled = team_enabled
                 server.save(update_fields=["is_team_enabled", "updated_at"])
 
-        for account in accounts_by_id.values():
-            MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
+        # A grant lends the granter's own connection, so a shared install that
+        # reused another member's row lends nothing.
+        if installation.user_id == user.id and self._can_manage_agent_access():
+            self._grant_built_in_agents(installation, server, user, data.get("agent_scope"))
+
+    def _grant_built_in_agents(
+        self,
+        installation: MCPServerInstallation,
+        server: MCPGatewayServer,
+        user: User,
+        agent_scope: str | None,
+    ) -> None:
+        """Share the connection with every built-in agent. A connection is shared
+        with agents by default; the scope decides how far that share reaches.
+
+        Reconnecting binds the fresh credential to grants that already exist,
+        because deleting a connection nulls their installation rather than
+        removing them. Such a grant keeps its scope unless the request names one,
+        so a reconnect that omits `agent_scope` never demotes a team share.
+        """
+        for account in sync_built_in_agents(self.team):
+            access, created = MCPServiceAccountServerAccess.objects.for_team(self.team_id).get_or_create(
                 service_account=account,
                 gateway_server=server,
+                user=user,
                 defaults={
                     "team_id": self.team_id,
                     "installation": installation,
-                    "granted_by": cast(User, self.request.user),
+                    "granted_by": user,
+                    "scope": agent_scope or "personal",
                 },
             )
+            if created:
+                continue
+            update_fields: list[str] = []
+            if access.installation_id != installation.id:
+                access.installation = installation
+                update_fields.append("installation")
+            if agent_scope is not None and access.scope != agent_scope:
+                access.scope = agent_scope
+                update_fields.append("scope")
+            if update_fields:
+                access.save(update_fields=update_fields)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
@@ -907,27 +990,37 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": installation.auth_type,
             },
             team=self.team,
+            request=request,
         )
         installation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
-        allowed, reason = is_url_allowed(mcp_url)
+        allowed, reason = check_mcp_url_policy(mcp_url, self.team_id)
         if not allowed:
             logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
             return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
         return None
 
     def _register_dcr_client_or_raise(
-        self, metadata: dict, redirect_uri: str, *, server_url: str = ""
+        self,
+        metadata: dict,
+        redirect_uri: str,
+        *,
+        server_url: str = "",
+        scope_allowlist: list[str] | tuple[str, ...] | None = None,
     ) -> DcrClientRegistration:
         log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
         try:
-            return register_dcr_client(metadata, redirect_uri)
+            return register_dcr_client(metadata, redirect_uri, scope_allowlist)
         except ValueError as e:
             log_context["error"] = str(e)
             logger.warning("DCR not supported", **log_context)
             raise DCRNotSupportedError from e
+        except DCRRegistrationRejectedError as e:
+            log_context["error"] = str(e)
+            logger.warning("DCR registration rejected by provider", **log_context)
+            raise DCRRegistrationFailedError(e.provider_message) from e
         except Exception as e:
             log_context["error"] = str(e)
             logger.exception("DCR registration failed", **log_context)
@@ -941,6 +1034,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         redirect_uri: str,
         state_token: str,
         code_challenge: str,
+        scope_allowlist: list[str] | tuple[str, ...] | None = None,
     ) -> str:
         query_params = {
             "client_id": client_id,
@@ -950,7 +1044,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        if scopes := requested_oauth_scopes(metadata):
+        try:
+            scopes = requested_oauth_scopes(metadata, scope_allowlist)
+        except ValueError as exc:
+            raise OAuthAuthorizeURLError(str(exc)) from exc
+        if scopes:
             query_params["scope"] = " ".join(scopes)
         if resource := oauth_resource(metadata):
             query_params["resource"] = resource
@@ -982,6 +1080,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "is_enabled": data["is_enabled"],
                 },
                 team=self.team,
+                request=request,
             )
 
         for field, value in data.items():
@@ -1039,6 +1138,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": installation.auth_type,
             },
             team=self.team,
+            request=request,
         )
         return Response(self.get_serializer(installation).data)
 
@@ -1087,6 +1187,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": installation.auth_type,
             },
             team=self.team,
+            request=request,
         )
         return Response(self.get_serializer(installation).data)
 
@@ -1336,6 +1437,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "source": "template",
                 },
                 team=self.team,
+                request=request,
             )
             result = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
             return Response(result.data, status=status.HTTP_201_CREATED)
@@ -1367,6 +1469,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     metadata,
                     redirect_uri,
                     server_url=template.url,
+                    scope_allowlist=template.oauth_scope_allowlist,
                 )
             except DCRNotSupportedError:
                 if created:
@@ -1375,10 +1478,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
 
             # Cache the discovered metadata and minted per-user client on the
@@ -1402,7 +1505,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 team_id=self.team_id,
             )
         else:
-            # Shared-creds template: admin-seeded metadata + shared client_id.
+            # Shared-creds template: trusted metadata + shared client_id.
             if not template.oauth_metadata:
                 if created:
                     installation.delete()
@@ -1411,8 +1514,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             metadata = template.oauth_metadata
-            # _template_uses_dcr guarantees client_id is present here.
-            client_id = template.oauth_credentials["client_id"]
+            try:
+                client_id = _template_shared_client_id(template)
+            except ValueError:
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "Template OAuth client is not configured"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
@@ -1434,6 +1544,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 redirect_uri=redirect_uri,
                 state_token=token,
                 code_challenge=pkce.code_challenge,
+                scope_allowlist=template.oauth_scope_allowlist,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1456,11 +1567,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "install_source": install_source,
             },
             team=self.team,
+            request=request,
         )
         return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
 
     @validated_request(
         InstallCustomSerializer,
+        include_serializer_context=True,
         responses={
             200: OpenApiResponse(response=OAuthRedirectResponseSerializer),
             201: OpenApiResponse(response=MCPServerInstallationSerializer),
@@ -1484,7 +1597,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         user_client_secret = (data.get("client_secret") or "").strip()
         scope = data.get("scope", "personal")
         self._require_admin_for_shared_scope(scope)
-        self._require_custom_servers_allowed()
+        # Connecting to a server a teammate already registered is not adding
+        # one, so the team's custom-server setting does not apply.
+        if not MCPGatewayServer.objects.for_team(self.team_id).filter(url=url).exists():
+            self._require_custom_servers_allowed()
         self._validate_gateway_options(data)
 
         install_source = data.get("install_source", "posthog")
@@ -1548,6 +1664,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "source": "custom",
                 },
                 team=self.team,
+                request=request,
             )
 
             result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
@@ -1642,10 +1759,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
             dcr_client_secret = registration.client_secret
             token_endpoint_auth_method = registration.token_endpoint_auth_method
@@ -1823,8 +1940,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if not template.oauth_metadata:
                 return Response({"detail": "Template missing OAuth metadata"}, status=status.HTTP_400_BAD_REQUEST)
             metadata = template.oauth_metadata
-            # _template_uses_dcr guarantees client_id is present here.
-            client_id = template.oauth_credentials["client_id"]
+            try:
+                client_id = _template_shared_client_id(template)
+            except ValueError:
+                return Response(
+                    {"detail": "Template OAuth client is not configured"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         redirect_uri = _get_oauth_redirect_uri()
         pkce = generate_pkce()
@@ -1846,6 +1968,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 redirect_uri=redirect_uri,
                 state_token=token,
                 code_challenge=pkce.code_challenge,
+                scope_allowlist=template.oauth_scope_allowlist,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1866,6 +1989,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "install_source": install_source,
             },
             team=self.team,
+            request=request,
         )
 
         return _oauth_authorize_response(authorize_url, install_source)
@@ -1965,7 +2089,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             .order_by("id")
         )
 
-        used_slugs: set[str] = set()
+        # Decide slug ambiguity over every connection the caller can address, ignoring
+        # whether each is reachable today. Availability changes constantly — a token
+        # expires, an admin flips a server off — and if it fed this decision, a
+        # namespaced tool name could point at a different connection after a refresh.
+        # This set only moves when someone adds or removes a connection.
+        namespace_rows = (
+            MCPServerInstallation.objects.filter(team_id=self.team_id)
+            .filter(Q(user=user) | Q(scope="shared"))
+            .select_related("template")
+        )
+        base_slug_counts: Counter[str] = Counter(
+            _server_slug_base(_installation_display_name(row), row.url) for row in namespace_rows
+        )
+
         servers: list[dict[str, Any]] = []
         for installation in installations:
             # The same credential check `call_tool` runs, so the list can never
@@ -1995,11 +2132,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 continue
 
             name = _installation_display_name(installation)
+            base = _server_slug_base(name, installation.url)
             servers.append(
                 {
                     "installation_id": installation.id,
                     "name": name,
-                    "slug": _unique_server_slug(name, installation.url, used_slugs),
+                    "slug": _disambiguated_server_slug(base, installation.id) if base_slug_counts[base] > 1 else base,
                     "tools": sorted(tools, key=lambda t: t["name"]),
                 }
             )
@@ -2069,6 +2207,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "approval_state": new_state,
                 },
                 team=self.team,
+                request=request,
             )
 
         return Response(
@@ -2182,6 +2321,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                     "install_source": install_source,
                 },
                 team=installation.team,
+                request=request,
             )
             return self._build_oauth_redirect(
                 install_source,
@@ -2225,6 +2365,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                     "install_source": install_source,
                 },
                 team=installation.team,
+                request=request,
             )
             return self._build_oauth_redirect(
                 install_source,
@@ -2257,6 +2398,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 "source": "template" if template else "custom",
             },
             team=installation.team,
+            request=request,
         )
 
         return self._build_oauth_redirect(

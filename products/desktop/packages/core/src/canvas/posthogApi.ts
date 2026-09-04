@@ -62,26 +62,6 @@ export async function runQuery(
   };
 }
 
-/**
- * Run an inline HogQL string. A thin wrapper over {@link runQuery} that boxes the
- * SQL into a HogQLQuery node — the escape hatch for shapes a typed node can't
- * express. Prefer a typed node (TrendsQuery/etc.) for standard metrics.
- */
-export async function runHogQLQuery(
-  authService: AuthService,
-  hogql: string,
-  opts?: { refresh?: string },
-): Promise<HogQLResult> {
-  // `tags.productKey` attributes the query to a product so PostHog's
-  // query-tagging guard is satisfied (it hard-fails untagged ClickHouse queries
-  // in local dev). The desktop canvas/dashboard surfaces are the "max" product.
-  return runQuery(
-    authService,
-    { kind: "HogQLQuery", query: hogql, tags: { productKey: "max" } },
-    opts,
-  );
-}
-
 /** A saved insight's stored result, fetched by short id. */
 export interface InsightFetchResult {
   shortId: string;
@@ -90,6 +70,61 @@ export interface InsightFetchResult {
   columns: string[];
   /** The insight's precomputed `result` (series objects for trends, rows for SQL). */
   results: unknown[];
+  /**
+   * The SQL-variable values the server actually resolved this request with, keyed by
+   * `code_name`. Read off the returned query (which the API rebuilds with the
+   * overrides applied), so it reflects what the numbers were computed from — not
+   * what we asked for. Empty for an insight with no variables.
+   */
+  resolvedVariables: Record<string, unknown>;
+}
+
+/** A query node as far as this module cares: a kind, maybe a wrapped source, maybe variables. */
+interface InsightQueryNode {
+  kind?: string;
+  source?: InsightQueryNode | null;
+  variables?: Record<string, { code_name?: string; value?: unknown }> | null;
+}
+
+// SQL variables live on the HogQLQuery node, which sits under one or more wrapper
+// nodes (DataVisualizationNode, InsightVizNode) — the same `source` chain the API
+// walks when it applies the overrides. Bounded rather than blindly recursive: a
+// malformed/cyclic node from the wire shouldn't spin here.
+const MAX_QUERY_NODE_DEPTH = 5;
+
+function readResolvedVariables(
+  query: InsightQueryNode | null | undefined,
+): Record<string, unknown> {
+  let node = query;
+  for (let depth = 0; node && depth < MAX_QUERY_NODE_DEPTH; depth++) {
+    if (node.variables) {
+      // Re-key by code_name: the API keys these by variable uuid, but code_name is
+      // what the insight's SQL references and what callers pass.
+      return Object.fromEntries(
+        Object.values(node.variables)
+          .filter((variable) => typeof variable?.code_name === "string")
+          .map((variable) => [variable.code_name as string, variable.value]),
+      );
+    }
+    node = node.source;
+  }
+  return {};
+}
+
+// `variables_override` wants full HogQLVariable-shaped entries. The server re-keys
+// them by matching `code_name` against the project's variables and fills in the real
+// uuid, so a code_name-keyed map is enough — no uuid lookup round-trip needed here.
+// An entry WITHOUT `code_name` is dropped server-side without comment, hence the
+// explicit field rather than relying on the map key.
+function buildVariablesOverride(
+  variables: Record<string, unknown>,
+): Record<string, { code_name: string; value: unknown }> {
+  return Object.fromEntries(
+    Object.entries(variables).map(([codeName, value]) => [
+      codeName,
+      { code_name: codeName, value },
+    ]),
+  );
 }
 
 /**
@@ -106,11 +141,20 @@ export interface InsightFetchResult {
  * if the saved insight's window can't be overridden (e.g. a raw-SQL insight) it
  * simply returns its saved window. Throws on no selected project, an HTTP
  * failure, or an unknown short id.
+ *
+ * `variables` overrides the insight's HogQL variables for this request via
+ * `variables_override` — keyed by `code_name`, values applied to both the returned
+ * query and the result it's computed from. The values the server actually landed on
+ * come back as `resolvedVariables`; callers must compare, because the API drops
+ * unmatched entries silently (see CanvasDataService.loadInsight).
  */
 export async function fetchInsightByShortId(
   authService: AuthService,
   shortId: string,
-  opts?: { dateRange?: { date_from?: string | null; date_to?: string | null } },
+  opts?: {
+    dateRange?: { date_from?: string | null; date_to?: string | null };
+    variables?: Record<string, unknown>;
+  },
 ): Promise<InsightFetchResult> {
   const { apiHost } = await authService.getValidAccessToken();
   const projectId = authService.getState().currentProjectId;
@@ -125,6 +169,12 @@ export async function fetchInsightByShortId(
   if (opts?.dateRange) {
     params.set("filters_override", JSON.stringify(opts.dateRange));
   }
+  if (opts?.variables && Object.keys(opts.variables).length > 0) {
+    params.set(
+      "variables_override",
+      JSON.stringify(buildVariablesOverride(opts.variables)),
+    );
+  }
 
   const response = await authService.authenticatedFetch(
     fetch,
@@ -137,7 +187,7 @@ export async function fetchInsightByShortId(
   const body = (await response.json()) as {
     results?: Array<{
       short_id?: string;
-      query?: { kind?: string } | null;
+      query?: InsightQueryNode | null;
       columns?: string[] | null;
       result?: unknown;
     }>;
@@ -152,6 +202,7 @@ export async function fetchInsightByShortId(
     queryKind: insight.query?.kind ?? null,
     columns: Array.isArray(insight.columns) ? insight.columns.map(String) : [],
     results: Array.isArray(insight.result) ? insight.result : [],
+    resolvedVariables: readResolvedVariables(insight.query),
   };
 }
 

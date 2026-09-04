@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -37,13 +37,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
-from posthog.temporal.common.schedule import (
-    a_create_schedule,
-    a_delete_schedule,
-    a_update_schedule,
-    delete_schedule,
-    schedule_exists,
-)
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
@@ -112,12 +106,10 @@ def maybe_reconcile_dag(dag: DAG) -> None:
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
     commit — the user's write already succeeded. Only DAGs already converted to cadence
-    tiers are touched: legacy single-schedule DAGs are converted solely by the
-    reconcile_freshness_schedules command, so a stray mutation can neither unschedule an
-    unseeded DAG nor create tiers alongside live v1 schedules on an unmigrated team.
+    tiers are touched: `require_tiered` below leaves legacy single-schedule DAGs to the
+    reconcile_freshness_schedules command, so a stray mutation cannot unschedule an
+    unseeded DAG.
     """
-    if not tiered_schedules_enabled(dag.team):
-        return
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
 
@@ -131,61 +123,37 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
         capture_exception(error)
 
 
-def dag_has_live_v1_schedules(dag: DAG) -> bool:
-    """Whether any of the DAG's schedulable saved queries still has a live v1 per-query schedule.
-
-    Short-circuits on the first hit, so an unmigrated DAG — where the first query checked almost
-    always has one — costs a single Temporal call.
-    """
-    temporal = sync_connect()
-    for saved_query_id in schedulable_nodes(dag).values_list("saved_query_id", flat=True):
-        if saved_query_id is None:
-            continue
-        if schedule_exists(temporal, schedule_id=str(saved_query_id)):
-            return True
-    return False
-
-
-def dag_can_bootstrap_to_tiers(dag: DAG) -> bool:
-    """Whether this DAG can be born straight onto cadence tiers. Decides only — no side effects.
-
-    Callers reach this only once the v2 lookup has said the DAG has no `execute-dag` schedule.
-    Adding "and no live v1 schedules either" identifies a DAG that nothing has ever scheduled —
-    a new team's first materialization — where seeding tiers cannot double-schedule anything.
-    That is the one safe moment to do it: without this a fresh DAG mints a v1 per-query schedule
-    (v2 is otherwise created only by the migration commands), so every new team is born on v1 and
-    the v1 population grows on its own.
-
-    A DAG carrying live v1 schedules is deliberately left alone — tiers next to them would
-    materialize everything twice. It stays for a migration command to convert and sweep.
-    """
-    if not tiered_schedules_enabled(dag.team):
-        return False
-    return not dag_has_live_v1_schedules(dag)
-
-
-def bootstrap_dag_to_tiers(dag: DAG) -> None:
+def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     """Seed the DAG's targets and queue the reconcile that creates its first tier schedules.
 
     Everything here is a side effect, and `transaction.on_commit` runs the callback immediately
-    for callers that are not inside an atomic block — so call this only once
-    `dag_can_bootstrap_to_tiers` has said yes, and only after whatever frequency validation the
+    for callers that are not inside an atomic block — so call this only once the v2 lookup has
+    said the DAG has no `execute-dag` schedule, and only after whatever frequency validation the
     caller does, never before.
 
     Reconciles without `require_tiered`, because this is the pass that creates the DAG's first
     tier schedules: `maybe_reconcile_dag` cannot stand in for it, since it declines a DAG that
     has no tier schedule yet.
+
+    `requested_by` is the saved query whose enable triggered this, and is marked not materialized
+    if the reconcile fails.
     """
     persist_seed_targets(dag)
-    transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag))
+    transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag, requested_by))
 
 
-def _bootstrap_dag_best_effort(dag: DAG) -> None:
+def _bootstrap_dag_best_effort(dag: DAG, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     try:
         reconcile_dag_schedules(dag)
     except Exception as error:
         logger.exception("Freshness schedule bootstrap failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
+        if requested_by is not None:
+            # A bootstrap that fails creates no schedule, so nothing will ever run the query that
+            # asked for one. Retract the claim here rather than re-raise: this runs after the
+            # caller's transaction committed, so there is no longer a caller to catch it.
+            requested_by.is_materialized = False
+            requested_by.save(update_fields=["is_materialized"])
 
 
 def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> None:
@@ -206,7 +174,11 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
 
 
 def apply_saved_query_frequency_target(
-    saved_query: "DataWarehouseSavedQuery", target: timedelta | None, *, reconcile: bool = True
+    saved_query: "DataWarehouseSavedQuery",
+    target: timedelta | None,
+    *,
+    reconcile: bool = True,
+    visible_names: Mapping[str, str] | None = None,
 ) -> int:
     """Write a frequency target through to the DAG node(s) carrying this saved query.
 
@@ -218,6 +190,12 @@ def apply_saved_query_frequency_target(
     callers batching many writes into one reconcile).
 
     Returns the number of nodes written (0 = no DAG node, so a non-None target was stored nowhere).
+
+    `visible_names` is the set of node names a refusal is allowed to use. It defaults to naming
+    nothing, because a refusal travels: `schedule_materialization` re-raises it and the endpoints
+    API returns its text verbatim, so a default of "name everything" would hand a caller the name
+    of a node they may not read. Callers holding a per-user map (the saved-query surfaces) pass it
+    and get the better message; everything left out falls back to generic prose.
 
     Atomic because a saved query can still carry nodes in several DAGs while duplicates are being
     consolidated away: without it, a target rejected by the third node stays written on the first
@@ -243,12 +221,34 @@ def apply_saved_query_frequency_target(
                     edges=graph.edges,
                     declared_targets=graph.declared_targets,
                     source_intervals=graph.source_intervals,
+                    names=visible_names or {},
                 )
                 set_declared_target(node, target)
             written += 1
             if reconcile:
                 maybe_reconcile_dag(node.dag)
     return written
+
+
+def check_saved_query_frequency_target(
+    saved_query: "DataWarehouseSavedQuery", target: timedelta, *, visible_names: Mapping[str, str] | None = None
+) -> None:
+    """Raise if this target cannot be honored on any of the saved query's nodes, writing nothing.
+
+    The write path validates too, but only after its caller has committed state it then has to undo
+    by hand. Callers serving a user can ask first and refuse before touching anything. See
+    `apply_saved_query_frequency_target` for `visible_names`.
+    """
+    for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
+        graph = build_frequency_graph(node.dag)
+        validate_declared_target(
+            node_id=str(node.id),
+            target=target,
+            edges=graph.edges,
+            declared_targets=graph.declared_targets,
+            source_intervals=graph.source_intervals,
+            names=visible_names or {},
+        )
 
 
 def apply_saved_query_frequency_anchor(
@@ -429,6 +429,94 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
 async def list_existing_schedule_ids(dag_id: str) -> set[str]:
     temporal = await async_connect()
     return await _list_execute_dag_schedule_ids(temporal, dag_id)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DagScheduleTeardown:
+    """`ok` is False when the listing or any delete failed, so Temporal may still hold a schedule
+    for this DAG. `deleted` holds the ids that are confirmed gone.
+    """
+
+    ok: bool
+    deleted: tuple[str, ...]
+
+
+@async_to_sync
+async def delete_dag_schedules(dag_id: str) -> DagScheduleTeardown:
+    """Delete every execute-dag schedule Temporal has for a DAG, from an authoritative listing
+    (PostHogDagId search attribute) rather than an id formula, so a tier, legacy or off-scheme
+    schedule cannot survive its DAG. NOT_FOUND means a concurrent delete won the race.
+
+    Callers that own the DAG row must keep it when `ok` is False: the listing is the only way back
+    to these schedules once the row is gone.
+    """
+    try:
+        temporal = await async_connect()
+        schedule_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
+    except Exception as error:
+        logger.exception("Failed to list execute-dag schedules", dag_id=dag_id)
+        capture_exception(error)
+        return DagScheduleTeardown(ok=False, deleted=())
+
+    ok = True
+    deleted: list[str] = []
+    for schedule_id in sorted(schedule_ids):
+        try:
+            await a_delete_schedule(temporal, schedule_id=schedule_id)
+        except Exception as error:
+            if isinstance(error, RPCError) and error.status == RPCStatusCode.NOT_FOUND:
+                continue
+            ok = False
+            logger.exception("Failed to delete execute-dag schedule", schedule_id=schedule_id, dag_id=dag_id)
+            capture_exception(error)
+            continue
+        deleted.append(schedule_id)
+    return DagScheduleTeardown(ok=ok, deleted=tuple(deleted))
+
+
+class TeamScheduleTeardownError(Exception):
+    pass
+
+
+def delete_team_data_modeling_schedules(team_id: int) -> None:
+    """Tear down every Temporal schedule data modeling owns for a team, before CASCADE removes the
+    rows that name them. A team runs per-saved-query schedules or per-DAG ones, and converting
+    between the two nulls `sync_frequency_interval`, so no field can decide which half to sweep —
+    both are swept unconditionally.
+
+    Raises `TeamScheduleTeardownError` if any delete failed, so the caller can retry. What outlives
+    the retries is left to the orphan sweeps, which start from Temporal and so can still find a
+    schedule after its rows are gone.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    failed = 0
+
+    saved_query_ids = list(
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", flat=True)
+    )
+    if saved_query_ids:
+        temporal = sync_connect()
+        for saved_query_id in saved_query_ids:
+            try:
+                delete_schedule(temporal, schedule_id=str(saved_query_id))
+            except RPCError as error:
+                if error.status == RPCStatusCode.NOT_FOUND:
+                    continue
+                failed += 1
+                logger.exception(
+                    "Failed to delete a saved query schedule for a deleted team",
+                    saved_query_id=str(saved_query_id),
+                    team_id=team_id,
+                )
+                capture_exception(error)
+
+    for dag_id in DAG.objects.filter(team_id=team_id).values_list("id", flat=True):
+        if not delete_dag_schedules(str(dag_id)).ok:
+            failed += 1
+
+    if failed:
+        raise TeamScheduleTeardownError(f"Failed to delete {failed} data modeling schedules for team {team_id}")
 
 
 @async_to_sync

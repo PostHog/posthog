@@ -18,12 +18,30 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+    is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
 
 # _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
 # backoff is as safe as retrying a single failed call, and simpler.
 _PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
+
+
+def _is_retryable_purge_error(error: OSError) -> bool:
+    """True for an error worth retrying `_purge_s3_prefix` on.
+
+    Covers the known-transient object-store blips (see is_transient_object_store_error) plus a bare
+    `PermissionError`: s3fs translates every S3 auth-failure response code (AccessDenied,
+    ExpiredToken, InvalidAccessKeyId, ...) into this one exception type, and a HeadObject 403 never
+    carries the underlying code in its body (AWS omits it for HEAD requests), so a transient
+    credential-resolution race can't be told apart from a genuine permission problem by message here.
+    `_purge_s3_prefix` always runs against a freshly created client (aget_s3_client(fresh_instance=True)),
+    which re-resolves credentials on every call — the same IMDS/STS race already covered for
+    NoCredentialsError above, just surfacing as an explicit S3-side denial instead of a local
+    resolution failure. Retrying the same bounded budget lets that race self-heal; a persistent
+    misconfiguration still raises once the budget is exhausted, since this only defers the error.
+    """
+    return is_transient_object_store_error(error) or isinstance(error, PermissionError)
 
 
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
@@ -39,7 +57,7 @@ async def _purge_s3_prefix(s3: Any, uri: str) -> None:
             return
         except OSError as e:
             attempt += 1
-            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not _is_retryable_purge_error(e):
                 raise
             await asyncio.sleep(2**attempt)
 
@@ -65,6 +83,16 @@ async def _purge_s3_prefix_once(s3: Any, uri: str) -> None:
         await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
     if await s3._exists(uri):
         await s3._rm(uri, recursive=True)
+
+
+def build_delta_table_uri(folder_path: str, resource_name: str) -> str:
+    """Canonical S3 URI of a schema's Delta table.
+
+    The writer (`DeltaTableRef`) and readers (e.g. the fan-out warehouse parent reader)
+    must agree byte-for-byte on where a table lives; both derive it here.
+    """
+    normalized_name = NamingConvention.normalize_identifier(resource_name)
+    return f"{settings.BUCKET_URL}/{folder_path}/{normalized_name}"
 
 
 def delta_storage_options() -> dict[str, str]:
@@ -149,9 +177,8 @@ class DeltaTableRef:
         return delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
-        normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
+        return build_delta_table_uri(folder_path, self._resource_name)
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
@@ -163,14 +190,16 @@ class DeltaTableRef:
 
     async def _capture_unless_transient(self, e: Exception) -> None:
         """capture_exception unless `e` is a known-transient object-store blip (see
-        is_transient_object_store_error) — those recover on retry and aren't a defect, so reporting
-        them to error tracking is just noise. A transient blip is re-raised as
-        TransientObjectStoreError instead of letting the original propagate: the activity
-        interceptor reports any uncaught activity exception unless it's a NonReportableError, so a
-        bare re-raise here would still mint a fresh issue at that boundary. Never suppresses the
-        re-raise itself, so Temporal's activity retry policy is unaffected either way.
+        is_transient_object_store_error) or a concurrent-purge race on `_delta_log` (see
+        is_transient_delta_maintenance_error — the open below can lose that same race a maintenance
+        pass can) — those recover on retry and aren't a defect, so reporting them to error tracking
+        is just noise. A transient blip is re-raised as TransientObjectStoreError instead of letting
+        the original propagate: the activity interceptor reports any uncaught activity exception
+        unless it's a NonReportableError, so a bare re-raise here would still mint a fresh issue at
+        that boundary. Never suppresses the re-raise itself, so Temporal's activity retry policy is
+        unaffected either way.
         """
-        if is_transient_object_store_error(e):
+        if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
             await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
@@ -236,7 +265,9 @@ class DeltaTableRef:
         OOM-crashed merge — after which every sync fails to open the table and loops. Non-destructive:
         only attempts an open (bypassing the get_delta_table cache). A table that simply doesn't exist is
         not corrupt; an unknown open error is not classified as corrupt, so a transient failure never
-        triggers a destructive revive.
+        triggers a destructive revive. A recognized transient blip (see is_transient_object_store_error,
+        is_transient_delta_maintenance_error) is excluded the same way — otherwise a concurrent purge
+        racing this open would misread as corruption and trigger a needless destructive revive.
         """
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
@@ -250,7 +281,9 @@ class DeltaTableRef:
         try:
             await asyncio.to_thread(deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options)
             return False
-        except (deltalake.exceptions.DeltaError, FileNotFoundError):
+        except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
+            if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
+                return False
             return True
         except Exception:
             return False

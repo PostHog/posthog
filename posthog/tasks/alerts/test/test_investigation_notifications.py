@@ -14,8 +14,9 @@ from posthog.tasks.alerts.investigation_notifications import (
     run_investigation_notification_safety_net,
 )
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 NOW = datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC)
 
@@ -122,17 +123,17 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         ]
     )
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
-    @patch("posthog.tasks.alerts.investigation_notifications.record_alert_delivery")
     def test_grace_period_predicate(
         self,
         _name: str,
         age_minutes: int,
         investigation_status: str | None,
         expected_dispatched: bool,
-        mock_record: object,
         mock_dispatch: object,
     ) -> None:
-        mock_dispatch.return_value = ["test@posthog.com"]  # type: ignore[attr-defined]
+        mock_dispatch.return_value = [  # type: ignore[attr-defined]
+            AlertDelivery(channel="email", target="alerts@example.com", at="2026-08-11T00:00:00+00:00")
+        ]
 
         check = self._make_check(age_minutes=age_minutes, investigation_status=investigation_status)
         notified = run_investigation_notification_safety_net()
@@ -146,6 +147,23 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
             assert notified == 0
             assert check.notification_sent_at is None
             mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_zero_accept_dispatch_stamps_without_counting(self, mock_dispatch: object) -> None:
+        # Nothing accepted: the stamp must still land (sweep idempotency), but the
+        # check does not count as notified.
+        mock_dispatch.return_value = []  # type: ignore[attr-defined]
+
+        check = self._make_check(
+            age_minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES + 60,
+            investigation_status=InvestigationStatus.DONE,
+        )
+        notified = run_investigation_notification_safety_net()
+
+        check.refresh_from_db()
+        assert notified == 0
+        assert check.notification_sent_at is not None
+        mock_dispatch.assert_called_once()  # type: ignore[attr-defined]
 
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
     def test_skips_legacy_delivered_check(self, mock_dispatch: object) -> None:

@@ -1,26 +1,6 @@
-import { Spinner, Warning } from "@phosphor-icons/react";
+import { Warning } from "@phosphor-icons/react";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Button, Flex, Text } from "@radix-ui/themes";
-
-interface CloudConnectionBannerProps {
-  message: string;
-}
-
-export function CloudConnectionBanner({ message }: CloudConnectionBannerProps) {
-  return (
-    <Flex
-      align="center"
-      gap="2"
-      py="2"
-      px="3"
-      className="shrink-0 border-gray-5 border-b bg-gray-2"
-    >
-      <Spinner size={14} className="animate-spin text-gray-9" />
-      <Text color="gray" className="text-[13px]">
-        {message}
-      </Text>
-    </Flex>
-  );
-}
 
 interface CloudStreamDisconnectedBannerProps {
   errorTitle?: string;
@@ -73,10 +53,10 @@ export function CloudStreamDisconnectedBanner({
   );
 }
 
-export function ConnectingToAgent() {
+export function ConnectingToAgent({ spinning = true }: { spinning?: boolean }) {
   return (
     <>
-      <Spinner size={28} className="animate-spin text-gray-9" />
+      <Spinner size={28} spinning={spinning} className="text-gray-9" />
       <Text color="gray" className="text-base">
         Connecting to agent...
       </Text>

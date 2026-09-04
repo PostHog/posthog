@@ -61,6 +61,28 @@ function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
     return { id: '$mcp_tool_call', type: 'events', properties }
 }
 
+// A permanently broken batch export fails every run (as often as every 5 minutes), so dedupe
+// per export: one message per broken export per hour. The auto-pause threshold bounds the tail.
+const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
+
+// Keyed per batch export so two exports breaking at once both alert. The producer always sets
+// batch_export_id, but HogMaskerService skips masking on falsy hashes, so fall back defensively.
+const BATCH_EXPORT_ALERT_MASKING_HASH =
+    "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
+
+// The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
+const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
+
+// How long rageclick alerts stay deduped — same trade-off as the MCP TTL above.
+const PA_ALERT_MASKING_TTL_SECONDS = 30 * 60
+
+// A constant key, deliberately not per-page. $pathname/$current_url are attacker-controlled
+// (anyone holding the public project token can send $rageclick events), so a per-page bucket
+// would let a sender mint a fresh bucket per event and flood the destination. The constant
+// bounds delivery to one message per function per TTL; the message still names the page that
+// triggered it, and the replay list has the rest.
+const PA_RAGECLICK_MASKING_HASH = 'rageclick'
+
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
     Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type' | 'context_id'> &
@@ -100,17 +122,28 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         // per tool per interval still surfaces each distinct breakage.
         masking: { hash: MCP_ALERT_MASKING_HASH, ttl: MCP_ALERT_MASKING_TTL_SECONDS, threshold: null },
     },
+    'pa-rageclick': {
+        sub_template_id: 'pa-rageclick',
+        type: 'destination',
+        context_id: 'standard',
+        filters: { events: [{ id: '$rageclick', type: 'events' }] },
+        // A broken element gets rage clicked by every visitor who hits it, so an undeduped alert
+        // would post a message per event. Deduped globally (see PA_RAGECLICK_MASKING_HASH for why
+        // not per-page): at most one message per interval.
+        masking: { hash: PA_RAGECLICK_MASKING_HASH, ttl: PA_ALERT_MASKING_TTL_SECONDS, threshold: null },
+    },
     'activity-log': {
         sub_template_id: 'activity-log',
         type: 'internal_destination',
         context_id: 'activity-log',
-        filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$activity_log_entry_created', type: 'events' }] },
     },
     'feature-flag-change': {
         sub_template_id: 'feature-flag-change',
         type: 'internal_destination',
         context_id: 'activity-log',
         filters: {
+            source: 'internal-events',
             events: [
                 {
                     id: '$activity_log_entry_created',
@@ -131,77 +164,85 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'discussion-mention',
         type: 'internal_destination',
         context_id: 'discussion-mention',
-        filters: { events: [{ id: '$discussion_mention_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$discussion_mention_created', type: 'events' }] },
     },
     'error-tracking-issue-created': {
         sub_template_id: 'error-tracking-issue-created',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
     },
     'error-tracking-issue-reopened': {
         sub_template_id: 'error-tracking-issue-reopened',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
     'error-tracking-issue-spiking': {
         sub_template_id: 'error-tracking-issue-spiking',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
         type: 'internal_destination',
         context_id: 'insight-alerts',
-        filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
     'experiment-significant': {
         sub_template_id: 'experiment-significant',
         type: 'internal_destination',
         context_id: 'experiment-alerts',
-        filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$experiment_metric_significant', type: 'events' }] },
     },
     'logs-alert-firing': {
         sub_template_id: 'logs-alert-firing',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_firing', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_firing', type: 'events' }] },
     },
     'logs-alert-resolved': {
         sub_template_id: 'logs-alert-resolved',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_resolved', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_resolved', type: 'events' }] },
     },
     'logs-alert-auto-disabled': {
         sub_template_id: 'logs-alert-auto-disabled',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
     },
     'logs-alert-errored': {
         sub_template_id: 'logs-alert-errored',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_errored', type: 'events' }] },
     },
     'health-check-firing': {
         sub_template_id: 'health-check-firing',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_firing', type: 'events' }] },
     },
     'health-check-resolved': {
         sub_template_id: 'health-check-resolved',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+    },
+    'batch-export-run-failed': {
+        sub_template_id: 'batch-export-run-failed',
+        type: 'internal_destination',
+        context_id: 'batch-export-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$batch_export_run_failed', type: 'events' }] },
+        masking: {
+            hash: BATCH_EXPORT_ALERT_MASKING_HASH,
+            ttl: BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
+        flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
     },
 }
 
@@ -429,6 +470,64 @@ export function mcpNotificationPreviewMessage(values: Record<MCPMessageField, st
 const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(slackEscapeExpr), '*')
 const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(markdownEscapeExpr), '**')
 
+// $pathname, $current_url and $browser are producer-controlled just like the $mcp_* properties, so
+// the rageclick message reuses the same escaping and length bounds.
+const PA_FIELD_MAX_LENGTH = 200
+
+/** The producer-controlled values a rageclick notification message interpolates. */
+export type PAMessageField = 'page' | 'browser'
+type PAFieldRenderer = (field: PAMessageField) => string
+
+function paHogFieldRenderer(escape: ChatEscaper): PAFieldRenderer {
+    return (field) => {
+        switch (field) {
+            case 'page':
+                return `{${escape(PA_RAGECLICK_PAGE_EXPR, PA_FIELD_MAX_LENGTH)}}`
+            case 'browser':
+                return `{${escape('event.properties.$browser', PA_FIELD_MAX_LENGTH)}}`
+        }
+    }
+}
+
+// Same single-source pattern as mcpToolFailureMessage: the Hog templates and the in-app preview
+// render the one copy string, so the preview can't drift from what gets delivered.
+function paRageclickMessage(field: PAFieldRenderer, bold: string): string {
+    return (
+        `Users are rage clicking on ${bold}${field('page')}${bold} ` +
+        `(browser: ${field('browser')}). The element they're clicking isn't responding.`
+    )
+}
+
+export type PANotificationSubTemplateId = 'pa-rageclick'
+
+export const PA_NOTIFICATION_BUTTON_LABELS: Record<PANotificationSubTemplateId, string> = {
+    'pa-rageclick': 'Watch session replay',
+}
+
+/** See MCP_MESSAGE_FIELD_LIMITS — the caps a preview built from real event values must apply. */
+export const PA_MESSAGE_FIELD_LIMITS: Record<PAMessageField, number> = {
+    page: PA_FIELD_MAX_LENGTH,
+    browser: PA_FIELD_MAX_LENGTH,
+}
+
+/** See mcpNotificationPreviewMessage — the Slack message rendered with sample values. */
+export function paNotificationPreviewMessage(values: Record<PAMessageField, string>): string {
+    const field: PAFieldRenderer = (name) => values[name]
+    return paRageclickMessage(field, '*')
+}
+
+const PA_RAGECLICK_SLACK_MESSAGE = paRageclickMessage(paHogFieldRenderer(slackEscapeExpr), '*')
+const PA_RAGECLICK_MARKDOWN_MESSAGE = paRageclickMessage(paHogFieldRenderer(markdownEscapeExpr), '**')
+
+// Session IDs are producer-controlled too: cap the encoded form like the MCP tool link does (a
+// truncated ID would resolve to nothing, and a lone surrogate would make encodeURLComponent throw),
+// falling back to the replay home page when the ID is missing or oversized.
+const PA_ENCODED_SESSION_EXPR = 'encodeURLComponent(concat(event.properties.$session_id))'
+const PA_RAGECLICK_LINK =
+    `{project.url}/replay` +
+    `{length(${PA_ENCODED_SESSION_EXPR}) > 0 and length(${PA_ENCODED_SESSION_EXPR}) <= ${MCP_URL_ENCODED_TOOL_BUDGET}` +
+    ` ? concat('/', ${PA_ENCODED_SESSION_EXPR}) : '/home'}`
+
 const MCP_ENCODED_EFFECTIVE_TOOL_EXPR = `encodeURLComponent(concat(${MCP_EFFECTIVE_TOOL_EXPR}))`
 // Deep-links to the failing tool, falling back to the tool list when the encoded name would
 // blow the Discord budget (see MCP_URL_ENCODED_TOOL_BUDGET). project.url stays a plain
@@ -438,7 +537,7 @@ const MCP_TOOL_ERROR_LINK =
     `{length(${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) <= ${MCP_URL_ENCODED_TOOL_BUDGET}` +
     ` ? concat('/', ${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) : ''}`
 
-interface MCPNotificationVariantsOptions {
+interface NotificationVariantsOptions {
     subTemplateId: HogFunctionSubTemplateIdType
     nameSuffix: string
     description: string
@@ -449,7 +548,7 @@ interface MCPNotificationVariantsOptions {
     slackButton: { url: string; label: string }
 }
 
-function mcpNotificationVariants({
+function notificationVariants({
     subTemplateId,
     nameSuffix,
     description,
@@ -458,7 +557,7 @@ function mcpNotificationVariants({
     slackFallbackText,
     markdownMessage,
     slackButton,
-}: MCPNotificationVariantsOptions): HogFunctionSubTemplateType[] {
+}: NotificationVariantsOptions): HogFunctionSubTemplateType[] {
     const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
 
     return [
@@ -513,8 +612,15 @@ function mcpNotificationVariants({
     ]
 }
 
+// batch_export_name is user-controlled and error can embed whatever the destination returned, so
+// both get the same Slack escaping + bounds as the other producer-controlled notification fields
+// (a raw value could smuggle <!channel> mentions or <url|text> masked links into the message).
+// The error bound matches the backend's 1000-char truncation of the property.
+const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
+const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
-    'mcp-tool-error': mcpNotificationVariants({
+    'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
         nameSuffix: 'when an MCP tool call fails',
         description: 'Know the moment agents hit an error on one of your tools',
@@ -523,6 +629,16 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackFallbackText: 'An MCP tool call failed',
         markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
         slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
+    }),
+    'pa-rageclick': notificationVariants({
+        subTemplateId: 'pa-rageclick',
+        nameSuffix: 'when users rage click',
+        description: "Know when users repeatedly click something that isn't working",
+        webhookDescription: 'Send rage click events to your own endpoint',
+        slackMessage: PA_RAGECLICK_SLACK_MESSAGE,
+        slackFallbackText: 'Users are rage clicking',
+        markdownMessage: `${PA_RAGECLICK_MARKDOWN_MESSAGE}\n\n${PA_RAGECLICK_LINK}`,
+        slackButton: { url: PA_RAGECLICK_LINK, label: PA_NOTIFICATION_BUTTON_LABELS['pa-rageclick'] },
     }),
     'survey-response': [
         {
@@ -1213,7 +1329,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'context',
                             elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
                         },
-                        { type: 'divider' },
+                        // A hog template that is a single {…} expression resolves to the expression's raw
+                        // value, so this string becomes a whole block: a chart of the alerted insight when
+                        // the anomaly investigation rendered one (`insight_chart_url` set by
+                        // investigate_anomaly_activity), otherwise the plain divider — Slack has no way to
+                        // omit a block conditionally, and an image block with an empty URL fails the send.
+                        "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
                         {
                             type: 'actions',
                             // The alert id in the block_id is what lets the datetimepicker action identify
@@ -1528,6 +1649,52 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'batch-export-run-failed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['batch-export-run-failed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on batch export failure',
+            description: 'Post to a Slack channel when a batch export run fails',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: 'Batch export failed' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                // data_interval_start is null for backfill runs covering everything
+                                // up to the end date ("beginning of time" in the backfills UI)
+                                text: `*${BATCH_EXPORT_NAME_SLACK}* ({event.properties.destination_type}) failed to export data for {event.properties.data_interval_start ? event.properties.data_interval_start : 'the beginning of time'} – {event.properties.data_interval_end}.`,
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: `*Error:* ${BATCH_EXPORT_ERROR_SLACK}` },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/pipeline/batch-exports/{event.properties.batch_export_id}',
+                                    text: { text: 'View batch export', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: `Batch export '${BATCH_EXPORT_NAME_SLACK}' failed: ${BATCH_EXPORT_ERROR_SLACK}`,
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1542,6 +1709,12 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$error_tracking_issue_created':
         case '$error_tracking_issue_reopened':
         case '$error_tracking_issue_spiking':
+        case '$error_tracking_issue_resolved':
+        case '$error_tracking_issue_suppressed':
+        case '$error_tracking_issue_assigned':
+        case '$error_tracking_issue_unassigned':
+        case '$error_tracking_issue_merged':
+        case '$error_tracking_issue_split':
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'
@@ -1559,6 +1732,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$health_check_issue_firing':
         case '$health_check_issue_resolved':
             return 'health-alerts'
+        case '$batch_export_run_failed':
+            return 'batch-export-alerts'
         default:
             return 'standard'
     }

@@ -1,17 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.fred.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fred.fred import FredResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.fred.settings import ENDPOINTS, FRED_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fred.source import FredSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fred import FredSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.fred.source"
 
@@ -21,36 +16,6 @@ class TestFredSource:
         self.source = FredSource()
         self.team_id = 123
         self.config = FredSourceConfig(api_key="key", series_ids="UNRATE, CPIAUCSL")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FRED
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Fred"
-        assert config.label == "FRED"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/fred.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "series_ids"]
-
-    @pytest.mark.parametrize(
-        "field_name, field_type, secret",
-        [
-            ("api_key", SourceFieldInputConfigType.PASSWORD, True),
-            ("series_ids", SourceFieldInputConfigType.TEXTAREA, False),
-        ],
-    )
-    def test_field_types(self, field_name, field_type, secret):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
-
-        assert field.type == field_type
-        assert field.secret is secret
-        assert field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -81,10 +46,6 @@ class TestFredSource:
         # incremental sync off `observation_start`.
         assert not any(schema.supports_incremental for schema in schemas)
         assert all(schema.incremental_fields == [] for schema in schemas)
-
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["series", "observations"])
-        assert {schema.name for schema in schemas} == {"series", "observations"}
 
     @pytest.mark.parametrize(
         "endpoint, config",
@@ -131,12 +92,6 @@ class TestFredSource:
         assert (error is None) is is_valid
         mock_validate.assert_called_once_with("key", "UNRATE")
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FredResumeConfig
-
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_plumbs_schema_name(self, endpoint):
         inputs = mock.MagicMock()
@@ -155,10 +110,6 @@ class TestFredSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_fred_source.call_args.kwargs["series_ids"] == ["UNRATE", "CPIAUCSL"]
-
-    def test_documented_tables_render_without_credentials(self):
-        assert self.source.lists_tables_without_credentials is True
-        assert {table["name"] for table in self.source.get_documented_tables()} == set(ENDPOINTS)
 
     def test_canonical_descriptions_cover_every_endpoint(self):
         # Descriptions are keyed by schema name, so a renamed endpoint silently drops back to

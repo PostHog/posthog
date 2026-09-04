@@ -34,7 +34,7 @@ import {
   taskCommentTarget,
 } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import {
-  byNewestActivity,
+  byNewestThread,
   prCommentThreads,
   resourceCommentThreads,
   type SourceKind,
@@ -84,6 +84,20 @@ const MAX_PR_COMMENT_SOURCES = 20;
 const MAX_CONCURRENT_PR_SOURCES = 4;
 
 type StateFilter = "open" | "resolved";
+
+function scrollThreadInPane(pane: HTMLElement, thread: HTMLElement): void {
+  const paneRect = pane.getBoundingClientRect();
+  const threadRect = thread.getBoundingClientRect();
+  const offset =
+    threadRect.top < paneRect.top
+      ? threadRect.top - paneRect.top
+      : threadRect.bottom > paneRect.bottom
+        ? threadRect.bottom - paneRect.bottom
+        : 0;
+  if (offset !== 0) {
+    pane.scrollTo({ top: pane.scrollTop + offset, behavior: "smooth" });
+  }
+}
 
 /** The icon a source shows wherever it's named — the card label and the
  *  filter menu — so the two always agree. */
@@ -316,6 +330,7 @@ export function TaskCommentsList({
   const [sourceFilter, setSourceFilter] = useState<string>(ALL_SOURCES);
   const [pulseThreadId, setPulseThreadId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const threadListRef = useRef<HTMLDivElement>(null);
   const sourceFilterTouched = useRef(false);
   const previousTaskId = useRef(task.id);
 
@@ -405,7 +420,6 @@ export function TaskCommentsList({
 
   const taskTarget = useMemo(() => taskCommentTarget(task.id), [task.id]);
   const composerTarget = onlySource?.target ?? taskTarget;
-  const composerSourceKey = commentTargetKey(composerTarget);
   const createComment = useCreateComment(composerTarget, task.id);
 
   const threads = useMemo(() => {
@@ -423,7 +437,7 @@ export function TaskCommentsList({
         conversationByUrl.get(prUrl) ?? [],
       ),
     );
-    return [...resourceThreads, ...prThreads].sort(byNewestActivity);
+    return [...resourceThreads, ...prThreads].sort(byNewestThread);
   }, [
     commentsQuery.data,
     sources,
@@ -557,13 +571,14 @@ export function TaskCommentsList({
         : ALL_SOURCES,
     );
     setPulseThreadId(focus.threadId);
-    openThread(focused, false);
+    if (focus.intent === "navigate") openThread(focused, false);
+    if (focus.intent === "focus-only") return;
     requestAnimationFrame(() => {
-      document
-        .querySelector(
-          `[data-comment-thread-id="${CSS.escape(focus.threadId)}"]`,
-        )
-        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      const pane = threadListRef.current;
+      const thread = pane?.querySelector<HTMLElement>(
+        `[data-comment-thread-id="${CSS.escape(focus.threadId)}"]`,
+      );
+      if (pane && thread) scrollThreadInPane(pane, thread);
     });
   }, [focus, openThread, threads, task.id]);
   // The pulse fades on its own; owning the timer in its own effect keeps it
@@ -661,7 +676,10 @@ export function TaskCommentsList({
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pt-3 pb-2">
+      <div
+        ref={threadListRef}
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pt-3 pb-2"
+      >
         {loadFailed ? (
           <Empty className="py-8">
             <EmptyHeader>
@@ -679,7 +697,7 @@ export function TaskCommentsList({
             <Spinner />
           </div>
         ) : visibleThreads.length === 0 ? (
-          <Empty className="py-8">
+          <Empty className="h-full border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <ChatCircleIcon />
@@ -732,7 +750,7 @@ export function TaskCommentsList({
           value={draft}
           onValueChange={setDraft}
           onSubmit={async (content, mentions) => {
-            await createComment.mutateAsync({
+            const created = await createComment.mutateAsync({
               content,
               context: {
                 anchor: { kind: "document" },
@@ -741,15 +759,9 @@ export function TaskCommentsList({
               mentions,
             });
             setDraft("");
-            // Show the thread that was just opened: open state, and a source
-            // filter that isn't hiding the task's own comments.
-            setStateFilter("open");
-            if (
-              sourceFilter !== ALL_SOURCES &&
-              sourceFilter !== composerSourceKey
-            ) {
-              setSourceFilter(ALL_SOURCES);
-            }
+            requestCommentFocus(task.id, composerTarget, created.id, {
+              intent: "focus-only",
+            });
           }}
           members={members}
           placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}

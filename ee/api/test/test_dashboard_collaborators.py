@@ -3,11 +3,11 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.api.test.base import APILicensedTest
 from ee.models.dashboard_privilege import DashboardPrivilege
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):

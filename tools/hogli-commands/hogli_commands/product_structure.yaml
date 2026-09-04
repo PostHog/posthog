@@ -66,7 +66,13 @@ root_files:
                 "extends": ["//"],
                 "tasks": {{
                     "backend:contract-check": {{
-                        "inputs": ["backend/facade/**", "backend/presentation/**", "backend/tasks/**"],
+                        "inputs": [
+                            "backend/facade/**",
+                            "backend/presentation/**",
+                            "backend/tasks/**",
+                            "backend/models.py",
+                            "backend/migrations/**"
+                        ],
                         "outputs": [],
                         "cache": true
                     }}
@@ -86,15 +92,20 @@ root_files:
 
 # Backend files (in backend/)
 #
-# We deliberately do not scaffold `__init__.py` files for `backend/`,
-# `backend/facade/`, `backend/presentation/`, or `backend/tasks/`. Python 3.3+
-# implicit namespace packages handle imports without them, and the convention
-# under products/ is to keep package surfaces intentional — either populate
-# `__init__.py` with explicit exports (rare) or omit it.
-# `tests/__init__.py` is the one exception: pytest's default `prepend` import
-# mode would collide on duplicate test filenames across products (11×
-# `test_models.py`, 11× `test_api.py`, etc.) without it.
+# `backend/`, `backend/facade/`, and `backend/presentation/` carry an empty
+# `__init__.py`. `products/` is a regular package, and grimp stops descending at
+# the first directory without a marker — without them import-linter cannot see
+# the product's modules and every contract passes there vacuously.
+# `tests/__init__.py` is separate: pytest's default `prepend` import mode would
+# collide on duplicate test filenames across products (11× `test_models.py`,
+# 11× `test_api.py`, etc.) without it.
+# Everything else stays a namespace package: no contract targets it, and the
+# convention under products/ is to keep package surfaces intentional.
 backend_files:
+    __init__.py:
+        required: true
+        template: ''
+
     apps.py:
         required: true
         template: |
@@ -190,6 +201,10 @@ backend_files:
                 # Define periodic task schedules here
 
     facade/:
+        __init__.py:
+            required: true
+            template: ''
+
         api.py:
             required: true
             template: |
@@ -281,6 +296,10 @@ backend_files:
                     RETICULATED = "reticulated"
 
     presentation/:
+        __init__.py:
+            required: true
+            template: ''
+
         serializers.py:
             required: true
             template: |

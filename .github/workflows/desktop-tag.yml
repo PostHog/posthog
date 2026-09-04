@@ -26,13 +26,13 @@ jobs:
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.merged == true &&
-             contains(github.event.pull_request.labels.*.name, 'create desktop release'))
+             contains(github.event.pull_request.labels.*.name, 'desktop-release'))
         permissions:
             contents: write
             actions: write
             pull-requests: write
             issues: write
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         steps:
             - name: Get app token
@@ -49,7 +49,7 @@ jobs:
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
 
-            - name: Check labeler is a member of team-posthog-code
+            - name: Check labeler is a member of team-posthog-desktop
               id: labeler
               if: github.event_name == 'pull_request'
               env:
@@ -57,21 +57,21 @@ jobs:
                   COMMENT_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  TEAM_SLUG: team-posthog-code
+                  TEAM_SLUG: team-posthog-desktop
               run: |
                   skip() {
                     echo "$1 Skipping auto-release; the next scheduled release will pick this up."
                     echo "authorized=false" >> "$GITHUB_OUTPUT"
                     GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" \
-                      --body "$1 Auto-release is limited to members of the team-posthog-code GitHub team, so this will ship with the next scheduled release instead." || true
+                      --body "$1 Auto-release is limited to members of the ${TEAM_SLUG} GitHub team, so this will ship with the next scheduled release instead." || true
                   }
 
                   LABELER=$(gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/events" --paginate \
-                    --jq '.[] | select(.event == "labeled" and (.label.name | ascii_downcase) == "create desktop release") | "\(.id) \(.actor.login)"' \
+                    --jq '.[] | select(.event == "labeled" and (.label.name | ascii_downcase) == "desktop-release") | "\(.id) \(.actor.login)"' \
                     | sort -n | tail -1 | cut -d" " -f2)
 
                   if [ -z "$LABELER" ]; then
-                    skip "Could not determine who added the 'create desktop release' label."
+                    skip "Could not determine who added the 'desktop-release' label."
                     exit 0
                   fi
 
@@ -81,10 +81,10 @@ jobs:
                   fi
 
                   if echo "$MEMBERS" | grep -qixF "$LABELER"; then
-                    echo "'create desktop release' was added by ${LABELER}, a member of ${TEAM_SLUG}."
+                    echo "'desktop-release' was added by ${LABELER}, a member of ${TEAM_SLUG}."
                     echo "authorized=true" >> "$GITHUB_OUTPUT"
                   else
-                    skip "'create desktop release' was added by @${LABELER}, who is not on ${TEAM_SLUG}."
+                    skip "'desktop-release' was added by @${LABELER}, who is not on ${TEAM_SLUG}."
                   fi
 
             - name: Check quiet period

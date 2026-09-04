@@ -13,8 +13,18 @@ jobs:
         name: shellcheck
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # The runner image ships shellcheck, so apt is only a fallback. apt has
+            # no retries and a 120s per-fetch timeout by default, and a stalled
+            # mirror can hold this job past its timeout, which the merge queue
+            # reads as a failed required check.
             - name: Install shellcheck
-              run: sudo apt update && sudo apt install -y shellcheck
+              run: |
+                  if command -v shellcheck >/dev/null; then
+                      shellcheck --version
+                      exit 0
+                  fi
+                  sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+                  sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y shellcheck
             - name: Check secrets scripts
               run: cd bin && shellcheck deploy-hobby
 
@@ -28,6 +38,21 @@ jobs:
               run: |
                   shellcheck .github/scripts/desktop/*.sh
                   .github/scripts/desktop/check-pr-backend-coupling.test.sh
+
+            - name: Check product JUnit preparation script
+              run: |
+                  shellcheck .github/scripts/prepare-product-junit-for-trunk.sh .github/scripts/prepare-product-junit-for-trunk.test.sh
+                  bash .github/scripts/prepare-product-junit-for-trunk.test.sh
+
+            - name: Check commit-time warning scripts
+              run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  [ -f .github/scripts/check-commit-warnings.test.sh ] || exit 0
+                  shellcheck .github/scripts/check-claude-hooks.sh \
+                      .github/scripts/check-quill-agents-md.sh \
+                      .github/scripts/check-commit-warnings.test.sh
+                  .github/scripts/check-commit-warnings.test.sh
 
             # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
             # anywhere in the repo are validated on every PR.

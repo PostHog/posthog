@@ -56,12 +56,12 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
             context().capture_command_invoked("query_editor");
             let res = start_query_editor(*debug)?;
             if !no_print {
-                println!("Final query: {res}");
+                crate::safe_println!("Final query: {res}");
             }
             if *execute {
                 let res = run_query(&res)??;
                 for result in res.results {
-                    println!("{}", serde_json::to_string(&result)?);
+                    crate::safe_println!("{}", serde_json::to_string(&result)?);
                 }
             }
         }
@@ -70,10 +70,10 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
             context().capture_command_invoked("query_run");
             let res = run_query(query)??;
             if *debug {
-                println!("{}", serde_json::to_string_pretty(&res)?);
+                crate::safe_println!("{}", serde_json::to_string_pretty(&res)?);
             } else {
                 for result in res.results {
-                    println!("{}", serde_json::to_string(&result)?);
+                    crate::safe_println!("{}", serde_json::to_string(&result)?);
                 }
             }
         }
@@ -81,7 +81,7 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
             context().capture_command_invoked("query_check");
             let res = check_query(query)?;
             if *raw {
-                println!("{}", serde_json::to_string_pretty(&res)?);
+                crate::safe_println!("{}", serde_json::to_string_pretty(&res)?);
             } else {
                 pretty_print_check_response(query, res)?;
             }
@@ -186,7 +186,7 @@ fn pretty_print_check_response(query: &str, res: MetadataResponse) -> Result<(),
     }
     .into();
 
-    println!("{diagnostic:?}");
+    crate::safe_println!("{diagnostic:?}");
 
     Ok(())
 }

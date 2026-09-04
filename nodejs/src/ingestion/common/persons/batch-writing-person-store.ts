@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { buildIntegerMatcher } from '~/common/config/config'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -29,6 +30,7 @@ import {
     PersonRepository,
 } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
+import { withTracingSpan } from '~/common/tracing/tracing-utils'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
@@ -40,8 +42,15 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { PersonOutputs } from './person-context'
-import { getMetricKey } from './person-update'
-import { FlushResult, PersonsStore } from './persons-store'
+import { PostgresMergePolicy, PostgresPersonMerge } from './person-merge-postgres'
+import {
+    EventOps,
+    applyEventPropertyUpdates,
+    computeOpsScalarUpdates,
+    getMetricKey,
+    refineEventOps,
+} from './person-update'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 type MethodName =
@@ -66,8 +75,6 @@ type MethodName =
     | 'fetchPersonDistinctIds'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'updateCohortsAndFeatureFlagsForMergeBatch'
-    | 'addPersonlessDistinctId'
-    | 'addPersonlessDistinctIdForMerge'
     | 'addPersonUpdateToBatch'
 
 type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
@@ -105,6 +112,12 @@ export interface BatchWritingPersonsStoreOptions {
      * always wants a positive interval).
      */
     metricEmissionIntervalMs: number
+    /** Teams on the new-world merge behavior (lifecycle-mark claims plus tombstone deletes); '*' for all. */
+    mergeTombstoneTeamAllowlist: string
+    /** Gate, partition count, and team allowlist ('*' for all) for the cross-partition merge-event producer. */
+    mergeEventsEnabled: boolean
+    mergeEventsPartitionCount: number
+    mergeEventsTeamAllowlist: string
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
@@ -115,6 +128,10 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     optimisticUpdateRetryInterval: 50,
     updateAllProperties: false,
     metricEmissionIntervalMs: 30_000,
+    mergeTombstoneTeamAllowlist: '',
+    mergeEventsEnabled: false,
+    mergeEventsPartitionCount: 64,
+    mergeEventsTeamAllowlist: '',
 }
 
 interface CacheMetrics {
@@ -128,7 +145,6 @@ class BatchWritingPersonsCache {
     private personCheckCache = new Map<string, InternalPerson | null>()
     private distinctIdToPersonId = new Map<string, string>()
     private personUpdateCache = new Map<string, PersonUpdate | null>()
-    private personlessBatchResults = new Map<string, boolean>()
     private batchDistinctKeys = new Map<number, Set<string>>()
     private distinctKeyRefCount = new Map<string, number>()
     private deferredEvictions = new Set<string>()
@@ -155,10 +171,6 @@ class BatchWritingPersonsCache {
 
     getDistinctIdToPersonIdCache(): Map<string, string> {
         return this.distinctIdToPersonId
-    }
-
-    getPersonlessBatchResultsCache(): Map<string, boolean> {
-        return this.personlessBatchResults
     }
 
     getBatchDistinctKeys(): Map<number, Set<string>> {
@@ -341,14 +353,6 @@ class BatchWritingPersonsCache {
         this.personCheckCache.delete(cacheKey)
     }
 
-    setPersonlessBatchResult(teamId: number, distinctId: string, value: boolean): void {
-        this.personlessBatchResults.set(this.getDistinctCacheKey(teamId, distinctId), value)
-    }
-
-    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
-        return this.personlessBatchResults.get(this.getDistinctCacheKey(teamId, distinctId))
-    }
-
     releaseBatchId(batchId: number): void {
         const keys = this.batchDistinctKeys.get(batchId)
         if (this.pendingPrefetchesByBatchId.has(batchId)) {
@@ -442,7 +446,6 @@ class BatchWritingPersonsCache {
         }
 
         this.personCheckCache.delete(distinctKey)
-        this.personlessBatchResults.delete(distinctKey)
     }
 
     private mergeUpdateIntoCachedPersonUpdate(existingPersonUpdate: PersonUpdate, person: PersonUpdate): PersonUpdate {
@@ -524,11 +527,6 @@ class BatchBoundPersonsCache {
         this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
         this.cache.setDistinctIdToPersonId(teamId, distinctId, personId)
     }
-
-    setPersonlessBatchResult(teamId: number, distinctId: string, value: boolean): void {
-        this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
-        this.cache.setPersonlessBatchResult(teamId, distinctId, value)
-    }
 }
 
 /**
@@ -541,6 +539,8 @@ class BatchBoundPersonsCache {
  * remaining dirty entries.
  */
 export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore {
+    readonly backend = 'postgres' as const
+
     private personCache: BatchWritingPersonsCache
     private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
     private fetchPromisesForChecking: Map<string, Promise<InternalPerson | null>>
@@ -548,6 +548,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private databaseOperationCountsPerDistinctId: Map<string, Map<MethodName, number>>
     private updateLatencyPerDistinctIdSeconds: Map<string, Map<UpdateType, number>>
     private options: BatchWritingPersonsStoreOptions
+    private mergePolicy: PostgresMergePolicy
     // Periodic metric emitter — emits accumulated per-distinct_id metrics on
     // a fixed cadence rather than at batch boundaries (which are unreliable
     // under concurrentBatches > 1).
@@ -559,12 +560,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
+        this.mergePolicy = {
+            updateAllProperties: this.options.updateAllProperties,
+            isTombstoneTeam: buildIntegerMatcher(this.options.mergeTombstoneTeamAllowlist, true),
+            mergeEvents: {
+                enabled: this.options.mergeEventsEnabled,
+                partitionCount: this.options.mergeEventsPartitionCount,
+                isTeamEnabled: buildIntegerMatcher(this.options.mergeEventsTeamAllowlist, true),
+            },
+        }
         this.personCache = new BatchWritingPersonsCache()
         Object.defineProperties(this, {
             personUpdateCache: { get: () => this.personCache.getUpdateCache() },
             personCheckCache: { get: () => this.personCache.getCheckCache() },
             distinctIdToPersonId: { get: () => this.personCache.getDistinctIdToPersonIdCache() },
-            personlessBatchResults: { get: () => this.personCache.getPersonlessBatchResultsCache() },
             batchDistinctKeys: { get: () => this.personCache.getBatchDistinctKeys() },
             distinctKeyRefCount: { get: () => this.personCache.getDistinctKeyRefCount() },
         })
@@ -1125,8 +1134,27 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         } else {
             personFetchForCheckingCacheOperationsCounter.inc({ operation: 'hit' })
             cache.getCheckCachedPerson(teamId, distinctId)
+            return this.awaitPendingFetch(teamId, distinctId, 'checking', fetchPromise)
         }
         return fetchPromise
+    }
+
+    /**
+     * Waiting on another caller's in-flight fetch has no query span of its own, so without this
+     * the wait is invisible in a trace and reads as time spent inside the step.
+     */
+    private awaitPendingFetch<T>(
+        teamId: Team['id'],
+        distinctId: string,
+        pending: 'checking' | 'update' | 'prefetch',
+        promise: Promise<T>
+    ): Promise<T> {
+        return withTracingSpan(
+            'persons-store',
+            'personsStore.awaitPendingFetch',
+            { team_id: teamId, distinct_id: distinctId, 'persons.pending_fetch': pending },
+            () => promise
+        )
     }
 
     /**
@@ -1263,7 +1291,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // and then return from cache (prefetch populates both caches)
         const prefetchPromise = this.fetchPromisesForChecking.get(cacheKey)
         if (prefetchPromise) {
-            await prefetchPromise
+            await this.awaitPendingFetch(teamId, distinctId, 'prefetch', prefetchPromise)
             const prefetchedPerson = cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
             if (prefetchedPerson !== undefined) {
                 return prefetchedPerson === null ? null : toInternalPerson(prefetchedPerson)
@@ -1310,6 +1338,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         } else {
             personFetchForUpdateCacheOperationsCounter.inc({ operation: 'hit' })
             cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+            return this.awaitPendingFetch(teamId, distinctId, 'update', fetchPromise)
         }
         return fetchPromise
     }
@@ -1337,6 +1366,39 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.incrementCount('updatePersonForMerge', distinctId)
         const batchId = typeof batchIdOrTx === 'number' ? batchIdOrTx : 0
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId, batchId))
+    }
+
+    async applyEventOps(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string,
+        batchId: number
+    ): Promise<[InternalPerson, PersonMessage[]]> {
+        person.properties ||= {}
+
+        // Snapshot refinement is this store's write-shape preparation:
+        // set_once resolves against current properties, sets are diffed,
+        // and the ignored-property rules classify the outcome. The
+        // intents refine here too — identification only transitions
+        // false→true, last-seen only advances.
+        const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
+        const otherUpdates = computeOpsScalarUpdates(ops, person)
+
+        if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
+            const [updatedPerson] = applyEventPropertyUpdates(refined, person)
+            return [updatedPerson, []]
+        }
+
+        const [updatedPerson, kafkaMessages] = await this.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            refined.toSet,
+            refined.toUnset,
+            otherUpdates,
+            distinctId,
+            batchId,
+            refined.shouldForceUpdate
+        )
+        return [updatedPerson, kafkaMessages]
     }
 
     updatePersonWithPropertiesDiffForUpdate(
@@ -1381,6 +1443,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             forceUpdate
         )
         return Promise.resolve([updatedPerson, kafkaMessages, false])
+    }
+
+    /**
+     * The Postgres backend's merge, run by PostgresPersonMerge against
+     * this store's own verbs and transactions.
+     */
+    mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+        return new PostgresPersonMerge(
+            this,
+            this.ingestionWarningsOutputs,
+            this.mergePolicy,
+            request,
+            batchId
+        ).execute()
     }
 
     async deletePerson(
@@ -1619,57 +1695,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             sourcePersonIDs,
             targetPersonID
         )
-    }
-
-    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string, batchId: number): Promise<boolean> {
-        this.incrementCount('addPersonlessDistinctId', distinctId)
-        const isMerged = await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
-        // Cache the result so later events for this distinct ID in the same batch skip the insert.
-        this.personCache.obtainForBatchId(batchId).setPersonlessBatchResult(teamId, distinctId, isMerged)
-        return isMerged
-    }
-
-    async addPersonlessDistinctIdForMerge(
-        teamId: Team['id'],
-        distinctId: string,
-        tx: PersonRepositoryTransaction | undefined,
-        batchId: number
-    ): Promise<boolean> {
-        this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
-        const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
-        // Update the batch results cache so processPersonlessStep knows this was merged
-        if (isMerged) {
-            this.personCache.obtainForBatchId(batchId).setPersonlessBatchResult(teamId, distinctId, true)
-        }
-        return isMerged
-    }
-
-    async processPersonlessDistinctIdsBatch(
-        entries: { teamId: number; distinctId: string }[],
-        batchId: number
-    ): Promise<void> {
-        if (entries.length === 0) {
-            return
-        }
-
-        const cache = this.personCache.obtainForBatchId(batchId)
-
-        const results = await this.personRepository.addPersonlessDistinctIdsBatch(entries)
-        // Only store merged distinct IDs - these need force_upgrade handling.
-        // Iterate entries (not result keys) to use the ':' cache key format consistently.
-        for (const { teamId, distinctId } of entries) {
-            if (results.get(`${teamId}|${distinctId}`)) {
-                cache.setPersonlessBatchResult(teamId, distinctId, true)
-            }
-        }
-    }
-
-    // Returns the cached merge result for a distinct ID inserted earlier this batch:
-    // true if the row was merged, false if addPersonlessDistinctId inserted it without a
-    // merge, undefined if no insert was recorded. The batch and forMerge paths only cache
-    // merged rows, so a non-merged insert from those paths also reads back as undefined.
-    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
-        return this.personCache.getPersonlessBatchResult(teamId, distinctId)
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {

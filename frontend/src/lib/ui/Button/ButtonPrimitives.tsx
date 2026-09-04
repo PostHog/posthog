@@ -292,6 +292,11 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     const effectiveVariant = forceVariant ? variant : context?.variantContext || variant
     let effectiveDisabled = disabledReasons ? Object.values(disabledReasons).some((value) => value) : disabled
     const externalAriaDisabled = rest['aria-disabled']
+
+    // If there are disabled reasons which are true, render them, otherwise render the tooltip
+    const tooltipTitle = disabledReasons && effectiveDisabled ? renderDisabledReasons(disabledReasons) : tooltip
+    const hasTooltip = !!(tooltipTitle || tooltipDocLink)
+
     let buttonComponent: JSX.Element = React.createElement(
         'button',
         {
@@ -309,7 +314,9 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     inert,
                     truncate,
                     className,
-                })
+                }),
+                // A disabled button swallows pointer events, so let the tooltip wrapper span receive them
+                hasTooltip && effectiveDisabled && 'pointer-events-none'
             ),
             ref,
             disabled: effectiveDisabled,
@@ -323,13 +330,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         children
     )
 
-    // If there are disabled reasons which are true, render them, otherwise render the tooltip
-    const tooltipTitle =
-        disabledReasons && Object.values(disabledReasons).some(Boolean)
-            ? renderDisabledReasons(disabledReasons)
-            : tooltip
-
-    if (tooltipTitle || tooltipDocLink) {
+    if (hasTooltip) {
         const tooltipChild = effectiveDisabled ? (
             <span className="inline-flex w-fit">{buttonComponent}</span>
         ) : (
@@ -344,6 +345,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 docLink={tooltipDocLink}
                 visible={tooltipVisible}
                 interactive={tooltipInteractive}
+                openOnClick={!!effectiveDisabled}
             >
                 {tooltipChild}
             </Tooltip>

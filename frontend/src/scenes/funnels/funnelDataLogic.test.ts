@@ -2,13 +2,24 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
+import { FunnelLayout } from 'lib/constants'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataNode, FunnelsQuery, FunnelsQuerySeriesNodeUnion, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
+import {
+    EntityType,
+    FilterLogicalOperator,
+    FunnelConversionWindowTimeUnit,
+    FunnelStep,
+    FunnelVizType,
+    InsightLogicProps,
+    InsightModel,
+    InsightType,
+    StepOrderValue,
+} from '~/types'
 
 import {
     funnelResult,
@@ -78,6 +89,25 @@ describe('funnelDataLogic', () => {
             })
         })
 
+        it('with layout but missing funnel viz type', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    layout: FunnelLayout.horizontal,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                isStepsFunnel: true,
+                isTimeToConvertFunnel: false,
+                isTrendsFunnel: false,
+            })
+        })
+
         it('for steps viz', async () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
@@ -132,6 +162,34 @@ describe('funnelDataLogic', () => {
                 isStepsFunnel: false,
                 isTimeToConvertFunnel: false,
                 isTrendsFunnel: true,
+            })
+        })
+
+        // Saved funnels can carry a funnelsFilter with no viz type. Without a resolved default the
+        // conversion rate label and the detailed results table disappear.
+        it.each([
+            ['no funnelsFilter', {}, FunnelVizType.Steps],
+            [
+                'a funnelsFilter without a viz type',
+                { funnelsFilter: { funnelWindowInterval: 14 } },
+                FunnelVizType.Steps,
+            ],
+            [
+                'an explicit viz type',
+                { funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert } },
+                FunnelVizType.TimeToConvert,
+            ],
+        ])('resolves the viz type for %s', async (_name, queryPatch, expected) => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                ...queryPatch,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                funnelVizType: expected,
             })
         })
     })
@@ -202,6 +260,60 @@ describe('funnelDataLogic', () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     results: funnelResult.result,
+                })
+            })
+
+            it('clears a custom name removed from the saved query', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: '$pageview' },
+                    ],
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result: (funnelResult.result as FunnelStep[]).map((step) => ({
+                        ...step,
+                        custom_name: 'Removed name',
+                    })),
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: [
+                        expect.objectContaining({ custom_name: null }),
+                        expect.objectContaining({ custom_name: null }),
+                    ],
+                })
+            })
+
+            it('gives breakdown rows their parent step custom name', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Visited pricing' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Started checkout' },
+                    ],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result: funnelResultWithBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: ['Visited pricing', 'Started checkout'].map((custom_name) =>
+                        expect.objectContaining({
+                            custom_name,
+                            nested_breakdown: expect.arrayContaining([expect.objectContaining({ custom_name })]),
+                        })
+                    ),
                 })
             })
 
@@ -292,6 +404,239 @@ describe('funnelDataLogic', () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     steps: funnelResult.result,
+                })
+            })
+
+            it.each([
+                [StepOrderValue.ORDERED, 'Visited pricing', 'Started checkout'],
+                [StepOrderValue.STRICT, 'Visited pricing', 'Started checkout'],
+                [StepOrderValue.UNORDERED, null, null],
+            ])('takes custom names from the saved query for a %s funnel', async (funnelOrderType, ...expected) => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Visited pricing' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Started checkout' },
+                    ],
+                    funnelsFilter: { funnelOrderType },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result: funnelResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: expected.map((custom_name) => expect.objectContaining({ custom_name })),
+                    stepsWithConversionMetrics: expected.map((custom_name) => expect.objectContaining({ custom_name })),
+                })
+            })
+
+            it.each([
+                [StepOrderValue.ORDERED, '1. Visited pricing', null],
+                [StepOrderValue.UNORDERED, null, null],
+            ])(
+                'takes a name-based rename from the saved query for a %s funnel',
+                async (funnelOrderType, ...expected) => {
+                    const query: FunnelsQuery = {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview', name: '1. Visited pricing' },
+                            { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        ],
+                        funnelsFilter: { funnelOrderType },
+                    }
+                    const insight: Partial<InsightModel> = {
+                        filters: { insight: InsightType.FUNNELS },
+                        result: funnelResult.result,
+                    }
+
+                    await expectLogic(logic, () => {
+                        logic.actions.updateQuerySource(query)
+                        builtDataNodeLogic.actions.loadDataSuccess(insight)
+                    }).toMatchValues({
+                        steps: expected.map((custom_name) => expect.objectContaining({ custom_name })),
+                    })
+                }
+            )
+
+            // A group step as the backend serializes it: `name` and `action_id` both hold the joined
+            // member list, so a group's own label is machine-composed rather than typed by a person.
+            const groupStep: FunnelStep = {
+                ...(funnelResult.result as FunnelStep[])[0],
+                action_id: '$pageview, $autocapture',
+                name: '$pageview, $autocapture',
+                // The backend labels a group step `group`, which `EntityType` spells `groups`.
+                type: 'group' as EntityType,
+            }
+            const warehouseStep: FunnelStep = {
+                ...(funnelResult.result as FunnelStep[])[0],
+                action_id: '',
+                name: 'stripe_invoices',
+                type: 'data_warehouse',
+            }
+
+            const exemptCases: [string, FunnelsQuerySeriesNodeUnion, FunnelStep | null, string | null][] = [
+                [
+                    'a group, whose name its members compose rather than a person',
+                    {
+                        kind: NodeKind.GroupNode,
+                        operator: FilterLogicalOperator.Or,
+                        name: '$pageview, signed up',
+                        nodes: [
+                            { kind: NodeKind.EventsNode, event: '$pageview' },
+                            { kind: NodeKind.EventsNode, event: 'signed up' },
+                        ],
+                    },
+                    groupStep,
+                    null,
+                ],
+                [
+                    'an action, which resolves its name at query time',
+                    { kind: NodeKind.ActionsNode, id: 1, name: 'Stale action name' },
+                    null,
+                    null,
+                ],
+                [
+                    'an event the step no longer describes',
+                    { kind: NodeKind.EventsNode, event: 'signed up', name: '1. Signed up' },
+                    null,
+                    null,
+                ],
+                [
+                    'the default label a new step is created with',
+                    { kind: NodeKind.EventsNode, event: '$pageview', name: 'Pageview' },
+                    null,
+                    null,
+                ],
+                ['a blank name', { kind: NodeKind.EventsNode, event: '$pageview', name: '   ' }, null, null],
+                [
+                    'a warehouse step whose table changed',
+                    {
+                        kind: NodeKind.FunnelsDataWarehouseNode,
+                        id: 'stripe_charges',
+                        id_field: 'id',
+                        table_name: 'stripe_charges',
+                        timestamp_field: 'created_at',
+                        aggregation_target_field: 'user_id',
+                        name: 'Paid',
+                    },
+                    warehouseStep,
+                    null,
+                ],
+                [
+                    'a warehouse step renamed on its current table',
+                    {
+                        kind: NodeKind.FunnelsDataWarehouseNode,
+                        id: 'stripe_invoices',
+                        id_field: 'id',
+                        table_name: 'stripe_invoices',
+                        timestamp_field: 'created_at',
+                        aggregation_target_field: 'user_id',
+                        name: 'Invoiced',
+                    },
+                    warehouseStep,
+                    'Invoiced',
+                ],
+            ]
+
+            it.each(exemptCases)('resolves the step label for %s', async (_name, node, step, expected) => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [node, { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                }
+                const result = [...(funnelResult.result as FunnelStep[])]
+                if (step) {
+                    result[0] = { ...step, order: 0 }
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: [
+                        expect.objectContaining({ custom_name: expected }),
+                        expect.objectContaining({ custom_name: null }),
+                    ],
+                })
+            })
+
+            it('labels a renamed step the same way before and after results arrive', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '1. Visited pricing' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    ],
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result: funnelResult.result,
+                }
+
+                // `stepNames` is the label source the flow graph falls back to while results load.
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                }).toMatchValues({
+                    stepNames: [
+                        expect.objectContaining({ custom_name: '1. Visited pricing' }),
+                        expect.objectContaining({ custom_name: null, name: '$pageview' }),
+                    ],
+                })
+
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: [
+                        expect.objectContaining({ custom_name: '1. Visited pricing' }),
+                        expect.objectContaining({ custom_name: null }),
+                    ],
+                })
+            })
+
+            it('applies a rename to an all-events step before and after results arrive', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        // An all-events step carries no event key, so a `name` set here is a rename
+                        // made outside the modal, the same as for a named event.
+                        { kind: NodeKind.EventsNode, event: null, name: 'Signed-up funnel start' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    ],
+                }
+                // The backend serializes an all-events step with a null name and action_id.
+                const result = [...(funnelResult.result as FunnelStep[])]
+                result[0] = { ...result[0], action_id: null as unknown as string, name: null as unknown as string }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                }).toMatchValues({
+                    stepNames: [
+                        expect.objectContaining({
+                            custom_name: 'Signed-up funnel start',
+                            name: 'Signed-up funnel start',
+                        }),
+                        expect.objectContaining({ custom_name: null, name: '$pageview' }),
+                    ],
+                })
+
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: [
+                        expect.objectContaining({ custom_name: 'Signed-up funnel start' }),
+                        expect.objectContaining({ custom_name: null }),
+                    ],
                 })
             })
 

@@ -7,7 +7,5 @@ export const diffWorkerFactory = () =>
 
 export const reviewHost: ReviewHost = {
   diffWorkerFactory,
-  renderExpandedSidebar: (task) => (
-    <ChangesPanel taskId={task.id} task={task} />
-  ),
+  renderFileBrowser: (task) => <ChangesPanel taskId={task.id} task={task} />,
 };

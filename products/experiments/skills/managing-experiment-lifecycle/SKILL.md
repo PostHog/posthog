@@ -41,6 +41,12 @@ Transitions draft → running. Activates the feature flag and sets `start_date`.
 
 No request body needed.
 
+One optional item worth a single mention at launch, when the change is user-facing and substantial: a
+short survey, shown when users finish the experimented flow (e.g. triggered by the form's submit event),
+collects qualitative feedback (a rating, an optional comment) alongside the metrics, from day one. Offer it once as setup advice, drop it if declined, and
+never let it delay the launch. Do **not** raise it at end or ship-variant time — there it reads as a gate
+on rolling out. → See [`references/qualitative-feedback.md`](../diagnosing-experiment-results/references/qualitative-feedback.md) in [[diagnosing-experiment-results]]
+
 ### Pause (`experiment-pause`)
 
 Deactivates the feature flag. Users fall back to the default experience (typically control).
@@ -136,6 +142,17 @@ Required: `variant_key` (e.g. "test"). Optional: `conclusion`, `conclusion_comme
 
 Returns 409 if an approval policy requires review before the flag change.
 
+### Flag cleanup PR (option on end and ship variant)
+
+Both `experiment-end` and `experiment-ship-variant` accept `open_cleanup_pr: true`.
+A background PostHog Code task then removes the experiment's feature flag code and opens a draft pull request in the team's connected GitHub repository.
+
+- Only set this when the user asks for it or confirms it.
+- The key must carry the `task:write` scope, or the whole request is rejected with a 403 and the experiment is not ended or shipped.
+- The cleanup runs only when the call actually ends the experiment and a `conclusion` is set — shipping an already-stopped experiment, or ending without a conclusion, skips it. It also requires the team to have the flag cleanup feature enabled; silently skipped when it isn't.
+- `repository` ("organization/repository") picks the target when several repositories are connected. Omit it to fall back to the experiment's saved repository, the team default, or the only connected repository. With several candidates and no default, the cleanup is skipped unless provided.
+- Track progress with `experiment-cleanup-task` — the PR URL appears there once opened; a cleanup typically takes several minutes.
+
 ### Archive (`experiment-archive`)
 
 Hides a stopped experiment from the default list view.
@@ -227,3 +244,9 @@ All lifecycle actions require an experiment ID. If you don't have one, load the
 | "Group-aggregated experiments cannot have their exposure frozen." | Structural limitation — don't retry  |
 
 When you get a 400, explain the situation to the user rather than retrying.
+
+## Related skills
+
+- **`creating-experiments`** — create the next experiment from scratch
+- **`diagnosing-experiment-results`** — sanity-check results before a ship or end decision
+- **`configuring-experiment-rollout`** — split and rollout changes, which are config edits rather than lifecycle operations

@@ -1,5 +1,121 @@
 # posthog-cli
 
+## 0.18.0 — 2026-09-02
+
+### Minor changes
+
+- [fb9ed9d8ec1](https://github.com/PostHog/posthog/commit/fb9ed9d8ec133f3023ecef464b54458ef9ecf94c) Default `--release-mode` to `event` for `sourcemap inject`, `sourcemap process`, `sourcemap upload`, `hermes inject`, `hermes clone` and `hermes upload`. Uploaded symbol sets and source maps are now release-independent, and each exception resolves its own release: a web build reads the `_posthogReleaseId` injected into the chunk, and a Hermes build resolves it from the `$app_namespace` / `$app_version` / `$app_build` the SDK already sends. Two releases that ship the same code keep one symbol set instead of colliding on the release that uploaded it first. Pass `--release-mode symbol-set` to keep binding the release to what you upload. Before upgrading, check that the release coordinates you pass match the app's bundle identifier or applicationId, version and build number, because a mismatch leaves exceptions with no release.
+
+  `hermes upload` now resolves `--info-plist` before it checks the release coordinates. An iOS build that supplies them that way no longer gets a warning about a release the run creates correctly. — Thanks @ablaszkiewicz!
+
+## 0.17.0 — 2026-09-02
+
+### Minor changes
+
+- [8a28e07ea71](https://github.com/PostHog/posthog/commit/8a28e07ea71c516128bd88889238333950e00aef) Deprecate `--release-mode` on `proguard upload` and `--no-release-bind` on `dsym upload`. Both flags are hidden no-ops now: each command uploads its symbol sets bound to the release it creates, which is what it did before the flags existed. A supplied flag prints a deprecation warning instead of changing the upload, so a released gradle plugin or upload-symbols.sh that still passes one keeps working. `proguard upload` no longer reads `POSTHOG_RELEASE_MODE`; the variable keeps steering `sourcemap inject`, `sourcemap process`, `sourcemap upload`, `hermes inject`, `hermes clone` and `hermes upload`.
+
+  Event mode pays off when two releases ship a byte-identical artifact. A proguard map id is a hash of the mapping, and a dSYM symbol set is keyed on the Mach-O `LC_UUID`, so an ordinary release that changes code already gets its own symbol set. The dSYM path also lost release attribution for embedded targets, because one upload covers every target's dSYM but creates one release. — Thanks @ablaszkiewicz!
+
+## 0.16.2 — 2026-09-01
+
+### Patch changes
+
+- [13dc107a02b](https://github.com/PostHog/posthog/commit/13dc107a02b4e14da3fcdb521c21317c9e87266f) Fix a race in `sourcemap process`: the source pairs are now read from disk once, injected, and the same in-memory pairs are uploaded. Previously inject and upload each re-walked the directory roots, so a bundler writing into the scanned directory mid-run (e.g. Turbopack's background filesystem-cache flush on Next.js 16.3+) could hand the upload pass chunks the inject pass never stamped, aborting the whole run with "Chunk ID not found". That error now names the offending file and says how to recover. `--delete-after` cleanup no longer fails the build when a file vanished or was replaced after upload: such pairs are skipped with a warning, and a replaced file's artifacts are left untouched instead of being stripped or deleted. Overlapping selection roots now process each file once instead of stamping it repeatedly. The "injecting selection" log line is bounded instead of printing every selected path, since a large stdin-provided selection used to produce a log line big enough to kill the CLI when stderr was a non-blocking pipe (e.g. spawned from Node.js). — Thanks @cat-ph!
+
+## 0.16.1 — 2026-09-01
+
+### Patch changes
+
+- [0a93bb9d822](https://github.com/PostHog/posthog/commit/0a93bb9d822a442e4af94b2659cf07f600231861) Fix `--release-mode event` keeping a stale source map for a chunk that gains a release. The content hash ignored which snippet the chunk carried. The release snippet is longer than the chunk-id snippet, so it shifts the generated columns the uploaded map records. The two uploads therefore shared one hash, the server kept the first map, and later frames resolved to the wrong source positions. The hash now covers the snippet variant. It still ignores the release id itself, so a new release does not re-upload every chunk. — Thanks @ablaszkiewicz!
+
+## 0.16.0 — 2026-08-26
+
+### Minor changes
+
+- [db85d262555](https://github.com/PostHog/posthog/commit/db85d262555a61d89eb71b5dfcfc969053b82236) Add `--release-mode` to `hermes clone` and `hermes upload`. `event` leaves the uploaded Hermes source maps release-independent, so a React Native build that ships unchanged JavaScript across two releases keeps one symbol set instead of colliding on the release the first upload stamped on it. Each exception resolves its own release from the `$app_namespace` / `$app_version` / `$app_build` the SDK already sends, so pass `--release-name`, `--release-version` and `--build` matching the app's bundle identifier or applicationId, version and build number. `symbol-set` stays the default. `hermes inject --release-mode=event` no longer errors: it injects content-addressed chunk ids and, unlike a web build, embeds no release id, because a Hermes bytecode bundle has nothing to read one back out. — Thanks @ablaszkiewicz!
+
+## 0.15.1 — 2026-08-24
+
+### Patch changes
+
+- [4c7c1c85604](https://github.com/PostHog/posthog/commit/4c7c1c8560431add076127c3d6bc53ca253aa116) Keep release resolution optional when Info.plist values cannot be resolved — Thanks @marandaneto!
+
+## 0.15.0 — 2026-08-24
+
+### Minor changes
+
+- [30bb8706d09](https://github.com/PostHog/posthog/commit/30bb8706d09854256be3dbe2be6ccd62c8f4a993) Read iOS release metadata from Info.plist files — Thanks @marandaneto!
+
+## 0.14.1 — 2026-08-23
+
+### Patch changes
+
+- [5e488e12013](https://github.com/PostHog/posthog/commit/5e488e120131361723c3b86cc98dcd3d7e814322) Accept sourcemaps that use the camel-case `chunkId` field when cloning or uploading Hermes sourcemaps. — Thanks @marandaneto!
+
+## 0.14.0 — 2026-08-21
+
+### Minor changes
+
+- [7dd3d0f5c27](https://github.com/PostHog/posthog/commit/7dd3d0f5c27b044db02b30ed7af19909010f96a9) With `--release-mode=event`, `sourcemap inject` now adopts a bundler-emitted ECMA-426 debug id (`//# debugId=` comment or the sourcemap's `debugId` field) as the chunk id instead of deriving its own, so one id identifies the chunk across the toolchain. The sourcemap's `debugId` field is preserved on save instead of being renamed to `chunk_id`, a bundler-stamped debug id no longer makes inject skip the mapping adjustment for the injected snippet, and hermes uploads still accept maps that carry only a `debugId`. Behavior change: `sourcemap upload --hermes` now fails with an error when it finds no maps carrying a chunk id or debug id, instead of exiting successfully having uploaded nothing. — Thanks @ablaszkiewicz!
+
+## 0.13.3 — 2026-08-20
+
+### Patch changes
+
+- [ee7d6424091](https://github.com/PostHog/posthog/commit/ee7d642409193f1dd781651c931991a70497712e) Linux release binaries now embed a GNU build id, so native crash reports from the CLI can be matched to uploaded debug symbols. — Thanks @ablaszkiewicz!
+
+## 0.13.2 — 2026-08-20
+
+### Patch changes
+
+- [029c984bdef](https://github.com/PostHog/posthog/commit/029c984bdefc2a09acb7975e29de052fcf0144d7) Retry symbol set uploads through the standard S3 endpoint when the transfer-acceleration endpoint is unreachable, so uploads complete on networks that block the accelerate domain. A 5 second connect timeout on uploads makes unreachable endpoints fail fast. — Thanks @ablaszkiewicz!
+
+## 0.13.1 — 2026-08-20
+
+### Patch changes
+
+- [fd234e17b30](https://github.com/PostHog/posthog/commit/fd234e17b301dcf20ffac31d839a773d400af933) Improve CLI error diagnostics with native stack symbolication metadata, release debug symbols, and structured categories for local file and parsing failures. — Thanks @hpouillot!
+
+## 0.13.0 — 2026-08-18
+
+### Minor changes
+
+- [f0be634b15f](https://github.com/PostHog/posthog/commit/f0be634b15fbf374bf90db01dfbd9023f9db6536) Add `--release-mode` to `proguard upload`, matching `sourcemap upload`. `symbol-set` (the default) keeps stamping the release onto the uploaded mapping. EXPERIMENTAL `event` creates the release but leaves the mapping unbound, so each event resolves its own release from the app version and namespace the SDK already sends. A map id is derived from the mapping's own content, so this keeps one symbol set for a mapping that several releases share. Also settable via `POSTHOG_RELEASE_MODE`. — Thanks @ablaszkiewicz!
+
+## 0.12.0 — 2026-08-18
+
+### Minor changes
+
+- [45016b12515](https://github.com/PostHog/posthog/commit/45016b12515b58f68ad22f1a0c053c39e2fd97b8) Add `posthog-cli release resolve`, which prints the id of the release the current build belongs to and creates the release if it doesn't exist yet. Only the id goes to stdout, so `RELEASE_ID=$(posthog-cli release resolve)` works; `--json` prints the whole release. It resolves the same release `sourcemap inject` would, so a bundler plugin that injects the release id into chunks itself lands on the same row. When nothing identifies a release, it prints nothing and exits `0`. `--dry-run` skips it, since resolving a release can create one. — Thanks @ablaszkiewicz!
+
+### Patch changes
+
+- [90730d20684](https://github.com/PostHog/posthog/commit/90730d206846ba073611c5ed103536ddd2828943) Delete CSS source maps and remove their sourceMappingURL comments after upload — Thanks @marandaneto!
+
+## 0.11.3 — 2026-08-17
+
+### Patch changes
+
+- [617ed9c912a](https://github.com/PostHog/posthog/commit/617ed9c912a432505cb20237bce95a81dde09c6d) Derive the `--release-mode event` chunk id from the minified source alone, and overwrite a symbol set whose content changed instead of failing. Bundlers embed the original file in `sourcesContent`, so a comment-only edit rewrote the sourcemap and, with the map folded into the id, minted a new chunk for code that never changed. The content hash still covers source and map, so that edit re-uploads the chunk under its existing id. Chunk ids injected by earlier versions change once on the next build, which re-uploads those chunks under their new ids. `--skip-on-conflict` is now ignored in this mode, with a warning: every chunk carries the release id in its injected snippet, so every chunk conflicts on every release, and skipping them all would leave the previous release id in place. — Thanks @ablaszkiewicz!
+
+## 0.11.2 — 2026-08-14
+
+### Patch changes
+
+- [751c7c08aa2](https://github.com/PostHog/posthog/commit/751c7c08aa23132834945f86a54e507bd3748bdc) Upload one symbol set per chunk id when processing sourcemaps. In `--release-mode event` a bundler that copies an entry point to a second name (a hashless alias beside `app-<hash>.js`) produces two byte-identical files that share a sourcemap, and so one content-addressed chunk id twice, which the bulk-start endpoint rejects as `invalid_chunk_ids`. — Thanks @ablaszkiewicz!
+
+## 0.11.1 — 2026-08-13
+
+### Patch changes
+
+- [c75bed06227](https://github.com/PostHog/posthog/commit/c75bed062278959c10907d1245c39a0d8ef20d11) Retry transient GitHub release download failures with exponential backoff when installing `@posthog/cli` from npm. — Thanks @marandaneto!
+
+## 0.11.0 — 2026-08-12
+
+### Minor changes
+
+- [8d58ef5de6c](https://github.com/PostHog/posthog/commit/8d58ef5de6c34563ed1c07a54c92fbbfe9e397d4) Add `--release-mode` (env `POSTHOG_RELEASE_MODE`) to `inject`/`upload`/`process`. The default `symbol-set` keeps the existing behavior: the release id is stamped onto the uploaded symbol sets. The experimental `event` mode derives content-addressed chunk ids that stay stable across rebuilds and injects the release id into each JS chunk as `_posthogReleaseId`, so the SDK reports it per event and symbol sets stay release-independent. The release is still created; it just isn't bound to any chunk. — Thanks @ablaszkiewicz!
+
 ## 0.10.0 — 2026-08-03
 
 ### Minor changes

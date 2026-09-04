@@ -11,9 +11,11 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 export interface modalsLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
+    isCopyToProjectModalOpen: boolean
     isCupedModalOpen: boolean
     isDescriptionModalOpen: boolean
     isDistributionModalOpen: boolean
+    isDuplicateExperimentModalOpen: boolean
     isEditConclusionModalOpen: boolean
     isExperimentCollectionGoalModalOpen: boolean
     isExposureCriteriaModalOpen: boolean
@@ -22,6 +24,7 @@ export interface modalsLogicValues {
     isPrimaryMetricModalOpen: boolean
     isPrimaryMetricSourceModalOpen: boolean
     isPrimarySharedMetricModalOpen: boolean
+    isQuickSurveyModalOpen: boolean
     isReleaseConditionsModalOpen: boolean
     isResumeExperimentModalOpen: boolean
     isRunningTimeConfigModalOpen: boolean
@@ -37,6 +40,12 @@ export interface modalsLogicActions {
     updateFlag: (flag: FeatureFlagType) => {
         flag: FeatureFlagType
     } // featureFlagsLogic
+    closeAllModals: () => {
+        value: true
+    }
+    closeCopyToProjectModal: () => {
+        value: true
+    }
     closeCupedModal: () => {
         value: true
     }
@@ -44,6 +53,9 @@ export interface modalsLogicActions {
         value: true
     }
     closeDistributionModal: () => {
+        value: true
+    }
+    closeDuplicateExperimentModal: () => {
         value: true
     }
     closeEditConclusionModal: () => {
@@ -70,6 +82,9 @@ export interface modalsLogicActions {
     closePrimarySharedMetricModal: () => {
         value: true
     }
+    closeQuickSurveyModal: () => {
+        value: true
+    }
     closeReleaseConditionsModal: () => {
         value: true
     }
@@ -94,6 +109,9 @@ export interface modalsLogicActions {
     closeVariantDeltaTimeseriesModal: () => {
         value: true
     }
+    openCopyToProjectModal: () => {
+        value: true
+    }
     openCupedModal: () => {
         value: true
     }
@@ -101,6 +119,9 @@ export interface modalsLogicActions {
         value: true
     }
     openDistributionModal: () => {
+        value: true
+    }
+    openDuplicateExperimentModal: () => {
         value: true
     }
     openEditConclusionModal: () => {
@@ -126,6 +147,9 @@ export interface modalsLogicActions {
     }
     openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => {
         sharedMetricId: number | null
+    }
+    openQuickSurveyModal: () => {
+        value: true
     }
     openReleaseConditionsModal: () => {
         value: true
@@ -162,6 +186,7 @@ export const modalsLogic = kea<modalsLogicType>([
         actions: [featureFlagsLogic, ['updateFlag']],
     })),
     actions({
+        closeAllModals: true,
         openExperimentCollectionGoalModal: true,
         closeExperimentCollectionGoalModal: true,
         openExposureCriteriaModal: true,
@@ -200,6 +225,12 @@ export const modalsLogic = kea<modalsLogicType>([
         closeVariantDeltaTimeseriesModal: true,
         openRunningTimeConfigModal: true,
         closeRunningTimeConfigModal: true,
+        openDuplicateExperimentModal: true,
+        closeDuplicateExperimentModal: true,
+        openCopyToProjectModal: true,
+        closeCopyToProjectModal: true,
+        openQuickSurveyModal: true,
+        closeQuickSurveyModal: true,
     }),
     reducers({
         isExperimentCollectionGoalModalOpen: [
@@ -207,6 +238,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openExperimentCollectionGoalModal: () => true,
                 closeExperimentCollectionGoalModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isExposureCriteriaModalOpen: [
@@ -214,6 +246,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openExposureCriteriaModal: () => true,
                 closeExposureCriteriaModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isFinishExperimentModalOpen: [
@@ -221,6 +254,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openFinishExperimentModal: () => true,
                 closeFinishExperimentModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isPauseExperimentModalOpen: [
@@ -228,6 +262,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openPauseExperimentModal: () => true,
                 closePauseExperimentModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isResumeExperimentModalOpen: [
@@ -235,6 +270,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openResumeExperimentModal: () => true,
                 closeResumeExperimentModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isEditConclusionModalOpen: [
@@ -242,6 +278,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openEditConclusionModal: () => true,
                 closeEditConclusionModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isDistributionModalOpen: [
@@ -249,6 +286,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openDistributionModal: () => true,
                 closeDistributionModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isReleaseConditionsModalOpen: [
@@ -256,6 +294,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openReleaseConditionsModal: () => true,
                 closeReleaseConditionsModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isPrimaryMetricModalOpen: [
@@ -263,6 +302,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openPrimaryMetricModal: () => true,
                 closePrimaryMetricModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isSecondaryMetricModalOpen: [
@@ -270,6 +310,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openSecondaryMetricModal: () => true,
                 closeSecondaryMetricModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isPrimaryMetricSourceModalOpen: [
@@ -277,6 +318,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openPrimaryMetricSourceModal: () => true,
                 closePrimaryMetricSourceModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isSecondaryMetricSourceModalOpen: [
@@ -284,6 +326,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openSecondaryMetricSourceModal: () => true,
                 closeSecondaryMetricSourceModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isPrimarySharedMetricModalOpen: [
@@ -291,6 +334,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openPrimarySharedMetricModal: () => true,
                 closePrimarySharedMetricModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isSecondarySharedMetricModalOpen: [
@@ -298,6 +342,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openSecondarySharedMetricModal: () => true,
                 closeSecondarySharedMetricModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isVariantDeltaTimeseriesModalOpen: [
@@ -305,6 +350,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openVariantDeltaTimeseriesModal: () => true,
                 closeVariantDeltaTimeseriesModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isDescriptionModalOpen: [
@@ -312,6 +358,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openDescriptionModal: () => true,
                 closeDescriptionModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isStatsEngineModalOpen: [
@@ -319,6 +366,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openStatsEngineModal: () => true,
                 closeStatsEngineModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isCupedModalOpen: [
@@ -326,6 +374,7 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openCupedModal: () => true,
                 closeCupedModal: () => false,
+                closeAllModals: () => false,
             },
         ],
         isRunningTimeConfigModalOpen: [
@@ -333,6 +382,31 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openRunningTimeConfigModal: () => true,
                 closeRunningTimeConfigModal: () => false,
+                closeAllModals: () => false,
+            },
+        ],
+        isDuplicateExperimentModalOpen: [
+            false,
+            {
+                openDuplicateExperimentModal: () => true,
+                closeDuplicateExperimentModal: () => false,
+                closeAllModals: () => false,
+            },
+        ],
+        isCopyToProjectModalOpen: [
+            false,
+            {
+                openCopyToProjectModal: () => true,
+                closeCopyToProjectModal: () => false,
+                closeAllModals: () => false,
+            },
+        ],
+        isQuickSurveyModalOpen: [
+            false,
+            {
+                openQuickSurveyModal: () => true,
+                closeQuickSurveyModal: () => false,
+                closeAllModals: () => false,
             },
         ],
     }),

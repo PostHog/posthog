@@ -12,6 +12,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
 
+import type { MetricFormPrefill } from 'products/data_catalog/frontend/common'
+
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
@@ -78,6 +80,7 @@ export const urls = {
         dashboard,
         filters,
         metricName,
+        metricPrefill,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
         query?: string | DataVisualizationNode | DataTableNode
@@ -93,6 +96,8 @@ export const urls = {
         filters?: HogQLFilters
         /** Opens the editor bound to this data catalog metric so its query can be updated in place */
         metricName?: string
+        /** Seeds the editor's "Save as metric" dialog with values already typed in the new metric modal */
+        metricPrefill?: MetricFormPrefill
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -120,6 +125,13 @@ export const urls = {
 
         if (metricName) {
             params.set('edit_metric', metricName)
+        }
+
+        if (metricPrefill) {
+            const filledPrefill = Object.fromEntries(Object.entries(metricPrefill).filter(([, value]) => !!value))
+            if (Object.keys(filledPrefill).length) {
+                params.set('metric_prefill', JSON.stringify(filledPrefill))
+            }
         }
 
         if (dashboard) {
@@ -163,6 +175,8 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    identityProviderConfig: (feature: 'saml' | 'scim' | 'xaa' | ':feature', configId: string | ':configId'): string =>
+        `/settings/organization-authentication/${feature}/${configId}`,
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
@@ -190,8 +204,7 @@ export const urls = {
     twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
-    verifyEmail: (userUuid: string = '', token: string = ''): string =>
-        `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    verifyEmail: (userUuid: string = ''): string => `/verify_email${userUuid ? `/${userUuid}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
     agenticAccountMismatch: (): string => '/agentic/account-mismatch',
@@ -239,6 +252,7 @@ export const urls = {
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
         combineUrl(`/organization/billing/${section}`).url,
+    organizationBillingRealTimeUsage: (): string => '/organization/billing/real-time-usage',
     advancedActivityLogs: (): string => '/activity-logs',
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
@@ -251,12 +265,13 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
-    queryPerformance: (): string => '/instance/query_performance',
+    experimentsStaffTools: (): string => '/experiments/staff',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
     codeChannelLink: (channelId: string, taskId?: string): string =>
         `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
+    codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
@@ -316,6 +331,8 @@ export const urls = {
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
+    webAnalyticsPagePerformance: (): string => '/web/page-performance',
+    webAnalyticsAgents: (): string => '/web/agents',
     webAnalyticsHealth: (): string => '/web/health',
     webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import re
 
-from posthog.models.integration import StripeIntegration
-
 SUPPORTED_VERSIONS = ["0.1d"]
 MAX_TIMESTAMP_DRIFT_SECONDS = 300
 
@@ -21,7 +19,26 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 # Default scopes for a Stripe-issued token when the auth code requested none.
 # This namespace enforces no scope ceiling; a code that names scopes gets those.
-STRIPE_CONTRACTED_SCOPES: list[str] = StripeIntegration.SCOPES.split()
+# Listed explicitly rather than aliasing StripeIntegration.SCOPES: that list bounds a
+# credential shared across a merchant's Stripe account, while these back a provisioned
+# user's own PAT. Narrowing one must not silently narrow the other.
+STRIPE_CONTRACTED_SCOPES: list[str] = [
+    "customer_journey:read",
+    "query:read",
+    "conversation:read",
+    "conversation:write",
+    "experiment:read",
+    "feature_flag:read",
+    "insight:read",
+    "organization:read",
+    "person:read",
+    "project:read",
+    "ticket:read",
+    "ticket:write",
+    "user:read",
+    "hog_flow:read",
+    "hog_flow:write",
+]
 
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
@@ -52,18 +69,10 @@ SERVICES_CACHE_EXPIRES_KEY = "stripe_provisioning:services:expires_at"
 SERVICES_CACHE_STORE_TTL = 86400
 
 # ---------------------------------------------------------------------------
-# Rate limiting - fixed-window counters keyed within this namespace on a fixed
-# Stripe identity. Limits come from RATE_LIMIT_DEFAULTS; a value <= 0 disables
-# the limit for that endpoint.
+# Rate limiting - token buckets keyed within this namespace on a fixed Stripe
+# identity. Budgets are hardcoded in throttling.py.
 # ---------------------------------------------------------------------------
 
-RATE_LIMIT_CACHE_PREFIX = "stripe_provisioning_rate:"
-RATE_LIMIT_WINDOW_SECONDS = 3600
-RATE_LIMIT_DEFAULTS: dict[str, int] = {
-    "account_requests": 10,
-    "token_exchanges": 20,
-    "resource_creates": 20,
-}
 RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
     "account_requests": "account_request",
     "token_exchanges": "token_exchange",

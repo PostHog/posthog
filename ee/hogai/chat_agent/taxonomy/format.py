@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 
 import yaml
 
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
 
 def format_property_values(
@@ -107,7 +107,7 @@ def enrich_props_with_descriptions(
     for prop_name, prop_type in props:
         description = None
         if entity_definition := entity_definitions.get(prop_name):
-            if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
+            if is_hidden_from_assistant(entity_definition):
                 continue
             description = entity_definition.get("description_llm") or entity_definition.get("description")
         else:

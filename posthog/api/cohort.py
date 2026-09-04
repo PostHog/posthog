@@ -5,7 +5,6 @@ import uuid
 import hashlib
 from collections.abc import Iterator
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -46,6 +45,7 @@ from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -74,7 +74,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property
-from posthog.models.team.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
@@ -98,10 +98,11 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -185,7 +186,7 @@ def validate_filters_and_compute_realtime_support(
         return filters_dict, current_cohort_type, [str(e)]
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CohortFilterBytecodeResult:
     bytecode: list[Any] | None = None
     error: str | None = None
@@ -554,7 +555,8 @@ class CSVConfig:
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
-    ENCODING = "utf-8"
+    # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
+    ENCODING = "utf-8-sig"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
@@ -647,6 +649,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "is_static",
             "cohort_type",
             "condition_type",
@@ -667,6 +671,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "experiment_set",
             "condition_type",
         ]
@@ -997,12 +1003,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 result = self._find_id_column(first_row)
 
                 if result is None:
-                    available_headers = [h for h in first_row if h.strip()]
+                    available_headers = [h.strip() for h in first_row if h.strip()]
                     raise ValidationError(
                         {
                             "csv": [
                                 CSVConfig.ErrorMessages.MISSING_ID_COLUMN.format(
-                                    columns=", ".join(available_headers) if available_headers else "none"
+                                    columns=", ".join(f"'{h}'" for h in available_headers)
+                                    if available_headers
+                                    else "none"
                                 )
                             ]
                         }
@@ -1022,6 +1030,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError("Query must be a dictionary.")
         if query.get("kind") == "ActorsQuery":
             ActorsQuery.model_validate(query)
+            validate_actors_query_for_cohort(query)
         elif query.get("kind") == "HogQLQuery":
             HogQLQuery.model_validate(query)
         else:
@@ -1686,9 +1695,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if is_basic_list:
                 queryset = queryset.defer("query")
 
-        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
-        # one query instead of the two extra round-trips `prefetch_related` costs.
-        queryset = queryset.select_related("created_by", "team")
+        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in one query
+        # instead of the extra round-trips `prefetch_related` costs. The list serializer never
+        # reads `cohort.team`, so the list path only `select_related`s `created_by`. Project
+        # scoping still JOINs `posthog_team` to filter on `project_id`, but without hydration that
+        # JOIN reads only the id — not the full team payload (heavy JSON and array columns) each
+        # cohort row would otherwise carry. Detail and write actions do read `cohort.team`, so they
+        # keep the hydrating JOIN but re-apply `.defer(*DEPRECATED_ATTRS)` — mirroring
+        # `TeamManager`'s lazy-load defer — so the deprecated taxonomy columns, which TOAST out to
+        # megabytes per team, stay off it.
+        if self.action == "list":
+            queryset = queryset.select_related("created_by")
+        else:
+            queryset = queryset.select_related("created_by", "team").defer(
+                *(f"team__{attr}" for attr in DEPRECATED_ATTRS)
+            )
 
         # `experiment_set` is a reverse relation (a prefetch) and the per-row correlated
         # subquery over CohortCalculationHistory only feeds `last_error_message`. The basic

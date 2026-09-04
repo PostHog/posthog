@@ -31,12 +31,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { clearFilterButtonProps } from '../../clearFilterButtonProps'
 import { AssigneeMultiSelect } from '../../components/Assignee'
-import { clearFilterButtonProps } from '../../components/clearFilterButtonProps'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
-import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
 import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import {
     type AITriageFilterValue,
     type Ticket,
@@ -59,6 +59,7 @@ export const scene: SceneExport = {
     component: SupportTicketsScene,
     logic: supportTicketsSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
+    emptyState: supportEmptyState,
 }
 
 interface SupportTicketsTableProps {
@@ -633,9 +634,6 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
 }
 
 export function SupportTicketsScene(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const conversationsDisabled = !!currentTeam && !currentTeam.conversations_enabled
-
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
@@ -647,7 +645,6 @@ export function SupportTicketsScene(): JSX.Element {
                 actions={<ComposeTicketButton />}
             />
             <ScenesTabs />
-            {conversationsDisabled ? <ConversationsDisabledBanner /> : null}
             <SupportTicketsTableFilters />
             <SupportTicketsTable />
         </SceneContent>

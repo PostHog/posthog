@@ -10,13 +10,14 @@ import time
 import datetime as dt
 from typing import Any
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, domain_from_email
-from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 from posthog.utils import GenericEmails, get_instance_region
+
+from products.growth.backend.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, domain_from_email
+from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
 _generic_emails = GenericEmails()
 
@@ -42,11 +43,11 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         # The kill switch is the master control for sending org data to the provider; a backfill
         # must not defeat it if it was turned off for a compliance, cost, or vendor reason.
-        if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+        if not get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
             raise CommandError("Signup enrichment is disabled (GROWTH_SIGNUP_ENRICHMENT_ENABLED); refusing to dispatch")
-        # Enrichment is US-only for v0 (mirrors the signup-path region gate).
-        if get_instance_region() != "US":
-            raise CommandError("Signup enrichment is US-only; refusing to dispatch in this region")
+        # Cloud only, mirrors the signup-path region gate (products/growth/backend/temporal/signup_enrichment/trigger.py).
+        if get_instance_region() not in ("US", "EU"):
+            raise CommandError("Signup enrichment is US/EU-only; refusing to dispatch in this region")
 
         after = self._parse_datetime(options["after"])
         before = self._parse_datetime(options["before"])

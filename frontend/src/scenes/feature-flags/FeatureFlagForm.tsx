@@ -67,7 +67,12 @@ import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, Multivari
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
-import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
+import {
+    FeatureFlagLogicProps,
+    featureFlagLogic,
+    slugifyFeatureFlagKey,
+    validateVariantRolloutSum,
+} from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { PercentageInput } from './PercentageInput'
 
@@ -158,8 +163,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         showImplementation,
         openVariants,
         payloadExpanded,
-        expandAdvancedOnEdit,
+        advancedPanelOpen,
         hasEncryptedPayloadBeenSaved,
+        hasEarlyAccessFeatures,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -176,6 +182,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
+        setAdvancedExpanded,
         resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
@@ -295,6 +302,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             resetEncryptedPayload()
         }
     }
+
+    const rolloutSumError = validateVariantRolloutSum(variants)
 
     const FLAG_TYPE_OPTIONS = [
         {
@@ -510,10 +519,12 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
 
-                            {/* Advanced options - collapsed by default unless opened via overview pencil */}
+                            {/* Advanced options - collapsed by default. Controlled rather than seeded,
+                                because a failed save has to open the panel to show a tag error inside it. */}
                             <LemonCollapse
                                 className="bg-bg-light"
-                                defaultActiveKey={expandAdvancedOnEdit ? 'advanced' : undefined}
+                                activeKey={advancedPanelOpen ? 'advanced' : null}
+                                onChange={(key) => setAdvancedExpanded(key === 'advanced')}
                                 panels={[
                                     {
                                         key: 'advanced',
@@ -809,6 +820,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             </div>
                                         </div>
 
+                                        {rolloutSumError && (
+                                            <span className="Field--error text-danger text-xs">{rolloutSumError}</span>
+                                        )}
+
                                         <DndContext
                                             sensors={sensors}
                                             onDragStart={handleDragStart}
@@ -857,17 +872,19 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 )}
 
                                                                 <LemonLabel>Rollout percentage</LemonLabel>
-                                                                <PercentageInput
-                                                                    value={variant.rollout_percentage}
-                                                                    onChange={(value) =>
-                                                                        updateVariant(
-                                                                            index,
-                                                                            'rollout_percentage',
-                                                                            value
-                                                                        )
-                                                                    }
-                                                                    data-attr={`feature-flag-variant-rollout-${index}`}
-                                                                />
+                                                                <LemonField.Pure error={!!rolloutSumError}>
+                                                                    <PercentageInput
+                                                                        value={variant.rollout_percentage}
+                                                                        onChange={(value) =>
+                                                                            updateVariant(
+                                                                                index,
+                                                                                'rollout_percentage',
+                                                                                value
+                                                                            )
+                                                                        }
+                                                                        data-attr={`feature-flag-variant-rollout-${index}`}
+                                                                    />
+                                                                </LemonField.Pure>
 
                                                                 <LemonLabel>Description</LemonLabel>
                                                                 <LemonTextArea
@@ -1066,6 +1083,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
                                             // Always go through setFeatureFlag so this caller and
                                             // FeatureFlagReleaseConditions use the same shape — listeners on

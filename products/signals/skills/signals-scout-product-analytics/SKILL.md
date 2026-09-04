@@ -2,8 +2,7 @@
 name: signals-scout-product-analytics
 description: >
   Signals scout for core product-analytics flows — funnels, retention, lifecycle, stickiness,
-  and paths. Watches the team's saved flows for a derived-rate regression (conversion or
-  retention sliding) while entrants hold, and files it as a report in the inbox.
+  and paths. Watches the team's saved flows for a derived-rate regression while entrants hold.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +

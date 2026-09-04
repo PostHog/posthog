@@ -48,10 +48,27 @@ class TestSlackFormatting(SimpleTestCase):
             ("ampersand", "a & b", "a &amp; b"),
             ("md_link_still_converts", "[docs](https://posthog.com)", "<https://posthog.com|docs>"),
             ("blockquote_preserved", "> quoted", "> quoted"),
+            ("inline_mention", "@[Ann Lee](ann@example.com) hi", "@Ann Lee hi"),
+            ("inline_mention_repeated", "@[Ann Lee](ann@example.com) @[Bo](bo@example.com)", "@Ann Lee @Bo"),
+            ("inline_mention_needs_email", "@[Ann Lee](https://posthog.com)", "@<https://posthog.com|Ann Lee>"),
         ]
     )
     def test_outbound_mrkdwn_escapes_control_sequences(self, _name: str, content: str, expected: str) -> None:
         assert content_to_slack_mrkdwn(content) == expected
+
+    def test_inline_mention_uses_slack_member_when_the_address_resolves(self) -> None:
+        content = "@[Ann Lee](ann@example.com) and @[Bo](bo@example.com)"
+
+        def resolve(email: str) -> str | None:
+            return "U123" if email == "ann@example.com" else None
+
+        assert content_to_slack_mrkdwn(content, None, resolve) == "<@U123> and @Bo"
+
+    def test_inline_mention_falls_back_to_the_name_when_lookup_fails(self) -> None:
+        def resolve(email: str) -> str | None:
+            raise RuntimeError("slack is down")
+
+        assert content_to_slack_mrkdwn("@[Ann Lee](ann@example.com) hi", None, resolve) == "@Ann Lee hi"
 
     @parameterized.expand(
         [
@@ -314,6 +331,69 @@ class TestSlackFormatting(SimpleTestCase):
                 assert el["elements"][0]["text"] == f"para{i // 2 + 1}"
             else:
                 assert el["elements"][0]["text"] == "\n"
+
+    @parameterized.expand(
+        [
+            (
+                "paragraphs_break_once",
+                [_paragraph("one"), _paragraph("two")],
+                "one\ntwo",
+            ),
+            (
+                "authored_blank_line_stays_a_single_blank_line",
+                [_paragraph("one"), {"type": "paragraph"}, _paragraph("two")],
+                "one\n\ntwo",
+            ),
+            (
+                "hard_break_drops_its_markdown_trailing_spaces",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "one"},
+                            {"type": "hardBreak"},
+                            {"type": "text", "text": "two"},
+                        ],
+                    }
+                ],
+                "one\ntwo",
+            ),
+            (
+                "code_block_keeps_its_own_blank_lines",
+                [
+                    {"type": "codeBlock", "content": [{"type": "text", "text": "a = 1\n\nb = 2"}]},
+                    _paragraph("after"),
+                ],
+                "```\na = 1\n\nb = 2\n```\nafter",
+            ),
+        ]
+    )
+    def test_outbound_text_uses_mrkdwn_line_breaks_not_markdown_ones(
+        self, _name: str, content: list[dict], expected: str
+    ) -> None:
+        slack_text, _ = rich_content_to_slack_payload({"type": "doc", "content": content}, "")
+        assert slack_text == expected
+
+    @parameterized.expand(
+        [
+            # A section runs on from the one before it, so it needs a line ending plus the blank line.
+            ("before_a_paragraph", _paragraph("two"), "\n\n"),
+            ("before_an_image", {"type": "image", "attrs": {"src": "https://e.com/a.png", "alt": "a"}}, "\n\n"),
+            # A preformatted element is its own code box, so the blank line is all it needs.
+            ("before_a_code_block", {"type": "codeBlock", "content": [{"type": "text", "text": "x = 1"}]}, "\n"),
+        ]
+    )
+    def test_outbound_blocks_keep_an_authored_blank_line(
+        self, _name: str, follower: dict, expected_separator: str
+    ) -> None:
+        rich_content = {"type": "doc", "content": [_paragraph("one"), {"type": "paragraph"}, follower]}
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        assert slack_blocks is not None
+
+        elements = slack_blocks[0]["elements"]
+        assert len(elements) == 3
+        assert elements[1]["elements"][0]["text"] == expected_separator
 
     @parameterized.expand(
         [
@@ -638,7 +718,7 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         text, blocks = rich_content_to_slack_payload(doc, "fallback")
         assert blocks is None
-        assert text == "Two options (pick one):\n\n- Use query-time properties, e.g. person.email"
+        assert text == "Two options (pick one):\n- Use query-time properties, e.g. person.email"
 
     @parameterized.expand(
         [

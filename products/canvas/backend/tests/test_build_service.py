@@ -7,13 +7,15 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, Task, TaskThreadMessage
 
 
 def _builder_result(files: dict[str, str], capabilities: dict | None = None) -> dict:
@@ -63,7 +65,7 @@ class BuildServiceBaseTest(APIBaseTest):
             has_expected_version=False,
             expected_version_id=None,
             task_id=None,
-            created_by_id=None,
+            created_by=None,
         )
         self.canvas.refresh_from_db()
         return build
@@ -84,6 +86,32 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert self.canvas.published_build_id == build.id
         entry_key = f"{build.artifact_object_prefix}/index.html"
         assert self.storage.objects[entry_key] == b"<html></html>"
+
+    def test_draft_build_ready_does_not_advance_pointer(self):
+        published = self._publish()
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(published.id))
+        self.canvas.refresh_from_db()
+
+        _version, draft_build, _widening = build_service.create_draft_version(
+            self.canvas,
+            project=synthetic_source_project("export default function C() { return 2 }"),
+            prompt=None,
+            task_id=None,
+            created_by=None,
+        )
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html>2</html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(draft_build.id))
+
+        draft_build.refresh_from_db()
+        self.canvas.refresh_from_db()
+        assert draft_build.status == CanvasBuild.STATUS_READY
+        assert draft_build.artifact_object_prefix
+        assert self.canvas.published_build_id == published.id
 
     def test_stale_head_does_not_advance_pointer(self):
         build = self._publish()
@@ -123,6 +151,48 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert failing.status == CanvasBuild.STATUS_FAILED
         assert failing.diagnostics[0]["code"] == "bundle_error"
         assert self.canvas.published_build_id == build.id
+
+    def test_failed_build_files_report_in_authoring_task_thread(self):
+        # A failed build must reach the authoring task's thread — dropping this
+        # hook makes build failures silent again (telemetry only, nobody told).
+        # A cancelled build is churn, not a defect, and must not be reported.
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Build canvas",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Canvas.objects.unscoped().filter(id=self.canvas.id).update(generation_task_id=task.id)
+        flag = patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+        failing = self._publish()
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            return_value={
+                "contractVersion": 1,
+                "status": "failed",
+                "diagnostics": [{"severity": "error", "code": "bundle_error", "message": "boom"}],
+            },
+        ):
+            build_service.run_canvas_build(self.team.id, str(failing.id))
+
+        reports = TaskThreadMessage.objects.for_team(self.team.id).filter(
+            task_id=task.id, event="canvas_error_reported"
+        )
+        assert reports.count() == 1
+        payload = reports.get().payload
+        assert payload["origin"] == "build"
+        assert payload["build_id"] == str(failing.id)
+        assert payload["error_codes"] == ["bundle_error"]
+
+        cancelled = self._publish()
+        build_service.act_on_build(self.canvas, cancelled.id, "cancel")
+        assert reports.count() == 1
 
     def test_builder_crash_fails_with_generic_unavailable(self):
         build = self._publish()
@@ -187,6 +257,90 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         self.canvas.refresh_from_db()
         assert build.status == CanvasBuild.STATUS_FAILED
         assert self.canvas.published_build_id is None
+
+    def test_losing_finalize_race_to_ready_winner_keeps_shared_artifacts(self) -> None:
+        # Two attempts of the SAME build share the deterministic artifact prefix. When a
+        # redelivered attempt finalizes READY while a stalled attempt is still uploading,
+        # the loser must not delete the keys — the winner's manifest references them.
+        build = self._publish()
+        prefix = build_service.artifact_object_prefix(self.team.id, build.canvas_id, build.id)
+
+        def winner_finalizes_mid_build(project: dict) -> dict:
+            CanvasBuild.objects.unscoped().filter(id=build.id).update(
+                status=CanvasBuild.STATUS_READY,
+                artifact_object_prefix=prefix,
+                finished_at=timezone.now(),
+                lease_expires_at=None,
+            )
+            return _builder_result({"index.html": "<html></html>"})
+
+        with patch.object(build_service, "run_cloud_builder", side_effect=winner_finalizes_mid_build):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+
+        assert self.storage.objects[f"{prefix}/index.html"] == b"<html></html>"
+        build.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_READY
+
+    @parameterized.expand(
+        [
+            ("ready", _builder_result({"index.html": "<html></html>"}), []),
+            (
+                "failed",
+                {
+                    "contractVersion": 1,
+                    "status": "failed",
+                    "diagnostics": [{"severity": "error", "code": "bundle_error", "message": "boom"}],
+                },
+                ["bundle_error"],
+            ),
+        ]
+    )
+    def test_terminal_build_captures_its_outcome(self, outcome: str, builder_result: dict, error_codes: list[str]):
+        # The capture is wrapped in a catch-all so telemetry never fails a build, which
+        # would let a broken payload lose the event silently.
+        build = self._publish()
+        with patch.object(build_service, "ph_background_capture") as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                with patch.object(build_service, "run_cloud_builder", return_value=builder_result):
+                    build_service.run_canvas_build(self.team.id, str(build.id))
+
+        properties = capture.return_value.call_args.kwargs["properties"]
+        assert capture.return_value.call_args.kwargs["event"] == "canvas build completed"
+        assert properties["outcome"] == outcome
+        assert properties["error_codes"] == error_codes
+        assert properties["build_id"] == str(build.id)
+
+
+class TestBuildDispatch(BuildServiceBaseTest):
+    def test_flagged_in_team_dispatches_to_temporal_instead_of_celery(self) -> None:
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", return_value=True),
+            patch("products.canvas.backend.temporal.client.execute_canvas_build_workflow") as start_workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        start_workflow.assert_called_once_with(self.team.id, str(build.id))
+        self.enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_check_fails", RuntimeError("flag service down"), None),
+            ("workflow_start_fails", True, RuntimeError("temporal down")),
+        ]
+    )
+    def test_temporal_failure_falls_back_to_celery(
+        self, _name: str, flag_result: bool | Exception, workflow_error: Exception | None
+    ) -> None:
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", side_effect=[flag_result]),
+            patch(
+                "products.canvas.backend.temporal.client.execute_canvas_build_workflow",
+                side_effect=workflow_error,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        self.enqueue.assert_called_once_with(self.team.id, str(build.id))
 
 
 class TestSweeper(BuildServiceBaseTest):
@@ -317,7 +471,7 @@ class TestLegacySourcePreservation(BuildServiceBaseTest):
             has_expected_version=True,
             expected_version_id=None,
             task_id=None,
-            created_by_id=None,
+            created_by=None,
         )
 
         head = CanvasSourceVersion.objects.unscoped().get(pk=version.id)

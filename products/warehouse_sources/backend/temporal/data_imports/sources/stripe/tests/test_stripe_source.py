@@ -1,4 +1,5 @@
 import functools
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -6,11 +7,24 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
+import orjson
 import stripe as stripe_lib
+import pyarrow as pa
+import deltalake
 from parameterized import parameterized
 from stripe import ListObject
+from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FANOUT_PARENT_ROWS_CONSUMED,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    ParentTableRef,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -26,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
@@ -33,9 +48,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
     ENTITLEMENTS_FEATURE_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
+    HISTORY_CAPTURED_AT_COLUMN,
+    HISTORY_EVENT_ID_COLUMN,
+    HISTORY_EVENT_TYPE_COLUMN,
+    HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
+    HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_PAYMENT_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
+    PAYMENT_METHOD_HISTORY_MAPPING_KEY,
     PLAN_RESOURCE_NAME,
     PROMOTION_CODE_RESOURCE_NAME,
     QUOTE_RESOURCE_NAME,
@@ -60,7 +81,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     NON_PARTITIONED_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import PERMISSIONS, StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
@@ -74,6 +95,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
     _scrub_client_secrets,
+    _webhook_history_table_transformer,
     check_endpoint_permissions,
     create_webhook,
     get_rows,
@@ -213,6 +235,9 @@ class TestStripeSource:
             # account_invalid: key not authorized for the configured account, or revoked app access.
             # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
             "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
+            # A publishable key was used where a secret/restricted key is required — matched on the
+            # stable message text, ignoring the request id prefix.
+            "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -400,10 +425,52 @@ class TestStripeSource:
         assert client._last_request_method == "get"
 
 
-def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
+def _recording_nested_method(missing=()):
+    """A nested list method that records the parents it was called for.
+
+    A real function rather than a mock: the sweep routes the parent id by inspecting the
+    method's signature, so a signature-less mock would receive it inside `params` instead and
+    the test would not exercise the path production takes.
+    """
+    probed: list[str] = []
+
+    def _nested(customer, params):
+        probed.append(customer)
+        if customer in missing:
+            raise stripe_lib.InvalidRequestError("No such customer", param="customer", code="resource_missing")
+        return _list_object([{"id": f"cbt_{customer}"}])
+
+    return _nested, probed
+
+
+def _write_customer_parent_table(tmp_path, customers) -> str:
+    """The parent schema's synced Delta table, as the warehouse path would find it."""
+    uri = str(tmp_path / "stripe_customer")
+    deltalake.write_deltalake(
+        uri,
+        pa.table(
+            {
+                "id": [customer["id"] for customer in customers],
+                "balance": [customer.get("balance") for customer in customers],
+            }
+        ),
+    )
+    return uri
+
+
+def _run_nested_get_rows(
+    nested_method,
+    parent_objects=None,
+    parent_has_nested=None,
+    resumable_source_manager=None,
+    warehouse_parent=None,
+    parent_method=None,
+    can_resume=False,
+    logger: FilteringBoundLogger | None = None,
+):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
-    parent = StripeResource(method=lambda **kwargs: _list_object(parent_objects))
+    parent = StripeResource(method=parent_method or (lambda **kwargs: _list_object(parent_objects)))
     resource = StripeNestedResource(
         method=nested_method,
         nested_parent_param="customer",
@@ -413,8 +480,9 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
         parent_has_nested=parent_has_nested,
     )
 
-    resumable_source_manager = MagicMock()
-    resumable_source_manager.can_resume.return_value = False
+    if resumable_source_manager is None:
+        resumable_source_manager = MagicMock()
+    resumable_source_manager.can_resume.return_value = can_resume
 
     with (
         patch.object(stripe_module, "StripeClient"),
@@ -431,9 +499,10 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
             account_id=None,
             db_incremental_field_last_value=None,
             db_incremental_field_earliest_value=None,
-            logger=MagicMock(),
+            logger=logger or MagicMock(),
             resumable_source_manager=resumable_source_manager,
             api_version=STRIPE_API_VERSION_ACACIA,
+            warehouse_parent=warehouse_parent,
         ):
             rows.extend(table.to_pylist())
     return rows
@@ -513,6 +582,31 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+    def test_sparse_sweep_checkpoints_by_parent_count(self):
+        # A nested resource where no parent has data (CustomerPaymentMethod over customers with no
+        # stored payment method) never fills a chunk, so the row-driven checkpoint never fires and
+        # a killed run restarted the whole customer walk. Position must be recorded by parents
+        # walked, regardless of how few rows come back.
+        def nested_method(customer=None, params=None):
+            return _list_object([])
+
+        manager = MagicMock()
+        logger = MagicMock()
+        with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
+            rows = _run_nested_get_rows(
+                nested_method,
+                parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
+                resumable_source_manager=manager,
+                logger=logger,
+            )
+
+        assert rows == []
+        # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
+        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
+        # the running fan-out size instead of leaving the attempt's only line until after the loop.
+        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -918,6 +1012,233 @@ class TestWebhookOnlyResponseWiring:
         assert response.partition_keys == ["start"]
 
 
+def _event_row(
+    event_id: str, event_type: str, created: int, obj: dict, previous_attributes: dict | None = None
+) -> dict[str, Any]:
+    data: dict[str, Any] = {"object": obj}
+    if previous_attributes is not None:
+        data["previous_attributes"] = previous_attributes
+    return {"id": event_id, "object": "event", "type": event_type, "created": created, "data": data}
+
+
+class TestCustomerPaymentMethodHistory:
+    def _make_manager(self, enabled: bool) -> MagicMock:
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        return manager
+
+    def _source(self, endpoint: str, manager: MagicMock) -> Any:
+        return stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+        )
+
+    @parameterized.expand(
+        [
+            # History must stay opt-in (should_sync_default=False, or one-shot setup force-enables
+            # a per-customer sweep) and webhook-sync-only (webhook_only=True, or the UI offers full
+            # refresh, which truncates the captured history on every scheduled run).
+            (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, True, False),
+            # The existing upsert table must keep its behavior — the history flags must not leak.
+            (CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, False, True),
+        ]
+    )
+    def test_schema_flags(self, endpoint: str, webhook_only: bool, should_sync_default: bool) -> None:
+        source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        schema = next(s for s in source.get_schemas(config, team_id=1) if s.name == endpoint)
+        assert schema.webhook_only is webhook_only
+        assert schema.should_sync_default is should_sync_default
+        assert schema.supports_webhooks is True
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+
+    def test_history_mapping_key_cannot_collide_with_object_routing(self) -> None:
+        # schema_mapping routes one schema per key. If the history table resolved to the bare
+        # "payment_method" key, whichever schema registered last would silently steal the other's
+        # events — so it must use the suffixed key, and that key must not equal any object type.
+        source = StripeSource()
+        assert (
+            source.webhook_mapping_key(CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME)
+            == PAYMENT_METHOD_HISTORY_MAPPING_KEY
+        )
+        assert source.webhook_mapping_key(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME) == "payment_method"
+        assert PAYMENT_METHOD_HISTORY_MAPPING_KEY not in RESOURCE_TO_STRIPE_OBJECT_TYPE.values()
+
+    def test_history_response_keys_on_the_observation_and_still_polls(self) -> None:
+        # primary_keys=["id"] would collapse a payment method's whole history to one row on merge;
+        # webhook_only=True on the response would skip the seed sweep, leaving the table empty
+        # until the first webhook event.
+        manager = self._make_manager(enabled=False)
+        response = self._source(CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, manager)
+        assert response.primary_keys == [HISTORY_EVENT_ID_COLUMN]
+        assert response.webhook_only is False
+        assert response.partition_keys == ["created"]
+        manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
+
+    @parameterized.expand(
+        [
+            # The history endpoint must keep both events; the upsert transformer would collapse
+            # them to the latest state, silently dropping the intermediate observations the table
+            # exists to record.
+            (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, 2),
+            (CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, 1),
+        ]
+    )
+    def test_webhook_transformer_choice_controls_event_collapsing(self, endpoint: str, expected_rows: int) -> None:
+        events = table_from_py_list(
+            [
+                _event_row(
+                    "evt_1",
+                    "payment_method.attached",
+                    1700000100,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"},
+                ),
+                _event_row(
+                    "evt_2",
+                    "payment_method.detached",
+                    1700000200,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": None},
+                    previous_attributes={"customer": "cus_1"},
+                ),
+            ]
+        )
+        manager = self._make_manager(enabled=True)
+        response = self._source(endpoint, manager)
+        response.items()
+        transformer = manager.get_items.call_args.kwargs["table_transformer"]
+        assert transformer(events).num_rows == expected_rows
+
+    def test_history_transformer_stamps_observation_columns(self) -> None:
+        # The detached event's row must keep the event's identity and the detached-from customer
+        # (via previous_attributes) — without them "which customer had this card on file, when?"
+        # is unanswerable once the payment method is gone from the live list.
+        events = table_from_py_list(
+            [
+                _event_row(
+                    "evt_1",
+                    "payment_method.attached",
+                    1700000100,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"},
+                ),
+                _event_row(
+                    "evt_2",
+                    "payment_method.detached",
+                    1700000200,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": None},
+                    previous_attributes={"customer": "cus_1"},
+                ),
+            ]
+        )
+        rows = {row[HISTORY_EVENT_ID_COLUMN]: row for row in _webhook_history_table_transformer(events).to_pylist()}
+
+        attached = rows["evt_1"]
+        assert attached["customer"] == "cus_1"
+        assert attached[HISTORY_EVENT_TYPE_COLUMN] == "payment_method.attached"
+        assert attached[HISTORY_CAPTURED_AT_COLUMN] == 1700000100
+        assert attached[HISTORY_PREVIOUS_ATTRIBUTES_COLUMN] is None
+
+        detached = rows["evt_2"]
+        assert detached["customer"] is None
+        assert detached[HISTORY_EVENT_TYPE_COLUMN] == "payment_method.detached"
+        assert detached[HISTORY_CAPTURED_AT_COLUMN] == 1700000200
+        assert orjson.loads(detached[HISTORY_PREVIOUS_ATTRIBUTES_COLUMN]) == {"customer": "cus_1"}
+
+    def test_history_transformer_dedupes_redelivered_events(self) -> None:
+        # Stripe redelivers events on retry. Two copies of the same event in one drained batch
+        # must land as one row — duplicates on the merge key make every later merge multi-match.
+        obj = {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"}
+        events = table_from_py_list(
+            [
+                _event_row("evt_1", "payment_method.attached", 1700000100, obj),
+                _event_row("evt_1", "payment_method.attached", 1700000100, obj),
+            ]
+        )
+        assert _webhook_history_table_transformer(events).num_rows == 1
+
+    def test_history_transformer_skips_malformed_rows_without_raising(self) -> None:
+        # The S3 batch files are only deleted after a successful yield, so a transformer that
+        # raises on one malformed payload (only reachable with the signature check bypassed)
+        # would replay the same poison batch on every sync, wedging the schema forever.
+        events = table_from_py_list(
+            [
+                # No event id — cannot be keyed.
+                {
+                    "object": "event",
+                    "created": 1700000100,
+                    "data": {"object": {"id": "pm_1", "object": "payment_method"}},
+                },
+                # No object id — cannot be attributed to a payment method.
+                _event_row("evt_2", "payment_method.updated", 1700000200, {"object": "payment_method"}),
+                _event_row(
+                    "evt_3",
+                    "payment_method.updated",
+                    1700000300,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"},
+                ),
+            ]
+        )
+        # The `type` column is present here; drop it to also cover a batch missing a column outright.
+        events = events.drop_columns(["type"])
+        rows = _webhook_history_table_transformer(events).to_pylist()
+        assert [row[HISTORY_EVENT_ID_COLUMN] for row in rows] == ["evt_3"]
+        assert rows[0][HISTORY_EVENT_TYPE_COLUMN] is None
+
+    @parameterized.expand(
+        [
+            (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, True),
+            (CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, False),
+        ]
+    )
+    def test_seed_sweep_stamps_snapshot_rows_only_for_history(self, endpoint: str, expect_stamped: bool) -> None:
+        # The sweep rows need a stable snapshot key: without it they have no merge key (the
+        # table's primary key column would be missing), and a fallback re-sweep would duplicate
+        # instead of refresh them. The same sweep feeding CustomerPaymentMethod must stay unstamped.
+        def payment_methods_list(customer=None, params=None):
+            return _list_object(
+                [{"id": f"pm_{customer}", "object": "payment_method", "created": 1700000000, "customer": customer}]
+            )
+
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with patch.object(stripe_module, "StripeClient") as client_cls:
+            client = client_cls.return_value
+            client.customers.list = lambda params: _list_object([{"id": "cus_1"}])
+            client.customers.payment_methods.list = payment_methods_list
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint=endpoint,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            ):
+                rows.extend(table.to_pylist())
+
+        assert [row["id"] for row in rows] == ["pm_cus_1"]
+        row = rows[0]
+        assert row["customer"] == "cus_1"
+        if expect_stamped:
+            assert row[HISTORY_EVENT_ID_COLUMN] == f"{HISTORY_SNAPSHOT_EVENT_TYPE}:pm_cus_1:cus_1"
+            assert row[HISTORY_EVENT_TYPE_COLUMN] == HISTORY_SNAPSHOT_EVENT_TYPE
+            assert isinstance(row[HISTORY_CAPTURED_AT_COLUMN], int)
+        else:
+            assert HISTORY_EVENT_ID_COLUMN not in row
+
+
 class TestEndpointCatalogWiring:
     def setup_method(self):
         self.resources = stripe_module._build_resources(MagicMock(), logger=None)
@@ -1158,3 +1479,401 @@ class TestCreateWebhookPermissionErrorCopy:
 
         assert result.success is False
         assert expected_phrase in (result.error or "")
+
+
+class TestCreateWebhookLimitErrorCopy:
+    # Regression test: hitting Stripe's webhook-endpoint cap used to surface Stripe's raw error
+    # verbatim, so the user couldn't tell the account-wide limit was the cause or how to recover.
+    def test_webhook_limit_error_gives_actionable_message(self):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.InvalidRequestError(
+                "You have reached the maximum of 100 test webhook endpoints.", param=None
+            )
+
+            result = create_webhook(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url="https://example.com/webhook",
+            )
+
+        assert result.success is False
+        assert "webhook endpoint limit" in (result.error or "")
+        assert "manually" in (result.error or "")
+
+
+class TestStripeAppManifestCoversSourcePermissions:
+    # Regression test: PERMISSIONS drives the pre-filled restricted-key form, while the Stripe app
+    # manifest drives what an OAuth connection is granted. The two drifted twice (rak_webhook_write
+    # in April, rak_coupon_read in July), each time leaving OAuth users unable to create a webhook
+    # or import coupons while the key path worked. The manifest is the checked-in source of truth
+    # for the OAuth grant, so it must cover every scope the source asks a key for.
+    def test_every_source_permission_is_requested_by_the_app(self):
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+
+        # A restricted-key scope is the app permission name with a `rak_` prefix.
+        required = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+
+        assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
+        assert required - granted == set()
+
+
+class TestStripeWarehouseParentFanout:
+    """The `CustomerBalanceTransaction` sweep reading its parent from the warehouse."""
+
+    @parameterized.expand(
+        [
+            (CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, [CUSTOMER_RESOURCE_NAME]),
+            (CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, []),
+            (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, []),
+            (ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME, []),
+            (BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME, []),
+            (CUSTOMER_RESOURCE_NAME, []),
+        ]
+    )
+    def test_only_the_converted_child_declares_a_warehouse_parent(self, schema_name, expected):
+        # The checked statement of which children opted in — the blast radius a reviewer reads.
+        assert StripeSource().get_required_parent_schemas(schema_name) == expected
+
+    def test_the_sweep_never_pages_the_customer_listing(self, tmp_path):
+        # The silent-no-op guard. Declaring a parent without threading the flag and source id
+        # leaves the sweep on the API path while the fan-out telemetry reports "warehouse", so
+        # the test asserts the listing method is not merely unnecessary but never called.
+        uri = _write_customer_parent_table(tmp_path, [{"id": "cus_1", "balance": -500}])
+        parent_method = MagicMock(side_effect=AssertionError("the parent listing must not be paged"))
+        nested_method = MagicMock(return_value=_list_object([{"id": "cbt_1"}]))
+
+        rows = _run_nested_get_rows(
+            nested_method,
+            parent_method=parent_method,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+        )
+
+        parent_method.assert_not_called()
+        assert [row["id"] for row in rows] == ["cbt_1"]
+
+    def test_both_parent_paths_emit_identical_rows(self, tmp_path):
+        # Parity is the property that matters: the child's output must not depend on where its
+        # parent rows came from, including the parent id stamped onto every row.
+        customers = [{"id": "cus_1", "balance": -500}, {"id": "cus_2", "balance": 250}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+
+        api_method, _ = _recording_nested_method()
+        warehouse_method, _ = _recording_nested_method()
+
+        api_rows = _run_nested_get_rows(api_method, parent_objects=customers)
+        warehouse_rows = _run_nested_get_rows(
+            warehouse_method,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+        )
+
+        assert warehouse_rows == api_rows
+        assert [row["customer"] for row in warehouse_rows] == ["cus_1", "cus_2"]
+
+    def test_both_parent_paths_report_the_fan_out_size_and_where_it_came_from(self, tmp_path):
+        # A webhook-maintained parent holds only what its drains delivered, so it can be missing
+        # customers the API listing still returns. Comparing the fan-out size across the two parent
+        # sources for one schema is the only signal for that, and it needs both a count and the
+        # label naming which source produced it. `cus_zero` is ruled out by the skip predicate and
+        # still counts, because the number has to mean the same thing on both sources.
+        customers = [{"id": "cus_zero", "balance": 0}, {"id": "cus_credit", "balance": -500}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        api_logger = MagicMock()
+        warehouse_logger = MagicMock()
+
+        api_method, api_probed = _recording_nested_method()
+        warehouse_method, warehouse_probed = _recording_nested_method()
+
+        _run_nested_get_rows(
+            api_method,
+            parent_objects=customers,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            logger=api_logger,
+        )
+        _run_nested_get_rows(
+            warehouse_method,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+            logger=warehouse_logger,
+        )
+
+        assert api_probed == warehouse_probed == ["cus_credit"]
+        api_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="api", rows_total=2, resumed=False
+        )
+        warehouse_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="warehouse", rows_total=2, resumed=False
+        )
+
+    def test_the_skip_predicate_reads_the_balance_off_the_warehouse_row(self, tmp_path):
+        # The projected `balance` column is what makes this conversion worth doing: without it
+        # every customer would be probed, turning a listing-dominated run into one call each.
+        customers = [
+            {"id": "cus_zero", "balance": 0},
+            {"id": "cus_credit", "balance": -500},
+            {"id": "cus_unknown", "balance": None},
+        ]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        nested_method, probed = _recording_nested_method()
+
+        _run_nested_get_rows(
+            nested_method,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+        )
+
+        assert probed == ["cus_credit", "cus_unknown"]
+
+    def test_a_parent_deleted_since_the_snapshot_is_skipped(self, tmp_path):
+        # The snapshot can name customers deleted upstream since the parent last synced. Their
+        # child call 404s, and the sweep must carry on rather than failing the whole import.
+        customers = [{"id": "cus_ok", "balance": -1}, {"id": "cus_gone", "balance": -1}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+
+        nested_method, probed = _recording_nested_method(missing={"cus_gone"})
+
+        rows = _run_nested_get_rows(
+            nested_method,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+        )
+
+        assert [row["id"] for row in rows] == ["cbt_cus_ok"]
+        assert probed == ["cus_ok", "cus_gone"]
+
+    def test_resume_state_records_the_scan_position_not_a_stripe_cursor(self, tmp_path):
+        # A Stripe cursor names a place in Stripe's list ordering, which a parquet scan does not
+        # have. Saving one here would resume the next run somewhere arbitrary.
+        uri = _write_customer_parent_table(tmp_path, [{"id": "cus_1", "balance": -500}])
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        _run_nested_get_rows(
+            MagicMock(return_value=_list_object([{"id": "cbt_1"}])),
+            resumable_source_manager=manager,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+        )
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved, "the sweep must checkpoint at least once"
+        assert all(state.starting_after is None for state in saved)
+        assert all(state.warehouse_table_uri == uri for state in saved)
+        assert all(state.warehouse_fragment_index is not None for state in saved)
+
+    @parameterized.expand(
+        [
+            ("api_cursor", {"starting_after": "cus_1"}),
+            (
+                "another_table",
+                {
+                    "warehouse_fragment_index": 0,
+                    "warehouse_row_offset": 1,
+                    "warehouse_table_uri": "s3://elsewhere",
+                    "warehouse_version": 0,
+                },
+            ),
+            ("another_version", {"warehouse_fragment_index": 0, "warehouse_row_offset": 1, "warehouse_version": 99}),
+        ]
+    )
+    def test_unusable_resume_state_restarts_the_sweep(self, _name, state_kwargs, tmp_path=None):
+        # Delta versions restart at 0 when a table is rebuilt, so a position from another table
+        # or version would skip rows the scan has never read. Restarting is the safe answer.
+        import tempfile
+
+        directory = Path(tempfile.mkdtemp())
+        customers = [{"id": "cus_1", "balance": -1}, {"id": "cus_2", "balance": -1}]
+        uri = _write_customer_parent_table(directory, customers)
+        if "warehouse_table_uri" in state_kwargs and state_kwargs["warehouse_table_uri"] != "s3://elsewhere":
+            state_kwargs["warehouse_table_uri"] = uri
+        elif "warehouse_version" in state_kwargs and "warehouse_table_uri" not in state_kwargs:
+            state_kwargs["warehouse_table_uri"] = uri
+
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = stripe_module.StripeResumeConfig(**state_kwargs)
+
+        nested_method, _ = _recording_nested_method()
+        rows = _run_nested_get_rows(
+            nested_method,
+            resumable_source_manager=manager,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+            can_resume=True,
+        )
+
+        assert [row["id"] for row in rows] == ["cbt_cus_1", "cbt_cus_2"]
+
+    def test_a_matching_position_resumes_after_the_parent_it_names(self, tmp_path):
+        customers = [{"id": "cus_1", "balance": -1}, {"id": "cus_2", "balance": -1}, {"id": "cus_3", "balance": -1}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        version = deltalake.DeltaTable(uri).version()
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = stripe_module.StripeResumeConfig(
+            warehouse_fragment_index=0,
+            warehouse_row_offset=1,
+            warehouse_table_uri=uri,
+            warehouse_version=version,
+        )
+
+        nested_method, _ = _recording_nested_method()
+        logger = MagicMock()
+        rows = _run_nested_get_rows(
+            nested_method,
+            resumable_source_manager=manager,
+            warehouse_parent=ParentTableRef(uri=uri, version=version),
+            can_resume=True,
+            logger=logger,
+        )
+
+        assert [row["id"] for row in rows] == ["cbt_cus_2", "cbt_cus_3"]
+        # A resumed attempt counts only the parents it walked, so its fan-out size is partial. The
+        # line has to say so, or it reads as a warehouse parent that is missing rows.
+        assert logger.info.call_args.kwargs["resumed"] is True
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME),
+            ("unconverted_endpoint", True, CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME),
+        ]
+    )
+    def test_resolve_returns_nothing_when_the_warehouse_path_does_not_apply(self, _name, flag, endpoint):
+        assert stripe_module._resolve_warehouse_parent(endpoint, 1, "source-1", flag) is None
+
+    def test_an_unusable_parent_table_falls_back_to_the_api_path(self):
+        # A soft dependency: a parent that cannot be read costs this run the optimization, never
+        # the sync itself.
+        with patch.object(stripe_module, "try_resolve_parent_table", return_value=None, create=True):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.try_resolve_parent_table",
+                return_value=None,
+            ):
+                assert (
+                    stripe_module._resolve_warehouse_parent(
+                        CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, 1, "source-1", True
+                    )
+                    is None
+                )
+
+
+class TestStripeNestedSweepResume:
+    @pytest.mark.parametrize("from_warehouse", [False, True], ids=["api", "warehouse"])
+    @pytest.mark.parametrize(
+        "first_parent_rows,expected",
+        [
+            (["txn_1", "txn_2", "txn_3"], ["txn_1", "txn_2", "txn_3", "txn_4"]),
+            (["txn_1", "txn_2"], ["txn_1", "txn_2", "txn_4"]),
+        ],
+        ids=["chunk_splits_a_parent", "chunk_ends_on_a_boundary"],
+    )
+    def test_interrupted_sweep_resumes_without_losing_or_repeating_rows(
+        self, from_warehouse, first_parent_rows, expected, tmp_path
+    ):
+        customers = [{"id": "cus_1", "balance": -500}, {"id": "cus_2", "balance": -500}]
+        nested_rows = {
+            "cus_1": [{"id": row_id} for row_id in first_parent_rows],
+            "cus_2": [{"id": "txn_4"}],
+        }
+
+        def _after(rows, cursor):
+            if cursor is None:
+                return rows
+            return rows[[row["id"] for row in rows].index(cursor) + 1 :]
+
+        def parent_method(params=None, **kwargs):
+            return _list_object(_after(customers, (params or {}).get("starting_after")))
+
+        def nested_method(customer=None, params=None):
+            return _list_object(_after(nested_rows[customer], (params or {}).get("starting_after")))
+
+        warehouse_parent = None
+        if from_warehouse:
+            uri = _write_customer_parent_table(tmp_path, customers)
+            warehouse_parent = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+
+        resource = StripeNestedResource(
+            method=nested_method,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=parent_method),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        )
+
+        def run(manager):
+            collected: list[dict] = []
+            checkpoints: list[tuple[int, Any]] = []
+            manager.save_state.side_effect = lambda state: checkpoints.append((len(collected), state))
+            with (
+                patch.object(stripe_module, "StripeClient"),
+                patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+                patch.object(
+                    stripe_module,
+                    "_build_resources",
+                    return_value={CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: resource},
+                ),
+            ):
+                for table in get_rows(
+                    api_key="sk_test_123",
+                    endpoint=CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                    warehouse_parent=warehouse_parent,
+                ):
+                    collected.extend(table.to_pylist())
+            return collected, checkpoints
+
+        killed = MagicMock()
+        killed.can_resume.return_value = False
+        all_rows, checkpoints = run(killed)
+        rows_written, crash_state = checkpoints[0]
+
+        restarted = MagicMock()
+        restarted.can_resume.return_value = True
+        restarted.load_state.return_value = crash_state
+        resumed_rows, _ = run(restarted)
+
+        assert [row["id"] for row in all_rows[:rows_written] + resumed_rows] == expected
+
+    @pytest.mark.parametrize("from_warehouse", [False, True], ids=["api_run", "warehouse_run"])
+    def test_a_nested_cursor_saved_by_the_other_path_is_discarded(self, from_warehouse, tmp_path):
+        customers = [{"id": "cus_1", "balance": -500}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        nested_params: list[dict] = []
+
+        def nested_method(customer=None, params=None):
+            nested_params.append(params or {})
+            return _list_object([{"id": "txn_1"}])
+
+        stale = (
+            stripe_module.StripeResumeConfig(
+                starting_after="cus_0", nested_parent_id="cus_1", nested_starting_after="txn_9"
+            )
+            if from_warehouse
+            else stripe_module.StripeResumeConfig(
+                nested_parent_id="cus_1",
+                nested_starting_after="txn_9",
+                warehouse_fragment_index=0,
+                warehouse_row_offset=0,
+                warehouse_table_uri="s3://somewhere-else",
+                warehouse_version=0,
+            )
+        )
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = stale
+
+        rows = _run_nested_get_rows(
+            nested_method,
+            parent_objects=customers,
+            warehouse_parent=(
+                ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()) if from_warehouse else None
+            ),
+            resumable_source_manager=manager,
+            can_resume=True,
+        )
+
+        assert "starting_after" not in nested_params[0]
+        assert [row["id"] for row in rows] == ["txn_1"]

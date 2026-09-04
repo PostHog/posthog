@@ -1,12 +1,18 @@
+import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
+import { Switch, Textarea } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import {
   type SyncedCustomInstructions,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
 import { track } from "@posthog/ui/shell/analytics";
-import { Callout, Flex, Switch, Text, TextArea } from "@radix-ui/themes";
 import { useCallback, useEffect, useState } from "react";
 
 const MAX_INSTRUCTIONS_LENGTH = 2000;
@@ -18,10 +24,12 @@ export interface PersonalizationSettingsViewProps {
   syncFromFile: boolean;
   onSyncToggle: (checked: boolean) => void;
   synced: SyncedCustomInstructions | null;
+  ste100Enabled: boolean;
+  onSte100Toggle: (checked: boolean) => void;
 }
 
-// Pure render of the tab — the container below owns the store wiring,
-// debounce and analytics. Storybook targets this.
+// Pure render of the instructions block. The container below owns the store
+// wiring, debounce and analytics. Storybook targets this.
 export function PersonalizationSettingsView({
   instructions,
   onInstructionsChange,
@@ -29,67 +37,79 @@ export function PersonalizationSettingsView({
   syncFromFile,
   onSyncToggle,
   synced,
+  ste100Enabled,
+  onSte100Toggle,
 }: PersonalizationSettingsViewProps) {
   return (
-    <Flex direction="column">
-      <SettingRow
-        label="Sync from AGENTS.md / CLAUDE.md"
-        description="On start, read your user-level AGENTS.md (or CLAUDE.md if you have no AGENTS.md) and use it instead of the custom instructions below, so they only live in one place"
-      >
-        <Switch
-          checked={syncFromFile}
-          onCheckedChange={onSyncToggle}
-          size="1"
-        />
-      </SettingRow>
+    <SettingsSection
+      label="Custom instructions"
+      description="Included in every agent session"
+    >
+      <SettingsCard>
+        <SettingsCardRow
+          label="Use Simplified Technical English (ASD-STE100)"
+          description="Ask the agent to use clear and consistent technical language"
+        >
+          <Switch
+            size="sm"
+            aria-label="Use Simplified Technical English (ASD-STE100)"
+            checked={ste100Enabled}
+            onCheckedChange={onSte100Toggle}
+          />
+        </SettingsCardRow>
+        <SettingsCardRow
+          label="Sync from AGENTS.md / CLAUDE.md"
+          description="Use your user-level AGENTS.md (or CLAUDE.md) instead of the instructions below, so they live in one place"
+        >
+          <Switch
+            size="sm"
+            checked={syncFromFile}
+            onCheckedChange={onSyncToggle}
+          />
+        </SettingsCardRow>
 
-      <Flex direction="column" gap="1" py="4">
-        <Flex direction="column" gap="1" className="mb-2">
-          <Text className="font-medium text-sm">Custom instructions</Text>
-          <Text color="gray" className="text-[13px]">
-            Instructions included in every agent session
-          </Text>
-        </Flex>
+        <div className="flex flex-col gap-1.5 px-3.5 py-3">
+          {syncFromFile && !synced && (
+            <div className="rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-2.5 py-2 text-[12px] text-amber-11">
+              No AGENTS.md or CLAUDE.md found in your home directory or in
+              ~/.agents, ~/.codex or ~/.claude. Nothing is synced. Add one of
+              those files, or turn sync off to use the instructions below.
+            </div>
+          )}
 
-        {syncFromFile && !synced && (
-          <Callout.Root size="1" color="amber" mb="2">
-            <Callout.Text>
-              No AGENTS.md or CLAUDE.md found in ~/.agents, ~/.codex or
-              ~/.claude. Nothing is synced — add one of those files, or turn
-              sync off to use the instructions below.
-            </Callout.Text>
-          </Callout.Root>
-        )}
-
-        <TextArea
-          value={instructions}
-          onChange={(e) => onInstructionsChange(e.target.value)}
-          onBlur={onInstructionsBlur}
-          maxLength={MAX_INSTRUCTIONS_LENGTH}
-          placeholder="e.g. Always write tests for new code. Prefer functional patterns."
-          rows={6}
-          size="1"
-          resize="vertical"
-          // Radix's disabled state is subtle in dark mode; drop the opacity so
-          // the box clearly reads as inactive while the file is in charge.
-          className={syncFromFile ? "w-full opacity-50" : "w-full"}
-          disabled={syncFromFile}
-        />
-        {syncFromFile ? (
-          synced && (
-            <Text color="gray" align="right" className="text-[13px]">
-              Using {synced.displayPath}
-              {synced.truncated ? " (truncated)" : ""} — edit that file to
-              change your personalization
-            </Text>
-          )
-        ) : (
-          <Text color="gray" align="right" className="text-[13px]">
-            {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
-          </Text>
-        )}
-      </Flex>
-    </Flex>
+          <Textarea
+            value={instructions}
+            onChange={(e) => onInstructionsChange(e.target.value)}
+            onBlur={onInstructionsBlur}
+            maxLength={MAX_INSTRUCTIONS_LENGTH}
+            placeholder="e.g. Always write tests for new code. Prefer functional patterns."
+            rows={6}
+            className={
+              syncFromFile
+                ? "w-full resize-y text-[12.5px] opacity-50"
+                : "w-full resize-y text-[12.5px]"
+            }
+            disabled={syncFromFile}
+          />
+          {syncFromFile ? (
+            synced && (
+              <span className="text-right text-[12px] text-muted-foreground">
+                Using{" "}
+                <span className="font-mono text-[11px]">
+                  {synced.displayPath}
+                </span>
+                {synced.truncated ? " (truncated)" : ""}. Edit that file to
+                change your personalization.
+              </span>
+            )
+          ) : (
+            <span className="text-right text-[12px] text-muted-foreground tabular-nums">
+              {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
+            </span>
+          )}
+        </div>
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 
@@ -105,6 +125,8 @@ export function PersonalizationSettings() {
     (s) => s.setSyncCustomInstructionsFromFile,
   );
   const synced = useSettingsStore((s) => s.syncedCustomInstructions);
+  const ste100Enabled = useSettingsStore((s) => s.ste100Enabled);
+  const setSte100Enabled = useSettingsStore((s) => s.setSte100Enabled);
 
   // The draft renders over the store value only while edits are pending
   // (null = none), instead of copying the store into state and mirroring it
@@ -150,14 +172,151 @@ export function PersonalizationSettings() {
     [setSyncFromFile],
   );
 
+  const handleSte100Toggle = useCallback(
+    (checked: boolean) => {
+      setSte100Enabled(checked);
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "simplified_technical_english",
+        new_value: checked,
+      });
+    },
+    [setSte100Enabled],
+  );
+
   return (
-    <PersonalizationSettingsView
-      instructions={draft ?? customInstructions}
-      onInstructionsChange={setDraft}
-      onInstructionsBlur={handleInstructionsBlur}
-      syncFromFile={syncFromFile}
-      onSyncToggle={handleSyncToggle}
-      synced={synced}
-    />
+    <div className="flex flex-col gap-7">
+      <PersonalizationSettingsView
+        instructions={draft ?? customInstructions}
+        onInstructionsChange={setDraft}
+        onInstructionsBlur={handleInstructionsBlur}
+        syncFromFile={syncFromFile}
+        onSyncToggle={handleSyncToggle}
+        synced={synced}
+        ste100Enabled={ste100Enabled}
+        onSte100Toggle={handleSte100Toggle}
+      />
+      <FunSection />
+    </div>
+  );
+}
+
+function FunSection() {
+  const {
+    hedgehogMode,
+    slotMachineMode,
+    brainrotMode,
+    setHedgehogMode,
+    setSlotMachineMode,
+    setBrainrotMode,
+  } = useSettingsStore();
+
+  const handleHedgehogModeChange = useCallback(
+    (checked: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "hedgehog_mode",
+        new_value: checked,
+        old_value: hedgehogMode,
+      });
+      setHedgehogMode(checked);
+    },
+    [hedgehogMode, setHedgehogMode],
+  );
+
+  const handleSlotMachineModeChange = useCallback(
+    (checked: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "slot_machine_mode",
+        new_value: checked,
+        old_value: slotMachineMode,
+      });
+      setSlotMachineMode(checked);
+    },
+    [slotMachineMode, setSlotMachineMode],
+  );
+
+  const handleBrainrotModeChange = useCallback(
+    (checked: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "brainrot_mode",
+        new_value: checked,
+        old_value: brainrotMode,
+      });
+      setBrainrotMode(checked);
+    },
+    [brainrotMode, setBrainrotMode],
+  );
+
+  return (
+    <SettingsSection
+      label="Fun"
+      description="Extras that make the app a bit more playful"
+    >
+      <SettingsCard>
+        <SettingsCardRow
+          label="Hedgehog mode"
+          description={<HedgehogDescription />}
+        >
+          <Switch
+            size="sm"
+            checked={hedgehogMode}
+            onCheckedChange={handleHedgehogModeChange}
+          />
+        </SettingsCardRow>
+
+        <SettingsCardRow
+          label="Slot machine mode 🎰"
+          description="A pull-able lever while a task runs; every run is a gamble"
+        >
+          <Switch
+            size="sm"
+            checked={slotMachineMode}
+            onCheckedChange={handleSlotMachineModeChange}
+          />
+        </SettingsCardRow>
+
+        <SettingsCardRow
+          label="Brainrot mode ⚡"
+          description="Adds a Brainrot option to empty command center cells that fills them with a looping video"
+        >
+          <Switch
+            size="sm"
+            checked={brainrotMode}
+            onCheckedChange={handleBrainrotModeChange}
+          />
+        </SettingsCardRow>
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function HedgehogDescription() {
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+
+  const customizeUrl = projectId
+    ? buildPostHogUrl(
+        `/project/${projectId}/settings/user-customization`,
+        cloudRegion,
+      )
+    : null;
+
+  return (
+    <span>
+      A hedgehog buddy walks around your screen. It can take a few seconds to
+      appear.
+      {customizeUrl && (
+        <>
+          {" "}
+          <a
+            href={customizeUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-11 underline hover:text-accent-12"
+          >
+            Customize your hedgehog
+          </a>
+        </>
+      )}
+    </span>
   );
 }

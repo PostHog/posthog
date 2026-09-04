@@ -1,14 +1,13 @@
 use std::{borrow::Cow, fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
+use aho_corasick::AhoCorasick;
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use sqlx::{Executor, Postgres};
 use tracing::warn;
-use uuid::Uuid;
 
-use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
+use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
 
 // Custom deserializer that can handle both string and integer values
 fn deserialize_string_or_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
@@ -80,15 +79,14 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
 // rare cases it arrives as a top-level event property, and carries little cardinality weight.
 pub const SKIP_EVENT_PROPERTY_PREFIXES: [&str; 2] = ["$feature/", "$feature_enrollment/"];
 
-const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
-    "time",
-    "timestamp",
-    "date",
-    "_at",
-    "-at",
-    "createdat",
-    "updatedat",
-];
+// "timestamp" is deliberately absent: any key that contains it already contains "time".
+const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 6] =
+    ["time", "date", "_at", "-at", "createdat", "updatedat"];
+
+// One automaton pass over the key replaces a `str::contains` per keyword, which
+// paid a two-way searcher setup per call on a per-property hot path.
+static DATETIME_KEYWORD_MATCHER: LazyLock<AhoCorasick> =
+    LazyLock::new(|| AhoCorasick::new(DATETIME_PROPERTY_NAME_KEYWORDS).unwrap());
 
 // TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
 // a string prefix of their value. While this doesn't enforce compliance to standard formats,
@@ -109,17 +107,6 @@ pub enum PropertyParentType {
     Person = 2,
     Group = 3,
     Session = 4,
-}
-
-impl From<PropertyParentType> for i32 {
-    fn from(parent_type: PropertyParentType) -> i32 {
-        match parent_type {
-            PropertyParentType::Event => 1,
-            PropertyParentType::Person => 2,
-            PropertyParentType::Group => 3,
-            PropertyParentType::Session => 4,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -181,9 +168,6 @@ pub struct PropertyDefinition {
     pub property_type: Option<PropertyValueType>,
     pub event_type: PropertyParentType,
     pub group_type_index: Option<GroupType>,
-    pub property_type_format: Option<String>, // Deprecated
-    pub volume_30_day: Option<i64>,           // Deprecated
-    pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -193,7 +177,9 @@ pub struct EventDefinition {
     pub team_id: i32,
     #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
-    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
+    // Always floored to EVENTDEF_LAST_SEEN_FLOOR_SECS, so this Eq derive is safe for deduping:
+    // two sightings within the same floor period compare equal and collapse to one write.
+    pub last_seen_at: DateTime<Utc>,
 }
 
 // Derived hash since these are keyed on all fields in the DB
@@ -223,12 +209,6 @@ pub struct Event {
     pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,
-}
-
-impl From<&Event> for EventDefinition {
-    fn from(event: &Event) -> Self {
-        event.to_event_definition(DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
-    }
 }
 
 impl Event {
@@ -350,6 +330,9 @@ impl Event {
         group_type: Option<GroupType>,
     ) {
         updates.reserve(set.len() * 2);
+        // The event name repeats in every EventProperty row pushed below, so
+        // sanitize it once instead of once per property.
+        let sanitized_event = sanitize_string(&self.event);
         for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
@@ -386,7 +369,7 @@ impl Event {
                     updates.push(Update::EventProperty(EventProperty {
                         team_id: self.team_id,
                         project_id: self.project_id,
-                        event: sanitize_string(&self.event),
+                        event: sanitized_event.clone(),
                         property: sanitize_string(key),
                     }));
                 }
@@ -403,9 +386,6 @@ impl Event {
                 property_type,
                 event_type: parent_type,
                 group_type_index: group_type.clone(),
-                property_type_format: None,
-                volume_30_day: None,
-                query_usage_30_day: None,
             }));
         }
     }
@@ -488,18 +468,13 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
 }
 
 fn detect_timestamp_property_by_key_and_value(key: &str, value: &Value) -> bool {
-    if DATETIME_PROPERTY_NAME_KEYWORDS
-        .iter()
-        .any(|kw| key.contains(*kw))
-    {
-        return match value {
-            Value::String(s) if is_likely_date_string(s) => true,
-            Value::Number(n) if is_likely_unix_timestamp(n) => true,
-            _ => false,
-        };
+    // Match on the value first: only strings and numbers can classify as
+    // timestamps, so other value types skip the key scan entirely.
+    match value {
+        Value::String(s) => DATETIME_KEYWORD_MATCHER.is_match(key) && is_likely_date_string(s),
+        Value::Number(n) => DATETIME_KEYWORD_MATCHER.is_match(key) && is_likely_unix_timestamp(n),
+        _ => false,
     }
-
-    false
 }
 
 fn is_likely_date_string(s: &str) -> bool {
@@ -633,35 +608,12 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
 pub fn sanitize_string(s: &str) -> String {
-    s.replace('\u{0000}', "\u{FFFD}")
-}
-
-// The queries below are pulled more-or-less exactly from the TS impl.
-
-impl EventDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let res = sqlx::query!(
-            r#"
-            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
-            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
-            ON CONFLICT (coalesce(project_id, team_id::bigint), name)
-            DO UPDATE SET last_seen_at = $5
-        "#,
-            Uuid::now_v7(),
-            self.name,
-            self.team_id,
-            self.project_id,
-            // last_seen_at is floored only to bound how often we re-issue this write; the stored
-            // value is the real time we saw the event.
-            Utc::now()
-        ).execute(executor).await.map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
-
-        res
+    // NUL bytes are effectively absent from real traffic, so gate the per-char
+    // replace walk behind a byte scan and take the straight copy otherwise.
+    if s.contains('\u{0000}') {
+        s.replace('\u{0000}', "\u{FFFD}")
+    } else {
+        s.to_owned()
     }
 }
 

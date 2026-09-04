@@ -56,6 +56,10 @@ import {
   type ExternalAppsFocusCoordinator,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import {
+  FILE_READ_CLIENT,
+  type FileReadClient,
+} from "@posthog/core/files/identifiers";
 import { gitInteractionModule } from "@posthog/core/git-interaction/git-interaction.module";
 import type {
   GitInteractionEffects,
@@ -112,24 +116,12 @@ import {
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import type { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffDialog,
-  type LocalHandoffHost,
-  type LocalHandoffNotifier,
-  LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { sessionsModule } from "@posthog/core/sessions/sessions.module";
 import {
-  type FileReadClient,
   type GithubPrTitleClient,
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
   TITLE_GENERATOR_SERVICE,
@@ -147,6 +139,13 @@ import type {
   SkillsWorkspaceClient,
   TeamSkillsService,
 } from "@posthog/core/skills/teamSkillsService";
+import {
+  SPEECH_SETTINGS_PROVIDER,
+  SPEECH_USER_NAME_PROVIDER,
+  type SpeechSettingsProvider,
+  type UserNameProvider,
+} from "@posthog/core/speech/identifiers";
+import { speechCoreModule } from "@posthog/core/speech/speech.module";
 import {
   TASK_CREATION_EFFECTS,
   TASK_CREATION_HOST,
@@ -193,7 +192,8 @@ import {
   type IPowerManager,
   POWER_MANAGER_SERVICE,
 } from "@posthog/platform/power-manager";
-import { type Adapter, SYNC_CLOUD_TASKS_FLAG } from "@posthog/shared";
+import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
+import type { Adapter } from "@posthog/shared";
 import { sandboxProxyHtml } from "@posthog/shared/mcp-sandbox-proxy";
 import { authUiModule } from "@posthog/ui/features/auth/auth.module";
 import {
@@ -246,14 +246,12 @@ import {
   ACTIVE_VIEW_PROVIDER,
   type IActiveView,
   type INotificationSettings,
+  type ISpeechNotifySettings,
   NOTIFICATION_SETTINGS_PROVIDER,
+  SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
 import { notificationsUiModule } from "@posthog/ui/features/notifications/notifications.module";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
-import {
-  localHandoffDialog,
-  localHandoffNotifier,
-} from "@posthog/ui/features/sessions/localHandoffService";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
 import { taskCreationEffects } from "@posthog/ui/features/task-detail/taskCreationEffectsImpl";
@@ -314,14 +312,20 @@ import { WebOAuthFlowService } from "./web-oauth-flow";
 import { webDiffWorkerFactory, webReviewHost } from "./web-review-host";
 import {
   webBundleLocalSkill,
+  webFileReadClient,
   webGithubPrTitleClient,
   webReadFileAsBase64,
   webResolveSkillBundleDependencies,
-  webTitleGeneratorFileReadClient,
   webTitleGeneratorLogger,
 } from "./web-sessions-clients";
 import { webSetupStore } from "./web-setup-store";
 import { webShellClient } from "./web-shell-client";
+import {
+  createWebSpeechUserName,
+  webSpeech,
+  webSpeechNotifySettings,
+  webSpeechSettings,
+} from "./web-speech";
 import {
   webTaskDeletionHost,
   webTaskDeletionWorkspaceClient,
@@ -385,15 +389,11 @@ interface WebBindings {
   [CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL]: BundleLocalSkill;
   [CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES]: ResolveSkillBundleDependencies;
   [TITLE_GENERATOR_SERVICE]: TitleGeneratorService;
-  [TITLE_GENERATOR_FILE_READ_CLIENT]: FileReadClient;
+  [FILE_READ_CLIENT]: FileReadClient;
   [TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT]: GithubPrTitleClient;
   [TITLE_GENERATOR_LOGGER]: TitleGeneratorLogger;
   [LLM_GATEWAY_SERVICE]: LlmGatewayService;
   [LLM_GATEWAY_HOST]: LlmGatewayHost;
-  [LOCAL_HANDOFF_SERVICE]: LocalHandoffService;
-  [LOCAL_HANDOFF_HOST]: LocalHandoffHost;
-  [LOCAL_HANDOFF_DIALOG]: LocalHandoffDialog;
-  [LOCAL_HANDOFF_NOTIFIER]: LocalHandoffNotifier;
   [FILE_WATCHER_CLIENT]: FileWatcherClient;
   [GIT_INTERACTION_SERVICE]: GitInteractionService;
   [GIT_WRITE_CLIENT]: IGitWriteClient;
@@ -403,6 +403,10 @@ interface WebBindings {
   [NOTIFICATIONS_SERVICE]: INotifications;
   [NOTIFICATION_SETTINGS_PROVIDER]: INotificationSettings;
   [ACTIVE_VIEW_PROVIDER]: IActiveView;
+  [SPEECH_SERVICE]: ISpeech;
+  [SPEECH_SETTINGS_PROVIDER]: SpeechSettingsProvider;
+  [SPEECH_USER_NAME_PROVIDER]: UserNameProvider;
+  [SPEECH_NOTIFY_SETTINGS]: ISpeechNotifySettings;
   [REPORT_MODEL_RESOLVER]: ReportModelResolver;
 }
 
@@ -501,19 +505,10 @@ container
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
 
-// ── Feature flags (real posthog-js, with one host-forced flag) ──
-container.bind(FEATURE_FLAGS).toConstantValue({
-  // Cloud-task sync is a hard requirement of the cloud-only host — __root's
-  // reconcile effect derives the (localStorage-backed) sidebar task list from it
-  // — so force it on regardless of the remote flag, then defer every other flag
-  // to posthog-js. When posthog isn't initialized (no real VITE_POSTHOG_API_KEY),
-  // isEnabled returns false for everything else, so only the forced flag is on —
-  // same behavior as the old stub, but real flags light up once a key is set.
-  isEnabled: (flagKey: string) =>
-    flagKey === SYNC_CLOUD_TASKS_FLAG || posthogFeatureFlags.isEnabled(flagKey),
-  getPayload: posthogFeatureFlags.getPayload,
-  onFlagsLoaded: posthogFeatureFlags.onFlagsLoaded,
-});
+// ── Feature flags (real posthog-js) ──
+// When posthog isn't initialized (no real VITE_POSTHOG_API_KEY), isEnabled
+// returns false for everything; real flags light up once a key is set.
+container.bind(FEATURE_FLAGS).toConstantValue(posthogFeatureFlags);
 
 // ── Analytics + error tracking (real posthog-js) ──
 // Both ports share the single posthog-js instance initialized in main.tsx (see
@@ -620,13 +615,21 @@ const webBrowserTabsClient: BrowserTabsClient = {
   getSnapshot: () => Promise.resolve(webBrowserTabsStore.getSnapshot()),
   getPrimaryWindowId: () =>
     Promise.resolve(webBrowserTabsStore.getPrimaryWindowId()),
-  openOrFocus: (input) =>
-    Promise.resolve(webBrowserTabsStore.openOrFocus(input)),
-  newBlankTab: (input) =>
-    Promise.resolve(webBrowserTabsStore.newBlankTab(input)),
+  reset: () => Promise.resolve(webBrowserTabsStore.reset()),
+  openTab: (input) => Promise.resolve(webBrowserTabsStore.openTab(input)),
   setTabTarget: (input) =>
     Promise.resolve(webBrowserTabsStore.setTabTarget(input)),
-  close: (tabId) => Promise.resolve(webBrowserTabsStore.close(tabId)),
+  close: (tabId, newTabId) =>
+    Promise.resolve(webBrowserTabsStore.close(tabId, newTabId)),
+  closeMany: (input) =>
+    Promise.resolve(
+      webBrowserTabsStore.closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
+    ),
+  setOrder: (input) => Promise.resolve(webBrowserTabsStore.setOrder(input)),
   setActiveTab: (input) =>
     Promise.resolve(webBrowserTabsStore.setActiveTab(input)),
   onSnapshotChange: (sub) => {
@@ -667,11 +670,14 @@ container.bind(SHELL_CLIENT).toConstantValue(webShellClient);
 
 // ── Archive (sidebar's ArchivedTasksController) ──
 // The controller resolves eagerly for the sidebar; UnarchiveService needs an
-// ARCHIVE_CLIENT. Its methods are user actions (unarchive/delete/context menu)
-// backed by workspace-server on desktop — not available on web, so reject. The
-// archived-task LIST comes from the api-client, not this client.
+// ARCHIVE_CLIENT. User-initiated restore and delete remain unavailable on web,
+// while server archive sync uses the web host's local archive implementation.
 container.load(archiveModule);
 container.bind(ARCHIVE_CLIENT).toConstantValue({
+  archive: (input) => hostTrpcClient.archive.archive.mutate(input),
+  refreshArchiveState: async () => {
+    await queryClient.invalidateQueries({ queryKey: [["archive"]] });
+  },
   unarchive: () =>
     Promise.reject(new Error("Unarchive is not available on the web")),
   delete: () => Promise.reject(new Error("Delete is not available on the web")),
@@ -730,9 +736,7 @@ container
 container
   .bind(CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES)
   .toConstantValue(webResolveSkillBundleDependencies);
-container
-  .bind(TITLE_GENERATOR_FILE_READ_CLIENT)
-  .toConstantValue(webTitleGeneratorFileReadClient);
+container.bind(FILE_READ_CLIENT).toConstantValue(webFileReadClient);
 container
   .bind(TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT)
   .toConstantValue(webGithubPrTitleClient);
@@ -760,28 +764,6 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
-
-// ── Local handoff (cloud git header's "hand off to local" affordance) ──
-// LocalHandoffService is resolved eagerly by CloudGitInteractionHeader. The
-// dialog + notifier are host-agnostic UI (reused from @posthog/ui); the host is
-// local-fs (pick a folder, add it) which can't run on the browser, so it's
-// stubbed — a cloud-only host can't hand a task off to a local checkout.
-container.bind(LOCAL_HANDOFF_HOST).toConstantValue({
-  getRepositoryByRemoteUrl: () => Promise.resolve(null),
-  selectDirectory: () => Promise.resolve(null),
-  addFolder: () =>
-    Promise.reject(new Error("Local handoff is not available on the web")),
-  getWorktreeLocation: () => Promise.resolve(""),
-  cloneRepository: () =>
-    Promise.reject(new Error("Local handoff is not available on the web")),
-  addAdditionalDirectory: () => Promise.resolve(),
-});
-container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
-container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
-container
-  .bind(LOCAL_HANDOFF_SERVICE)
-  .to(LocalHandoffService)
-  .inSingletonScope();
 
 // ── File watcher (TaskDetail's useRepoFileWatcher) ──
 // Watches a local repo for changes; there is none on web. The consumer gates
@@ -817,6 +799,18 @@ container
   .bind(NOTIFICATION_SETTINGS_PROVIDER)
   .toConstantValue(webNotificationSettings);
 container.bind(ACTIVE_VIEW_PROVIDER).toConstantValue(webActiveView);
+
+// ── Spoken notifications ──
+// SpeechNotifier (notificationsUiModule) is what SessionService resolves for
+// agent narration, so the whole chain down to the platform ISpeech has to be
+// bound here too. Web speaks with the browser's system voice.
+container.load(speechCoreModule);
+container.bind(SPEECH_SERVICE).toConstantValue(webSpeech);
+container.bind(SPEECH_SETTINGS_PROVIDER).toConstantValue(webSpeechSettings);
+container
+  .bind(SPEECH_USER_NAME_PROVIDER)
+  .toConstantValue(createWebSpeechUserName(queryClient));
+container.bind(SPEECH_NOTIFY_SETTINGS).toConstantValue(webSpeechNotifySettings);
 
 // ── Inbox: resolve the default cloud-run model from the LLM gateway ──
 // Host capability consumed by UI hooks (canvas/home/inbox) that create cloud

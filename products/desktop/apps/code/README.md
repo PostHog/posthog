@@ -41,6 +41,33 @@ pnpm run check:write       # Linting & typecheck
 - `⌘R` - Refresh task list
 - `⌘⇧[/]` - Switch between tabs
 - `⌘W` - Close current tab
+- `⌘⌥P` / `Ctrl+Alt+P` - Open Quick ask
+
+### Screen recording permission in development
+
+Quick ask's screen capture needs the macOS Screen Recording permission. In development the app runs inside the stock Electron binary (`node_modules/electron/dist/Electron.app`), and macOS attributes the consent to the **responsible process** — for a `pnpm start` from a terminal, that is the terminal (Ghostty, iTerm, Terminal, or the IDE hosting the integrated terminal), not Electron:
+
+- Grant it to **your terminal** in System Settings → Privacy & Security → Screen & System Audio Recording, quit the terminal fully, reopen it, and start the app again. An enabled "Electron" row alone is usually not enough (it belongs to a Finder-launched Electron).
+- On a capture failure the app logs the consent status macOS reports (`Quick ask screen capture unavailable` in main.log) — "denied" while the toggles look on means the grant sits on the wrong identity.
+- To see what TCC actually holds: `sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" "SELECT client, auth_value FROM access WHERE service='kTCCServiceScreenCapture';"` (2 = allowed).
+- The first capture attempt is what registers Electron in that list and fires the consent prompt — hit the camera button once if the entry is missing.
+- An Electron version bump replaces the binary, which invalidates the grant (macOS ties it to the code identity). If capture silently stops working after `pnpm install`, reset and re-grant:
+
+```bash
+tccutil reset ScreenCapture com.github.Electron
+```
+
+- Several checkouts share the same `com.github.Electron` identity, so a grant made from another project's Electron can shadow yours — the reset above clears all of them.
+- If that reset fails with `No such bundle identifier` (OSStatus -10814), LaunchServices has never seen the node_modules Electron as an app bundle. Register it first, or fall back to resetting Screen Recording for every app:
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -f node_modules/electron/dist/Electron.app
+tccutil reset ScreenCapture com.github.Electron
+
+# or, resets the permission for all apps:
+tccutil reset ScreenCapture
+```
 
 ### Building Distributables
 
@@ -57,7 +84,7 @@ pnpm make
 Output will be in:
 
 - `out/mac-arm64/PostHog.app` - Packaged app
-- `out/PostHog-Code-*.dmg` - macOS installer
+- `out/PostHog-Desktop-*.dmg` - macOS installer
 - `out/make/zip/` - ZIP archives
 
 **Note:** Native modules for the DMG maker are automatically compiled via the `prePackage` hook. If you need to manually rebuild them, run:
@@ -73,7 +100,7 @@ PostHog auto-updates on macOS and Windows. Current builds use `electron-updater`
 There are three ways a release can fire:
 
 1. **Scheduled (default)** — automatic at 17:00 and 01:00 UTC.
-2. **Hotfix** — add the `create desktop release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
+2. **Hotfix** — add the `desktop-release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
 3. **Manual** — run `Tag PostHog Release` via `workflow_dispatch` from the Actions tab.
 
 Local prep (only needed for one-off manual builds):
@@ -189,10 +216,10 @@ PostHog automatically sets environment variables in all workspace terminals and 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `POSTHOG_CODE_WORKSPACE_NAME` | Worktree name, or folder name in root mode | `my-feature-branch` |
-| `POSTHOG_CODE_WORKSPACE_PATH` | Absolute path to the workspace | `/Users/dev/.posthog-code/worktrees/repo/my-feature` |
+| `POSTHOG_CODE_WORKSPACE_PATH` | Absolute path to the workspace | `/Users/dev/.posthog-desktop/worktrees/repo/my-feature` |
 | `POSTHOG_CODE_ROOT_PATH` | Absolute path to the repository root | `/Users/dev/repos/my-project` |
 | `POSTHOG_CODE_DEFAULT_BRANCH` | Default branch detected from git | `main` |
-| `POSTHOG_CODE_WORKSPACE_BRANCH` | Initial branch when workspace was created | `posthog-code/my-feature` |
+| `POSTHOG_CODE_WORKSPACE_BRANCH` | Initial branch when workspace was created | `posthog/my-feature` |
 | `POSTHOG_CODE_WORKSPACE_PORTS` | Comma-separated list of allocated ports | `50000,50001,...,50019` |
 | `POSTHOG_CODE_WORKSPACE_PORTS_RANGE` | Number of ports allocated | `20` |
 | `POSTHOG_CODE_WORKSPACE_PORTS_START` | First port in the range | `50000` |

@@ -10,14 +10,14 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.api.oauth.cimd import (
-    enqueue_cimd_refresh_if_stale,
-    get_application_by_client_id,
-    is_cimd_client_id,
-    is_cimd_url_blocked,
+from posthog.api.oauth.cimd import enqueue_cimd_refresh_if_stale
+from posthog.api.oauth.client_assertion import (
+    ClientAssertionError,
+    ResolvedClientAssertion,
+    extract_client_assertion,
+    verify_client_assertion,
 )
-from posthog.api.oauth.client_assertion import ClientAssertionError, extract_client_assertion, verify_client_assertion
-from posthog.api.oauth.client_auth import extract_client_credentials, verify_client_secret
+from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token
 from posthog.models.user import User
 
@@ -93,12 +93,12 @@ class ProvisioningAuthentication(BaseAuthentication):
         # 1. A signed assertion identifies and proves a private_key_jwt partner at once.
         assertion = extract_client_assertion(request)
         if assertion is not None:
-            return self._identify_assertion_partner(request, *assertion)
+            return self._identify_assertion_partner(request, assertion)
 
         # 2. So do client credentials, for a partner registered with a secret.
         credentials = extract_client_credentials(request)
         if credentials is not None:
-            return self._identify_client_secret_partner(request, *credentials)
+            return self._identify_client_secret_partner(request, credentials)
 
         # 3. A bare client_id identifies a public client, which relies on PKCE.
         client_id = request.data.get("client_id") or request.query_params.get("client_id")
@@ -124,30 +124,32 @@ class ProvisioningAuthentication(BaseAuthentication):
         capture_auth_event(app, "verification_failed", endpoint=request.path)
         raise AuthenticationFailed(reason)
 
-    def _identify_assertion_partner(self, request: Request, assertion: str, client_id: str) -> OAuthApplication | None:
-        app = self._resolve_partner(client_id)
+    def _identify_assertion_partner(
+        self, request: Request, assertion: ResolvedClientAssertion
+    ) -> OAuthApplication | None:
+        app = self._resolve_partner(assertion.client_id)
         if app is None:
             raise AuthenticationFailed(CLIENT_NOT_REGISTERED_MESSAGE)
         if not app.uses_private_key_jwt_auth:
             self._reject(request, app, "This client does not authenticate with a client assertion")
 
         try:
-            verify_client_assertion(app, assertion)
+            verify_client_assertion(app, assertion.client_assertion)
         except ClientAssertionError as exc:
             self._reject(request, app, str(exc))
 
         return app
 
     def _identify_client_secret_partner(
-        self, request: Request, client_id: str, client_secret: str
+        self, request: Request, credentials: ClientCredentials
     ) -> OAuthApplication | None:
-        app = self._resolve_partner(client_id)
+        app = self._resolve_partner(credentials.client_id)
         if app is None:
             return None
         if not app.uses_client_secret_auth:
             self._reject(request, app, "This client does not authenticate with a client secret")
 
-        if not verify_client_secret(client_secret, app.client_secret or ""):
+        if not verify_client_secret(credentials.client_secret, app.client_secret or ""):
             self._reject(request, app, "Invalid client credentials")
 
         return app
@@ -159,7 +161,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         brought its own proof has to already exist for that proof to mean anything.
         """
         try:
-            app = get_application_by_client_id(client_id)
+            app = OAuthApplication.objects.get(client_id=client_id)
         except OAuthApplication.DoesNotExist:
             return None
 
@@ -172,7 +174,7 @@ class ProvisioningAuthentication(BaseAuthentication):
             # again: scope ceiling and jwks_uri edits would freeze at whatever the app was
             # promoted with. Async, so this request still serves the app we already have.
             try:
-                enqueue_cimd_refresh_if_stale(app.cimd_metadata_url or client_id)
+                enqueue_cimd_refresh_if_stale(app.client_id)
             except Exception as e:
                 logger.warning(
                     "provisioning_cimd_refresh_enqueue_error",
@@ -192,8 +194,6 @@ class ProvisioningAuthentication(BaseAuthentication):
         explicit call to client_registration, so an unknown client_id simply does not resolve
         and the caller is pointed there.
         """
-        if is_cimd_client_id(client_id) and is_cimd_url_blocked(client_id):
-            return None
         return self._resolve_partner(client_id)
 
 
@@ -205,7 +205,7 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
     Raises :class:`ProvisioningError` (rendered in the view's envelope) on failure.
     """
 
-    def authenticate(self, request: Request) -> tuple[User | None, OAuthAccessToken]:
+    def authenticate(self, request: Request) -> tuple[User, OAuthAccessToken]:
         try:
             access_token = resolve_bearer_access_token(request)
         except BearerTokenError as exc:
@@ -223,7 +223,15 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
         if not app.provisioning.can_provision_resources:
             raise ProvisioningError("forbidden", "Resource provisioning not enabled for this partner", status=403)
 
-        return access_token.user, access_token
+        # Deactivating a user drops their login sessions but leaves OAuth tokens intact, so the
+        # token has to fail closed here the way `posthog.auth._validate_token` does for the main
+        # API. A token with no user cannot identify a caller at all, and the views downstream
+        # read `request.user` as a User, so it fails closed too.
+        user = access_token.user
+        if user is None or not user.is_active:
+            raise ProvisioningError("unauthorized", "Authentication failed", status=401)
+
+        return user, access_token
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"

@@ -1,7 +1,7 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG } from '../Notebook/markdownNotebookV2'
+import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG, getSqlV2PropsFromQueryProp } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 
 export type PythonNodeSummary = {
@@ -355,6 +355,7 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
                 type: nodeType,
                 attrs: {
                     ...block.props,
+                    ...(nodeType === NotebookNodeType.SQLV2 ? getSqlV2PropsFromQueryProp(block.props) : null),
                     // Prefer the persisted nodeId prop: the parsed block id is a content
                     // fingerprint, which drifts from the live cell id as soon as any prop
                     // changes (running a cell writes runId/result into its props).
@@ -851,9 +852,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
 
         if (node.type === NotebookNodeType.MarkdownNotebook) {
             // Markdown notebooks (the only V2 surface) store cells as component tags, so both
-            // V2 cell types must be expanded or the graph misses every markdown-held cell.
-            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
-            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
+            // V2 cell types must be expanded in one pass to preserve dependency order.
+            expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

@@ -10,7 +10,7 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -25,12 +25,14 @@ import {
     DashboardTile,
     DashboardType,
     DashboardWidgetType,
+    InsightFilterOverrideContext,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 
 export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
     const queryStatus = insight.query_status
@@ -67,6 +69,7 @@ export function dashboardToSaveableTemplate(
                         body: tile.text.body,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.insight) {
@@ -77,6 +80,7 @@ export function dashboardToSaveableTemplate(
                         query: tile.insight.query,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.button_tile) {
@@ -90,6 +94,7 @@ export function dashboardToSaveableTemplate(
                         },
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.widget) {
@@ -99,6 +104,7 @@ export function dashboardToSaveableTemplate(
                         config: tile.widget.config,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 throw new Error('Unknown tile type')
@@ -381,6 +387,10 @@ export async function getInsightWithRetry(
                 throw e // Re-throw cancellation errors
             }
 
+            if (isDeterministicClientError(e)) {
+                throw e // A 4xx won't change on retry, so surface it immediately
+            }
+
             attempt++
             if (attempt >= maxAttempts) {
                 throw e // Re-throw the error after max attempts
@@ -450,6 +460,23 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     return encodedFilters
 }
 
+/**
+ * Search params for a dashboard filter change. A filter that constrains nothing drops the param instead
+ * of writing an empty one, so clearing the last filter doesn't leave the dashboard looking overridden on
+ * its next load. Spreading the encoded filter can't do this — it never removes a key already in the URL.
+ */
+export function searchParamsWithUrlFilters(
+    searchParams: Record<string, any>,
+    filters: DashboardFilter
+): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    if (isDashboardFilterEmpty(filters)) {
+        delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
+        return nextSearchParams
+    }
+    return { ...nextSearchParams, ...encodeURLFilters(filters) }
+}
+
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
     return filters.reduce((combined, filter) => {
         Object.keys(filter).forEach((key) => {
@@ -460,6 +487,24 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
 const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([

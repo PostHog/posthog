@@ -8,7 +8,7 @@ use crate::{
     error::EventError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
     frames::releases::{ReleaseInfo, ReleaseRecord},
-    issue_resolution::Issue,
+    issue_resolution::{Issue, IssueSeverity},
     langs::native::DebugImage,
     modes::processing::normalization::normalize_wire_order,
     recursively_sanitize_properties,
@@ -179,6 +179,7 @@ pub struct ExceptionEvent<S> {
     pub(crate) props: HashMap<String, Value>,
     pub(crate) proposed_issue_name: Option<String>,
     pub(crate) proposed_issue_description: Option<String>,
+    pub(crate) proposed_issue_severity: Option<IssueSeverity>,
     pub(crate) state: S,
 }
 
@@ -193,6 +194,7 @@ impl<S> ExceptionEvent<S> {
             props: self.props,
             proposed_issue_name: self.proposed_issue_name,
             proposed_issue_description: self.proposed_issue_description,
+            proposed_issue_severity: self.proposed_issue_severity,
             state: transform(self.state),
         }
     }
@@ -221,12 +223,33 @@ impl<S> ExceptionEvent<S> {
         &self.props
     }
 
+    /// Fill a property the event did not send. Cymbal derives properties that SDKs also report,
+    /// and an SDK read them off the running app, so a value already on the event is the better one
+    /// and is left alone.
+    ///
+    /// A null counts as not sent, because SDKs do send one. The React Native SDK spreads its app
+    /// properties into every event whether or not the platform could supply them, so an Expo app
+    /// that cannot read its own version sends `"$app_version": null`.
+    pub(crate) fn set_property_if_absent(&mut self, key: &str, value: Value) {
+        if matches!(self.props.get(key), None | Some(Value::Null)) {
+            self.props.insert(key.to_string(), value);
+        }
+    }
+
+    pub(crate) fn exception_level(&self) -> Option<&str> {
+        self.props.get("$exception_level").and_then(Value::as_str)
+    }
+
     pub fn proposed_issue_name(&self) -> Option<&str> {
         self.proposed_issue_name.as_deref()
     }
 
     pub fn proposed_issue_description(&self) -> Option<&str> {
         self.proposed_issue_description.as_deref()
+    }
+
+    pub fn proposed_issue_severity(&self) -> Option<IssueSeverity> {
+        self.proposed_issue_severity
     }
 }
 
@@ -311,6 +334,13 @@ impl ExceptionEvent<Fingerprinted> {
         &self.state.fingerprint
     }
 
+    pub(crate) fn exception_handled(&self) -> Option<bool> {
+        self.exception_list
+            .first()
+            .and_then(|exception| exception.mechanism.as_ref())
+            .and_then(|mechanism| mechanism.handled)
+    }
+
     pub(crate) fn into_linked(self, issue: Issue) -> ExceptionEvent<Linked> {
         self.map_state(|state| Linked {
             metadata: state.metadata,
@@ -378,6 +408,7 @@ impl ExceptionEvent<Finalized> {
             props,
             proposed_issue_name,
             proposed_issue_description,
+            proposed_issue_severity,
             state,
             ..
         } = self;
@@ -439,6 +470,12 @@ impl ExceptionEvent<Finalized> {
         if let Some(description) = proposed_issue_description {
             map.insert("$issue_description".into(), Value::String(description));
         }
+        if let Some(severity) = proposed_issue_severity {
+            map.insert(
+                "$issue_severity".into(),
+                Value::String(severity.to_string()),
+            );
+        }
         if !debug_images.is_empty() {
             map.insert(
                 "$debug_images".into(),
@@ -490,6 +527,12 @@ impl<S> ExceptionEvent<S> {
                 Value::String(description.clone()),
             );
         }
+        if let Some(severity) = self.proposed_issue_severity {
+            map.insert(
+                "$issue_severity".into(),
+                Value::String(severity.to_string()),
+            );
+        }
         if !self.debug_images.is_empty() {
             map.insert(
                 "$debug_images".into(),
@@ -534,13 +577,20 @@ impl<S> ExceptionEvent<S> {
         fingerprint: &SelectedFingerprint,
         issue_id: Uuid,
     ) -> ProcessedExceptionProperties {
+        let mut other = self.props.clone();
+        if let Some(severity) = self.proposed_issue_severity {
+            other.insert(
+                "$issue_severity".into(),
+                Value::String(severity.to_string()),
+            );
+        }
         ProcessedExceptionProperties(ProcessedExceptionPropertiesWire {
             exception_list: self.exception_list.clone(),
             fingerprint: fingerprint.value.clone(),
             fingerprint_version: fingerprint.version,
             fingerprint_record: fingerprint.record.clone(),
             issue_id,
-            other: self.props.clone(),
+            other,
             handled: metadata.handled,
             release: metadata.release.clone(),
             types: metadata.types.clone(),
@@ -604,6 +654,17 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
         let lib_version = raw.other.get("$lib_version").and_then(Value::as_str);
         let legacy_order_exception_list =
             normalize_wire_order(&mut raw.exception_list, lib, lib_version);
+        let proposed_issue_severity: Option<IssueSeverity> = raw
+            .other
+            .get("$issue_severity")
+            .and_then(Value::as_str)
+            .and_then(|severity| severity.parse().ok());
+        if let Some(severity) = proposed_issue_severity {
+            raw.other.insert(
+                "$issue_severity".to_string(),
+                Value::String(severity.to_string()),
+            );
+        }
 
         Ok(ExceptionEvent {
             uuid: event.uuid,
@@ -614,6 +675,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             props: raw.other,
             proposed_issue_name: raw.issue_name,
             proposed_issue_description: raw.issue_description,
+            proposed_issue_severity,
             state: Parsed {
                 client_fingerprint: raw.fingerprint,
                 legacy_order_exception_list,
@@ -663,6 +725,7 @@ mod tests {
             props: HashMap::from([("passthrough".to_string(), Value::Bool(true))]),
             proposed_issue_name: None,
             proposed_issue_description: None,
+            proposed_issue_severity: None,
             state: Resolved {
                 metadata: ResolvedMetadata {
                     sources: vec![],
@@ -735,6 +798,7 @@ mod tests {
             id: Uuid::now_v7(),
             team_id: 42,
             status: crate::issue_resolution::IssueStatus::Active,
+            severity: None,
             name: None,
             description: None,
             created_at: chrono::Utc::now(),
@@ -767,6 +831,7 @@ mod tests {
             id: Uuid::now_v7(),
             team_id: 42,
             status: crate::issue_resolution::IssueStatus::Active,
+            severity: None,
             name: None,
             description: None,
             created_at: chrono::Utc::now(),

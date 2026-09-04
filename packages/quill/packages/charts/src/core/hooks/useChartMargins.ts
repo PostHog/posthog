@@ -24,7 +24,9 @@ const Y_LABEL_LEFT_GUTTER = 6
 /** Horizontal gap between stacked value-axis gutters on the same side — shared by the margin
  *  reservation here and the gutter rendering in AxisLabels so the two can't drift. */
 export const GUTTER_GAP = 12
-const X_LABEL_EDGE_PADDING = 4
+/** Breathing room past half an edge tick label, so the outermost label doesn't sit flush against
+ *  the wrapper's clip. Shared with chart types that reserve their own x-label gutters. */
+export const X_LABEL_EDGE_PADDING = 4
 export const X_AXIS_TITLE_MARGIN = 22
 export const Y_AXIS_TITLE_MARGIN = 24
 
@@ -120,8 +122,8 @@ function categoryLabelWidths(
 
 function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
     const range = seriesValueRange(series)
-    // No data: the scale falls back to a [0, 1] domain (see `buildValueScale`), whose ticks render
-    // as "0.00".."1.00". Measure those so the empty-state margin still fits its labels — returning 0
+    // No data: the scale falls back to a [0, 1] domain (see `buildValueScale`), whose automatic ticks
+    // render as "0".."1". Measure those so the empty-state margin still fits its labels — returning 0
     // here collapses the margin to its floor and clips the labels against the wrapper's overflow.
     const [min, max] = range.count === 0 ? [0, 1] : [range.min > 0 ? 0 : range.min, range.max < 0 ? 0 : range.max]
     const ticks = scaleLinear().domain([min, max]).nice(6).ticks(6)
@@ -301,8 +303,10 @@ export function useChartMargins({
             ? COLLAPSED_AXIS_MARGIN
             : DEFAULT_MARGINS.bottom + xLabelExtraBottom + (normalizedXAxisLabel ? X_AXIS_TITLE_MARGIN : 0)
         const leftLabelReserve = gutterReserves ? gutterReserves.left : Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING
+        // Even with the y-axis collapsed, the first x label still overhangs the plot's left edge,
+        // so its edge reserve keeps the floor (the right margin already does the same).
         const left = hideYAxis
-            ? COLLAPSED_AXIS_MARGIN
+            ? Math.max(COLLAPSED_AXIS_MARGIN, xLabelEdgeReserves.left + X_LABEL_EDGE_PADDING)
             : Math.max(
                   MIN_LEFT_MARGIN,
                   leftLabelReserve + Y_LABEL_LEFT_GUTTER,

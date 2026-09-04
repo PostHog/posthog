@@ -16,6 +16,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Embed
     | NotebookNodeType.Latex
     | NotebookNodeType.MarkdownNotebook
+    | NotebookNodeType.GeneratedWidget
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',
@@ -25,6 +26,9 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Image]: 'Images',
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
+    [NotebookNodeType.Dashboard]: 'Dashboards',
+    [NotebookNodeType.Action]: 'Actions',
+    [NotebookNodeType.Workflow]: 'Workflows',
     [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.PythonV2]: 'Python (v2)',
     [NotebookNodeType.DuckSQL]: 'SQL (DuckDB)',
@@ -38,6 +42,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.TaskCreate]: 'Task suggestions',
     [NotebookNodeType.LLMTrace]: 'LLM traces',
     [NotebookNodeType.Issues]: 'Issues',
+    [NotebookNodeType.ErrorTrackingIssue]: 'Error tracking issues',
     [NotebookNodeType.UsageMetrics]: 'Usage metrics',
     [NotebookNodeType.ZendeskTickets]: 'Zendesk tickets',
     [NotebookNodeType.RelatedGroups]: 'Related groups',

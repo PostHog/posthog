@@ -18,6 +18,7 @@
 import type { Redis } from 'ioredis'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { observeStreamWriteSkipped } from '@/hono/metrics.js'
 import type { Config } from '@/lib/config.js'
 import {
     MAX_EVENT_LINE_BYTES,
@@ -26,7 +27,7 @@ import {
     HEARTBEAT_THROTTLE_SECONDS,
 } from '@/lib/constants.js'
 import { logger } from '@/lib/logging.js'
-import { TaskRunRedisStream, getCompletedKey, getStreamKey } from '@/lib/redis-stream.js'
+import { TaskRunRedisStream, getCompletedKey, getStreamKey, getWatchedKey } from '@/lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
 
@@ -303,6 +304,8 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         runId: 'run-123',
         taskId: 'task-abc',
         teamId: 42,
+        presenceGated: false,
+        originProduct: 'unknown',
         ...overrides,
     }
 }
@@ -460,6 +463,53 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(200)
         const body = await decodeJson(res)
         expect(body).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+    })
+
+    // -----------------------------------------------------------------------
+    // Presence gating
+    // -----------------------------------------------------------------------
+
+    it.each([
+        { name: 'skips the mirror when no reader is attached', watched: false, expectedEntries: 0 },
+        { name: 'mirrors when a reader is attached', watched: true, expectedEntries: 1 },
+    ])('presence-gated ingest $name', async ({ watched, expectedEntries }) => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true, originProduct: 'signals_scout' }))
+        if (watched) {
+            await fakeRedis.set(getWatchedKey(getStreamKey(RUN_ID)), '1', 'EX', 300)
+        }
+        const config = makeConfig()
+        const ndjson = JSON.stringify({ seq: 1, event: { type: 'message' } }) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        expect(await decodeJson(res)).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+        expect(await redisStream.getLastSequence()).toBe(1)
+        expect(await fakeRedis.xrange(getStreamKey(RUN_ID))).toHaveLength(expectedEntries)
+        if (watched) {
+            expect(observeStreamWriteSkipped).not.toHaveBeenCalled()
+        } else {
+            expect(observeStreamWriteSkipped).toHaveBeenCalledWith('ingest', 'signals_scout')
+        }
+    })
+
+    it('still writes the completion sentinel for a presence-gated run with no reader', async () => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true }))
+        const config = makeConfig()
+        const ndjson =
+            JSON.stringify({ seq: 1, event: { type: 'message' } }) +
+            '\n' +
+            JSON.stringify({ type: '_posthog/stream_complete', final_seq: 1 }) +
+            '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+        expect(JSON.parse(entries[0]![1]['data']!)).toEqual({ type: 'STREAM_STATUS', status: 'complete' })
     })
 
     it('writes complete NDJSON lines before the request body closes', async () => {
@@ -1048,11 +1098,84 @@ describe('ingest-handler', () => {
         global.fetch = originalFetch
     })
 
+    it('dispatches the first command callback once', async () => {
+        const fetchCalls: { body: unknown }[] = []
+        const originalFetch = global.fetch
+        global.fetch = vi.fn(async (_url, init) => {
+            fetchCalls.push({ body: JSON.parse(String((init as RequestInit).body)) })
+            return Response.json({ dispatched: true }, { status: 200 })
+        }) as typeof fetch
+
+        const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+        const commandEvent = {
+            type: 'notification',
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
+        }
+        const ndjson =
+            [JSON.stringify({ seq: 1, event: commandEvent }), JSON.stringify({ seq: 2, event: commandEvent })].join(
+                '\n'
+            ) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const response = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(response.status).toBe(200)
+        expect(fetchCalls.map(({ body }) => (body as { kind: string }).kind)).toEqual(['command_dispatched'])
+        global.fetch = originalFetch
+    })
+
     // -----------------------------------------------------------------------
     // Side effects: session/update → agent active
     // -----------------------------------------------------------------------
 
-    it('sets agent active on session/update event and fires heartbeat after claim', async () => {
+    it.each([
+        {
+            name: 'prompt echo',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'user_message_chunk' } },
+                },
+            },
+            expectedKinds: ['heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'agent output',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                },
+            },
+            expectedKinds: ['agent_activity', 'heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'restored plan',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'plan' } },
+                },
+            },
+            expectedKinds: ['heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'command dispatch',
+            event: {
+                type: 'notification',
+                notification: { method: '_posthog/agent_command_dispatched', params: {} },
+            },
+            expectedKinds: ['command_dispatched'],
+            expectedActive: false,
+        },
+    ])('dispatches side effects for $name', async ({ event, expectedKinds, expectedActive }) => {
         const fetchCalls: { url: string; body: unknown }[] = []
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (url, init) => {
@@ -1063,23 +1186,20 @@ describe('ingest-handler', () => {
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
         mockValidate.mockResolvedValue(makeClaims())
 
-        const sessionUpdateEvent = {
-            type: 'notification',
-            notification: { method: 'session/update' },
-        }
-        const ndjson = JSON.stringify({ seq: 1, event: sessionUpdateEvent }) + '\n'
+        const ndjson = JSON.stringify({ seq: 1, event }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
         expect(res.status).toBe(200)
 
         const agentActive = await redisStream.getAgentActive()
-        expect(agentActive).toBe(true)
+        expect(agentActive).toBe(expectedActive)
 
         await new Promise((r) => setTimeout(r, 0))
 
-        const callbackCall = fetchCalls.find((c) => c.url.includes('agent-proxy-callback'))
-        expect(callbackCall).toBeTruthy()
-        expect(callbackCall?.body).toMatchObject({ kind: 'heartbeat', agent_active: true })
+        const callbackKinds = fetchCalls
+            .filter((c) => c.url.includes('agent-proxy-callback'))
+            .map((c) => (c.body as { kind: string }).kind)
+        expect(callbackKinds).toEqual(expectedKinds)
 
         global.fetch = originalFetch
     })
@@ -1131,19 +1251,25 @@ describe('ingest-handler', () => {
     // Side effects: best-effort (callback failure does not fail ingest)
     // -----------------------------------------------------------------------
 
-    it('still returns 200 when the Django callback throws', async () => {
+    it.each([
+        [
+            'throws',
+            async () => {
+                throw new Error('network failure')
+            },
+        ],
+        ['answers 200 with a body that is not JSON', async () => new Response('', { status: 200 })],
+    ])('releases a command claim when the Django callback %s', async (_label, respond) => {
         const originalFetch = global.fetch
-        global.fetch = vi.fn(async () => {
-            throw new Error('network failure')
-        }) as typeof fetch
+        global.fetch = vi.fn(respond) as typeof fetch
 
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
 
-        const turnCompleteEvent = {
+        const commandEvent = {
             type: 'notification',
-            notification: { method: '_posthog/turn_complete' },
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
         }
-        const ndjson = JSON.stringify({ seq: 1, event: turnCompleteEvent }) + '\n'
+        const ndjson = JSON.stringify({ seq: 1, event: commandEvent }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
         // Callback failure must NOT affect ingest response
@@ -1152,6 +1278,7 @@ describe('ingest-handler', () => {
         // Let the detached promise settle without crashing the test
         await new Promise((r) => setTimeout(r, 10))
 
+        expect(await redisStream.claimFirstAgentCommand()).toBe(true)
         global.fetch = originalFetch
     })
 

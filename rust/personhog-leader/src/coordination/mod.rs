@@ -10,6 +10,7 @@ use tracing::{error, info};
 
 use crate::cache::{DirtyIndex, PartitionedCache};
 use crate::emitted::EmittedVersions;
+use crate::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
 use crate::fencing::{heal_fence, FenceGuard, FencedChangelogProducers, HealOutcome};
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
@@ -49,6 +50,14 @@ pub struct LeaderHandoffHandler {
     inflight: Arc<InflightTracker>,
     dirty_index: Arc<DirtyIndex>,
     warming: WarmingConfig,
+    /// The in-process fence copies, rebuilt from the live marks at every
+    /// ownership boundary (see the fence module for the durability model).
+    fences: FenceMap,
+    /// Pool for the takeover scan — the cache-miss fallback pool. Without
+    /// it (dev fixtures) fences are not rebuilt on takeover and only
+    /// FencePerson calls fill the map.
+    fence_scan_pool: Option<sqlx::PgPool>,
+    num_partitions: u32,
     pools: Arc<WarmClientPools>,
     /// Present when broker-enforced epoch fencing is on: acquiring a
     /// partition initializes its transactional producer (fencing every
@@ -82,6 +91,9 @@ impl LeaderHandoffHandler {
         inflight: Arc<InflightTracker>,
         dirty_index: Arc<DirtyIndex>,
         warming: WarmingConfig,
+        fences: FenceMap,
+        fence_scan_pool: Option<sqlx::PgPool>,
+        num_partitions: u32,
         pools: Arc<WarmClientPools>,
         fenced: Option<Arc<FencedChangelogProducers>>,
         authority: Option<Arc<AuthorityClock>>,
@@ -92,6 +104,9 @@ impl LeaderHandoffHandler {
             inflight,
             dirty_index,
             warming,
+            fences,
+            fence_scan_pool,
+            num_partitions,
             pools,
             fenced,
             authority,
@@ -183,6 +198,20 @@ impl LeaderHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for LeaderHandoffHandler {
+    async fn prepare_acquire(&self, partition: u32) {
+        // Spawned: the convergence must not wait on a broker connect,
+        // and `preconnect` is single-flight per partition, so repeated
+        // convergences through the drain window cost one spawn each and
+        // one client total. A parked connection the acquire never
+        // consumes is discarded on release or by the periodic sweep —
+        // a cancelled inbound handoff leaves no convergence behind, so
+        // the sweep is the only path that reaches its leftovers.
+        if let Some(fenced) = &self.fenced {
+            let fenced = Arc::clone(fenced);
+            tokio::spawn(async move { fenced.preconnect(partition).await });
+        }
+    }
+
     async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
         info!(partition, "fencing writes and draining inflight handlers");
         // Fence before waiting: fencing only after the wait would leave a
@@ -219,6 +248,29 @@ impl HandoffHandler for LeaderHandoffHandler {
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
+        // The takeover scan: rebuild the partition's lifecycle fences from
+        // the live marks BEFORE warming — the partition becomes servable
+        // the moment `warm_from_kafka` installs it in the cache, and a
+        // fenced person must never be writable in that gap. A mark
+        // committed after this read arrives as a FencePerson call to this
+        // (now current) owner, so the two sources cover every mark; a
+        // fence installed for a partition that is not yet serving is
+        // harmless.
+        if let Some(pool) = &self.fence_scan_pool {
+            let installed =
+                rebuild_partition_fences(pool, &self.fences, partition, self.num_partitions)
+                    .await
+                    .map_err(|e| personhog_coordination::error::Error::HandoffFailed {
+                        partition,
+                        reason: format!("fence takeover scan failed: {e}"),
+                    })?;
+            if installed > 0 {
+                info!(
+                    partition,
+                    installed, "rebuilt lifecycle fences from live marks"
+                );
+            }
+        }
         info!(partition, "warming partition cache from kafka");
         self.check_authority(partition, "warm")?;
         // Broker-side fencing before the warm read, not after: acquiring
@@ -301,6 +353,10 @@ impl HandoffHandler for LeaderHandoffHandler {
         }
     }
 
+    // CONSTRAINT: synchronous local work only. The shutdown fence's
+    // certified teardown sum (`validate_lease_timescales`) counts these
+    // releases as free; making this await an external system requires
+    // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
         if let Some(fenced) = &self.fenced {
@@ -311,6 +367,9 @@ impl HandoffHandler for LeaderHandoffHandler {
         // The new owner's warming rebuilds its own marks; stale marks here
         // would only pin memory for a partition this pod no longer serves.
         self.dirty_index.clear_partition(partition);
+        // Same for the lifecycle fences: the new owner's takeover scan
+        // rebuilds its own.
+        drop_partition_fences(&self.fences, partition, self.num_partitions);
         // The incoming owner derives versions from the changelog, which
         // is the authority these floors stood in for; carrying them would
         // only constrain a partition this pod no longer serves.
@@ -416,6 +475,9 @@ mod tests {
                     max_backoff: Duration::from_secs(5),
                 },
             },
+            Arc::new(dashmap::DashMap::new()),
+            None,
+            4,
             pools,
             None,
             None,

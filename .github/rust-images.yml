@@ -22,10 +22,6 @@
   dockerfile: ./rust/Dockerfile.sqlx-migrate
   project: jmsz6gms8g
 
-- image: cyclotron-janitor
-  dockerfile: ./rust/Dockerfile
-  project: r4zm8vtlbw
-
 - image: property-defs-rs
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
@@ -75,6 +71,11 @@
 - image: cohort-seeder
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  # Frame pointers and unwind tables so the profiler can walk seeder stacks on
+  # aarch64, including native dependency frames (see rust/Dockerfile). The scan
+  # hot path is CPU-bound, so a profile that cannot unwind it is unreadable.
+  extra_rustflags: -C force-frame-pointers=yes -C force-unwind-tables=yes
+  extra_cflags: -fno-omit-frame-pointer -fasynchronous-unwind-tables
 
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
@@ -97,6 +98,18 @@
 - image: ingestion-control-plane
   dockerfile: ./rust/Dockerfile
   project: x5whcmg6rl
+
+# Postgres telemetry collector: scrapes pg_stat_* /
+# Aurora stats / logs from RDS clusters into a stats Postgres. See rust/pgcollector.
+- image: pgcollector
+  dockerfile: ./rust/Dockerfile
+  project: wb2br45dsr # pg-monitoring
+
+# API + MCP server over the pgcollector stats database (Postgres telemetry).
+# Internal, edge-authenticated (Cognito ingress + Tailscale whois). See rust/pgapi.
+- image: pgapi
+  dockerfile: ./rust/Dockerfile
+  project: wb2br45dsr # pg-monitoring
 
 - image: kafka-deduplicator
   dockerfile: ./rust/Dockerfile
@@ -133,3 +146,7 @@
 - image: hypercache-server
   dockerfile: ./rust/Dockerfile
   project: plc74nsj8z
+
+- image: usage-ingestion
+  dockerfile: ./rust/Dockerfile
+  project: g9w71772m7

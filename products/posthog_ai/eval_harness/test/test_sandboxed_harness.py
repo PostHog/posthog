@@ -14,10 +14,16 @@ import requests
 from parameterized import parameterized
 
 from products.posthog_ai.eval_harness import runner
-from products.posthog_ai.eval_harness.config import SandboxedEvalCase
+from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import parse_args
+from products.posthog_ai.eval_harness.harness.lifecycle import eval_feature_enabled
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
+from products.tasks.backend.constants import (
+    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
+)
+from products.tasks.backend.facade.agents import TurnPollResult
 
 
 class _FakeWorkflowHandle:
@@ -142,6 +148,17 @@ def test_parse_args_resolves_team_setup_concurrency(
     assert options.team_setup_concurrency == expected_concurrency
 
 
+@parameterized.expand(
+    [
+        ("workflow dispatch async", WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, False),
+        ("workflow dispatch restart", WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, False),
+        ("anything else", "tasks-modal-vm-sandbox", True),
+    ]
+)
+def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str, expected: bool) -> None:
+    assert eval_feature_enabled(flag, distinct_id="distinct-1") is expected
+
+
 @pytest.mark.asyncio
 async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: pytest.MonkeyPatch) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=False)
@@ -149,7 +166,11 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
     _patch_runner_boundaries(
         monkeypatch,
         handle,
-        AsyncMock(return_value=("done", '{"notification": {}}', None, None)),
+        AsyncMock(
+            return_value=TurnPollResult(
+                last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
+            )
+        ),
     )
 
     case_task = asyncio.create_task(
@@ -223,7 +244,11 @@ async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytes
     _patch_runner_boundaries(
         monkeypatch,
         handle,
-        AsyncMock(return_value=("done", '{"notification": {}}', None, None)),
+        AsyncMock(
+            return_value=TurnPollResult(
+                last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
+            )
+        ),
     )
     monkeypatch.setattr(runner, "WORKFLOW_COMPLETION_GRACE_SECONDS", 0.01)
     monkeypatch.setattr(runner, "WORKFLOW_CANCELLATION_GRACE_SECONDS", 0.01)
@@ -254,3 +279,43 @@ def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pyte
 
     sandbox_list.assert_called_once_with(app_id="app-id", tags={"task_id": "task-id"})
     sandbox.terminate.assert_called_once_with()
+
+
+class TestAgentRunFailureDetection:
+    # An agent-server failure reaches the log as a session error, and the workflow still finishes
+    # cleanly afterwards. Miss it and a run where no agent ever spoke reports exit_code_zero=1 with
+    # zeros on every outcome scorer, which reads as a model regression.
+    def test_a_session_error_makes_the_run_a_failure(self) -> None:
+        log = "\n".join(
+            [
+                '{"notification": {"method": "session/update", "params": {"update": '
+                '{"sessionUpdate": "error", "errorType": "agent_error", "message": "403 model_gate"}}}}',
+            ]
+        )
+        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        assert artifacts.exit_code == 1
+        assert "403 model_gate" in artifacts.stderr
+
+    # A provider 403 lands on the terminal `_posthog/error` channel, which sets the non-zero exit
+    # code but leaves `stderr` empty. Reading `stderr` to spot the infra failure would score this
+    # run at zero on every outcome scorer instead of dropping it from the aggregates.
+    def test_a_terminal_posthog_error_with_no_tool_call_is_infrastructure(self) -> None:
+        log = '{"notification": {"method": "_posthog/error", "params": {"message": "403 model_gate"}}}'
+        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        assert artifacts.exit_code == 1
+        assert artifacts.tool_call_count == 0
+        assert runner.agent_never_ran(artifacts) is True
+
+    @parameterized.expand(
+        [
+            ("no work behind the error", "403 model_gate", 0, True),
+            ("errored after doing work", "stream terminated", 3, False),
+            ("clean run", "", 2, False),
+            ("clean run with no tool calls", "", 0, False),
+        ]
+    )
+    def test_only_a_run_that_did_nothing_counts_as_infrastructure(
+        self, _name: str, stderr: str, tool_call_count: int, expected: bool
+    ) -> None:
+        artifacts = AgentArtifacts(exit_code=1 if stderr else 0, stderr=stderr, tool_call_count=tool_call_count)
+        assert runner.agent_never_ran(artifacts) is expected

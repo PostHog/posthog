@@ -3,23 +3,28 @@ import {
   BrainIcon,
   BugIcon,
   ChatsIcon,
-  CircleNotchIcon,
   FirstAidIcon,
   PlugIcon,
-  VideoIcon,
 } from "@phosphor-icons/react";
-import type { SignalSourceConfig } from "@posthog/api-client/posthog-client";
-import { Button } from "@posthog/quill";
+import type {
+  ExternalDataSource,
+  SignalSourceConfig,
+} from "@posthog/api-client/posthog-client";
+import { formatRepoPreview } from "@posthog/core/settings/githubRepoSummary";
+import { Button, Spinner, Switch } from "@posthog/quill";
 import {
   EXTERNAL_INBOX_SOURCES,
   type ToggleableSourceProduct,
 } from "@posthog/shared";
+import { GitHubSourceRepositoriesDialog } from "@posthog/ui/features/inbox/components/GitHubSourceRepositoriesDialog";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
-import { Badge } from "@posthog/ui/primitives/Badge";
-import { Box, Flex, Spinner, Switch, Text } from "@radix-ui/themes";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useState } from "react";
 
 export type SignalSourceValues = Record<ToggleableSourceProduct, boolean>;
+
+const SORTED_EXTERNAL_INBOX_SOURCES = [...EXTERNAL_INBOX_SOURCES].sort((a, b) =>
+  a.label.localeCompare(b.label),
+);
 
 interface SignalSourceToggleCardProps {
   icon: React.ReactNode;
@@ -36,6 +41,7 @@ interface SignalSourceToggleCardProps {
   syncStatus?: string | null;
   docsUrl?: string;
   docsLabel?: string;
+  compact?: boolean;
 }
 
 function syncStatusLabel(status: string | null | undefined): {
@@ -70,89 +76,116 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
   syncStatus,
   docsUrl,
   docsLabel,
+  compact,
 }: SignalSourceToggleCardProps) {
   const statusInfo = checked ? syncStatusLabel(syncStatus) : null;
+  const control = (() => {
+    if (loading) {
+      return <Spinner />;
+    }
+
+    if (requiresSetup) {
+      return (
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          onClick={onSetup}
+          disabled={disabled}
+        >
+          Enable
+        </Button>
+      );
+    }
+
+    return (
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+      />
+    );
+  })();
 
   return (
-    <Box
-      p="3"
-      onClick={
-        disabled || loading
-          ? undefined
-          : requiresSetup
-            ? onSetup
-            : () => onCheckedChange(!checked)
-      }
-      className={[
-        "rounded-(--radius-3) border bg-(--color-panel-solid) transition duration-150",
-        checked ? "border-(--accent-6)" : "border-border",
-        disabled || loading
-          ? "cursor-default"
-          : "cursor-pointer hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
-      ].join(" ")}
+    <div
+      className={`rounded-(--radius-3) border bg-(--color-panel-solid) transition duration-150 ${compact ? "p-2" : "p-3"} ${checked ? "border-(--accent-6)" : "border-border"}`}
     >
-      <Flex align="center" justify="between" gap="4">
-        <Flex align="center" gap="3">
-          <Box className="shrink-0 text-gray-11">{icon}</Box>
-          <Flex direction="column" gap="1">
-            <Flex align="center" gap="2">
-              <Text className="font-medium text-gray-12 text-sm">{label}</Text>
+      {compact ? (
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 text-gray-11">{icon}</div>
+          <div className="w-56 min-w-0 max-w-[60%]">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                title={label}
+                className="min-w-0 flex-1 truncate font-medium text-gray-12 text-sm"
+              >
+                {label}
+              </span>
               {labelSuffix}
-              {statusInfo && (
-                <Text
-                  style={{ color: statusInfo.color }}
-                  className="text-[13px]"
-                >
-                  {statusInfo.text}
-                </Text>
-              )}
-            </Flex>
-            <Text className="text-[13px] text-gray-11">{description}</Text>
-            {docsUrl && (
-              <Text className="text-[13px] text-gray-11">
-                <a
-                  href={docsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    window.open(docsUrl, "_blank", "noopener");
-                  }}
-                  className="inline-flex items-center gap-[4px] text-(--accent-11) no-underline"
-                >
-                  Learn about {docsLabel ?? label}
-                  <ArrowSquareOutIcon size={11} />
-                </a>
-              </Text>
+            </div>
+            {statusInfo && (
+              <span
+                style={{ color: statusInfo.color }}
+                className="mt-0.5 block text-[13px] leading-none"
+              >
+                {statusInfo.text}
+              </span>
             )}
-          </Flex>
-        </Flex>
-        {loading ? (
-          <Spinner size="2" />
-        ) : requiresSetup ? (
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSetup?.();
-            }}
+          </div>
+          <span
+            title={description}
+            className="min-w-0 flex-1 truncate text-[13px] text-gray-11"
           >
-            Enable
-          </Button>
-        ) : (
-          <Switch
-            checked={checked}
-            onCheckedChange={onCheckedChange}
-            disabled={disabled}
-            onClick={(e) => e.stopPropagation()}
-          />
-        )}
-      </Flex>
-      {statusSection && <Box className="ml-[32px]">{statusSection}</Box>}
-    </Box>
+            {description}
+          </span>
+          <div className="flex w-16 shrink-0 justify-end">{control}</div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="shrink-0 text-gray-11">{icon}</div>
+            <div className="flex flex-col gap-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="font-medium text-gray-12 text-sm">
+                  {label}
+                </span>
+                {labelSuffix}
+                {statusInfo && (
+                  <span
+                    style={{ color: statusInfo.color }}
+                    className="text-[13px]"
+                  >
+                    {statusInfo.text}
+                  </span>
+                )}
+              </div>
+              <span className="text-[13px] text-gray-11">{description}</span>
+              {docsUrl && (
+                <span className="text-[13px] text-gray-11">
+                  <a
+                    href={docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      window.open(docsUrl, "_blank", "noopener");
+                    }}
+                    className="inline-flex items-center gap-[4px] text-(--accent-11) no-underline"
+                  >
+                    Learn about {docsLabel ?? label}
+                    <ArrowSquareOutIcon size={11} />
+                  </a>
+                </span>
+              )}
+            </div>
+          </div>
+          {control}
+        </div>
+      )}
+      {statusSection && <div className="ml-[32px]">{statusSection}</div>}
+    </div>
   );
 });
 
@@ -160,6 +193,52 @@ interface SourceState {
   requiresSetup: boolean;
   loading: boolean;
   syncStatus?: SignalSourceConfig["status"];
+  externalSource?: ExternalDataSource;
+  /** GitHub only: the repositories the warehouse source syncs. */
+  configuredRepos?: string[];
+}
+
+/**
+ * The GitHub source syncs a fixed repository list, unlike credential-based sources that pull
+ * everything, so the card says which repositories and offers to change them.
+ */
+function GithubSourceRepositories({
+  source,
+  repos,
+}: {
+  source: ExternalDataSource;
+  repos: string[];
+}) {
+  const [editing, setEditing] = useState(false);
+  const label =
+    repos.length === 0
+      ? "No repositories selected"
+      : `${repos.length} ${repos.length === 1 ? "repository" : "repositories"}: ${formatRepoPreview(repos)}`;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <span
+        title={repos.join(", ")}
+        className="min-w-0 truncate text-[12px] text-gray-11"
+      >
+        {label}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        onClick={() => setEditing(true)}
+      >
+        Edit repositories
+      </Button>
+      {editing ? (
+        <GitHubSourceRepositoriesDialog
+          source={source}
+          open={editing}
+          onClose={() => setEditing(false)}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -193,6 +272,10 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
   const handleSetup = useCallback(() => onSetup?.(product), [onSetup, product]);
   const meta = getSourceProductMeta(product);
   const Icon = meta?.Icon ?? PlugIcon;
+  const githubSource =
+    product === "github" && state?.externalSource && state.configuredRepos
+      ? { source: state.externalSource, repos: state.configuredRepos }
+      : null;
 
   return (
     <SignalSourceToggleCard
@@ -206,27 +289,18 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
       onSetup={handleSetup}
       loading={state?.loading}
       syncStatus={state?.syncStatus}
+      statusSection={
+        githubSource ? (
+          <GithubSourceRepositories
+            source={githubSource.source}
+            repos={githubSource.repos}
+          />
+        ) : undefined
+      }
+      compact
     />
   );
 });
-
-function SourceRunningIndicator({
-  status,
-  message,
-}: {
-  status: SignalSourceConfig["status"];
-  message: string;
-}) {
-  if (status !== "running") {
-    return null;
-  }
-  return (
-    <Flex align="center" gap="2" mt="2">
-      <CircleNotchIcon size={14} className="animate-spin text-(--accent-11)" />
-      <Text className="text-(--accent-11) text-[13px]">{message}</Text>
-    </Flex>
-  );
-}
 
 interface SignalSourceTogglesProps {
   value: SignalSourceValues;
@@ -243,10 +317,6 @@ export function SignalSourceToggles({
   sourceStates,
   onSetup,
 }: SignalSourceTogglesProps) {
-  const toggleSessionReplay = useCallback(
-    (checked: boolean) => onToggle("session_replay", checked),
-    [onToggle],
-  );
   const toggleErrorTracking = useCallback(
     (checked: boolean) => onToggle("error_tracking", checked),
     [onToggle],
@@ -265,13 +335,13 @@ export function SignalSourceToggles({
   );
 
   return (
-    <Flex gap="4">
+    <div className="flex flex-col gap-5">
       {/* PostHog data */}
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           PostHog data
-        </Text>
-        <Flex direction="column" gap="3">
+        </span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <SignalSourceToggleCard
             icon={<BugIcon size={20} />}
             label="Error Tracking"
@@ -305,25 +375,6 @@ export function SignalSourceToggles({
             docsLabel="Support"
           />
           <SignalSourceToggleCard
-            icon={<VideoIcon size={20} />}
-            label="Session Replay"
-            labelSuffix={<Badge color="orange">Alpha</Badge>}
-            description="Analyze recordings for UX issues"
-            checked={value.session_replay}
-            onCheckedChange={toggleSessionReplay}
-            disabled={disabled}
-            docsUrl="https://posthog.com/docs/session-replay"
-            docsLabel="Session Replay"
-            statusSection={
-              value.session_replay ? (
-                <SourceRunningIndicator
-                  status={sourceStates?.session_replay?.syncStatus ?? null}
-                  message="Session analysis run in progress now..."
-                />
-              ) : undefined
-            }
-          />
-          <SignalSourceToggleCard
             icon={<BrainIcon size={20} />}
             label="AI observability"
             description="Quality problems in your AI features. Set up evaluations to start getting signals."
@@ -333,16 +384,16 @@ export function SignalSourceToggles({
             docsUrl="https://posthog.com/docs/ai-evals"
             docsLabel="evaluations"
           />
-        </Flex>
-      </Flex>
+        </div>
+      </section>
 
       {/* External sources — data-driven from the shared source registry */}
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           External sources
-        </Text>
-        <Flex direction="column" gap="3">
-          {EXTERNAL_INBOX_SOURCES.map((source) => {
+        </span>
+        <div className="flex flex-col gap-3">
+          {SORTED_EXTERNAL_INBOX_SOURCES.map((source) => {
             const product = source.product;
             return (
               <ExternalSourceCard
@@ -358,57 +409,69 @@ export function SignalSourceToggles({
               />
             );
           })}
-        </Flex>
-      </Flex>
-    </Flex>
+        </div>
+      </section>
+    </div>
   );
 }
 
-function SignalSourceToggleCardSkeleton() {
+function SignalSourceToggleCardSkeleton({ compact }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="rounded-(--radius-3) border border-border bg-(--color-panel-solid) p-2">
+        <div className="flex items-center gap-3">
+          <div className="size-[20px] shrink-0 animate-pulse rounded bg-gray-4" />
+          <div className="h-[12px] w-56 max-w-[60%] animate-pulse rounded bg-gray-4" />
+          <div className="h-[11px] min-w-0 flex-1 animate-pulse rounded bg-gray-3" />
+          <div className="h-[18px] w-16 shrink-0 animate-pulse rounded-full bg-gray-3" />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Box
-      p="3"
-      className="rounded-(--radius-3) border border-border bg-(--color-panel-solid)"
-    >
-      <Flex align="center" justify="between" gap="4">
-        <Flex align="center" gap="3" className="min-w-0 flex-1">
-          <Box className="size-[20px] shrink-0 animate-pulse rounded bg-gray-4" />
-          <Flex direction="column" gap="2" className="min-w-0 flex-1">
-            <Box className="h-[12px] w-[50%] animate-pulse rounded bg-gray-4" />
-            <Box className="h-[11px] w-[80%] animate-pulse rounded bg-gray-3" />
-          </Flex>
-        </Flex>
-        <Box className="h-[18px] w-[32px] shrink-0 animate-pulse rounded-full bg-gray-3" />
-      </Flex>
-    </Box>
+    <div className="rounded-(--radius-3) border border-border bg-(--color-panel-solid) p-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="size-[20px] shrink-0 animate-pulse rounded bg-gray-4" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="h-[12px] w-[50%] animate-pulse rounded bg-gray-4" />
+            <div className="h-[11px] w-[80%] animate-pulse rounded bg-gray-3" />
+          </div>
+        </div>
+        <div className="h-[18px] w-[32px] shrink-0 animate-pulse rounded-full bg-gray-3" />
+      </div>
+    </div>
   );
 }
 
 export function SignalSourceTogglesSkeleton() {
   return (
-    <Flex gap="4">
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+    <div className="flex flex-col gap-5">
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           PostHog data
-        </Text>
-        <Flex direction="column" gap="3">
+        </span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
             <SignalSourceToggleCardSkeleton key={index} />
           ))}
-        </Flex>
-      </Flex>
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+        </div>
+      </section>
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           External sources
-        </Text>
-        <Flex direction="column" gap="3">
-          {Array.from({ length: 4 }).map((_, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
-            <SignalSourceToggleCardSkeleton key={index} />
-          ))}
-        </Flex>
-      </Flex>
-    </Flex>
+        </span>
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: SORTED_EXTERNAL_INBOX_SOURCES.length }).map(
+            (_, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
+              <SignalSourceToggleCardSkeleton key={index} compact />
+            ),
+          )}
+        </div>
+      </section>
+    </div>
   );
 }

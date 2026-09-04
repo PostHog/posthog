@@ -6,6 +6,7 @@ export interface CategoryDetailContentProps {
     issues: HealthIssue[]
     statusSummary: { count: number; worstSeverity: HealthIssueSeverity | null; isHealthy: boolean }
     isLoading: boolean
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
     onRefresh: () => void
@@ -17,6 +18,7 @@ export type CategoryDetailContentComponent = ComponentType<CategoryDetailContent
 
 export interface HealthTableProps {
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }

@@ -7,12 +7,11 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
-import { assertNotReadOnly } from 'lib/readOnlyGuard'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -21,7 +20,6 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
@@ -101,6 +99,7 @@ import {
     DataModelingNode,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryIncrementalCheck,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
@@ -126,7 +125,6 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
-    FeatureFlagStatusResponse,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -193,11 +191,11 @@ import {
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUpdateType,
-    SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyType,
     SurveyStatsResponse,
     TeamType,
     TwilioPhoneNumberType,
@@ -230,11 +228,6 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import type {
-    SessionGroupSummaryListItemType,
-    SessionGroupSummaryType,
-    SessionSummariesConfig,
-} from 'products/session_summaries/frontend/types'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -252,6 +245,7 @@ import type {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -320,7 +314,7 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
-export { ApiError }
+export { ApiError, NetworkError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -356,7 +350,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-function isAbortError(error: unknown): boolean {
+export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
@@ -396,6 +390,11 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // A no-content response must not depend on reading its body: some engines (in our telemetry,
+    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
@@ -688,6 +687,10 @@ export class ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
     }
 
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
+    }
+
     public hog(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('hog')
     }
@@ -781,10 +784,6 @@ export class ApiRequest {
 
     public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
-    }
-
-    public logsServices(projectId?: ProjectType['id']): ApiRequest {
-        return this.logs(projectId).addPathComponent('services')
     }
 
     public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
@@ -1165,13 +1164,6 @@ export class ApiRequest {
                     record_id: featureFlagId,
                 })
             )
-    }
-
-    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('feature_flags')
-            .addPathComponent(String(featureFlagId))
-            .addPathComponent('status')
     }
 
     public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
@@ -1729,6 +1721,10 @@ export class ApiRequest {
         return apiRequest
     }
 
+    public accountsTableQuery(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('accounts_table_query')
+    }
+
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
@@ -1743,6 +1739,10 @@ export class ApiRequest {
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
+    }
+
+    public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(clientQueryId)
     }
 
     // Endpoints
@@ -1941,7 +1941,7 @@ export class ApiRequest {
     }
 
     public messagingTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_templates')
+        return this.environmentsDetail().addPathComponent('messaging_templates')
     }
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
@@ -1949,7 +1949,7 @@ export class ApiRequest {
     }
 
     public messagingCategories(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_categories')
+        return this.environmentsDetail().addPathComponent('messaging_categories')
     }
 
     public messagingCategory(categoryId: string): ApiRequest {
@@ -1985,29 +1985,23 @@ export class ApiRequest {
     }
 
     public messagingPreferences(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences')
+        return this.environmentsDetail().addPathComponent('messaging_preferences')
     }
 
     public messagingPreferencesLink(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+        return this.messagingPreferences().addPathComponent('generate_link')
     }
 
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('export_opt_outs_csv')
+        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
     }
 
     public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('bulk_add_opt_outs')
+        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
     }
 
     public hogFlows(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flows')
+        return this.environmentsDetail().addPathComponent('hog_flows')
     }
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
@@ -2015,7 +2009,7 @@ export class ApiRequest {
     }
 
     public hogFlowTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flow_templates')
+        return this.environmentsDetail().addPathComponent('hog_flow_templates')
     }
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
@@ -2028,20 +2022,6 @@ export class ApiRequest {
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
-    }
-
-    // Session summary
-    public sessionSummary(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_summaries')
-    }
-
-    // Session group summaries
-    public sessionGroupSummaries(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('session_group_summaries')
-    }
-
-    public sessionGroupSummary(id: string, projectId?: ProjectType['id']): ApiRequest {
-        return this.sessionGroupSummaries(projectId).addPathComponent(id)
     }
 
     // Heatmap screenshots
@@ -2412,10 +2392,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
             return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
         },
-        async createScheduledChange(
-            teamId: TeamType['id'],
-            data: any
-        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+        async createScheduledChange(teamId: TeamType['id'], data: any): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
         },
         async deleteScheduledChange(
@@ -2430,12 +2407,6 @@ const api = {
             data: Partial<ScheduledChangeType>
         ): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
-        },
-        async getStatus(
-            teamId: TeamType['id'],
-            featureFlagId: FeatureFlagType['id']
-        ): Promise<FeatureFlagStatusResponse> {
-            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
     },
 
@@ -2683,6 +2654,16 @@ const api = {
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
 
+            // The experiment activity endpoint merges in entries from the experiment's holdout
+            // and shared metrics, which the generic /activity_log scope+item_id filter can't express.
+            if (scopes.length === 1 && scopes[0] === ActivityScope.EXPERIMENT && props.id) {
+                return new ApiRequest()
+                    .experimentsDetail(props.id as number, projectId)
+                    .withAction('activity')
+                    .withQueryString(toParams({ page: page || 1, limit: ACTIVITY_PAGE_SIZE }))
+                    .get()
+            }
+
             // Opt into the new /activity_log API
             if (
                 [
@@ -2849,29 +2830,6 @@ const api = {
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
-        },
-        async services({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<{
-            services: {
-                service_name: string
-                log_count: number
-                error_count: number
-                error_rate: number
-                volume_share_pct?: number
-                severity_breakdown?: {
-                    debug: number
-                    info: number
-                    warn: number
-                    error: number
-                }
-                active_rules?: { rule_id: string; rule_name: string; summary_string: string }[]
-            }[]
-            sparkline: { time: string; service_name: string; count: number }[]
-            summary?: {
-                top_services_count: number
-                top_services_volume_share_pct: number
-            }
-        }> {
-            return new ApiRequest().logsServices().create({ signal, data: { query } })
         },
         async hasLogs(): Promise<boolean> {
             return new ApiRequest()
@@ -3652,7 +3610,9 @@ const api = {
     },
 
     organizationMembers: {
-        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+        async list(
+            params: ListOrganizationMembersParams = {}
+        ): Promise<CountedPaginatedResponse<OrganizationMemberType>> {
             return await new ApiRequest().organizationMembers().withQueryString(params).get()
         },
 
@@ -3663,8 +3623,8 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number } = {}
-        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
+            params: { limit?: number; offset?: number; search?: string } = {}
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
@@ -3753,8 +3713,11 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
-            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        async list(
+            params: PersonListParams = {},
+            options?: ApiMethodOptions
+        ): Promise<CountedPaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get(options)
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
@@ -3829,8 +3792,8 @@ const api = {
     },
 
     search: {
-        async list(params: SearchListParams): Promise<SearchResponse> {
-            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
+        async list(params: SearchListParams, options?: ApiMethodOptions): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get(options)
         },
     },
 
@@ -3930,6 +3893,15 @@ const api = {
                     : notebookShortId
                       ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
                       : null
+        },
+    },
+
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
         },
     },
 
@@ -4560,22 +4532,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async summarizeStream(
-            recordingId: SessionRecordingType['id'],
-            options?: ApiMethodOptions & { forceRestart?: boolean }
-        ): Promise<Response> {
-            const { forceRestart, ...apiOptions } = options ?? {}
-            return await api.createResponse(
-                new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
-                forceRestart ? { force_restart: true } : undefined,
-                apiOptions
-            )
-        },
-
-        async cancelSummarize(recordingId: SessionRecordingType['id']): Promise<{ cancelled: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('summarize/cancel').create()
-        },
-
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
         },
@@ -4801,7 +4757,9 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
+            data: Partial<
+                Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | 'variables' | '_create_in_folder'>
+            >
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -4949,12 +4907,13 @@ const api = {
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null
                 send_raw_query?: boolean
             }
-        ): Promise<{ run_id: string }> {
+        ): Promise<{ run_id: string; starts_sandbox?: boolean; sandbox_hourly_price?: number | null }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
         async sqlV2RunInterrupt(
@@ -5049,26 +5008,6 @@ const api = {
         },
     },
 
-    sessionGroupSummaries: {
-        async get(id: string): Promise<SessionGroupSummaryType> {
-            return await new ApiRequest().sessionGroupSummary(id).get()
-        },
-        async list(
-            params: {
-                created_by?: string
-                search?: string
-                order?: string
-                limit?: number
-                offset?: number
-            } = {}
-        ): Promise<CountedPaginatedResponse<SessionGroupSummaryListItemType>> {
-            return await new ApiRequest().sessionGroupSummaries().withQueryString(toParams(params)).get()
-        },
-        async delete(id: string): Promise<void> {
-            return await new ApiRequest().sessionGroupSummary(id).delete()
-        },
-    },
-
     batchExports: {
         async list(params: Record<string, any> = {}): Promise<CountedPaginatedResponse<BatchExportConfiguration>> {
             return await new ApiRequest().batchExports().withQueryString(toParams(params)).get()
@@ -5098,7 +5037,8 @@ const api = {
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportRun>> {
-            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+            // Explode arrays, as the runs endpoint reads repeated parameters (`?status=Failed&status=Running`).
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params, true)).get()
         },
         async createBackfill(
             id: BatchExportConfiguration['id'],
@@ -5234,11 +5174,10 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** true returns only the filtered total: `results` is empty and no rows are serialized. */
+            count_only?: 'true' | 'false'
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
-        },
-        async analyzeSessions(): Promise<Record<string, any>> {
-            return await new ApiRequest().signalReports().withAction('analyze_sessions').create()
         },
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
@@ -5255,7 +5194,7 @@ const api = {
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
         },
-        // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
+        // State transitions: suppress (dismiss), resolve, or snooze back to potential. Backend: `state` action.
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
@@ -5500,7 +5439,10 @@ const api = {
                 offset?: number
                 search?: string
                 archived?: boolean
+                created_by?: number
                 ids?: string
+                status?: 'draft' | 'running' | 'complete'
+                type?: SurveyType
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
@@ -5773,8 +5715,19 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
-        async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
-            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        async run(viewId: DataWarehouseSavedQuery['id'], fullRefresh?: boolean): Promise<void> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('run')
+                .create({ data: { full_refresh: !!fullRefresh } })
+        },
+        async checkIncremental(data: {
+            query: string
+            incremental_key?: string
+            unique_key?: string[]
+            lookback_seconds?: number
+        }): Promise<DataWarehouseSavedQueryIncrementalCheck> {
+            return await new ApiRequest().dataWarehouseSavedQueries().withAction('check_incremental').create({ data })
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
@@ -6158,8 +6111,10 @@ const api = {
         },
     },
     fixHogQLErrors: {
-        async fix(query: string, error?: string): Promise<Record<string, any>> {
-            return await new ApiRequest().fixHogQLErrors().create({ data: { query, error } })
+        async fix(query: string, error?: string, connectionId?: string): Promise<Record<string, any>> {
+            return await new ApiRequest()
+                .fixHogQLErrors()
+                .create({ data: { query, error, connection_id: connectionId } })
         },
     },
 
@@ -6701,6 +6656,9 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
+            type?: 'messaging' | 'automation'
+            /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
+            trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
@@ -6716,9 +6674,27 @@ const api = {
             hogFlowId: HogFlow['id'],
             // `base_updated_at` is the updated_at the client loaded; the server rejects the write with a
             // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
-            data: Partial<HogFlow> & { base_updated_at?: string | null }
+            // `stage_draft` routes content edits on an active workflow into its staged draft instead of
+            // the live config; publish promotes them. Ignored on non-active workflows.
+            // `base_live_updated_at` fences a staged save's live metadata write the same way.
+            data: Partial<HogFlow> & {
+                base_updated_at?: string | null
+                stage_draft?: boolean
+                base_live_updated_at?: string | null
+            }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
+        },
+        async publishHogFlow(
+            hogFlowId: HogFlow['id'],
+            // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
+            // publish must send that token back.
+            data: { confirm: boolean; confirm_token?: string }
+        ): Promise<HogFlowPublishResponseApi> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
+        },
+        async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
@@ -6741,12 +6717,13 @@ const api = {
         },
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email'
+            dedupeKey?: 'email',
+            sendsEmail?: boolean
         ): Promise<BlastRadiusApi> {
             return await new ApiRequest()
                 .hogFlows()
                 .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -6836,6 +6813,14 @@ const api = {
         return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
+    /**
+     * Stop the ClickHouse query that a request named with its `client_query_id`. Dropping the HTTP
+     * request does not reach ClickHouse, which keeps working on the query until it finishes.
+     */
+    async cancelQuery(clientQueryId: string): Promise<void> {
+        await new ApiRequest().queryCancel(clientQueryId).delete()
+    },
+
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         queryOptions?: {
@@ -6861,7 +6846,12 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
-        return await new ApiRequest().query(undefined, bodyKind).create({
+        const apiRequest =
+            bodyKind === NodeKind.AccountsTableQuery
+                ? new ApiRequest().accountsTableQuery()
+                : new ApiRequest().query(undefined, bodyKind)
+
+        return await apiRequest.create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -7103,6 +7093,7 @@ const api = {
             data: Partial<{
                 status: string
                 escalation_reason: string
+                assignee: { type: 'user' | 'role'; id: string | number } | null
             }>
         ): Promise<any> {
             return await new ApiRequest().conversationsTicket(ticketId).update({ data })
@@ -7180,7 +7171,6 @@ const api = {
     ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -7217,7 +7207,6 @@ const api = {
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', async () =>
@@ -7239,7 +7228,6 @@ const api = {
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('DELETE', url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
@@ -7436,29 +7424,6 @@ const api = {
         },
     },
 
-    sessionSummaries: {
-        async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
-            return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
-        },
-        async createIndividual(data: {
-            session_ids: string[]
-            focus_area?: string
-        }): Promise<Record<string, SessionSummaryContent>> {
-            return await new ApiRequest()
-                .sessionSummary()
-                .withAction('create_session_summaries_individually')
-                .create({ data })
-        },
-        config: {
-            async get(): Promise<SessionSummariesConfig> {
-                return await new ApiRequest().sessionSummary().withAction('config').get()
-            },
-            async update(data: Partial<SessionSummariesConfig>): Promise<SessionSummariesConfig> {
-                return await new ApiRequest().sessionSummary().withAction('config').update({ data })
-            },
-        },
-    },
-
     dataWarehouseManagedViewsets: {
         async toggle(kind: DataWarehouseManagedViewsetKind, enabled: boolean): Promise<void> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).put({ data: { enabled } })
@@ -7489,6 +7454,85 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+/**
+ * Tracks whether the document is on its way out. A browser cancels every in-flight `fetch` when it
+ * tears the document down, and the rejection it hands back is the same bare `TypeError` a real
+ * connectivity failure produces, so this flag is the only way `handleFetch` can tell the two apart.
+ * `pagehide` also fires when the page enters the back/forward cache, hence the reset on `pageshow`:
+ * a restored page is live again and its requests are expected to succeed.
+ */
+let documentUnloading = false
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => {
+        documentUnloading = true
+    })
+    window.addEventListener('pageshow', () => {
+        documentUnloading = false
+    })
+}
+
+/**
+ * A malformed URL is one of the things `fetch` rejects with a `TypeError` for, and `new URL` would
+ * throw on the same input. Without the fallback that throw escapes from inside the failure path and
+ * replaces the classified `NetworkError` with a bare crash, losing the request that caused it.
+ */
+function requestPathname(url: string): string {
+    try {
+        return new URL(url, location.origin).pathname
+    } catch {
+        return url
+    }
+}
+
+/**
+ * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
+ * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
+ * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
+ * its own error shape. Both keep the class name and the engine-specific message, so we match those
+ * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ *
+ * Matching a bare `TypeError` is safe here in a way it would not be elsewhere, because this runs
+ * only after a `fetch` call rejected. `isBrowserNetworkFailure` decides the same question about an
+ * arbitrary error, so it matches the message alone.
+ */
+function isBrowserFetchFailure(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const candidate = error as { name?: unknown; message?: unknown } | null
+    if (candidate?.name === 'TypeError') {
+        return true
+    }
+    const message = candidate?.message
+    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
+
+function classifyNetworkFailure(): NetworkFailureReason {
+    if (documentUnloading) {
+        return 'navigating'
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'offline'
+    }
+    return 'network'
+}
+
+function captureClientRequestFailure(properties: {
+    pathname: string
+    method: string
+    duration: number
+    /** 0 for a request that never reached the server, so network failures are separable from HTTP ones. */
+    status: number
+    is_shared_view: boolean
+    failure_reason?: NetworkFailureReason
+}): void {
+    // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+    // check if the function is available before calling it.
+    if (posthog.capture) {
+        posthog.capture('client_request_failure', properties)
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7511,6 +7555,24 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
+        // `fetch` rejects with a `TypeError` when the request never reached the server. Classifying it
+        // here is what makes the failure legible: the call site only knows "something threw", while
+        // this frame still knows which endpoint was in flight, how long it ran, and whether the client
+        // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
+        // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
+        // relabelled as a connectivity problem and filtered out of error tracking.
+        if (isBrowserFetchFailure(error)) {
+            const reason = classifyNetworkFailure()
+            captureClientRequestFailure({
+                pathname: requestPathname(url),
+                method,
+                duration: new Date().getTime() - startTime,
+                status: 0,
+                is_shared_view: isSharedView(),
+                failure_reason: reason,
+            })
+            throw new NetworkError(reason, error)
+        }
         throw new ApiError(error as any, response?.status)
     }
 
@@ -7527,17 +7589,13 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
-            posthog.capture('client_request_failure', {
-                pathname,
-                method,
-                duration,
-                status: response.status,
-                is_shared_view: inSharedView,
-            })
-        }
+        captureClientRequestFailure({
+            pathname,
+            method,
+            duration,
+            status: response.status,
+            is_shared_view: inSharedView,
+        })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
             if (!warnedSharedViewLeaks.has(leakKey)) {

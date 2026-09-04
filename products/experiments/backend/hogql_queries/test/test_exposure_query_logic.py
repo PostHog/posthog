@@ -105,6 +105,15 @@ class TestNormalizeToExposureCriteria:
         assert isinstance(result.exposure_config, ExperimentEventExposureConfig)
         assert result.exposure_config.event == "test_event"
 
+    def test_converts_nested_activation_config(self):
+        input_dict = {"activation_config": {"event": "purchase", "properties": []}}
+
+        result = normalize_to_exposure_criteria(input_dict)
+
+        assert result is not None
+        assert isinstance(result.activation_config, ExperimentEventExposureConfig)
+        assert result.activation_config.event == "purchase"
+
     def test_preserves_already_typed_object(self):
         typed_criteria = ExperimentExposureCriteria()
 
@@ -112,6 +121,20 @@ class TestNormalizeToExposureCriteria:
 
         # Should return the exact same object, not a copy
         assert result is typed_criteria
+
+    def test_drops_unknown_keys(self):
+        # The write path historically accepted unknown top-level keys, so saved
+        # criteria can carry e.g. a stray `properties` — the strict parse must not
+        # break on them.
+        input_dict = {
+            "filterTestAccounts": True,
+            "properties": [{"key": "email", "value": "test", "operator": "icontains", "type": "person"}],
+        }
+
+        result = normalize_to_exposure_criteria(input_dict)
+
+        assert result is not None
+        assert result.filterTestAccounts is True
 
 
 class TestGetTestAccountsFilter:

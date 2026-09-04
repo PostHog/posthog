@@ -144,7 +144,7 @@ describe("CloudLogGapReconciler", () => {
     );
   });
 
-  it("commits best-effort once the same deficit repeats", async () => {
+  it("commits best-effort once the deficit stops shrinking for enough passes", async () => {
     const { deps, commit } = createDeps({
       fetch: {
         rawEntries: [entry("a")],
@@ -154,9 +154,11 @@ describe("CloudLogGapReconciler", () => {
     });
     const reconciler = new CloudLogGapReconciler(deps);
 
-    reconciler.reconcile(request());
-    await tick();
-    expect(commit).not.toHaveBeenCalled();
+    for (let pass = 0; pass < 3; pass += 1) {
+      reconciler.reconcile(request());
+      await tick();
+      expect(commit).not.toHaveBeenCalled();
+    }
 
     reconciler.reconcile(request());
     await tick();

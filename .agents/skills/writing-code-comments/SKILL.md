@@ -3,7 +3,7 @@ name: writing-code-comments
 description: >
   Gates whether a code comment should exist and forces the ones that stay to explain why, not what.
   Use ALWAYS before writing or editing a comment in any language (Python, TypeScript, Go, Rust, SQL), and when reviewing a diff that adds comments.
-  Removes the comment types that clutter the codebase: narration that restates the code, change-history and chat-context notes ("previously did X", "per PR #123", "AI:"), commented-out code, and redundant docstrings.
+  Removes the comment types that clutter the codebase: narration that restates the code, change-history and chat-context notes ("previously did X", "per PR #123", "AI:"), perishable measurements and current-state stamps ("~20 min build", "currently", "today"), commented-out code, and redundant docstrings.
   Keeps the ones that earn their place: a non-obvious why, a warning about a non-local consequence, a pointer to context a future reader can't reconstruct.
   Not for user-facing copy (see `/writing-user-facing-copy`) or commit messages.
 ---
@@ -45,6 +45,23 @@ Never record how the code got here. That belongs in the commit message and PR de
 - ❌ `# AI: generated this helper` / `// agent: refactored`
 - ❌ `# TODO(2024-01): remove after migration` left in long after the migration
 
+### Perishable measurements and current-state stamps
+
+Measured timings, counts, and rates rot silently: nothing forces them to update, and a rotted number misleads the next person sizing a timeout or shard count. The same goes for "currently" / "today" hedges, because the sentence states the same fact without them. State the durable relationship the number stood for.
+
+- ❌ `# skip the ~20 min build` when the durable fact is that the build is expensive
+- ❌ `# ci-backend runs ~28m, so 60m ≈ one red result` instead of "sized past a full run of the slowest workflow"
+- ❌ `# no story currently opts into webkit snapshots` where dropping "currently" states the same fact
+- ❌ `# ~20 minutes in June, past 25 by July` because trend narration is change history
+
+Numbers that stay:
+
+- A dated snapshot: `# as of August 2024, Homebrew ships 4.13.2` (the date makes staleness visible)
+- A restated adjacent code literal: `# runs that took >5 min (300 seconds)` beside the `300` (it updates with the code)
+- A platform constant: `# GitHub's comment size limit (~64KB)`
+- A target or budget: `# Target: ~15 min per shard` (policy, not measurement)
+- Cited evidence: `# 30% peak memory observed on 16-core runs (#46853)` (the link dates it)
+
 ### Commented-out code
 
 Delete it; the version history has it if it's needed again. Commented-out code is ambiguous to the next reader, who can't tell whether it's a note, a rollback plan, or an accident.
@@ -66,6 +83,7 @@ Delete it; the version history has it if it's needed again. Commented-out code i
 Write comments the way you'd write technical documentation: explicit and precise. State the reasoning so the reader does not have to infer it. Length is not a target in either direction: don't clip a comment to look terse, and don't pad it to look thorough. Say what needs saying and stop.
 
 - **Be explicit and technical.** State the cause and effect. Name the actual conditions, values, and consequences. A reader should not have to reconstruct your reasoning from a hint.
+- **Use mostly ASD-STE100 Simplified Technical English.** Use active voice, simple tenses, one idea per sentence, and consistent terms.
 - **Let length follow the content.** One line is fine when one line covers it; use more when the reasoning needs more. Neither brevity nor length is the goal.
 - **No em-dash.** The tell to avoid is the clipped two-part phrase joined by a dash, like `# do the thing — it's faster`. Use a real connective instead ("because", "so that", "which means", "to avoid").
 - **Explain why, not what.** The what is in the code; the why usually is not.

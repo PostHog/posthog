@@ -7,6 +7,7 @@ import { TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -241,9 +242,6 @@ describe('ErrorTrackingPipeline', () => {
             updatePersonsBatch: jest.fn(),
             deletePerson: jest.fn(),
             addDistinctId: jest.fn(),
-            addPersonlessDistinctId: jest.fn(),
-            addPersonlessDistinctIdForMerge: jest.fn(),
-            addPersonlessDistinctIdsBatch: jest.fn(),
             personPropertiesSize: jest.fn(),
             updateCohortsAndFeatureFlagsForMerge: jest.fn(),
             inTransaction: jest.fn(),
@@ -323,6 +321,7 @@ describe('ErrorTrackingPipeline', () => {
             overflowMode: 'disabled',
             preservePartitionLocality: false,
             topHog: mockTopHog,
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
     })
 

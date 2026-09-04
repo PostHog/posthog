@@ -12,6 +12,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_seriali
 from opentelemetry import trace
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -32,6 +33,8 @@ from posthog.utils import convert_property_value, flatten
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
+from products.data_quality.backend.presentation.views import data_quality_gate_response
 from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
 from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
@@ -39,14 +42,90 @@ from products.data_warehouse.backend.presentation.managed_warehouse_data_status 
     ManagedWarehouseSourceSchemasQuerySerializer,
     ManagedWarehouseSourceSchemasResponseSerializer,
 )
+from products.data_warehouse.backend.presentation.managed_warehouse_monitoring import (
+    ManagedWarehouseMonitoringErrorResponseSerializer,
+    ManagedWarehouseMonitoringSeriesQuerySerializer,
+    ManagedWarehouseMonitoringSeriesResponseSerializer,
+    ManagedWarehouseMonitoringSnapshotResponseSerializer,
+    ManagedWarehouseMonitoringUpstreamError,
+    serialize_monitoring_series,
+    serialize_monitoring_snapshot,
+)
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceStatus,
+)
 
 from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+_MONITORING_ERROR_RESPONSES = {
+    status.HTTP_400_BAD_REQUEST: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The monitoring query parameters are invalid.",
+    ),
+    status.HTTP_403_FORBIDDEN: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="Managed warehouse monitoring is not available to the caller.",
+    ),
+    status.HTTP_404_NOT_FOUND: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The organization does not have a managed warehouse.",
+    ),
+    status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="Managed warehouse monitoring is not configured.",
+    ),
+    status.HTTP_502_BAD_GATEWAY: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The managed warehouse monitoring service returned an invalid response or was unreachable.",
+    ),
+    status.HTTP_504_GATEWAY_TIMEOUT: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The managed warehouse monitoring service timed out.",
+    ),
+}
+
+
+def _managed_warehouse_monitoring_error_response(upstream_response: Response) -> Response:
+    upstream_status = upstream_response.status_code
+    if upstream_status == status.HTTP_403_FORBIDDEN:
+        return Response(
+            {"error": "Warehouse monitoring isn't available for this organization."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if (
+        upstream_status == status.HTTP_404_NOT_FOUND
+        and isinstance(upstream_response.data, dict)
+        and upstream_response.data.get("code") == "managed_warehouse_not_found"
+    ):
+        return Response(
+            {"error": "Couldn't find a managed warehouse for this organization. Set one up in Data ops and try again."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if upstream_status == status.HTTP_501_NOT_IMPLEMENTED:
+        return Response(
+            {"error": "Warehouse monitoring isn't configured. Contact support."},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    if upstream_status == status.HTTP_504_GATEWAY_TIMEOUT:
+        return Response(
+            {"error": "Warehouse monitoring took too long to respond. Try again."},
+            status=status.HTTP_504_GATEWAY_TIMEOUT,
+        )
+    return Response(
+        {
+            "error": "Couldn't load warehouse monitoring data. Refresh the page, and contact support if it keeps happening."
+        },
+        status=status.HTTP_502_BAD_GATEWAY,
+    )
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -57,6 +136,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # warehouse_view inherits from warehouse_objects; reads require viewer access,
     # write actions (see required_scopes below) require editor access.
     scope_object = "warehouse_view"
+    requires_resource_level_access = False
     serializer_class = _FallbackSerializer
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
@@ -426,14 +506,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             external_stats = external_jobs.aggregate(
                 total=Count("id"),
-                successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
+                successful=Count("id", filter=Q(status=ExternalDataJobStatus.COMPLETED)),
                 failed=Count(
                     "id",
                     filter=Q(
                         status__in=[
-                            ExternalDataJob.Status.FAILED,
-                            ExternalDataJob.Status.BILLING_LIMIT_REACHED,
-                            ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                            ExternalDataJobStatus.FAILED,
+                            ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+                            ExternalDataJobStatus.BILLING_LIMIT_REACHED,
                         ]
                     ),
                 ),
@@ -457,14 +537,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     external_jobs.annotate(hour=TruncHour("created_at", tzinfo=project_tz))
                     .values("hour")
                     .annotate(
-                        successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
+                        successful=Count("id", filter=Q(status=ExternalDataJobStatus.COMPLETED)),
                         failed=Count(
                             "id",
                             filter=Q(
                                 status__in=[
-                                    ExternalDataJob.Status.FAILED,
-                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
-                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                                    ExternalDataJobStatus.FAILED,
+                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
                                 ]
                             ),
                         ),
@@ -497,14 +577,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     external_jobs.annotate(day=TruncDate("created_at", tzinfo=project_tz))
                     .values("day")
                     .annotate(
-                        successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
+                        successful=Count("id", filter=Q(status=ExternalDataJobStatus.COMPLETED)),
                         failed=Count(
                             "id",
                             filter=Q(
                                 status__in=[
-                                    ExternalDataJob.Status.FAILED,
-                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
-                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                                    ExternalDataJobStatus.FAILED,
+                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+                                    ExternalDataJobStatus.BILLING_LIMIT_REACHED,
                                 ]
                             ),
                         ),
@@ -534,7 +614,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
 
             running_external_data_jobs = ExternalDataJob.objects.filter(
-                team_id=self.team_id, status=ExternalDataJob.Status.RUNNING, billable=True, created_at__gte=cutoff_time
+                team_id=self.team_id, status=ExternalDataJobStatus.RUNNING, billable=True, created_at__gte=cutoff_time
             ).count()
             running_modeling_jobs = DataModelingJob.objects.filter(
                 team_id=self.team_id, status=DataModelingJob.Status.RUNNING, created_at__gte=cutoff_time
@@ -610,15 +690,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     should_sync=True,
                 )
                 .filter(
-                    Q(status=ExternalDataSchema.Status.FAILED)
-                    | Q(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+                    Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
                 )
                 .select_related("source")
             )
 
             for schema in problem_syncs:
                 sync_status = "failed"
-                if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+                if schema.status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
                     sync_status = "billing_limit"
 
                 results.append(
@@ -638,7 +717,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             error_sources = ExternalDataSource.objects.filter(
                 team_id=self.team_id,
                 deleted=False,
-                status=ExternalDataSource.Status.ERROR,
+                status=ExternalDataSourceStatus.ERROR,
             )
 
             for source in error_sources:
@@ -816,6 +895,24 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # For now we only expose the first one (by creation order) to keep the UI simple.
         first_dashboard = config.overview_dashboards.order_by("id").first()
         return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})
+
+    @extend_schema(
+        description="Read or update the team's data quality gate: whether a materialization whose "
+        "error-severity checks fail is published.",
+        request=DataQualityGateConfigSerializer,
+        responses={200: DataQualityGateConfigSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=False, required_scopes=["warehouse_view:write"])
+    def data_quality_gate(self, request: Request, **kwargs) -> Response:
+        # This is a project-wide setting, so writing it needs project-wide warehouse editor access.
+        # The generic warehouse_view:write permission is otherwise satisfied by an object-level editor
+        # grant on a single view, which must not be enough to flip a team-wide gate.
+        if request.method == "PATCH" and not self.user_access_control.check_access_level_for_resource(
+            "warehouse_view", "editor"
+        ):
+            raise PermissionDenied("You need editor access to data warehouse views to change this setting.")
+        # Owned by the data_quality product; this viewset only lends it the warehouse surface.
+        return data_quality_gate_response(self.team, request)
 
     # --- Managed warehouse provisioning (proxied to duckgres, see managed_warehouse.py) ---
 
@@ -1012,12 +1109,98 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         resp = managed_warehouse.status_for(self.team.organization_id)
         if resp.status_code == 200 and isinstance(resp.data, dict):
             resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
-            resp.data.update(managed_warehouse.team_onboarding_state(self.team.organization_id, self.team_id))
+            onboarding_state = managed_warehouse.team_onboarding_state(self.team.organization_id, self.team_id)
+            resp.data.update(onboarding_state)
             # Once the warehouse is reachable, surface its tables as a queryable direct
-            # connection. Best-effort scheduling coalesces repeated scene loads.
-            if resp.data.get("state") == "ready":
+            # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
+            if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
                 managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
         return resp
+
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseMonitoringSnapshotResponseSerializer,
+                description="Current organization-scoped worker and query activity.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse monitoring snapshot",
+        description="Get tenant-safe live worker, session, queue, and capacity data for the current organization.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-monitoring",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_monitoring(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        upstream_response = managed_warehouse.monitoring_snapshot_for(organization_id)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_monitoring_snapshot(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse monitoring snapshot response failed validation",
+                organization_id=organization_id,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
+    @validated_request(
+        query_serializer=ManagedWarehouseMonitoringSeriesQuerySerializer,
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseMonitoringSeriesResponseSerializer,
+                description="One organization-scoped monitoring metric over time.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse monitoring time series",
+        description="Get one allow-listed monitoring metric for the current organization and trailing time window.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-monitoring-timeseries",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        metric = cast(
+            managed_warehouse.ManagedWarehouseMonitoringMetric,
+            request.validated_query_data["metric"],
+        )
+        window = cast(
+            managed_warehouse.ManagedWarehouseMonitoringWindow,
+            request.validated_query_data["window"],
+        )
+        upstream_response = managed_warehouse.monitoring_series_for(organization_id, metric, window)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_monitoring_series(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+                expected_metric=metric,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse monitoring series response failed validation",
+                organization_id=organization_id,
+                metric=metric,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
 
     @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})
     @action(

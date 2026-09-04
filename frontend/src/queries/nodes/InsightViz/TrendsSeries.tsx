@@ -87,6 +87,7 @@ export function TrendsSeries(): JSX.Element | null {
         <>
             {isLifecycle && <LifecycleSeriesHeader />}
             <ActionFilter
+                allowBehavioralPropertyFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
                     if (isLifecycle) {

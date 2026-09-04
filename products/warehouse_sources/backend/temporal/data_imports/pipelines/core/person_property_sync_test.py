@@ -1,16 +1,31 @@
-from datetime import datetime
+import json
+import threading
+from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.db import close_old_connections, connection
+from django.db.models import Q
+from django.test import TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
 from posthog.models import Organization, PropertyDefinition, Team
 
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import PersonPropertySyncSource
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertySyncSource,
+    saved_query_binding,
+    schema_binding,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import person_property_sync as pps
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync"
+
+_SCHEMA = schema_binding("schema-1")
+_VIEW = saved_query_binding("view-1")
 
 
 class TestBuildBundles:
@@ -34,6 +49,25 @@ class TestBuildBundles:
         assert pps.build_bundles(rows, "distinct_id", {"plan": "plan_tier", "seats": "seat_count"}) == [
             ("a", {"plan_tier": "pro"})
         ]
+
+    def test_coerces_non_json_scalars_so_the_produce_can_serialize(self):
+        # A timestamp column arrives as a datetime and a numeric column as a Decimal; the Kafka
+        # producer serializes intents with plain json.dumps, so these must be coerced or it crashes.
+        rows = [
+            {
+                "distinct_id": "a",
+                "signed_up": datetime(2026, 1, 2, 3, 4, 5),
+                "born": date(2026, 1, 2),
+                "ltv": Decimal("9.99"),
+            }
+        ]
+        bundles = pps.build_bundles(
+            rows, "distinct_id", {"signed_up": "signed_up_at", "born": "born_on", "ltv": "lifetime_value"}
+        )
+        assert bundles == [
+            ("a", {"signed_up_at": "2026-01-02T03:04:05", "born_on": "2026-01-02", "lifetime_value": 9.99})
+        ]
+        json.dumps(bundles[0][1])  # the produced bundle round-trips without a default handler
 
 
 class TestBundleHash:
@@ -84,24 +118,36 @@ class TestRunOrchestration:
     @pytest.mark.asyncio
     async def test_produces_only_changed_and_existing_persons_and_advances_snapshot(self):
         team = MagicMock(api_token="tok", project_id=7)
+        order: list[str] = []
         rows = [
             {"distinct_id": "a", "plan": "pro"},
             {"distinct_id": "b", "plan": "free"},
             {"distinct_id": "ghost", "plan": "x"},
         ]
+
+        def _record_produce(*_args: object, **_kwargs: object) -> int:
+            order.append("produce")
+            return 2
+
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}) as existing,
-            patch(f"{_MODULE}._produce_intents", return_value=2) as produce,
-            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
-            patch(f"{_MODULE}._stamp_provenance") as stamp,
+            patch(f"{_MODULE}._produce_intents", side_effect=_record_produce) as produce,
+            patch(
+                f"{_MODULE}._write_snapshot_hashes",
+                new=AsyncMock(side_effect=lambda *_args, **_kwargs: order.append("snapshot")),
+            ) as write_snapshot,
+            patch(
+                f"{_MODULE}._reconcile_property_definitions",
+                side_effect=lambda *_args, **_kwargs: order.append("reconcile"),
+            ) as reconcile,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
             team_cls.objects.get.return_value = team
-            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         # ghost is filtered out; only a and b are produced.
         produced_items = produce.call_args.args[3]
@@ -120,8 +166,9 @@ class TestRunOrchestration:
         assert set(written) == {"a", "b"}
 
         existing.assert_called_once()
-        stamp.assert_called_once()
+        reconcile.assert_called_once()
         clear.assert_awaited_once()
+        assert order == ["reconcile", "produce", "snapshot"]
 
     @pytest.mark.asyncio
     async def test_no_sources_is_a_noop(self):
@@ -130,11 +177,38 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock()) as read,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
-            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         assert result.sources == 0
         read.assert_not_awaited()
         clear.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconciles_provenance_before_unchanged_return(self):
+        source = self._source()
+        with (
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={"a": "prior"})),
+            patch(f"{_MODULE}.select_changed", return_value=([], {})),
+            patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
+            patch(f"{_MODULE}._filter_existing_ids") as existing,
+            patch(f"{_MODULE}._produce_intents") as produce,
+        ):
+            result = await pps._process_source_bundles(
+                team_id=1,
+                project_id=7,
+                binding=_SCHEMA,
+                team_api_token="tok",
+                team_uuid="team-uuid",
+                source=source,
+                bundles=[("a", {"plan_tier": "pro"})],
+                rows_read=1,
+                run_token="job-1",
+            )
+
+        reconcile.assert_called_once_with(1, 7, _SCHEMA, source, ["plan_tier"])
+        existing.assert_not_called()
+        produce.assert_not_called()
+        assert result.changed == 0 and result.produced == 0
 
 
 class TestReadDeltaBundles:
@@ -183,7 +257,7 @@ class TestBackfillOrchestration:
 
     @pytest.mark.asyncio
     async def test_reads_once_and_produces_per_source(self):
-        team = MagicMock(api_token="tok")
+        team = MagicMock(api_token="tok", project_id=7)
         schema = MagicMock()
         schema.folder_path.return_value = "team_1_stripe_schema-1"
         # The backfill resolves the Delta folder from the loader's actual folder name, not normalized_name.
@@ -204,10 +278,10 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
-            patch(f"{_MODULE}._stamp_provenance"),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
             team_cls.objects.get.return_value = team
-            result = await pps.run_person_property_backfill(team_id=1, schema_id="schema-1", trigger="manual")
+            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
 
         # The table is read exactly once, though two sources map it.
         read_delta.assert_called_once()
@@ -220,18 +294,43 @@ class TestBackfillOrchestration:
         assert all(call.args[3] == pps.BACKFILL_RUN_TOKEN for call in write_snapshot.await_args_list)
         assert produce.call_count == 2
 
+    @parameterized.expand([("schema", _SCHEMA), ("saved_query", _VIEW)])
     @pytest.mark.asyncio
-    async def test_missing_schema_is_a_noop(self):
+    async def test_missing_warehouse_table_is_a_noop(self, _name, binding):
         sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
-            patch(f"{_MODULE}._get_schema", return_value=None),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value=None),
             patch(f"{_MODULE}._read_delta_bundles") as read_delta,
         ):
-            result = await pps.run_person_property_backfill(team_id=1, schema_id="schema-1", trigger="backfill")
+            result = await pps.run_person_property_backfill(team_id=1, binding=binding, trigger="backfill")
 
         assert result.sources == 0
         read_delta.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_view_binding_reads_the_model_table_uri(self):
+        # A view's rows live under its own model prefix. Reading the schema path instead would find no
+        # Delta log and report a silent 0-row backfill.
+        team = MagicMock(api_token="tok")
+        sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(
+                "products.data_modeling.backend.facade.api.get_materialized_table_uri",
+                return_value="s3://bucket/team_1_model_abc/modeling/enriched_users",
+            ) as model_uri,
+            patch(f"{_MODULE}._read_delta_bundles", return_value=({"s1": {}}, 0)) as read_delta,
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+        ):
+            team_cls.objects.get.return_value = team
+            await pps.run_person_property_backfill(team_id=1, binding=_VIEW, trigger="manual")
+
+        model_uri.assert_called_once_with(1, _VIEW.id)
+        assert read_delta.call_args.args[0] == "s3://bucket/team_1_model_abc/modeling/enriched_users"
 
 
 class _FakeS3:
@@ -289,11 +388,11 @@ class TestSnapshotCompaction:
     async def test_write_compacts_prior_files_and_preserves_union(self):
         fake = _FakeS3()
         with _fake_s3_patch(fake):
-            await pps._write_snapshot_hashes(1, "s", "src", "job-1", {"a": "h1", "b": "h1"})
-            await pps._write_snapshot_hashes(1, "s", "src", "job-2", {"b": "h2", "c": "h2"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": "h1", "b": "h1"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-2", {"b": "h2", "c": "h2"})
 
-            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, "s", "src"))
-            hashes = await pps._read_snapshot_hashes(1, "s", "src")
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
 
         # Two producing runs collapse to a single file whose union is newest-wins (b came from job-2).
         assert len(keys) == 1
@@ -304,11 +403,11 @@ class TestSnapshotCompaction:
         fake = _FakeS3()
         with _fake_s3_patch(fake):
             # Backfills share one filename; the second write must overwrite it, not delete it as "stale".
-            await pps._write_snapshot_hashes(1, "s", "src", pps.BACKFILL_RUN_TOKEN, {"a": "h1"})
-            await pps._write_snapshot_hashes(1, "s", "src", pps.BACKFILL_RUN_TOKEN, {"a": "h2", "b": "h2"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", pps.BACKFILL_RUN_TOKEN, {"a": "h1"})
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", pps.BACKFILL_RUN_TOKEN, {"a": "h2", "b": "h2"})
 
-            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, "s", "src"))
-            hashes = await pps._read_snapshot_hashes(1, "s", "src")
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
 
         assert len(keys) == 1
         assert hashes == {"a": "h2", "b": "h2"}
@@ -367,22 +466,98 @@ class TestGroupTarget:
             patch(f"{_MODULE}._group_type_name", return_value=None),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
-            patch(f"{_MODULE}._stamp_provenance") as stamp,
+            patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
         ):
             team_cls.objects.get.return_value = team
-            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         produce.assert_not_called()
-        stamp.assert_not_called()
+        reconcile.assert_called_once()
         write_snapshot.assert_not_awaited()
         assert result.produced == 0
 
+    @pytest.mark.asyncio
+    async def test_group_type_is_resolved_by_project_not_team(self):
+        # Group types are project-scoped, and GroupTypeMapping stores the project's root team id, so
+        # a child environment has no rows under its own team id. Resolving by team id found nothing
+        # there, which skipped every group source on that team and produced no intents at all.
+        team = MagicMock(api_token="tok", uuid="team-uuid", project_id=77)
+        rows = [{"group_key": "acme", "plan": "pro"}]
+        by_project = {77: [{"group_type_index": 0, "group_type": "organization"}]}
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
+            patch(
+                f"{_MODULE}.get_group_types_for_project",
+                side_effect=lambda project_id, **_kwargs: by_project.get(project_id, []),
+            ) as lookup,
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        assert lookup.call_args.args[0] == 77  # the project, not team_id=1
+        assert produce.call_args.kwargs["group_type_name"] == "organization"
+        assert result.produced == 1
+
+
+class TestExistenceLookupChunking:
+    """Both personhog helpers return whole models (properties included) and hold every one before
+    returning, so `_filter_existing_ids` must ask in chunks — an unchunked call over a large changed
+    set materializes the lot at once and OOM-kills the worker."""
+
+    @parameterized.expand(
+        [
+            (
+                "group",
+                PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group", group_type_index=0),
+                "get_groups_by_identifiers",
+                lambda _team_id, _index, chunk: [MagicMock(group_key=key) for key in chunk if key != "ghost"],
+            ),
+            (
+                "person",
+                PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"}),
+                "get_persons_mapped_by_distinct_id",
+                lambda _team_id, chunk: {key: MagicMock() for key in chunk if key != "ghost"},
+            ),
+        ]
+    )
+    def test_lookup_is_chunked_and_results_are_unioned(self, _name, source, helper, fake):
+        ids = [f"e{n}" for n in range(2_500)] + ["ghost"]
+        with patch(f"{_MODULE}.{helper}", side_effect=fake) as lookup:
+            result = pps._filter_existing_ids(9, source, ids)
+
+        chunks = [call.args[-1] for call in lookup.call_args_list]
+        assert [len(chunk) for chunk in chunks] == [1000, 1000, 501]
+        assert result == set(ids) - {"ghost"}
+
+    def test_single_call_below_the_chunk_size(self):
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"})
+        with patch(f"{_MODULE}.get_persons_mapped_by_distinct_id", return_value={"a": MagicMock()}) as lookup:
+            assert pps._filter_existing_ids(9, source, ["a"]) == {"a"}
+        lookup.assert_called_once_with(9, ["a"])
+
+    def test_group_source_without_a_type_index_never_looks_up(self):
+        source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group")
+        with (
+            patch(f"{_MODULE}.get_groups_by_identifiers") as groups,
+            patch(f"{_MODULE}.get_persons_mapped_by_distinct_id") as persons,
+        ):
+            assert pps._filter_existing_ids(9, source, ["acme"]) == set()
+        groups.assert_not_called()
+        persons.assert_not_called()  # must not silently fall through to the person lookup
+
 
 @pytest.mark.django_db
-class TestStampProvenance:
-    """`_stamp_provenance` updates existing property definitions with warehouse provenance, folding a
-    per-property description into the origin when the source carries one."""
+class TestReconcilePropertyDefinitions:
+    """Source configuration creates and repairs project-scoped warehouse provenance."""
 
     def _team(self):
         org = Organization.objects.create(name="o")
@@ -390,8 +565,6 @@ class TestStampProvenance:
 
     def test_folds_descriptions_into_provenance_only_where_present(self):
         team = self._team()
-        PropertyDefinition.objects.create(team=team, name="plan_tier", type=PropertyDefinition.Type.PERSON)
-        PropertyDefinition.objects.create(team=team, name="seat_count", type=PropertyDefinition.Type.PERSON)
         source = PersonPropertySyncSource(
             "s1",
             "d1",
@@ -400,10 +573,12 @@ class TestStampProvenance:
             property_descriptions={"plan_tier": "The plan tier"},
         )
 
-        pps._stamp_provenance(team.id, "schema-1", source, ["plan_tier", "seat_count"])
+        pps._reconcile_property_definitions(
+            team.id, team.project_id, _SCHEMA, source, ["plan_tier", "seat_count", "plan_tier"]
+        )
 
-        described = PropertyDefinition.objects.get(team=team, name="plan_tier")
-        plain = PropertyDefinition.objects.get(team=team, name="seat_count")
+        described = PropertyDefinition.objects.get(project_id=team.project_id, name="plan_tier")
+        plain = PropertyDefinition.objects.get(project_id=team.project_id, name="seat_count")
         assert described.warehouse_origin is not None
         assert plain.warehouse_origin is not None
         assert described.warehouse_origin["custom_property_source_id"] == "s1"
@@ -411,6 +586,20 @@ class TestStampProvenance:
         # A property without a configured description carries provenance but no description key.
         assert plain.warehouse_origin["custom_property_source_id"] == "s1"
         assert "description" not in plain.warehouse_origin
+
+    @parameterized.expand([("schema", _SCHEMA, "schema-1"), ("saved_query", _VIEW, None)])
+    def test_records_the_binding_and_keeps_schema_id_only_for_a_schema(self, _name, binding, expected_schema_id):
+        # `schema_id` is what rows stamped before views existed carry, so a schema binding must keep
+        # writing it; a view has no schema and must not claim one.
+        team = self._team()
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+
+        pps._reconcile_property_definitions(team.id, team.project_id, binding, source, ["plan_tier"])
+
+        origin = PropertyDefinition.objects.get(project_id=team.project_id, name="plan_tier").warehouse_origin
+        assert origin is not None
+        assert (origin["binding_kind"], origin["binding_id"]) == (binding.kind, binding.id)
+        assert origin.get("schema_id") == expected_schema_id
 
     def test_group_target_stamps_only_matching_group_type(self):
         team = self._team()
@@ -422,9 +611,206 @@ class TestStampProvenance:
         )
         source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group", group_type_index=0)
 
-        pps._stamp_provenance(team.id, "schema-1", source, ["tier"])
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["tier"])
 
         assert PropertyDefinition.objects.get(id=other.id).warehouse_origin is None
         stamped = PropertyDefinition.objects.get(team=team, name="tier", group_type_index=0)
         assert stamped.warehouse_origin is not None
         assert stamped.warehouse_origin["custom_property_source_id"] == "s1"
+
+    def test_idempotently_repairs_historical_null_without_replacing_other_fields(self):
+        team = self._team()
+        historical = PropertyDefinition.objects.create(
+            team=team,
+            project_id=team.project_id,
+            name="plan_tier",
+            type=PropertyDefinition.Type.PERSON,
+            property_type="Numeric",
+        )
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["plan_tier"])
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["plan_tier"])
+
+        historical.refresh_from_db()
+        assert PropertyDefinition.objects.filter(project_id=team.project_id, name="plan_tier").count() == 1
+        assert historical.property_type == "Numeric"
+        assert historical.warehouse_origin is not None
+        assert historical.warehouse_origin["custom_property_source_id"] == "s1"
+
+    def test_second_reconciliation_is_sql_write_free(self):
+        team = self._team()
+        source = PersonPropertySyncSource(
+            "s1",
+            "d1",
+            "distinct_id",
+            {"plan": "plan_tier", "seats": "seat_count"},
+            property_descriptions={"plan_tier": "The plan tier"},
+        )
+        names = ["plan_tier", "seat_count"]
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, names)
+
+        with CaptureQueriesContext(connection) as queries:
+            pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, names)
+
+        statements = [query["sql"].lstrip().upper() for query in queries.captured_queries]
+        assert not any(statement.startswith(("INSERT", "UPDATE")) for statement in statements)
+
+    def test_matches_ingestion_property_name_admission_and_sanitization(self):
+        team = self._team()
+        accepted_multibyte = "é" * 100
+        oversized_multibyte = "é" * 101
+        raw_nul_name = "plan\x00tier"
+        source = PersonPropertySyncSource(
+            "s1",
+            "d1",
+            "distinct_id",
+            {"accepted": accepted_multibyte, "oversized": oversized_multibyte, "nul": raw_nul_name},
+            property_descriptions={raw_nul_name: "The plan tier"},
+        )
+
+        pps._reconcile_property_definitions(
+            team.id,
+            team.project_id,
+            _SCHEMA,
+            source,
+            [accepted_multibyte, oversized_multibyte, raw_nul_name],
+        )
+
+        names = set(PropertyDefinition.objects.filter(project_id=team.project_id).values_list("name", flat=True))
+        assert names == {accepted_multibyte, "plan�tier"}
+        sanitized = PropertyDefinition.objects.get(project_id=team.project_id, name="plan�tier")
+        assert sanitized.warehouse_origin is not None
+        assert sanitized.warehouse_origin["description"] == "The plan tier"
+
+    @parameterized.expand(
+        [("person", PropertyDefinition.Type.PERSON, None), ("group", PropertyDefinition.Type.GROUP, 0)]
+    )
+    def test_reconciles_legacy_effective_project_definition(self, target, definition_type, group_index):
+        team = self._team()
+        assert team.id == team.project_id
+        existing = PropertyDefinition.objects.create(
+            team=team,
+            project_id=None,
+            name="tier",
+            type=definition_type,
+            group_type_index=group_index,
+        )
+        source = PersonPropertySyncSource(
+            "s1",
+            "d1",
+            "key",
+            {"plan": "tier"},
+            target=target,
+            group_type_index=group_index,
+        )
+
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["tier"])
+
+        existing.refresh_from_db()
+        assert existing.warehouse_origin is not None
+        assert existing.warehouse_origin["custom_property_source_id"] == "s1"
+        assert (
+            PropertyDefinition.objects.filter(
+                Q(project_id=team.project_id) | Q(project_id__isnull=True, team_id=team.project_id),
+                name="tier",
+                type=definition_type,
+                group_type_index=group_index,
+            ).count()
+            == 1
+        )
+
+    @parameterized.expand(
+        [("person", PropertyDefinition.Type.PERSON, None), ("group", PropertyDefinition.Type.GROUP, 0)]
+    )
+    def test_reconciles_same_project_definition_created_by_another_team(self, target, definition_type, group_index):
+        team = self._team()
+        other_team = Team.objects.create(organization=team.organization, name="other", project_id=team.project_id)
+        existing = PropertyDefinition.objects.create(
+            team=other_team,
+            project_id=team.project_id,
+            name="tier",
+            type=definition_type,
+            group_type_index=group_index,
+        )
+        source = PersonPropertySyncSource(
+            "s1",
+            "d1",
+            "key",
+            {"plan": "tier"},
+            target=target,
+            group_type_index=group_index,
+        )
+
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["tier"])
+
+        existing.refresh_from_db()
+        assert PropertyDefinition.objects.filter(project_id=team.project_id, name="tier").count() == 1
+        assert existing.warehouse_origin is not None
+        assert existing.warehouse_origin["custom_property_source_id"] == "s1"
+
+
+class TestReconcilePropertyDefinitionsConcurrency(TransactionTestCase):
+    @parameterized.expand(
+        [("person", PropertyDefinition.Type.PERSON, None), ("group", PropertyDefinition.Type.GROUP, 0)]
+    )
+    def test_ingestion_insert_winning_the_race_is_stamped_once(self, target, definition_type, group_index):
+        organization = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=organization, name="t")
+        other_team = Team.objects.create(organization=organization, name="other", project_id=team.project_id)
+        source = PersonPropertySyncSource(
+            "s1",
+            "d1",
+            "key",
+            {"plan": "tier"},
+            target=target,
+            group_type_index=group_index,
+        )
+        bulk_create_reached = threading.Event()
+        ingestion_committed = threading.Event()
+        errors: list[BaseException] = []
+        original_bulk_create = PropertyDefinition.objects.bulk_create
+
+        def pause_before_conflict_insert(*args, **kwargs):
+            bulk_create_reached.set()
+            if not ingestion_committed.wait(timeout=5):
+                raise TimeoutError("ingestion insert did not commit")
+            return original_bulk_create(*args, **kwargs)
+
+        def reconcile() -> None:
+            close_old_connections()
+            try:
+                pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["tier"])
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        with patch.object(PropertyDefinition.objects, "bulk_create", side_effect=pause_before_conflict_insert):
+            thread = threading.Thread(target=reconcile)
+            thread.start()
+            assert bulk_create_reached.wait(timeout=5)
+            PropertyDefinition.objects.create(
+                team=other_team,
+                project_id=team.project_id,
+                name="tier",
+                type=definition_type,
+                group_type_index=group_index,
+                property_type="Numeric",
+            )
+            ingestion_committed.set()
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        assert errors == []
+        definitions = PropertyDefinition.objects.filter(
+            project_id=team.project_id,
+            name="tier",
+            type=definition_type,
+            group_type_index=group_index,
+        )
+        assert definitions.count() == 1
+        definition = definitions.get()
+        assert definition.property_type == "Numeric"
+        assert definition.warehouse_origin is not None
+        assert definition.warehouse_origin["custom_property_source_id"] == "s1"

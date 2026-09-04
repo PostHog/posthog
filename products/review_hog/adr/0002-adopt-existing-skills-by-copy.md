@@ -1,0 +1,7 @@
+# Adopting an existing skill copies it under the kind's prefix, not by reference
+
+"Use an existing skill" (Code review scene, beside each "Create your own …") turns an existing team `LLMSkill` into a review perspective / blind-spot check / validation criteria / resolution criteria by **duplicating it under a `review-hog-<kind>-<slug>` name** (the skills product's duplicate endpoint) and activating the copy through the existing config APIs. Considered a live-reference model instead — a `kind` column on `ReviewSkillConfig` pointing at arbitrary skill names, so edits to the source keep flowing; rejected because the name prefix is a review skill's whole identity everywhere (loader resolution, config-API scoping, stats bucketing, the sync's prefix-scoped reconcile, the documented contract in the authoring skill), so reference semantics would rework identity across all of them for a marginal gain, and because a copy keeps the author-only visibility rule intact for free — the adopting user becomes the copy's author. Renaming the source into the prefix was ruled out outright: other consumers pull skills by name over MCP.
+
+## Consequences
+
+An adopted skill is a fork: later edits to the source do not reach the copy (the confirm step says so), and adopting the same source twice needs a second name. The copy carries no `seeded_by` marker, so the canonical sync never touches it. `duplicate_skill` now derives `category` from the new name exactly like the create paths, so adopted skills group under the Skills page's Code review tab like agent-authored ones.

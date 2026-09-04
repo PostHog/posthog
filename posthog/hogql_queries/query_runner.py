@@ -1,19 +1,26 @@
+import threading
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property
 from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
+from zoneinfo import ZoneInfo
+
+from django.conf import settings as django_settings
+from django.db import OperationalError
 
 import orjson
+import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
     AccountsQuery,
+    AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -45,10 +52,12 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPMissingCapabilitiesQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
     MCPToolCategoryCountsQuery,
+    MCPToolCategoryMapQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
     MCPToolFailureOccurrencesQuery,
@@ -84,10 +93,12 @@ from posthog.schema import (
     TrendsQuery,
     UsageMetricsQuery,
     VectorSearchQuery,
+    WebAgentAnalyticsQuery,
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    WebVitalsQuery,
 )
 
 from posthog.hogql import ast
@@ -95,12 +106,13 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
+from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
@@ -115,27 +127,29 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
+from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
-from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
-from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
-from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
+from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
+from posthog.hogql_queries.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
     run_validation_rules,
 )
 from posthog.models import Team, User
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.query_cache import QueryCache, count_query_cache_hit
+from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
@@ -143,7 +157,6 @@ from posthog.query_cache.failures import (
     Budget,
     QueryFailureRecord,
 )
-from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
@@ -152,7 +165,14 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+from products.access_control.backend.facade.user_access_control import (
+    WAREHOUSE_ACCESS_SCOPES,
+    UserAccessControl,
+    UserAccessControlError,
+)
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
+
+logger = structlog.get_logger(__name__)
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
@@ -178,6 +198,14 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
     "Query execution duration in seconds",
     labelnames=["query_type", "query_name"],
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
+)
+
+API_QUERIES_QUOTA_ENFORCEMENT_FLAG = "api-queries-quota-enforcement"
+
+API_QUERIES_QUOTA_LIMITED_COUNTER = Counter(
+    "posthog_api_queries_quota_limited_total",
+    "Query executions for teams whose organization is over its api_queries_read_bytes quota.",
+    labelnames=["surface", "outcome"],  # surface: api; outcome: observed | enforced
 )
 
 
@@ -337,6 +365,66 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     )
 
 
+def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
+    if not django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
+        return None
+    try:
+        if team.organization.has_active_subscription is not False:
+            return None
+        if get_api_queries_bytes(str(team.organization_id)) <= django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
+            return None
+        return next_counter_reset(datetime.now(UTC))
+    except Exception as e:
+        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check").inc()
+        capture_exception(e)
+        return None
+
+
+def _api_queries_enforcement_enabled(team: Team) -> bool:
+    org_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                API_QUERIES_QUOTA_ENFORCEMENT_FLAG,
+                org_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
+def _format_data_size(bytes_count: int) -> str:
+    # Decimal units, to match how the allowance is defined (50 TB = 50e12 bytes).
+    for unit, size in (("TB", 1_000_000_000_000), ("GB", 1_000_000_000), ("MB", 1_000_000)):
+        if bytes_count >= size:
+            value = f"{bytes_count / size:.1f}".removesuffix(".0")
+            return f"{value} {unit}"
+    return f"{bytes_count:,} bytes"
+
+
+def _api_queries_quota_detail(*, used: int, limit: int, limited_until: datetime, project_timezone: str) -> str:
+    try:
+        local = limited_until.astimezone(ZoneInfo(project_timezone))
+    except Exception:
+        local = limited_until
+    reset = f"{local:%B} {local.day}, {local.year}"
+    # The reset is midnight UTC, so in most project timezones it lands mid-day; show the
+    # time whenever it isn't local midnight.
+    if local.hour or local.minute:
+        reset += f" at {local:%H:%M}"
+    reset += f" ({local.tzinfo})"
+    return (
+        f"Your organization used {_format_data_size(used)} of its {_format_data_size(limit)} "
+        "monthly free allowance for API queries. "
+        f"The allowance resets on {reset}. "
+        "Upgrade your plan in Billing settings to restore access sooner, or ask an org admin to do so."
+    )
+
+
 RunnableQueryNode = Union[
     TrendsQuery,
     FunnelsQuery,
@@ -366,6 +454,7 @@ RunnableQueryNode = Union[
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
     AccountsQuery,
+    AccountsTableQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -382,9 +471,11 @@ RunnableQueryNode = Union[
     MCPToolQualityDailyStatsQuery,
     MCPToolCategoryCountsQuery,
     MCPToolCategoriesQuery,
+    MCPToolCategoryMapQuery,
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
+    MCPMissingCapabilitiesQuery,
 ]
 
 
@@ -419,6 +510,26 @@ def get_query_runner(
         display_type = get_from_dict_or_attr(trends_filter, "display") if trends_filter else None
 
         if display_type == ChartDisplayType.CALENDAR_HEATMAP:
+            query_tags = get_from_dict_or_attr(query_obj, "tags")
+            if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+                from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
+                    is_trends_precompute_enabled_for_team,
+                )
+
+                if is_trends_precompute_enabled_for_team(team):
+                    from products.web_analytics.backend.hogql_queries.web_calendar_heatmap import (
+                        WebCalendarHeatmapTrendsQueryRunner,
+                    )
+
+                    return WebCalendarHeatmapTrendsQueryRunner(
+                        query=query_obj,
+                        team=team,
+                        timings=timings,
+                        limit_context=limit_context,
+                        modifiers=modifiers,
+                        user=user,
+                    )
+
             from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
 
             return CalendarHeatmapTrendsQueryRunner(
@@ -454,6 +565,32 @@ def get_query_runner(
                 user=user,
             )
 
+        # Queries originating from the web analytics product take a WA-owned
+        # subclass that can serve eligible shapes from precompute buckets and
+        # falls back to the standard trends path internally. Tags-only check:
+        # all real gating (rollout flag, shape, team enrollment) lives in the
+        # runner so dispatch stays free of I/O.
+        query_tags = get_from_dict_or_attr(query_obj, "tags")
+        if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+            from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
+                is_trends_precompute_enabled_for_team,
+            )
+
+            # Flag-gated at dispatch: with the rollout flag off, WA queries take
+            # the vanilla trends path with zero new code in the way. Local flag
+            # evaluation only — no network I/O here.
+            if is_trends_precompute_enabled_for_team(team):
+                from products.web_analytics.backend.hogql_queries.web_trends import WebTrendsQueryRunner
+
+                return WebTrendsQueryRunner(
+                    query=query_obj,
+                    team=team,
+                    timings=timings,
+                    limit_context=limit_context,
+                    modifiers=modifiers,
+                    user=user,
+                )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
@@ -465,7 +602,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelsQuery":
-        from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
         return FunnelsQueryRunner(
             query=cast(FunnelsQuery | dict[str, Any], query),
@@ -476,7 +613,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "RetentionQuery":
-        from .insights.retention.retention_query_runner import RetentionQueryRunner
+        from products.product_analytics.backend.facade.queries import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -487,7 +624,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "PathsQuery":
-        from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
+        from products.product_analytics.backend.facade.queries import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
@@ -499,7 +636,7 @@ def get_query_runner(
         )
 
     if kind == "PathsV2Query":
-        from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
+        from products.product_analytics.backend.facade.queries import PathsV2QueryRunner
 
         return PathsV2QueryRunner(
             query=cast(PathsV2Query | dict[str, Any], query),
@@ -521,9 +658,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "StickinessQuery":
-        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
-            StickinessQueryRunner,
-        )
+        from products.product_analytics.backend.facade.queries import StickinessQueryRunner
 
         return StickinessQueryRunner(
             query=cast(StickinessQuery | dict[str, Any], query),
@@ -534,7 +669,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+        from products.product_analytics.backend.facade.queries import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),
@@ -620,7 +755,7 @@ def get_query_runner(
         "StickinessActorsQuery",
         "PathsV2ActorsQuery",
     ):
-        from .insights.insight_actors_query_runner import InsightActorsQueryRunner
+        from .insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | dict[str, Any], query),
@@ -631,7 +766,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "InsightActorsQueryOptions":
-        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from .insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),
@@ -642,7 +777,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelCorrelationQuery":
-        from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner
 
         return FunnelCorrelationQueryRunner(
             query=cast(FunnelCorrelationQuery | dict[str, Any], query),
@@ -746,6 +881,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "WebAgentAnalyticsQuery":
+        from products.web_analytics.backend.hogql_queries.web_agent_analytics import WebAgentAnalyticsQueryRunner
+
+        return WebAgentAnalyticsQueryRunner(
+            query=cast(WebAgentAnalyticsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "WebVitalsPathBreakdownQuery":
         from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import (
             WebVitalsPathBreakdownQueryRunner,
@@ -755,6 +902,41 @@ def get_query_runner(
             query=query,
             team=team,
         )
+
+    if kind == "WebVitalsQuery":
+        from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute import (
+            is_vitals_precompute_enabled_for_team,
+        )
+
+        # This runner is a plain TrendsQueryRunner subclass, so it can only
+        # handle the canonical line-graph tab shape over a TrendsQuery source.
+        # A non-Trends source, or any other display (total-value, cumulative,
+        # calendar heatmap, box plot, slope graph), must reach the source's own
+        # dispatch below — several map to dedicated runners — so let those fall
+        # through and unwrap to the source rather than take this branch.
+        # Routing a non-Trends source here would raise in the constructor, and
+        # `get_query_runner_or_none` re-raises that instead of unwrapping.
+        source = get_from_dict_or_attr(query, "source")
+        source_is_trends = source is not None and get_from_dict_or_attr(source, "kind") == "TrendsQuery"
+        source_trends_filter = get_from_dict_or_attr(source, "trendsFilter") if source_is_trends else None
+        source_display = get_from_dict_or_attr(source_trends_filter, "display") if source_trends_filter else None
+        is_canonical_display = source_display is None or source_display == ChartDisplayType.ACTIONS_LINE_GRAPH
+
+        # Flag-gated at dispatch: with the rollout flag off this kind has no
+        # runner branch, so `process_query_model` unwraps to the source
+        # exactly as before the runner existed. Local flag evaluation only — no
+        # network I/O here.
+        if source_is_trends and is_canonical_display and is_vitals_precompute_enabled_for_team(team):
+            from products.web_analytics.backend.hogql_queries.web_vitals_timeseries import WebVitalsQueryRunner
+
+            return WebVitalsQueryRunner(
+                query=cast(WebVitalsQuery | dict[str, Any], query),
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
 
     if kind == "WebPageURLSearchQuery":
         from products.web_analytics.backend.hogql_queries.page_url_search_query_runner import PageUrlSearchQueryRunner
@@ -830,10 +1012,34 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "ErrorTrackingFingerprintProjectionQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingFingerprintProjectionQueryRunner
+
+        return ErrorTrackingFingerprintProjectionQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "ErrorTrackingBreakdownsQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingBreakdownsQueryRunner
 
         return ErrorTrackingBreakdownsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "ErrorTrackingReleasesQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingReleasesQueryRunner
+
+        return ErrorTrackingReleasesQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -962,6 +1168,17 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPMissingCapabilitiesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPMissingCapabilitiesQueryRunner
+
+        return MCPMissingCapabilitiesQueryRunner(
+            query=cast(MCPMissingCapabilitiesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "MCPToolCallBreakdownQuery":
         from products.mcp_analytics.backend.facade.queries import MCPToolCallBreakdownQueryRunner
 
@@ -1077,6 +1294,17 @@ def get_query_runner(
 
         return MCPToolCategoriesQueryRunner(
             query=cast(MCPToolCategoriesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCategoryMapQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCategoryMapQueryRunner
+
+        return MCPToolCategoryMapQueryRunner(
+            query=cast(MCPToolCategoryMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1206,6 +1434,20 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
+            MarketingAnalyticsRetentionQueryRunner,
+        )
+
+        return MarketingAnalyticsRetentionQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
             NonIntegratedConversionsTableQueryRunner,
@@ -1236,6 +1478,18 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountsTableQuery":
+        from products.customer_analytics.backend.facade.queries import AccountsTableQueryRunner
+
+        return AccountsTableQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -1435,10 +1689,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.team = team
         self.user = user
         self.timings = timings or HogQLTimings()
+        self._shared_database: Optional[Database] = None
+        self._shared_database_build_lock = threading.Lock()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
+        self._modifiers_override_provided = modifiers is not None
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -1469,9 +1726,62 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _on_user_changed(self) -> None:
         """Hook called by run() when self.user is updated after construction.
 
-        Subclasses can override to rebuild any user-dependent state (e.g. a
-        cached HogQLContext / Database that was created with a stale user)."""
-        pass
+        Drops the lazily built shared database so the next access rebuilds it for the new
+        user. Subclasses that override this to rebuild their own user-dependent state (e.g.
+        a cached HogQLContext / Database) must call super()._on_user_changed()."""
+        self._shared_database = None
+
+    @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        """Access-control snapshot the shared database is built with. None here; overridden by
+        AnalyticsQueryRunner with a lazily built, per-run instance so the cache fingerprint and
+        the database resolve access from the same rows."""
+        return None
+
+    @property
+    def shared_database(self) -> Database:
+        """One Database for every query this runner executes and for the response SQL printer.
+
+        Building the database is the dominant compile cost on teams with many warehouse
+        tables, and it is identical for every query in one run. Built lazily so cache hits
+        never pay for it; dropped by _on_user_changed so access control follows the user."""
+        if not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            # Kill switch: build per access so query threads never share schema state. No timings
+            # measure here because concurrent threads reach this path and HogQLTimings is not
+            # thread-safe.
+            return Database.create_for(
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                modifiers=self.modifiers,
+                trigger="shared_kill_switch",
+            )
+        if self._shared_database is None:
+            # Concurrent query threads (funnels compare mode) can first-touch this property at the
+            # same time. The lock makes the build run once, and keeps the measure on the single
+            # builder thread because HogQLTimings is not thread-safe.
+            with self._shared_database_build_lock:
+                if self._shared_database is None:
+                    with self.timings.measure("build_shared_database"):
+                        self._shared_database = Database.create_for(
+                            team=self.team,
+                            user=self.user,
+                            user_access_control=self.user_access_control,
+                            modifiers=self.modifiers,
+                            timings=self.timings,
+                            trigger="shared",
+                        )
+        return self._shared_database
+
+    def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
+        """Context for execute_hogql_query calls this runner makes, wired to the shared database."""
+        return HogQLContext(team_id=self.team.pk, user=self.user, database=self.shared_database, **kwargs)
+
+    def response_hogql(self, query: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        """Display-only HogQL for the response payload (never executed).
+
+        Prints against the shared database so the printer does not build a second one."""
+        return to_printed_hogql(query, self.team, database=self.shared_database)
 
     @property
     def query_type(self) -> Any:
@@ -1520,6 +1830,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _calculate(self) -> R:
         raise NotImplementedError()
 
+    def query_status_labels(self) -> list[str] | None:
+        return None
+
     def enqueue_async_calculation(
         self,
         *,
@@ -1558,6 +1871,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
+            labels=self.query_status_labels(),
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
             is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,
@@ -1763,6 +2077,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
+            self._enforce_api_queries_quota()
 
         with (
             get_materialized_endpoints_rate_limiter().run(
@@ -1926,6 +2241,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
+                        ttl=retention_ttl(
+                            insight_id=insight_id,
+                            dashboard_id=dashboard_id,
+                            access_method=get_query_tag_value("access_method"),
+                        ),
                     )
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
@@ -2040,7 +2360,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.
-                        failure_kind = classify_failure(exc)
+                        failure_kind = classify_failure(exc, self.team.pk)
                         if failure_kind is not None:
                             QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
                                 failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
@@ -2207,7 +2527,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_api_queries_concurrency_limit(self):
         """
-        :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
+        :return: None - no feature, 1,3,<other> for actual concurrency limit
         """
 
         # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
@@ -2219,15 +2539,38 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         from posthog.constants import AvailableFeature
 
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
-
-        if self.team.api_token in list_limited_team_attributes(
-            QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        ):
-            return 0
-
         feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
         return feature.get("limit") if feature else None
+
+    def _enforce_api_queries_quota(self) -> None:
+        """402 chargeable API queries for orgs over quota, when enforcement is flagged on.
+
+        Observe-only (counter, no block) when the flag is off. Never blocks unless the
+        live counter confirms over-quota.
+        """
+        limited_until = get_api_queries_quota_limited_until(self.team)
+        if limited_until is None:
+            return
+        used = get_api_queries_bytes(str(self.team.organization_id))
+        limit = django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT
+        outcome = "enforced" if _api_queries_enforcement_enabled(self.team) else "observed"
+        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome=outcome).inc()
+        logger.info(
+            "api_queries_quota_limited",
+            organization_id=str(self.team.organization_id),
+            team_id=self.team.pk,
+            usage_bytes=used,
+            limit_bytes=limit,
+            limited_until=limited_until.isoformat(),
+            outcome=outcome,
+        )
+        if outcome == "observed":
+            return
+        raise APIQueriesQuotaExceeded(
+            detail=_api_queries_quota_detail(
+                used=used, limit=limit, limited_until=limited_until, project_timezone=self.team.timezone
+            )
+        )
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -2262,11 +2605,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
-            "products_modifiers": {
-                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
-                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
-                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
-            },
+            "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
@@ -2288,19 +2627,53 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         return payload
 
-    def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
-        """Returns a sorted list of restricted (property_name, type) pairs for the current user, or None if no restrictions.
+    def _products_modifiers_for_cache(self) -> dict:
+        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
+        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
+        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
+        # separate from the successfully-loaded key.
+        def read(name: str, fn: Callable[[], Any]) -> dict | str:
+            try:
+                return fn().to_cache_key_dict()
+            except OperationalError:
+                logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
+                return "unavailable"
+
+        return {
+            "revenue_analytics": read("revenue_analytics_config", lambda: self.team.revenue_analytics_config),
+            "marketing_analytics": read("marketing_analytics_config", lambda: self.team.marketing_analytics_config),
+            "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
+        }
+
+    def _get_property_access_restrictions(self) -> list[dict[str, str | int | None]] | None:
+        """Returns sorted restricted property metadata for the current user, or None if unrestricted.
 
         The underlying ``get_restricted_properties_for_team`` memoizes per request,
         so rendering a dashboard with N insights issues one PropertyAccessControl
         lookup per (team, user) pair instead of N.
         """
-        from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+        from products.access_control.backend.property_access_control import (
+            get_restricted_properties_with_group_type_index_for_team,
+        )
 
-        restricted = get_restricted_properties_for_team(user=self.user, team=self.team)
+        restricted = get_restricted_properties_with_group_type_index_for_team(user=self.user, team=self.team)
         if not restricted:
             return None
-        return sorted(restricted)
+        return [
+            {
+                "name": restriction.name,
+                "property_type": restriction.property_type,
+                "group_type_index": restriction.group_type_index,
+            }
+            for restriction in sorted(
+                restricted,
+                key=lambda restriction: (
+                    restriction.name,
+                    restriction.property_type,
+                    restriction.group_type_index if restriction.group_type_index is not None else -1,
+                ),
+            )
+        ]
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
@@ -2428,7 +2801,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         Example:
         ```
-        from posthog.rbac.user_access_control import UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         def validate_query_runner_access(self, user: User) -> bool:
             user_access_control = UserAccessControl(user=user, team=self.team)
@@ -2438,7 +2811,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         Example using `assert_access_level_for_resource`:
         ```
-        from posthog.rbac.user_access_control import UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         def validate_query_runner_access(self, user: User) -> bool:
             user_access_control = UserAccessControl(user=user, team=self.team)
@@ -2622,6 +2995,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def _on_user_changed(self) -> None:
         super()._on_user_changed()
+        if (
+            self._user_access_control is not None
+            and isinstance(self.user, User)
+            and self._user_access_control.user.pk == self.user.pk
+        ):
+            return
         self._user_access_control = None
 
     @property
@@ -2654,10 +3033,22 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if queried_resources == set():
             return payload
 
-        if restricted_objects := self._get_object_access_restrictions(queried_resources):
+        restricted_objects = self._get_object_access_restrictions(queried_resources)
+        allowlisted_objects = self._get_object_access_allowlist(queried_resources)
+        restricted_resources = self._get_resource_access_restrictions(queried_resources)
+        if restricted_objects:
             payload["restricted_objects"] = restricted_objects
-        if restricted_resources := self._get_resource_access_restrictions(queried_resources):
+        if allowlisted_objects:
+            payload["allowlisted_objects"] = allowlisted_objects
+        if restricted_resources:
             payload["restricted_resources"] = restricted_resources
+        if (restricted_objects or allowlisted_objects or restricted_resources) and (
+            user_access_control := self.user_access_control
+        ):
+            # Access-control filtering exempts objects the user created (see build_access_control_guard),
+            # including when the resource is denied without any object-level rules. Partition by principal
+            # whenever access control narrows the query.
+            payload["restricted_for_user"] = user_access_control.user.pk
 
         return payload
 
@@ -2673,6 +3064,20 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if not blocked:
             return None
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
+
+    def _get_object_access_allowlist(self, queried_resources: Optional[set[str]]) -> dict[str, list[str]] | None:
+        """Per-resource object IDs that are the only ones readable, scoped to the resources this query
+        reads. Distinct from the deny set: two users can be denied nothing yet be narrowed to
+        different grants, which would otherwise collide on one cache entry."""
+        user_access_control = self.user_access_control
+        if user_access_control is None:
+            return None
+        allowlisted = user_access_control.allowlisted_resource_ids_by_scope
+        if queried_resources is not None:
+            allowlisted = {resource: ids for resource, ids in allowlisted.items() if resource in queried_resources}
+        if not allowlisted:
+            return None
+        return {resource: sorted(ids) for resource, ids in sorted(allowlisted.items())}
 
     def _get_resource_access_restrictions(self, queried_resources: Optional[set[str]]) -> list[str] | None:
         """Resources the user has no resource-level access to, scoped to the resources this query reads."""
@@ -2725,12 +3130,13 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user)
+        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
+        super()._on_user_changed()
         self._build_hogql_context_for_user(self.user)
 
     @property

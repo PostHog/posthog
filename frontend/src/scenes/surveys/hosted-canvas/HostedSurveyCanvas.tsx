@@ -9,6 +9,7 @@ import { type CSSProperties } from 'react'
 import { IconPlus, IconThumbsDown, IconThumbsUp, IconTrash } from '@posthog/icons'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { platformCommandControlKey } from 'lib/utils/dom'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { canQuestionSkipSubmitButton, isThumbQuestion, sanitizeHTML } from 'scenes/surveys/utils'
@@ -386,11 +387,15 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
 // hint set rendered by `posthog/templates/surveys/public_survey.html` so the
 // canvas matches what respondents actually see.
 function KeyboardHints({ questionType }: { questionType: SurveyQuestionType }): JSX.Element {
-    const chips: { kbd: string; label: string }[] = [{ kbd: '\u21B5', label: 'submit' }]
+    const chips: { kbd: string; label: string }[] =
+        questionType === SurveyQuestionType.Open
+            ? [
+                  { kbd: '\u21B5', label: 'new line' },
+                  { kbd: platformCommandControlKey('\u21B5'), label: 'submit' },
+              ]
+            : [{ kbd: '\u21B5', label: 'submit' }]
 
-    if (questionType === SurveyQuestionType.Open) {
-        chips.push({ kbd: '\u21E7 \u21B5', label: 'new line' })
-    } else if (questionType === SurveyQuestionType.SingleChoice) {
+    if (questionType === SurveyQuestionType.SingleChoice) {
         chips.push({ kbd: '\u2191 \u2193', label: 'select' })
     } else if (questionType === SurveyQuestionType.MultipleChoice) {
         chips.push({ kbd: '\u2191 \u2193', label: 'select' })

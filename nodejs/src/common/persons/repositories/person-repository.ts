@@ -218,10 +218,6 @@ export interface PersonRepository {
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
-    addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
-    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
-    addPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<Map<string, boolean>>
-
     personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(

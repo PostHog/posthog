@@ -274,6 +274,9 @@ export function GatewayServersHome({
               ? gatewayConnectAuthType(connectTarget.server)
               : (connectTarget.template.auth_type ?? "oauth")
           }
+          isCustomServer={
+            connectTarget.kind === "server" && !connectTarget.server.template_id
+          }
           onSubmit={handleConnectSubmit}
           onClose={() => setConnectTarget(null)}
         />

@@ -36,6 +36,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     normalize_site_url,
     suggest_registered_site,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    DEFAULT_SEARCH_TYPE,
+    SEARCH_ANALYTICS_SCHEMAS,
+    SEARCH_TYPES,
+    qualified_schema_name,
+    split_schema_name,
+)
 
 TODAY = dt.date(2026, 4, 30)
 
@@ -242,7 +249,17 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
 
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000, data_state="final"):
+    def fake_query(
+        session,
+        site_url,
+        start_date,
+        end_date,
+        dimensions,
+        start_row,
+        row_limit=25000,
+        data_state="final",
+        search_type="web",
+    ):
         queries.append((start_date, start_row))
         pages = pages_per_date.get(start_date, [[]])
         return pages.pop(0) if pages else []
@@ -282,7 +299,17 @@ def test_source_resumes_from_saved_state(monkeypatch):
     fake_today = dt.date(2026, 4, 30)
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000, data_state="final"):
+    def fake_query(
+        session,
+        site_url,
+        start_date,
+        end_date,
+        dimensions,
+        start_row,
+        row_limit=25000,
+        data_state="final",
+        search_type="web",
+    ):
         queries.append((start_date, start_row))
         return []
 
@@ -821,6 +848,73 @@ def test_query_connection_error_bubbles_after_max_retries(monkeypatch):
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
+def test_query_retries_read_timeout_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        requests.ReadTimeout("Read timed out."),
+        requests.ReadTimeout("Read timed out."),
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 3
+
+
+def test_query_read_timeout_bubbles_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = requests.ReadTimeout("Read timed out.")
+
+    # A persistent read timeout exhausts the inline budget and surfaces the real
+    # ReadTimeout (retryable at the activity level).
+    with pytest.raises(requests.ReadTimeout):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+
+
+def test_query_retries_truncated_body_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    truncated = _fake_response(200)
+    truncated.json.side_effect = requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead(...)")
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        truncated,
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 2
+
+
+def test_query_truncated_body_bubbles_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    truncated = _fake_response(200)
+    truncated.json.side_effect = requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead(...)")
+    session = mock.MagicMock()
+    session.post.return_value = truncated
+
+    # A persistently truncated response body (chunked transfer cut off mid-read) exhausts the
+    # inline budget and surfaces the real ChunkedEncodingError (retryable at the activity level).
+    with pytest.raises(requests.exceptions.ChunkedEncodingError):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+
+
 def test_query_retries_transient_token_refresh_error_then_succeeds(monkeypatch):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
@@ -926,3 +1020,108 @@ def test_normalize_site_url(raw, expected):
 )
 def test_suggest_registered_site(site_url, registered, expected):
     assert suggest_registered_site(site_url, registered) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_name,expected_type",
+    [
+        ("search_analytics_by_page", "web"),
+        ("search_analytics_by_page_image", "image"),
+        ("search_analytics_by_page_news", "news"),
+    ],
+)
+def test_query_sends_search_type(monkeypatch, resource_name, expected_type):
+    # Google defaults `type` to web, so an omitted or mis-parsed suffix silently returns
+    # web numbers under an image/news table name.
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_today", lambda: TODAY)
+
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(200, {"rows": []})
+    base_name, search_type = split_schema_name(resource_name)
+    _query_search_analytics(
+        session,
+        "sc-domain:example.com",
+        "2026-04-15",
+        "2026-04-15",
+        SEARCH_ANALYTICS_SCHEMAS[base_name]["dimensions"],
+        0,
+        search_type=search_type,
+    )
+
+    assert session.post.call_args.kwargs["json"]["type"] == expected_type
+
+
+def test_suffixed_schema_queries_base_dimensions_under_suffixed_table_name(monkeypatch):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return [{"keys": ["2026-04-26", "/pricing"], "clicks": 3, "impressions": 9, "ctr": 0.33, "position": 2.0}]
+
+    monkeypatch.setattr(gsc, "_today", lambda: dt.date(2026, 4, 30))
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_page_image",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 26),
+    )
+    batches = list(response.items())  # type: ignore[arg-type]
+
+    assert response.name == "search_analytics_by_page_image"
+    # The suffix selects the search type; it must not leak into the requested dimensions.
+    assert calls[0]["dimensions"] == ["date", "page"]
+    assert {call["search_type"] for call in calls} == {"image"}
+    assert batches[0][0]["search_type"] == "image"
+    # Constant per table, so adding it to the key would only bloat the merge predicate.
+    assert response.primary_keys == ["date", "page"]
+
+
+@pytest.mark.parametrize(
+    "resource_name",
+    [
+        "not_a_real_schema_image",
+        # `discover` is not an offered search type, so this is not a suffixed name.
+        "search_analytics_by_query_discover",
+        # Hourly data only exists for web search.
+        "search_analytics_by_hour_image",
+        "search_analytics_by_search_appearance_news",
+    ],
+)
+def test_unavailable_schema_names_raise(resource_name):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    with pytest.raises(ValueError):
+        google_search_console_source(
+            config=config,
+            resource_name=resource_name,
+            team_id=1,
+            resumable_source_manager=mock.MagicMock(),
+        )
+
+
+@pytest.mark.parametrize("base_name", sorted(SEARCH_ANALYTICS_SCHEMAS))
+@pytest.mark.parametrize("search_type", SEARCH_TYPES)
+def test_schema_name_round_trips(base_name, search_type):
+    assert split_schema_name(qualified_schema_name(base_name, search_type)) == (base_name, search_type)
+
+
+def test_no_base_schema_name_collides_with_a_search_type_suffix():
+    # A base name ending in `_image` would be silently reinterpreted as the image variant
+    # of a shorter name, quietly querying the wrong dimensions.
+    for base_name in SEARCH_ANALYTICS_SCHEMAS:
+        assert split_schema_name(base_name) == (base_name, DEFAULT_SEARCH_TYPE)

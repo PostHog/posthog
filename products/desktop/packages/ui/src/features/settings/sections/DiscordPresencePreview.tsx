@@ -1,5 +1,7 @@
 import { DotsThree, GameController, Pause, Play } from "@phosphor-icons/react";
-import { Flex, SegmentedControl, Text } from "@radix-ui/themes";
+import { SettingsSection } from "@posthog/ui/features/settings/components/SettingsCard";
+import { SettingsSegmented } from "@posthog/ui/features/settings/components/SettingsSegmented";
+import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import posthogIcon from "../../auth/assets/posthog-icon.svg";
 
@@ -63,37 +65,36 @@ export function DiscordPresencePreview({
   const state = showRepoName ? `${SAMPLE_REPO} · ${statusPart}` : statusPart;
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex
-        align="center"
-        justify="between"
-        className="border-gray-6 border-t pt-4"
-      >
-        <Text className="font-medium text-sm">Preview</Text>
-        <div className={enabled ? "" : "pointer-events-none opacity-50"}>
-          <SegmentedControl.Root
-            size="1"
-            value={running ? "running" : "idle"}
-            onValueChange={(value) => setRunning(value === "running")}
-          >
-            <SegmentedControl.Item value="running">
-              Running
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="idle">Idle</SegmentedControl.Item>
-          </SegmentedControl.Root>
-        </div>
-      </Flex>
-
+    <SettingsSection
+      label="Preview"
+      description="What your Discord profile shows while you work"
+      action={
+        <SettingsSegmented
+          value={running ? "running" : "idle"}
+          options={[
+            { value: "running", label: "Running" },
+            { value: "idle", label: "Idle" },
+          ]}
+          onValueChange={(value) => setRunning(value === "running")}
+          ariaLabel="Preview state"
+          disabled={!enabled}
+        />
+      }
+    >
       <div
-        className={`max-w-[380px] rounded-xl border border-gray-5 bg-gray-2 px-4 py-3 ${
+        className={`max-w-[380px] rounded-xl border border-border bg-gray-2 px-4 py-3 ${
           enabled ? "" : "pointer-events-none opacity-50"
         }`}
       >
         <Flex align="center" justify="between">
-          <Text className="font-semibold text-[12px] text-gray-11">
+          <Text className="font-semibold text-[12px] text-muted-foreground">
             Playing
           </Text>
-          <DotsThree size={18} weight="bold" className="text-gray-9" />
+          <DotsThree
+            size={18}
+            weight="bold"
+            className="text-muted-foreground"
+          />
         </Flex>
 
         <Flex align="start" gap="3" className="mt-2">
@@ -114,11 +115,13 @@ export function DiscordPresencePreview({
           </div>
 
           <Flex direction="column" className="min-w-0 gap-0">
-            <Text className="font-bold text-[15px] text-gray-12">PostHog</Text>
-            <Text truncate className="text-[13px] text-gray-12">
+            <Text className="font-bold text-[15px] text-foreground">
+              PostHog
+            </Text>
+            <Text truncate className="text-[13px] text-foreground">
               {details}
             </Text>
-            <Text truncate className="text-[13px] text-gray-11">
+            <Text truncate className="text-[13px] text-muted-foreground">
               {state}
             </Text>
             <Flex align="center" gap="1" className="mt-0.5 text-(--green-11)">
@@ -130,6 +133,6 @@ export function DiscordPresencePreview({
           </Flex>
         </Flex>
       </div>
-    </Flex>
+    </SettingsSection>
   );
 }

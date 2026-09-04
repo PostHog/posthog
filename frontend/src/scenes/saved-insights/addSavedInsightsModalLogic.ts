@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -370,14 +371,20 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 })
                 if (response) {
                     actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    logic.unmount()
+                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                        action: DashboardLoadAction.Update,
+                    })
                     lemonToast.success('Insight added to dashboard')
                 }
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)
+                if (isTransientServerError(e)) {
+                    // Gateway timeouts (e.g. an empty-bodied 503) usually succeed on retry. We've handled
+                    // the failure, so stop here rather than rethrowing into error tracking as an unhandled
+                    // rejection.
+                    lemonToast.error('Adding the insight to the dashboard timed out. Try again in a moment.')
+                    return
+                }
                 lemonToast.error('Failed to add insight to dashboard')
                 throw e
             } finally {
@@ -394,14 +401,20 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 })
                 if (response) {
                     actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    logic.unmount()
+                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                        action: DashboardLoadAction.Update,
+                    })
                     lemonToast.success('Insight removed from dashboard')
                 }
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)
+                if (isTransientServerError(e)) {
+                    // Gateway timeouts (e.g. an empty-bodied 503) usually succeed on retry. We've handled
+                    // the failure, so stop here rather than rethrowing into error tracking as an unhandled
+                    // rejection.
+                    lemonToast.error('Removing the insight from the dashboard timed out. Try again in a moment.')
+                    return
+                }
                 lemonToast.error('Failed to remove insight from dashboard')
                 throw e
             } finally {

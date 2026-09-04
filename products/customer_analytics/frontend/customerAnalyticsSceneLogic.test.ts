@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { sceneLogic } from 'scenes/sceneLogic'
+import { emptySceneParams } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -52,6 +54,18 @@ describe('customerAnalyticsSceneLogic', () => {
     })
 
     describe('URL sync', () => {
+        it('activates the Requests tab for its scene key', () => {
+            sceneLogic.actions.setScene(Scene.CustomerAnalytics, 'customerAnalyticsFeatureRequests', emptySceneParams)
+
+            expectLogic(logic).toMatchValues({ activeTab: 'feature_requests' })
+        })
+
+        it('activates the Accounts tab for the account detail scene key', () => {
+            sceneLogic.actions.setScene(Scene.CustomerAnalyticsAccount, 'customerAnalyticsAccount', emptySceneParams)
+
+            expectLogic(logic).toMatchValues({ activeTab: 'accounts' })
+        })
+
         it('reads filter_test_accounts from URL', () => {
             expectLogic(logic).toMatchValues({
                 filterTestAccounts: true,

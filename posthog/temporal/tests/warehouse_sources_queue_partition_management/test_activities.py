@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date
+from types import TracebackType
 from typing import Any, Literal
 
 import pytest
 from unittest.mock import MagicMock, call, patch
+
+import psycopg
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
@@ -399,9 +402,6 @@ def _patched_terminalize_collaborators():
         patch("products.warehouse_sources.backend.facade.pipelines.BatchQueue") as batch_queue,
         patch("products.warehouse_sources.backend.facade.pipelines.mark_job_failed_if_not_terminal") as mark_failed,
         patch("products.warehouse_sources.backend.facade.pipelines.release_v3_pipeline_lock") as release_lock,
-        # The real close_old_connections trips pytest-django's DB blocker when an
-        # earlier test on the same xdist worker left an initialized connection.
-        patch("django.db.close_old_connections"),
     ):
         batch_queue.fail_batches_for_job_sync.return_value = 2
         yield batch_queue, mark_failed, release_lock
@@ -522,3 +522,37 @@ async def test_activity_logs_s3_deleted_count(activity_environment) -> None:
     ]
     assert len(completion_calls) == 1
     assert completion_calls[0].kwargs["s3_deleted_count"] == 2
+
+
+def _connect_refused(*args: Any, **kwargs: Any) -> None:
+    del args, kwargs
+    raise psycopg.OperationalError("connection refused")
+
+
+def _frames_holding(tb: TracebackType | None, needle: str) -> list[str]:
+    hits: list[str] = []
+    while tb is not None:
+        if needle in repr(tb.tb_frame.f_locals):
+            hits.append(tb.tb_frame.f_code.co_qualname)
+        tb = tb.tb_next
+    return hits
+
+
+_SECRET = "invented-secret"
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_keeps_database_url_out_of_traceback_locals() -> None:
+    with (
+        patch.object(
+            activities_module.settings,
+            "WAREHOUSE_SOURCES_DATABASE_URL",
+            f"postgres://alice:{_SECRET}@db.example.com/app",
+        ),
+        patch.object(activities_module.psycopg.Connection, "connect", _connect_refused),
+        pytest.raises(psycopg.OperationalError) as exc_info,
+    ):
+        await manage_warehouse_sources_queue_partitions()
+
+    hits = _frames_holding(exc_info.value.__traceback__, _SECRET)
+    assert hits == []

@@ -31,6 +31,18 @@ value is the _analysis itself_ (the LLM deciding what to query and writing it up
 not a fixed chart they already built. For an insight/dashboard subscription, set
 `insight`/`dashboard` instead of `prompt` and the AI gates below don't apply.
 
+> **Prefer a dashboard or insight subscription first.** A prompt subscription is the
+> heaviest option, and the LLM composes its own HogQL, so its numbers can drift from
+> what a saved insight or dashboard already shows. Reach for it only when (a) the user
+> **specifically asks** for a free-text / AI-written report, or (b) no existing insight
+> or dashboard covers the ask and the value really is the analysis itself. If the user
+> wants the key numbers from an **existing dashboard or insight** delivered on a
+> schedule — even phrased as "set up a scout/bot to post this daily" — a
+> **dashboard (or insight) subscription with `summary_enabled: true`** is usually the
+> better fit. Respect a user who's sure they want a prompt subscription, but when it's
+> ambiguous, suggest that and confirm first. See `managing-subscriptions` for the happy
+> path.
+
 This skill covers **creating** the subscription. Once it exists you manage its
 lifecycle with the same `subscriptions-*` tools (see below): list it, edit/disable/
 re-enable it, send a test delivery, or delete it.
@@ -76,7 +88,7 @@ target_type: "email" | "slack"        # webhook is rejected for prompt subs
 target_value: "..."                   # comma-separated emails, or "<channel_id>|<channel_name>"
 frequency: "daily" | "weekly" | "monthly" | "yearly"
 interval: 1                            # 1 = every tick; 2 = every other tick; etc.
-start_date: "2026-09-15T09:00:00Z"   # anchors the recurrence + time-of-day; need not be in the future — the scheduler delivers the next occurrence
+start_date: "2026-09-15T09:30:00Z"   # anchors the recurrence + time-of-day; hour and half-hour slots are supported; need not be in the future
 title: "..."                          # display name in the subscriptions list
 ```
 
@@ -169,3 +181,8 @@ title: 'Daily onboarding watch'
 `enabled: true`, `next_delivery_date` is in the future, and `prompt` matches what
 you sent. The first scheduled tick will run the planner → HogQL → synthesis
 pipeline and email/Slack the rendered markdown.
+
+## Related skills
+
+- **`managing-subscriptions`** — insight and dashboard subscriptions, including AI summaries attached to them
+- **`building-a-dashboard`** — build the dashboard when the user wants charts rather than a written report

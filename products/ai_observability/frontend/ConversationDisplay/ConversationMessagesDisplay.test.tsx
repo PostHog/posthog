@@ -5,10 +5,11 @@ import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
-import { CompatMessage } from '../types'
+import { CompatMessage, MultiModalContentItem } from '../types'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
+    ImageMessageDisplay,
     LLMMessageDisplay,
 } from './ConversationMessagesDisplay'
 
@@ -133,6 +134,60 @@ describe('LLMMessageDisplay', () => {
         )
 
         expect(container.querySelector('img')?.getAttribute('src')).toBe(expectedSrc)
+    })
+
+    it('replaces a redacted sentinel reaching the JSON-string image path with a placeholder', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: JSON.stringify({ type: 'image', content: { type: 'image', image: '[base64 image redacted]' } }),
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+    })
+
+    it('keeps the transcript when redacted audio replaces the player', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [
+                {
+                    type: 'audio',
+                    data: '[base64 audio redacted]',
+                    transcript: 'a spoken sentence',
+                    id: 'aud_1',
+                    expires_at: 0,
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('audio')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('a spoken sentence')).toBeInTheDocument()
+    })
+
+    it('keeps the filename when a redacted file replaces the download link', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [{ type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('doc.pdf')).toBeInTheDocument()
     })
 
     it('renders OpenAI Responses input_text/input_image content parts as text and an image', () => {
@@ -414,5 +469,262 @@ describe('ConversationMessagesDisplay', () => {
         for (const text of hidden) {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
+    })
+
+    it.each<[string, unknown, unknown, unknown, unknown, string | null]>([
+        [
+            'only output tokens were billed',
+            2048,
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'only reasoning tokens were billed',
+            undefined,
+            442,
+            undefined,
+            undefined,
+            'The provider reported 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+        ],
+        [
+            'reasoning matches the billed output exactly',
+            442,
+            442,
+            undefined,
+            undefined,
+            'The provider reported 442 output tokens but no content was captured. All of them may have been reasoning.',
+        ],
+        [
+            'reasoning exceeds the output count, so the output is missing content',
+            400,
+            500,
+            undefined,
+            undefined,
+            'The provider reported 400 output tokens and 500 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider reported the count as a string',
+            '512',
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 512 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider spelled the token limit in upper case',
+            2048,
+            undefined,
+            undefined,
+            'MAX_TOKENS',
+            'The provider reported 2,048 output tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the stop reason outranks the reasoning-token guess',
+            undefined,
+            442,
+            undefined,
+            'length',
+            'The provider reported 442 reasoning tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the provider blocked the response without billing anything',
+            0,
+            0,
+            undefined,
+            'PROHIBITED_CONTENT',
+            'The provider blocked the response.',
+        ],
+        [
+            'the stop reason describes a normal ending',
+            2048,
+            undefined,
+            undefined,
+            'end_turn',
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'reasoning is only a fraction of the billed output',
+            2048,
+            12,
+            undefined,
+            undefined,
+            'The provider reported 2,048 output tokens and 12 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'the text-token split says none of the output was text',
+            169,
+            56,
+            0,
+            undefined,
+            'The provider reported 169 output tokens and 56 reasoning tokens but no content was captured. None of them were text.',
+        ],
+        [
+            'the text-token split says text was billed too',
+            442,
+            442,
+            113,
+            undefined,
+            'The provider reported 442 output tokens and 442 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider hyphenated the stop reason',
+            2048,
+            undefined,
+            undefined,
+            'content-filter',
+            'The provider reported 2,048 output tokens but no content was captured. The provider blocked the response.',
+        ],
+        [
+            'an older SDK sent the count as an object',
+            { total: 10585, noCache: 10585, cacheRead: 0 },
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 10,585 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        ['the provider billed nothing', 0, 0, undefined, undefined, null],
+        ['no token counts arrived', undefined, undefined, undefined, undefined, null],
+    ])(
+        'empty output explains the gap when %s',
+        (_label, outputTokens, reasoningTokens, textOutputTokens, stopReason, expected) => {
+            const { container } = render(
+                <Provider>
+                    <ConversationMessagesDisplay
+                        inputNormalized={inputNormalized}
+                        outputNormalized={[]}
+                        errorData={null}
+                        raisedError={false}
+                        outputTokens={outputTokens}
+                        reasoningTokens={reasoningTokens}
+                        textOutputTokens={textOutputTokens}
+                        stopReason={stopReason}
+                    />
+                </Provider>
+            )
+
+            expect(screen.getByText('No output')).toBeInTheDocument()
+            const explanation = container.querySelector('[data-attr="ai-empty-output-explanation"]')
+            if (expected !== null) {
+                expect(explanation).toHaveTextContent(expected)
+                // The notice names a cause and the link carries the fix. A typo'd anchor dead-ends there.
+                expect(explanation!.querySelector('a')).toHaveAttribute(
+                    'href',
+                    'https://posthog.com/docs/ai-observability/troubleshooting#why-does-my-generation-show-no-output'
+                )
+            } else {
+                expect(explanation).toBeNull()
+            }
+        }
+    )
+})
+
+describe('ImageMessageDisplay', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('tags rendered images with a stable data-attr for e2e targeting', () => {
+        const { container } = render(
+            <ImageMessageDisplay message={{ content: { image: 'data:image/png;base64,iVBORw0KGgo=' } }} />
+        )
+
+        const image = container.querySelector('img')
+        expect(image).not.toBeNull()
+        expect(image).toHaveAttribute('data-attr', 'ai-message-image')
+    })
+
+    it('tags the OpenAI image_url content branch with the same data-attr', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        const image = container.querySelector('img')
+        expect(image).not.toBeNull()
+        expect(image).toHaveAttribute('data-attr', 'ai-message-image')
+    })
+
+    const REDACTED = '[base64 image redacted]'
+    const redactedParts: [string, MultiModalContentItem, string][] = [
+        ['python image sentinel', { type: 'image_url', image_url: { url: REDACTED } }, 'Image'],
+        ['node image sentinel', { type: 'image_url', image_url: { url: '[base64 image/png redacted]' } }, 'Image'],
+        ['data-uri-wrapped sentinel', { type: 'image_url', image_url: { url: `data:;base64,${REDACTED}` } }, 'Image'],
+        ['vercel image sentinel', { type: 'image', image: REDACTED }, 'Image'],
+        ['input_image sentinel', { type: 'input_image', image_url: REDACTED }, 'Image'],
+        [
+            'anthropic image sentinel',
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini snake_case image sentinel',
+            { type: 'image', inline_data: { mime_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini camelCase image sentinel',
+            { type: 'image', inlineData: { mimeType: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        ['file sentinel', { type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }, 'File'],
+        [
+            'anthropic document sentinel',
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'gemini document sentinel',
+            { type: 'document', inline_data: { mime_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'audio sentinel',
+            { type: 'audio', data: '[base64 audio redacted]', transcript: '', id: 'aud_1', expires_at: 0 },
+            'Audio',
+        ],
+    ]
+
+    it.each(redactedParts)('replaces %s with a placeholder instead of a broken media element', (_name, part, label) => {
+        const message: CompatMessage = { role: 'user', content: [part] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText(`${label} not captured.`)).toBeInTheDocument()
+        expect(screen.getByRole('link')).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/ai-observability/large-events'
+        )
+    })
+
+    it.each([
+        ['inline data uri', 'data:image/png;base64,iVBORw0KGgo='],
+        ['offloaded blob pointer', `phaiblob://v1/sha256/${'a'.repeat(64)}?mime=image%2Fpng&size=131072`],
+        ['plain remote https url', 'https://example.com/a.png'],
+    ])('keeps rendering an image for %s', (_name, url) => {
+        const message: CompatMessage = { role: 'user', content: [{ type: 'image_url', image_url: { url } }] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).not.toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).toBeNull()
     })
 })

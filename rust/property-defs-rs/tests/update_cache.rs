@@ -73,9 +73,6 @@ fn make_prop_def(name: &str) -> Update {
         property_type: Some(PropertyValueType::Numeric),
         event_type: PropertyParentType::Event,
         group_type_index: None,
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
     })
 }
 
@@ -129,9 +126,6 @@ fn make_group_prop_def(group_type_index: Option<GroupType>) -> Update {
         property_type: Some(PropertyValueType::String),
         event_type: PropertyParentType::Group,
         group_type_index,
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
     })
 }
 
@@ -171,9 +165,6 @@ fn test_uncache_batch_evicts_unresolved_entry_for_group_prop() {
         property_type: Some(PropertyValueType::String),
         event_type: PropertyParentType::Group,
         group_type_index: Some(GroupType::Resolved("company".into(), 2)),
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
     };
     let mut batch = PropertyDefinitionsBatch::new(10);
     batch.append(resolved_pd);
@@ -193,10 +184,13 @@ fn test_uncache_batch_evicts_unresolved_entry_for_group_prop() {
 // (post - pre) instead of absolute values because the recorder is shared
 // across all tests in the binary and parallel tests touch the same labels.
 fn assert_miss_then_hit(label: &'static str, update: Update) {
-    let cache = Cache::new(64, 64, 64);
-
+    // Read counters (which installs the recorder) before building the cache:
+    // Cache::new resolves its counter handles once, against whatever recorder
+    // is installed at that moment.
     let pre_miss = counter_value(CACHE_MISSES, label);
     let pre_hit = counter_value(CACHE_HITS, label);
+
+    let cache = Cache::new(64, 64, 64);
 
     assert!(!cache.contains_key(&update), "fresh cache should miss");
     cache.insert(update.clone());
@@ -232,9 +226,10 @@ fn test_contains_key_emits_hit_miss_metrics(#[case] label: &'static str, #[case]
 // subcache. We need >32 distinct inserts to provoke at least one eviction.
 #[test]
 fn test_overflowing_subcache_emits_eviction_metric() {
-    let cache = Cache::new(2, 2, 2);
-
+    // Recorder install must precede Cache::new; see assert_miss_then_hit.
     let pre = counter_value(CACHE_EVICTIONS, "eventdefs");
+
+    let cache = Cache::new(2, 2, 2);
     for i in 0..200 {
         cache.insert(make_event_def(&format!("evict_test_evt_{i}")));
     }

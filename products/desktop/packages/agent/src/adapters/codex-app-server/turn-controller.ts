@@ -30,6 +30,10 @@ export class TurnController {
     return this.turnId;
   }
 
+  get currentGeneration(): number {
+    return this.generation;
+  }
+
   get isPending(): boolean {
     return this.pending !== undefined;
   }
@@ -58,15 +62,19 @@ export class TurnController {
   }
 
   /** Mark the live turn interrupted (so its late completion is dropped) and return its id, or undefined. */
-  markInterrupted(): string | undefined {
-    if (!this.turnId) return undefined;
-    this.cancelled.add(this.turnId);
-    return this.turnId;
+  markInterrupted(id: string | undefined = this.turnId): string | undefined {
+    if (!id) return undefined;
+    this.cancelled.add(id);
+    return id;
   }
 
   /** True (once) if this completion is for an interrupted turn we should drop. */
   shouldDropCompletion(id: string | undefined): boolean {
     return id ? this.cancelled.delete(id) : false;
+  }
+
+  clearInterrupted(id: string | undefined): boolean {
+    return this.shouldDropCompletion(id);
   }
 
   /**

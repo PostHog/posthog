@@ -10,14 +10,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CheckDatabaseNameResponseApi,
+    CheckIncrementalApi,
     CheckSchemaNameResponseApi,
     CreateTableFromUploadApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
+    DataQualityGateConfigApi,
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
+    DataWarehouseExpressionApi,
+    DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
-    DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryColumnAnnotationApi,
     DataWarehouseSavedQueryDraftApi,
@@ -26,14 +29,17 @@ import type {
     DeprovisionWarehouseResponseApi,
     FileUploadResponseApi,
     FixHogqlListParams,
+    IncrementalEligibilityApi,
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseMonitoringSeriesResponseApi,
+    ManagedWarehouseMonitoringSnapshotResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
-    PaginatedDataWarehouseModelPathListApi,
+    PaginatedDataWarehouseExpressionListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
     PaginatedDataWarehouseSavedQueryMinimalListApi,
@@ -42,7 +48,8 @@ import type {
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
     PaginatedWarehouseColumnAnnotationListApi,
-    PaginatedWarehouseColumnStatisticsListApi,
+    PatchedDataQualityGateConfigApi,
+    PatchedDataWarehouseExpressionApi,
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryColumnAnnotationApi,
     PatchedDataWarehouseSavedQueryDraftApi,
@@ -57,18 +64,21 @@ import type {
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
+    SavedQueryAncestorsApi,
     SavedQueryColumnAnnotationsListParams,
+    SavedQueryDependenciesApi,
+    SavedQueryDescendantsApi,
+    SavedQueryLineageRequestApi,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryRunApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     ViewLinkValidationResponseApi,
     WarehouseColumnAnnotationApi,
     WarehouseColumnAnnotationsListParams,
-    WarehouseColumnStatisticsApi,
-    WarehouseColumnStatisticsListParams,
-    WarehouseModelPathsListParams,
+    WarehouseExpressionsListParams,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
@@ -296,6 +306,43 @@ export const dataWarehouseDataOpsDashboardRetrieve = async (
     })
 }
 
+export const getDataWarehouseDataQualityGateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_quality_gate/`
+}
+
+/**
+ * Read or update the team's data quality gate: whether a materialization whose error-severity checks fail is published.
+ */
+export const dataWarehouseDataQualityGateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualityGateConfigApi> => {
+    return apiMutator<DataQualityGateConfigApi>(getDataWarehouseDataQualityGateRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseDataQualityGatePartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_quality_gate/`
+}
+
+/**
+ * Read or update the team's data quality gate: whether a materialization whose error-severity checks fail is published.
+ */
+export const dataWarehouseDataQualityGatePartialUpdate = async (
+    projectId: string,
+    patchedDataQualityGateConfigApi?: PatchedDataQualityGateConfigApi,
+    options?: RequestInit
+): Promise<DataQualityGateConfigApi> => {
+    return apiMutator<DataQualityGateConfigApi>(getDataWarehouseDataQualityGatePartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDataQualityGateConfigApi),
+    })
+}
+
 export const getDataWarehouseDeleteOrgDestroyUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/delete-org/`
 }
@@ -362,6 +409,64 @@ export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
 ): Promise<ManagedWarehouseDataStatusResponseApi> => {
     return apiMutator<ManagedWarehouseDataStatusResponseApi>(
         getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseMonitoringRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring/`
+}
+
+/**
+ * Get tenant-safe live worker, session, queue, and capacity data for the current organization.
+ * @summary Get managed warehouse monitoring snapshot
+ */
+export const dataWarehouseManagedWarehouseMonitoringRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseMonitoringSnapshotResponseApi> => {
+    return apiMutator<ManagedWarehouseMonitoringSnapshotResponseApi>(
+        getDataWarehouseManagedWarehouseMonitoringRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring-timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring-timeseries/`
+}
+
+/**
+ * Get one allow-listed monitoring metric for the current organization and trailing time window.
+ * @summary Get managed warehouse monitoring time series
+ */
+export const dataWarehouseManagedWarehouseMonitoringTimeseriesRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseMonitoringSeriesResponseApi> => {
+    return apiMutator<ManagedWarehouseMonitoringSeriesResponseApi>(
+        getDataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -1222,10 +1327,7 @@ export const warehouseColumnAnnotationsDestroy = async (
     })
 }
 
-export const getWarehouseColumnStatisticsListUrl = (
-    projectId: string,
-    params?: WarehouseColumnStatisticsListParams
-) => {
+export const getWarehouseExpressionsListUrl = (projectId: string, params?: WarehouseExpressionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1237,106 +1339,119 @@ export const getWarehouseColumnStatisticsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/warehouse_column_statistics/?${stringifiedParams}`
-        : `/api/projects/${projectId}/warehouse_column_statistics/`
+        ? `/api/projects/${projectId}/warehouse_expressions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_expressions/`
 }
 
 /**
- * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
- *
- * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
- * better queries. They are system-owned and read-only here. List can be filtered to one table with
- * `?table_id=<uuid>`.
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
  */
-export const warehouseColumnStatisticsList = async (
+export const warehouseExpressionsList = async (
     projectId: string,
-    params?: WarehouseColumnStatisticsListParams,
+    params?: WarehouseExpressionsListParams,
     options?: RequestInit
-): Promise<PaginatedWarehouseColumnStatisticsListApi> => {
-    return apiMutator<PaginatedWarehouseColumnStatisticsListApi>(
-        getWarehouseColumnStatisticsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<PaginatedDataWarehouseExpressionListApi> => {
+    return apiMutator<PaginatedDataWarehouseExpressionListApi>(getWarehouseExpressionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export const getWarehouseColumnStatisticsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_column_statistics/${id}/`
+export const getWarehouseExpressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/`
 }
 
 /**
- * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
- *
- * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
- * better queries. They are system-owned and read-only here. List can be filtered to one table with
- * `?table_id=<uuid>`.
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
  */
-export const warehouseColumnStatisticsRetrieve = async (
+export const warehouseExpressionsCreate = async (
+    projectId: string,
+    dataWarehouseExpressionApi: NonReadonly<DataWarehouseExpressionApi>,
+    options?: RequestInit
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseExpressionApi),
+    })
+}
+
+export const getWarehouseExpressionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<WarehouseColumnStatisticsApi> => {
-    return apiMutator<WarehouseColumnStatisticsApi>(getWarehouseColumnStatisticsRetrieveUrl(projectId, id), {
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getWarehouseDagListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/warehouse_dag/`
+export const getWarehouseExpressionsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
 }
 
 /**
- * Return this team's DAG as a set of edges and nodes
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
  */
-export const warehouseDagList = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getWarehouseDagListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getWarehouseModelPathsListUrl = (projectId: string, params?: WarehouseModelPathsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/warehouse_model_paths/?${stringifiedParams}`
-        : `/api/projects/${projectId}/warehouse_model_paths/`
-}
-
-export const warehouseModelPathsList = async (
+export const warehouseExpressionsUpdate = async (
     projectId: string,
-    params?: WarehouseModelPathsListParams,
+    id: string,
+    dataWarehouseExpressionApi: NonReadonly<DataWarehouseExpressionApi>,
     options?: RequestInit
-): Promise<PaginatedDataWarehouseModelPathListApi> => {
-    return apiMutator<PaginatedDataWarehouseModelPathListApi>(getWarehouseModelPathsListUrl(projectId, params), {
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsUpdateUrl(projectId, id), {
         ...options,
-        method: 'GET',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseExpressionApi),
     })
 }
 
-export const getWarehouseModelPathsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_model_paths/${id}/`
+export const getWarehouseExpressionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
 }
 
-export const warehouseModelPathsRetrieve = async (
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseExpressionApi?: NonReadonly<PatchedDataWarehouseExpressionApi>,
+    options?: RequestInit
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDataWarehouseExpressionApi),
+    })
+}
+
+export const getWarehouseExpressionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<DataWarehouseModelPathApi> => {
-    return apiMutator<DataWarehouseModelPathApi>(getWarehouseModelPathsRetrieveUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseExpressionsDestroyUrl(projectId, id), {
         ...options,
-        method: 'GET',
+        method: 'DELETE',
     })
 }
 
@@ -1496,21 +1611,20 @@ export const getWarehouseSavedQueriesAncestorsCreateUrl = (projectId: string, id
 /**
  * Return the ancestors of this saved query.
  *
- * By default, we return the immediate parents. The `level` parameter can be used to
- * look further back into the ancestor tree. If `level` overshoots (i.e. points to only
- * ancestors beyond the root), we return an empty list.
+ * By default, we return every ancestor. The `level` parameter bounds how many hops back
+ * to walk, so 1 gives the immediate parents.
  */
 export const warehouseSavedQueriesAncestorsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryLineageRequestApi?: SavedQueryLineageRequestApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesAncestorsCreateUrl(projectId, id), {
+): Promise<SavedQueryAncestorsApi> => {
+    return apiMutator<SavedQueryAncestorsApi>(getWarehouseSavedQueriesAncestorsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryLineageRequestApi),
     })
 }
 
@@ -1546,8 +1660,8 @@ export const warehouseSavedQueriesDependenciesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesDependenciesRetrieveUrl(projectId, id), {
+): Promise<SavedQueryDependenciesApi> => {
+    return apiMutator<SavedQueryDependenciesApi>(getWarehouseSavedQueriesDependenciesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -1560,21 +1674,20 @@ export const getWarehouseSavedQueriesDescendantsCreateUrl = (projectId: string, 
 /**
  * Return the descendants of this saved query.
  *
- * By default, we return the immediate children. The `level` parameter can be used to
- * look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
- * descendants further than a leaf), we return an empty list.
+ * By default, we return every descendant. The `level` parameter bounds how many hops
+ * forward to walk, so 1 gives the immediate children.
  */
 export const warehouseSavedQueriesDescendantsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryLineageRequestApi?: SavedQueryLineageRequestApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesDescendantsCreateUrl(projectId, id), {
+): Promise<SavedQueryDescendantsApi> => {
+    return apiMutator<SavedQueryDescendantsApi>(getWarehouseSavedQueriesDescendantsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryLineageRequestApi),
     })
 }
 
@@ -1655,14 +1768,14 @@ export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: stri
 export const warehouseSavedQueriesRunCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryRunApi?: SavedQueryRunApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryRunApi),
     })
 }
 
@@ -1681,6 +1794,29 @@ export const warehouseSavedQueriesRunHistoryRetrieve = async (
     return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunHistoryRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseSavedQueriesCheckIncrementalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/check_incremental/`
+}
+
+/**
+ * Report whether a query can be materialized incrementally, without running it.
+ *
+ * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
+ * the editor explain why the incremental option is unavailable before anything is saved.
+ */
+export const warehouseSavedQueriesCheckIncrementalCreate = async (
+    projectId: string,
+    checkIncrementalApi: CheckIncrementalApi,
+    options?: RequestInit
+): Promise<IncrementalEligibilityApi> => {
+    return apiMutator<IncrementalEligibilityApi>(getWarehouseSavedQueriesCheckIncrementalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(checkIncrementalApi),
     })
 }
 

@@ -1,7 +1,9 @@
 """Activities for evaluation reports workflow."""
 
+import time
 import datetime as dt
 from collections import defaultdict
+from itertools import batched
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -14,8 +16,14 @@ from structlog import get_logger
 from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.eval_reports.constants import COUNT_TRIGGER_QUERY_WIDTH
+from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
+    COUNT_TRIGGER_QUERY_WIDTH,
+)
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
@@ -152,7 +160,9 @@ def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
         .values_list("id", "team_id")
     ):
         ids_by_team[team_id].append(str(pk))
-    return [chunk for ids in ids_by_team.values() for chunk in _chunk(ids, COUNT_TRIGGER_QUERY_WIDTH)]
+    return [
+        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+    ]
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
@@ -220,10 +230,6 @@ def _check_count_triggered_eval_report_sync(
     return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=count >= report.trigger_threshold)
 
 
-def _chunk(items: list, size: int) -> list[list]:
-    return [items[index : index + size] for index in range(0, len(items), size)]
-
-
 def _check_count_triggered_eval_reports_batch(
     report_ids: list[str],
     now: dt.datetime | None = None,
@@ -273,11 +279,15 @@ def _check_count_triggered_eval_reports_batch(
         assert since is not None
         survivors[report.team_id].append((report_id, report, since))
 
+    deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
     for entries in survivors.values():
         team = entries[0][1].team
-        # Cap the per-query width so a team with many reports doesn't build one giant query.
-        for chunk in _chunk(entries, COUNT_TRIGGER_QUERY_WIDTH):
-            counts = _count_eval_results_for_reports(
+        # Sort by `since` before capping the per-query width, so entries sharing a chunk
+        # have a comparable window — one stale report no longer sets the scan's lower
+        # bound for every other report queued alongside it.
+        entries.sort(key=lambda entry: entry[2])
+        for chunk in batched(entries, COUNT_TRIGGER_QUERY_WIDTH, strict=False):
+            counts = _count_eval_results_for_reports_with_split_retry(
                 team,
                 [
                     _CountEntry(
@@ -289,6 +299,8 @@ def _check_count_triggered_eval_reports_batch(
                     )
                     for report_id, report, since in chunk
                 ],
+                until=now,
+                deadline=deadline,
             )
             for report_id, report, _since in chunk:
                 assert report.trigger_threshold is not None
@@ -349,15 +361,18 @@ class _CountEntry(NamedTuple):
 def _count_eval_results_for_reports(
     team: "Team",
     entries: list[_CountEntry],
+    until: dt.datetime,
+    max_execution_time: int,
 ) -> dict[str, int]:
     """Count `$ai_evaluation` events for many reports in a single ClickHouse query.
 
     We emit one `countIf` column per entry, each carrying the exact per-report predicate
     (evaluation_id + output-type `event_predicate` + `target_predicate` + `timestamp >=
     since`), so every count equals what the single-report query would return. The shared
-    WHERE only narrows the scan (its `IN` set and `min(since)` never exclude a row any
-    countIf would have counted). Returns {key: count}.
+    WHERE only narrows the scan (its `IN` set, `min(since)`, and `until` upper bound never
+    exclude a row any countIf would have counted). Returns {key: count}.
     """
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.parser import parse_expr, parse_select
     from posthog.hogql.query import execute_hogql_query
 
@@ -387,10 +402,12 @@ def _count_eval_results_for_reports(
     unique_evaluation_ids = list(dict.fromkeys(entry.evaluation_id for entry in entries))
     query = parse_select(
         "SELECT 1 FROM events WHERE event = '$ai_evaluation' "
-        "AND properties.$ai_evaluation_id IN {evaluation_ids} AND timestamp >= {min_since}",
+        "AND properties.$ai_evaluation_id IN {evaluation_ids} "
+        "AND timestamp >= {min_since} AND timestamp <= {until}",
         placeholders={
             "evaluation_ids": ast.Tuple(exprs=[ast.Constant(value=e) for e in unique_evaluation_ids]),
             "min_since": ast.Constant(value=min(entry.since for entry in entries)),
+            "until": ast.Constant(value=until),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -398,13 +415,57 @@ def _count_eval_results_for_reports(
     query.select = select_columns
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
+        result = execute_hogql_query(
+            query=query,
+            team=team,
+            workload=Workload.OFFLINE,
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
+        )
 
     rows = result.results or []
     if not rows:
         return {entry.key: 0 for entry in entries}
     row = rows[0]
     return {entries[index].key: int(row[index] or 0) for index in range(len(entries))}
+
+
+def _count_eval_results_for_reports_with_split_retry(
+    team: "Team",
+    entries: list[_CountEntry],
+    until: dt.datetime,
+    deadline: float | None = None,
+) -> dict[str, int]:
+    """Run the batched count query, halving the chunk and retrying narrower if ClickHouse
+    can't finish it inside its own execution-time budget.
+
+    A `ClickHouseQueryTimeOut` on a width-N query means N countIf columns over that team's
+    event volume don't fit the budget — replaying the identical query would just time out
+    again. Splitting also narrows each half's own `since`-sorted window independently.
+
+    Every attempt draws on one shared wall-clock budget (`deadline`, in `time.monotonic()`
+    seconds), capping its own execution time by what remains, so the whole split tree
+    concludes before the activity's own timeout. Once the remainder can't fund a meaningful
+    query, the timeout surfaces and the activity fails cleanly instead of being killed
+    mid-split by Temporal.
+    """
+    if deadline is None:
+        deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
+    budget = min(COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS, int(deadline - time.monotonic()))
+    if budget < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
+        raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
+    try:
+        return _count_eval_results_for_reports(team, entries, until=until, max_execution_time=budget)
+    except ClickHouseQueryTimeOut:
+        if len(entries) == 1:
+            raise
+        midpoint = len(entries) // 2
+        counts = _count_eval_results_for_reports_with_split_retry(
+            team, entries[:midpoint], until=until, deadline=deadline
+        )
+        counts.update(
+            _count_eval_results_for_reports_with_split_retry(team, entries[midpoint:], until=until, deadline=deadline)
+        )
+        return counts
 
 
 def _find_nth_eval_timestamp(
@@ -588,23 +649,7 @@ async def run_eval_report_agent_activity(
 
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
             return (
-                run_eval_report_agent(
-                    team_id=inputs.team_id,
-                    report_id=inputs.report_id,
-                    trace_id=inputs.trace_id,
-                    session_id=inputs.session_id,
-                    evaluation_id=inputs.evaluation_id,
-                    evaluation_name=inputs.evaluation_name,
-                    evaluation_description=inputs.evaluation_description,
-                    evaluation_prompt=inputs.evaluation_prompt,
-                    evaluation_type=inputs.evaluation_type,
-                    evaluation_target=evaluation_target,
-                    output_type=inputs.output_type,
-                    period_start=inputs.period_start,
-                    period_end=inputs.period_end,
-                    previous_period_start=inputs.previous_period_start,
-                    report_prompt_guidance=inputs.report_prompt_guidance,
-                ),
+                run_eval_report_agent(inputs, evaluation_target=evaluation_target),
                 evaluation_target,
             )
 

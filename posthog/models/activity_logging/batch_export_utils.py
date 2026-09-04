@@ -1,4 +1,4 @@
-from typing import Optional
+from posthog.models.activity_logging.utils import CreatedByInfo
 
 
 def get_batch_export_destination_type(batch_export) -> str:
@@ -12,7 +12,7 @@ def get_batch_export_destination_type(batch_export) -> str:
     return destination_type
 
 
-def get_batch_export_created_by_info(batch_export) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def get_batch_export_created_by_info(batch_export) -> CreatedByInfo:
     """Get created by user information from BatchExport"""
     created_by_user_id = None
     created_by_user_email = None
@@ -23,7 +23,7 @@ def get_batch_export_created_by_info(batch_export) -> tuple[Optional[str], Optio
         created_by_user_email = batch_export.created_by.email
         created_by_user_name = f"{batch_export.created_by.first_name} {batch_export.created_by.last_name}".strip()
 
-    return created_by_user_id, created_by_user_email, created_by_user_name
+    return CreatedByInfo(user_id=created_by_user_id, email=created_by_user_email, name=created_by_user_name)
 
 
 def get_batch_export_detail_name(batch_export, destination_type: str) -> str:

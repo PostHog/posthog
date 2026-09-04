@@ -5,7 +5,7 @@ from unittest.mock import patch
 from langgraph.errors import GraphInterrupt
 from pydantic import BaseModel
 
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ee.hogai.core.context import set_node_path
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL, _import_max_tools

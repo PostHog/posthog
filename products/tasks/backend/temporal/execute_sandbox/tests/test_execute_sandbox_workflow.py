@@ -127,7 +127,7 @@ class TestShouldForwardPendingUserMessage:
             # Resume runs already replay the original prompt — forwarding would
             # double up. Both resume markers must short-circuit.
             ({"mode": "background", "resume_from_run_id": "prev"}, False),
-            ({"mode": "background", "handoff_resumed": True}, False),
+            ({"mode": "background", "same_run_resume": True}, False),
         ],
     )
     def test_forwards_only_in_background_and_not_on_resume(self, state: dict, expected: bool):
@@ -738,6 +738,19 @@ class TestPersistSandboxId:
 
 
 class TestRun:
+    async def test_relay_detected_sandbox_loss_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        execute_activity_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", execute_activity_mock)
+
+        await workflow._relay_sandbox_events(
+            StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="token"),
+            "sandbox-123",
+        )
+
+        assert workflow._sandbox_gone is True
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
@@ -751,8 +764,7 @@ class TestRun:
         refresh_loop_mock.assert_awaited_once_with(workflow.context, "sandbox-123")
         silent_workflow_logger.warning.assert_called_once_with(
             "execute_sandbox_sandbox_gone_detected",
-            run_id="run-id",
-            sandbox_id="sandbox-123",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
     async def test_credential_refresh_task_gone_marks_the_run_failed(self, monkeypatch, silent_workflow_logger):
@@ -786,8 +798,7 @@ class TestRun:
         assert workflow._sandbox_gone is False
         silent_workflow_logger.warning.assert_called_once_with(
             "execute_sandbox_credential_refresh_stopped_credentials_unavailable",
-            run_id="run-id",
-            sandbox_id="sandbox-123",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
     @pytest.mark.parametrize(

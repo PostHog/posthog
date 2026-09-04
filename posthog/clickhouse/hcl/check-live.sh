@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Convergence gate, step 2 of 2: diff the live HCL dumps produced by dump-live.sh
-# against the committed golden per <env>-<role>, and require nothing but ignored
-# operations remain. Offline — needs only hclexp (via bin/hclexp), no cluster.
+# against the committed golden per <env>-<role>, and require the diff to come
+# back empty. Offline — needs only hclexp (via bin/hclexp), no cluster.
 #
-# For each role it runs `hclexp diff -left golden -right <dump> -format json` and
-# drops the operations the gate intentionally ignores — named_collections (secret
-# Kafka broker config the schema golden never models) and objects whose name
-# matches an exclude.hcl glob (out-of-band-managed: real on prod but not created
-# by the local migrate path). Anything left is real drift: fix the migration to
-# match posthog/clickhouse/hcl/, or edit the HCL layer + rerun gen-golden.sh /
-# gen-sql.sh + add the migration. See README.md.
+# For each role it runs `hclexp diff -left golden -right <dump> -exclude
+# exclude.hcl -format json`. hclexp drops the excluded objects from both sides
+# itself — named_collections by object_type, out-of-band-managed and transient
+# objects by name glob — so everything the diff still reports is real drift: fix
+# the migration to match posthog/clickhouse/hcl/, or edit the HCL layer + rerun
+# gen-golden.sh / gen-sql.sh + add the migration. See README.md.
 #
 # Usage: check-live.sh [dumpdir]     (dumpdir defaults to $LIVE_DUMP_DIR)
 #
@@ -21,8 +20,11 @@ set -euo pipefail
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"      # offline wrapper (no cluster network needed)
 GOLDEN="$HCL/golden"
-EXCLUDE="$HCL/exclude.hcl"
 ENV="${VERIFY_LIVE_ENV:-local-multi}"
+# The same exclude dump-live.sh introspected with, so the gate ignores exactly what
+# the dump dropped.
+EXCLUDE="$HCL/exclude.hcl"
+[ -f "$HCL/exclude-$ENV.hcl" ] && EXCLUDE="$HCL/exclude-$ENV.hcl"
 WARN="${VERIFY_LIVE_WARN:-0}"
 DUMPDIR="${1:-${LIVE_DUMP_DIR:?dump dir required (pass as arg1 or set LIVE_DUMP_DIR); run dump-live.sh first}}"
 
@@ -34,27 +36,14 @@ DUMPDIR="${1:-${LIVE_DUMP_DIR:?dump dir required (pass as arg1 or set LIVE_DUMP_
 roles_lines="$(manifest_roles "$ENV")"
 read -r -a ROLES <<< "${roles_lines//$'\n'/ }"
 
-# Object-name globs the gate ignores, parsed from exclude.hcl (the quoted glob
-# strings) — the same list dump-live.sh feeds hclexp -exclude, applied here to
-# the diff so golden-only out-of-band objects don't count as drift.
-GATE_IGNORE="$(grep -oE '"[^"]+"' "$EXCLUDE" 2>/dev/null | tr -d '"' | tr '\n' ' ')"
-
-# Read `hclexp diff -format json` on stdin, print the operations that count as
-# real drift (one per line), exit non-zero iff any remain. Drops named_collections
-# and objects matching a gate-ignore glob — both are workarounds for hclexp diff
-# lacking subset/exclude scoping (PostHog/chschema#75); remove once it lands.
-filter_drift() {
-  # -c (not `- <<heredoc`) so stdin stays the piped JSON; globs arrive as argv.
+# Read `hclexp diff -format json` on stdin and report its operations one per
+# line, exit non-zero iff there are any. No filtering happens here: hclexp
+# already applied exclude.hcl to both sides, so every operation is drift.
+report_drift() {
+  # -c (not `- <<heredoc`) so stdin stays the piped JSON.
   python3 -c '
-import sys, json, fnmatch
-globs = sys.argv[1:]
-ops = json.load(sys.stdin).get("operations", [])
-def ignored(o):
-    if o.get("object_type") == "named_collection":
-        return True
-    name = o.get("object", "")
-    return any(fnmatch.fnmatch(name, g) for g in globs)
-drift = [o for o in ops if not ignored(o)]
+import sys, json
+drift = json.load(sys.stdin).get("operations", [])
 for o in drift:
     db = o.get("database") or ""
     obj = (db + "." + o["object"]) if db else o["object"]
@@ -63,7 +52,7 @@ for o in drift:
     for line in (o.get("sql") or "").strip().splitlines():
         print("      " + line)
 sys.exit(1 if drift else 0)
-' "$@"
+'
 }
 
 rc=0
@@ -81,8 +70,7 @@ for role in "${ROLES[@]}"; do
   fi
 
   echo "== $ENV/$role: diff golden vs live dump =="
-  # shellcheck disable=SC2086  # GATE_IGNORE is a deliberately word-split glob list
-  if drift="$("$HCLEXP" diff -left "$golden" -right "$live" -format json | filter_drift $GATE_IGNORE)"; then
+  if drift="$("$HCLEXP" diff -left "$golden" -right "$live" -exclude "$EXCLUDE" -format json | report_drift)"; then
     echo "no differences"
   else
     echo "DRIFT: $ENV/$role — migrations produced a schema that differs from the HCL golden"

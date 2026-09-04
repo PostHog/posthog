@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, TypedDict
 
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -158,12 +159,40 @@ class ManagedDAGError(Exception):
     pass
 
 
+def _rollback_created_node(node: Node, created: bool) -> None:
+    """Undo a Node this call just created, if it's still safe to do so.
+
+    Only ever deletes a node this call created via get_or_create — a node that already
+    existed (and so may be shared by other views) is never touched here, no matter how
+    the rest of the sync fails. Also refuses to delete a node that gained a dependent
+    while we were still resolving the query, mirroring the guard
+    datawarehouse_managed_viewset.py applies before dropping a stale node. A concurrent
+    sync can still attach that dependent between our check and the DELETE, so the check
+    and delete run under a row lock, and a resulting IntegrityError is treated as "someone
+    else has claimed this node" rather than allowed to abort the whole sync.
+    """
+    if not created:
+        return
+    try:
+        with transaction.atomic():
+            locked = Node.objects.select_for_update().filter(pk=node.pk).first()
+            if locked is not None and not locked.outgoing_edges.exists():
+                locked.delete()
+    except IntegrityError:
+        logger.warning(
+            "Skipped rollback delete of DAG node claimed by a concurrent sync",
+            node_id=str(node.pk),
+            team_id=node.team_id,
+        )
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
     dag: DAG | None = None,
     allow_managed: bool = False,
     reconcile: bool = True,
+    database: Database | None = None,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -181,6 +210,7 @@ def sync_saved_query_to_dag(
         allow_managed: Whether placement into a system-managed DAG is permitted. Only the
             internal managed-viewset sync passes this; user-initiated callers must not, so a
             same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
+        database: An optional prebuilt database to reuse for dependency resolution.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
@@ -199,7 +229,7 @@ def sync_saved_query_to_dag(
 
     node_type = node_type_for(saved_query)
 
-    target, _ = Node.objects.get_or_create(
+    target, created = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,
         dag=dag,
@@ -210,14 +240,15 @@ def sync_saved_query_to_dag(
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
-    database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+    if database is None:
+        database = Database.create_for(team=team, bypass_warehouse_access_control=True)
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 
     # parse query to extract dependencies and create edges
     try:
         model_name = saved_query.name
-        dependencies = get_parents_from_model_query(team, model_name, model_query)
+        dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
         for dependency_name in dependencies:
             source = resolve_dependency_to_node(dependency_name, team, database, dag)
             Edge.objects.create(
@@ -228,7 +259,7 @@ def sync_saved_query_to_dag(
                 properties=extra_properties,
             )
     except Exception:
-        target.delete()
+        _rollback_created_node(target, created)
         raise
 
     # resolution succeeded, so an edge-less adoption marker no longer describes this node
