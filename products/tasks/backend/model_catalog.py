@@ -19,6 +19,7 @@ import and the Celery and settings machinery behind it.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 CLAUDE = "claude"
@@ -169,6 +170,45 @@ def label_for_model(model_id: str) -> str | None:
     return None
 
 
+_MODEL_ACRONYMS: dict[str, str] = {"gpt": "GPT", "glm": "GLM"}
+
+
+def _titled(word: str) -> str:
+    """Capitalise a name part, leaving bare version numbers alone."""
+    if re.fullmatch(r"[0-9.]+", word):
+        return word
+    return word[:1].upper() + word[1:].lower()
+
+
+def format_model_id(model_id: str) -> str:
+    """Turn a gateway model id into a display name: `Claude Opus 4.8`, `GPT-5.6 Sol`.
+
+    Every family goes through the same rules — strip the provider prefix, glue a version
+    onto a leading acronym, title-case the rest — so a new model is named without anyone
+    touching a lookup table.
+    """
+    # Collapse `4-8` into `4.8` so version components survive the dash split.
+    clean = re.sub(r"(\d)-(\d)", r"\1.\2", normalize_model_id(model_id))
+    words = re.split(r"[-_]", clean)
+    acronym = _MODEL_ACRONYMS.get(words[0].lower())
+    if acronym is None:
+        return " ".join(_titled(word) for word in words)
+    # `gpt` + `5.6` reads as `GPT-5.6`, the way the vendor writes it, with any remaining
+    # qualifier ("sol", "codex", "mini") as its own word.
+    head = f"{acronym}-{words[1]}" if len(words) > 1 else acronym
+    return " ".join([head, *(_titled(word) for word in words[2:])])
+
+
+def display_name_for_model(model_id: str) -> str:
+    """The name a picker shows for a model.
+
+    The catalog's own name where it pins one, and the name derived from the id everywhere
+    else. Every surface resolves a display name through here, so a model reads the same in
+    the web composer, the Slack picker, and the desktop app.
+    """
+    return label_for_model(model_id) or format_model_id(model_id)
+
+
 def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...]:
     """The efforts this model may run at, empty when it takes no effort at all.
 
@@ -206,6 +246,8 @@ __all__ = [
     "label_for_model",
     "models_for_runtime_adapter",
     "normalize_model_id",
+    "display_name_for_model",
+    "format_model_id",
     "reasoning_efforts_for",
     "serves_model",
 ]
