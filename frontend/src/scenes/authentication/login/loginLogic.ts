@@ -142,18 +142,12 @@ export function handleLoginRedirect(): void {
 
 /** Land on the post-login page in a single document load.
  *
- * `POSTHOG_APP_CONTEXT` is injected into the HTML, so a document that was served to a logged-out
- * visitor still describes a logged-out one, and the destination page has to be fetched as a fresh
- * document rather than rendered by this one. The
- * callers used to do that as a client-side redirect followed by `window.location.reload()`, which
- * boots the SPA twice: the first boot resolves the destination scene and starts fetching its
- * chunks, then the reload cancels all of them. On a production build that was over 400 cancelled
- * chunk requests. It also raced, because whether the reload picked up the destination or the
- * login URL depended on how far the router had got.
+ * `POSTHOG_APP_CONTEXT` is injected into the HTML, so a document served to a logged-out visitor
+ * still describes a logged-out one. The destination must arrive as a new document.
  *
- * An explicit destination has to resolve to a same-origin path, which also rules out a bare
- * fragment or query string. Anything the guard rejects falls back to `loginRedirectTarget()`,
- * which puts `?next=` through the same check. */
+ * An explicit destination must resolve to a same-origin path. That also rules out a bare fragment
+ * or query string. The guard falls back to `loginRedirectTarget()`, which checks `?next=` the
+ * same way. */
 export function redirectAfterLogin(destination?: string): void {
     const guardedDestination = destination ? getRelativeNextPath(destination, location) : null
     window.location.assign(guardedDestination || loginRedirectTarget())
