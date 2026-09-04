@@ -1479,11 +1479,19 @@ class _SingleFieldChainCollector(TraversingVisitor):
     """Collects the single-segment field references (e.g. `__created`) inside an expression."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.names: set[str] = set()
+        self._bound: set[str] = set()
 
     def visit_field(self, node: ast.Field) -> None:
-        if len(node.chain) == 1 and isinstance(node.chain[0], str):
+        if len(node.chain) == 1 and isinstance(node.chain[0], str) and node.chain[0] not in self._bound:
             self.names.add(node.chain[0])
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        # A lambda argument shadows any column of the same name inside the body.
+        self._bound |= set(node.args)
+        self.visit(node.expr)
+        self._bound -= set(node.args)
 
 
 def get_hogql_column_name_mapping(table_name_without_prefix: str) -> dict[str, str]:
@@ -1533,12 +1541,26 @@ def _f(name: str) -> ast.Field:
     return ast.Field(chain=[name])
 
 
-def _coalesce(*args: ast.Expr) -> ast.Call:
-    return ast.Call(name="coalesce", args=list(args))
-
-
 def _null_if(expr: ast.Expr, empty: str | int) -> ast.Call:
     return ast.Call(name="nullIf", args=[expr, ast.Constant(value=empty)])
+
+
+def _prefer_legacy(legacy_key: str, relocated: ast.Expr, empty: str | int | None = None) -> ast.Call:
+    """Read the legacy column, falling back to the relocated value only where it holds nothing.
+
+    ClickHouse evaluates every `coalesce` argument for every row, so a coalesce would run the JSON
+    extract even on rows whose legacy column is populated. `if` short-circuits.
+    """
+    legacy = _f(legacy_key)
+    missing: ast.Expr = ast.Call(name="isNull", args=[legacy])
+    if empty is not None:
+        missing = ast.Or(
+            exprs=[
+                missing,
+                ast.CompareOperation(left=legacy, right=ast.Constant(value=empty), op=ast.CompareOperationOp.Eq),
+            ]
+        )
+    return ast.Call(name="if", args=[missing, relocated, legacy])
 
 
 def _json_str(column: str, *path: str) -> ast.Call:
@@ -1558,7 +1580,14 @@ def _int_from_each(column: str, path: str, key: str) -> ast.Call:
                 args=["x"],
                 expr=ast.Call(name="JSONExtractInt", args=[_f("x"), ast.Constant(value=key)]),
             ),
-            ast.Call(name="JSONExtractArrayRaw", args=[_f(column), ast.Constant(value=path)]),
+            ast.Call(
+                name="JSONExtractArrayRaw",
+                # The synced column is nullable and `Array` cannot sit inside `Nullable`.
+                args=[
+                    ast.Call(name="coalesce", args=[_f(column), ast.Constant(value="")]),
+                    ast.Constant(value=path),
+                ],
+            ),
         ],
     )
 
@@ -1573,90 +1602,56 @@ def _expression(name: str, expr: ast.Expr) -> ast.ExpressionField:
 # location and falls back to the legacy column so either shape resolves. Keyed by the columns the
 # expression needs: a table that has not synced them yet keeps the plain legacy field, because the
 # generated s3() structure would otherwise lack a column the field references and fail every query.
-_MOVED_COLUMN_FIELDS: dict[str, dict[str, tuple[frozenset[str], ast.ExpressionField]]] = {
+_MOVED_COLUMN_FIELDS: dict[str, dict[str, ast.ExpressionField]] = {
     "stripe_invoice": {
-        "subscription_id": (
-            frozenset({"parent"}),
-            _expression(
-                "subscription_id",
-                _coalesce(
-                    _null_if(_f("__subscription"), ""),
-                    _null_if(_json_str("parent", "subscription_details", "subscription"), ""),
-                ),
-            ),
+        "subscription_id": _expression(
+            "subscription_id",
+            _prefer_legacy("__subscription", _json_str("parent", "subscription_details", "subscription"), empty=""),
         ),
-        "paid": (
-            frozenset(),
-            _expression(
-                "paid",
-                _coalesce(
-                    _f("__paid"),
-                    ast.CompareOperation(
-                        left=_f("status"),
-                        right=ast.Constant(value="paid"),
-                        op=ast.CompareOperationOp.Eq,
-                    ),
-                ),
+        "paid": _expression(
+            "paid",
+            _prefer_legacy(
+                "__paid",
+                ast.CompareOperation(left=_f("status"), right=ast.Constant(value="paid"), op=ast.CompareOperationOp.Eq),
             ),
         ),
     },
     "stripe_subscription": {
-        "current_period_start": (
-            frozenset({"items"}),
-            _expression(
-                "current_period_start",
-                _epoch_to_datetime(
-                    _coalesce(
-                        _null_if(_f("__current_period_start"), 0),
-                        _null_if(
-                            ast.Call(
-                                name="arrayMin",
-                                args=[_int_from_each("items", "data", "current_period_start")],
-                            ),
-                            0,
-                        ),
-                    )
-                ),
+        "current_period_start": _expression(
+            "current_period_start",
+            _epoch_to_datetime(
+                _prefer_legacy(
+                    "__current_period_start",
+                    _null_if(
+                        ast.Call(name="arrayMin", args=[_int_from_each("items", "data", "current_period_start")]), 0
+                    ),
+                    empty=0,
+                )
             ),
         ),
-        "current_period_end": (
-            frozenset({"items"}),
-            _expression(
-                "current_period_end",
-                _epoch_to_datetime(
-                    _coalesce(
-                        _null_if(_f("__current_period_end"), 0),
-                        _null_if(
-                            ast.Call(
-                                name="arrayMax",
-                                args=[_int_from_each("items", "data", "current_period_end")],
-                            ),
-                            0,
-                        ),
-                    )
-                ),
+        "current_period_end": _expression(
+            "current_period_end",
+            _epoch_to_datetime(
+                _prefer_legacy(
+                    "__current_period_end",
+                    _null_if(
+                        ast.Call(name="arrayMax", args=[_int_from_each("items", "data", "current_period_end")]), 0
+                    ),
+                    empty=0,
+                )
             ),
         ),
     },
     "stripe_invoiceitem": {
-        "unit_amount_decimal": (
-            frozenset({"pricing"}),
-            _expression(
-                "unit_amount_decimal",
-                _coalesce(
-                    _null_if(_f("__unit_amount_decimal"), ""),
-                    _null_if(_json_str("pricing", "unit_amount_decimal"), ""),
-                ),
-            ),
+        "unit_amount_decimal": _expression(
+            "unit_amount_decimal",
+            _prefer_legacy("__unit_amount_decimal", _json_str("pricing", "unit_amount_decimal"), empty=""),
         ),
-        "unit_amount": (
-            frozenset({"pricing"}),
-            _expression(
-                "unit_amount",
-                _coalesce(
-                    _f("__unit_amount"),
-                    ast.Call(name="toIntOrNull", args=[_json_str("pricing", "unit_amount_decimal")]),
-                ),
+        "unit_amount": _expression(
+            "unit_amount",
+            _prefer_legacy(
+                "__unit_amount",
+                ast.Call(name="toInt", args=[_json_str("pricing", "unit_amount_decimal")]),
             ),
         ),
     },
@@ -1690,16 +1685,17 @@ def resolve_external_table_fields(
     }
     overrides = _MOVED_COLUMN_FIELDS.get(table_name_without_prefix, {})
 
+    if not dropped:
+        return {**fields, **overrides}
+
     resolved: dict[str, DatabaseField] = {}
     for key, field in fields.items():
+        override = overrides.get(key)
+        if override is not None and not _referenced_keys(override) & dropped:
+            resolved[key] = override
+            continue
         if key in dropped:
             continue
-        override = overrides.get(key)
-        if override is not None:
-            requires, expression = override
-            if requires <= available and not _referenced_keys(expression) & dropped:
-                resolved[key] = expression
-                continue
         if isinstance(field, ast.ExpressionField) and _referenced_keys(field) & dropped:
             continue
         resolved[key] = field

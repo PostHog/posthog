@@ -4,8 +4,11 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.functions.mapping import find_hogql_function
+from posthog.hogql.visitor import TraversingVisitor
 
 from products.warehouse_sources.backend.models.external_table_definitions import (
+    _MOVED_COLUMN_FIELDS,
     _referenced_keys,
     external_tables,
     get_hogql_column_name_mapping,
@@ -94,3 +97,35 @@ class TestResolveExternalTableFields:
 
     def test_unknown_table_has_no_curated_fields(self) -> None:
         assert resolve_external_table_fields("some_postgres_table", []) is None
+
+
+class _CallNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_call(self, node: ast.Call) -> None:
+        self.names.add(node.name)
+        for arg in node.args:
+            self.visit(arg)
+        for param in node.params or []:
+            self.visit(param)
+
+
+class TestCuratedExpressionsCallRealFunctions:
+    def test_every_expression_uses_a_function_hogql_knows(self) -> None:
+        # A ClickHouse-only or misspelled name builds fine in Python and only fails when someone
+        # queries the table, so every curated and relocated expression is checked here instead.
+        unknown: set[str] = set()
+        tables: list[dict[str, object]] = [dict(fields) for fields in external_tables.values()]
+        tables += [dict(fields) for fields in _MOVED_COLUMN_FIELDS.values()]
+
+        for fields in tables:
+            for field in fields.values():
+                if not isinstance(field, ast.ExpressionField):
+                    continue
+                collector = _CallNameCollector()
+                collector.visit(field.expr)
+                unknown |= {name for name in collector.names if find_hogql_function(name) is None}
+
+        assert unknown == set()
