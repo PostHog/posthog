@@ -233,6 +233,41 @@ describe('PropertiesTable inline editor', () => {
         })
     })
 
+    describe('long values', () => {
+        const renderValue = (key: string, value: string): HTMLElement =>
+            render(
+                <Provider>
+                    <PropertiesTable type={PropertyDefinitionType.Person} properties={{ [key]: value }} />
+                </Provider>
+            ).container
+
+        // One long value must not push the rest of the table off screen.
+        it.each([
+            ['custom_field', 'a'.repeat(3000)],
+            ['homepage', `https://example.com/?q=${'a'.repeat(3000)}`],
+        ])('%s is clamped until "Show more" is clicked', (key, value) => {
+            const container = renderValue(key, value)
+            const cell = valueCell(container)
+            expect(cell.textContent).not.toContain(value)
+            expect(cell.textContent?.length).toBeLessThan(value.length)
+
+            const expandToggle = screen.getByText('Show more')
+            expect(expandToggle).toHaveAttribute('aria-expanded', 'false')
+            fireEvent.click(expandToggle)
+            expect(valueCell(container).textContent).toContain(value)
+
+            const collapseToggle = screen.getByText('Show less')
+            expect(collapseToggle).toHaveAttribute('aria-expanded', 'true')
+            fireEvent.click(collapseToggle)
+            expect(valueCell(container).textContent).not.toContain(value)
+        })
+
+        it('leaves short values alone', () => {
+            renderValue('custom_field', 'a'.repeat(100))
+            expect(screen.queryByText('Show more')).not.toBeInTheDocument()
+        })
+    })
+
     describe('collapsible complex values', () => {
         const renderWith = (collapsible: boolean): ReturnType<typeof render> => {
             return render(
