@@ -23,6 +23,7 @@ import type {
     DashboardSavedViewsListParams,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
+    DashboardTemplateJSONApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
     DashboardsBulkUpdateTagsCreateParams,
@@ -43,6 +44,7 @@ import type {
     DashboardsRunWidgetsRetrieveParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsSubscribeNudgeCreateParams,
+    DashboardsTemplateJsonRetrieveParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
     DashboardsUpdateWidgetsBatchParams,
@@ -914,6 +916,45 @@ export const dashboardsSubscribeNudgeCreate = async (
     return apiMutator<DashboardSubscribeNudgeResponseApi>(getDashboardsSubscribeNudgeCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDashboardsTemplateJsonRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsTemplateJsonRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/template_json/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/template_json/`
+}
+
+/**
+ * Export a dashboard as a template body.
+ *
+ * POST the body back under a `template` key to `create_from_template_json`, in this project, another
+ * project, or another PostHog instance, to recreate the dashboard there. Widget tiles keep the ids of the
+ * resources they point at, so those resources must also exist in the target project.
+ */
+export const dashboardsTemplateJsonRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsTemplateJsonRetrieveParams,
+    options?: RequestInit
+): Promise<DashboardTemplateJSONApi> => {
+    return apiMutator<DashboardTemplateJSONApi>(getDashboardsTemplateJsonRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

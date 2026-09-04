@@ -9542,6 +9542,30 @@ export interface DashboardSubscribeNudgeResponseApi {
     created: boolean
 }
 
+/**
+ * Dashboard-level filters, applied to every tile.
+ */
+export type DashboardTemplateJSONApiDashboardFilters = { [key: string]: unknown }
+
+export type DashboardTemplateJSONApiTilesItem = { [key: string]: unknown }
+
+export type DashboardTemplateJSONApiVariablesItem = { [key: string]: unknown }
+
+export interface DashboardTemplateJSONApi {
+    /** Name of the source dashboard. The new dashboard gets this name. */
+    template_name: string
+    /** Description of the source dashboard. */
+    dashboard_description: string
+    /** Dashboard-level filters, applied to every tile. */
+    dashboard_filters: DashboardTemplateJSONApiDashboardFilters
+    /** Tags of the source dashboard. */
+    tags: string[]
+    /** One entry per tile, of type INSIGHT, TEXT, BUTTON, or WIDGET, with its layout and color. */
+    tiles: DashboardTemplateJSONApiTilesItem[]
+    /** Always empty. Only templates in the template library define variables. */
+    variables: DashboardTemplateJSONApiVariablesItem[]
+}
+
 export interface UpdateTextTileRequestApi {
     /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
     tile_id: number
@@ -10696,6 +10720,18 @@ export type DashboardsSubscribeNudgeCreateFormat =
     (typeof DashboardsSubscribeNudgeCreateFormat)[keyof typeof DashboardsSubscribeNudgeCreateFormat]
 
 export const DashboardsSubscribeNudgeCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsTemplateJsonRetrieveParams = {
+    format?: DashboardsTemplateJsonRetrieveFormat
+}
+
+export type DashboardsTemplateJsonRetrieveFormat =
+    (typeof DashboardsTemplateJsonRetrieveFormat)[keyof typeof DashboardsTemplateJsonRetrieveFormat]
+
+export const DashboardsTemplateJsonRetrieveFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

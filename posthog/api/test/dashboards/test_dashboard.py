@@ -2882,6 +2882,40 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
+    def test_template_json_export_can_be_imported_into_another_team(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Marketing", "description": "Traffic overview", "tags": ["marketing"]}
+        )
+        _, insight = self.dashboard_api.create_insight({"name": "Pageviews", "dashboards": [dashboard_id]})
+        self.dashboard_api.create_text_tile(dashboard_id, text="Read me first")
+
+        export_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/template_json")
+        self.assertEqual(export_response.status_code, status.HTTP_200_OK, export_response.content)
+        template = export_response.json()
+        self.assertEqual(template["template_name"], "Marketing")
+        self.assertEqual(template["dashboard_description"], "Traffic overview")
+        self.assertEqual(template["tags"], ["marketing"])
+        self.assertEqual({tile["type"] for tile in template["tiles"]}, {"INSIGHT", "TEXT"})
+
+        other_team = Team.objects.create(organization=self.organization, name="the other region")
+        import_response = self.client.post(
+            f"/api/projects/{other_team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        self.assertEqual(import_response.status_code, status.HTTP_200_OK, import_response.content)
+
+        copied = self.dashboard_api.get_dashboard(import_response.json()["id"], team_id=other_team.id)
+        self.assertEqual(copied["name"], "Marketing")
+        self.assertEqual(copied["description"], "Traffic overview")
+        self.assertEqual(copied["tags"], ["marketing"])
+        copied_insight_tiles = [tile for tile in copied["tiles"] if tile.get("insight")]
+        copied_text_tiles = [tile for tile in copied["tiles"] if tile.get("text")]
+        self.assertEqual(len(copied_insight_tiles), 1)
+        self.assertEqual(len(copied_text_tiles), 1)
+        self.assertEqual(copied_insight_tiles[0]["insight"]["name"], "Pageviews")
+        self.assertEqual(copied_insight_tiles[0]["insight"]["query"], insight["query"])
+        self.assertEqual(copied_text_tiles[0]["text"]["body"], "Read me first")
+
     @parameterized.expand(
         [
             (None, None),

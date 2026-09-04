@@ -21021,6 +21021,30 @@ export namespace Schemas {
     }
 
     /**
+     * Dashboard-level filters, applied to every tile.
+     */
+    export type DashboardTemplateJSONDashboardFilters = { [key: string]: unknown };
+
+    export type DashboardTemplateJSONTilesItem = { [key: string]: unknown };
+
+    export type DashboardTemplateJSONVariablesItem = { [key: string]: unknown };
+
+    export interface DashboardTemplateJSON {
+      /** Name of the source dashboard. The new dashboard gets this name. */
+      template_name: string;
+      /** Description of the source dashboard. */
+      dashboard_description: string;
+      /** Dashboard-level filters, applied to every tile. */
+      dashboard_filters: DashboardTemplateJSONDashboardFilters;
+      /** Tags of the source dashboard. */
+      tags: string[];
+      /** One entry per tile, of type INSIGHT, TEXT, BUTTON, or WIDGET, with its layout and color. */
+      tiles: DashboardTemplateJSONTilesItem[];
+      /** Always empty. Only templates in the template library define variables. */
+      variables: DashboardTemplateJSONVariablesItem[];
+    }
+
+    /**
      * InsightSerializer restricted to identifiers + result only.
      */
     export interface InsightResult {
@@ -92702,6 +92726,18 @@ export namespace Schemas {
 
 
     export const DashboardsSubscribeNudgeCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsTemplateJsonRetrieveParams = {
+    format?: DashboardsTemplateJsonRetrieveFormat;
+    };
+
+    export type DashboardsTemplateJsonRetrieveFormat = typeof DashboardsTemplateJsonRetrieveFormat[keyof typeof DashboardsTemplateJsonRetrieveFormat];
+
+
+    export const DashboardsTemplateJsonRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
