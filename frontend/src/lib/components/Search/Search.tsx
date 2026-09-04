@@ -429,7 +429,10 @@ function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean
 
     const onItemPointerDown = useCallback((event: React.PointerEvent<HTMLElement>, item: SearchItem): void => {
         activatedIdRef.current = null
-        if (event.button !== 0) {
+        // A result is also a context menu trigger, which opens on a motionless touch or pen press
+        // and sends no pointercancel. A press recorded here would then activate the result behind
+        // the open menu, so touch and pen keep the click path and only a mouse activates on release.
+        if (event.button !== 0 || event.pointerType !== 'mouse') {
             return
         }
         pressRef.current = {

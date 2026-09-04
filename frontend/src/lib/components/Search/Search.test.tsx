@@ -16,9 +16,11 @@ jest.mock('../ScrollableShadows/ScrollableShadows', () => ({
 if (typeof window.PointerEvent === 'undefined') {
     window.PointerEvent = class extends MouseEvent {
         readonly pointerId: number
+        readonly pointerType: string
         constructor(type: string, init: PointerEventInit = {}) {
             super(type, init)
             this.pointerId = init.pointerId ?? 0
+            this.pointerType = init.pointerType ?? ''
         }
     } as unknown as typeof window.PointerEvent
 }
@@ -63,7 +65,13 @@ describe('Search', () => {
     it('selects the pressed result even when the list reorders before the release', () => {
         const { rerenderWith } = renderResults([INBOX, SETTINGS])
 
-        fireEvent.pointerDown(screen.getByText('Inbox'), { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+        fireEvent.pointerDown(screen.getByText('Inbox'), {
+            button: 0,
+            pointerId: 1,
+            pointerType: 'mouse',
+            clientX: 10,
+            clientY: 10,
+        })
         // A server category resolves and pushes the pressed item away from the cursor, so the
         // browser fires no click on it.
         rerenderWith([SETTINGS, INBOX])
@@ -77,7 +85,7 @@ describe('Search', () => {
         renderResults([INBOX, SETTINGS])
         const row = screen.getByText('Inbox')
 
-        fireEvent.pointerDown(row, { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+        fireEvent.pointerDown(row, { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 10 })
         fireEvent.pointerUp(row, { pointerId: 1, clientX: 10, clientY: 10 })
         // `detail` is the click count, which every click a pointer makes carries.
         fireEvent.click(row, { clientX: 10, clientY: 10, detail: 1 })
@@ -88,7 +96,13 @@ describe('Search', () => {
     it('selects on Enter after the list move swallowed the click', () => {
         const { rerenderWith } = renderResults([INBOX, SETTINGS])
 
-        fireEvent.pointerDown(screen.getByText('Inbox'), { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+        fireEvent.pointerDown(screen.getByText('Inbox'), {
+            button: 0,
+            pointerId: 1,
+            pointerType: 'mouse',
+            clientX: 10,
+            clientY: 10,
+        })
         rerenderWith([SETTINGS, INBOX])
         fireEvent.pointerUp(document.body, { pointerId: 1, clientX: 10, clientY: 10 })
         expect(onItemSelect).toHaveBeenCalledTimes(1)
@@ -125,16 +139,44 @@ describe('Search', () => {
         [
             'a second press starts before the release',
             (): void => {
-                fireEvent.pointerDown(document.body, { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+                fireEvent.pointerDown(document.body, {
+                    button: 0,
+                    pointerId: 1,
+                    pointerType: 'mouse',
+                    clientX: 10,
+                    clientY: 10,
+                })
                 fireEvent.pointerUp(screen.getByText('Inbox'), { pointerId: 1, clientX: 10, clientY: 10 })
             },
         ],
     ])('cancels the selection when %s', (_case, release) => {
         renderResults([INBOX, SETTINGS])
 
-        fireEvent.pointerDown(screen.getByText('Inbox'), { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+        fireEvent.pointerDown(screen.getByText('Inbox'), {
+            button: 0,
+            pointerId: 1,
+            pointerType: 'mouse',
+            clientX: 10,
+            clientY: 10,
+        })
         release()
 
         expect(onItemSelect).not.toHaveBeenCalled()
+    })
+
+    it('leaves a touch press to the click path', () => {
+        renderResults([INBOX, SETTINGS])
+        const row = screen.getByText('Inbox')
+
+        // A result is also a context menu trigger, which opens on a motionless touch press and
+        // sends no pointercancel, so activating on the release would select the result behind
+        // the menu it just opened.
+        fireEvent.pointerDown(row, { button: 0, pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+        fireEvent.pointerUp(row, { pointerId: 1, clientX: 10, clientY: 10 })
+        expect(onItemSelect).not.toHaveBeenCalled()
+
+        // A tap that opens no menu still selects, through the click the browser synthesizes.
+        fireEvent.click(row, { clientX: 10, clientY: 10, detail: 1 })
+        expect(onItemSelect).toHaveBeenCalledTimes(1)
     })
 })
