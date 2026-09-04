@@ -1405,9 +1405,12 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     team_dashboards = targets.dashboards.filter(team_id=team_id)
     blocked_insights = _blocked_target_ids(user_access_control, targets.insights.filter(team_id=team_id), "insight")
     blocked_dashboards = _blocked_target_ids(user_access_control, team_dashboards, "dashboard")
-    dashboards_with_blocked_tiles = targets.tiles.filter(
-        dashboard__in=team_dashboards, insight_id__in=blocked_insights
-    ).values("dashboard_id")
+    # Distinct so the context-ref array below holds one entry per dashboard, not one per blocked tile.
+    dashboards_with_blocked_tiles = (
+        targets.tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)
+        .values("dashboard_id")
+        .distinct()
+    )
 
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
     targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
