@@ -5,116 +5,6 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/access_control/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AccessControlDefaultsGetSchema = () => {
-    const OrganizationsProjectsAccessControlDefaultsRetrieveParams =
-        orvalSchemas.OrganizationsProjectsAccessControlDefaultsRetrieveParams()
-    return OrganizationsProjectsAccessControlDefaultsRetrieveParams.omit({ organization_id: true }).extend({
-        id: OrganizationsProjectsAccessControlDefaultsRetrieveParams.shape['id']
-            .describe('Project id. If omitted, uses the active project.')
-            .optional(),
-    })
-}
-
-const accessControlDefaultsGet = (): ToolBase<
-    ReturnType<typeof AccessControlDefaultsGetSchema>,
-    Schemas.AccessControlDefaultsResponse
-> => ({
-    name: 'access-control-defaults-get',
-    schema: AccessControlDefaultsGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlDefaultsGetSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const id = params.id ?? (await context.stateManager.getProjectId())
-        if (!id) {
-            throw new Error('id is required. Provide it explicitly or set an active project first.')
-        }
-        const result = await context.api.request<Schemas.AccessControlDefaultsResponse>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_defaults/`,
-        })
-        return result
-    },
-})
-
-const AccessControlMembersListSchema = () => {
-    const OrganizationsProjectsAccessControlMembersRetrieveParams =
-        orvalSchemas.OrganizationsProjectsAccessControlMembersRetrieveParams()
-    const OrganizationsProjectsAccessControlMembersRetrieveQueryParams =
-        orvalSchemas.OrganizationsProjectsAccessControlMembersRetrieveQueryParams()
-    return OrganizationsProjectsAccessControlMembersRetrieveParams.omit({ organization_id: true })
-        .extend(OrganizationsProjectsAccessControlMembersRetrieveQueryParams.shape)
-        .extend({
-            id: OrganizationsProjectsAccessControlMembersRetrieveParams.shape['id']
-                .describe('Project id. If omitted, uses the active project.')
-                .optional(),
-            member_id: OrganizationsProjectsAccessControlMembersRetrieveQueryParams.shape['member_id'].describe(
-                'Optional. Narrow the result to one member, by organization membership id.'
-            ),
-        })
-}
-
-const accessControlMembersList = (): ToolBase<
-    ReturnType<typeof AccessControlMembersListSchema>,
-    Schemas.AccessControlMembersResponse
-> => ({
-    name: 'access-control-members-list',
-    schema: AccessControlMembersListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlMembersListSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const id = params.id ?? (await context.stateManager.getProjectId())
-        if (!id) {
-            throw new Error('id is required. Provide it explicitly or set an active project first.')
-        }
-        const result = await context.api.request<Schemas.AccessControlMembersResponse>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_members/`,
-            query: {
-                member_id: params.member_id,
-            },
-        })
-        return result
-    },
-})
-
-const AccessControlRolesListSchema = () => {
-    const OrganizationsProjectsAccessControlRolesRetrieveParams =
-        orvalSchemas.OrganizationsProjectsAccessControlRolesRetrieveParams()
-    const OrganizationsProjectsAccessControlRolesRetrieveQueryParams =
-        orvalSchemas.OrganizationsProjectsAccessControlRolesRetrieveQueryParams()
-    return OrganizationsProjectsAccessControlRolesRetrieveParams.omit({ organization_id: true })
-        .extend(OrganizationsProjectsAccessControlRolesRetrieveQueryParams.shape)
-        .extend({
-            id: OrganizationsProjectsAccessControlRolesRetrieveParams.shape['id']
-                .describe('Project id. If omitted, uses the active project.')
-                .optional(),
-            role_id: OrganizationsProjectsAccessControlRolesRetrieveQueryParams.shape['role_id'].describe(
-                'Optional. Narrow the result to one role, by role id.'
-            ),
-        })
-}
-
-const accessControlRolesList = (): ToolBase<
-    ReturnType<typeof AccessControlRolesListSchema>,
-    Schemas.AccessControlRolesResponse
-> => ({
-    name: 'access-control-roles-list',
-    schema: AccessControlRolesListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlRolesListSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const id = params.id ?? (await context.stateManager.getProjectId())
-        if (!id) {
-            throw new Error('id is required. Provide it explicitly or set an active project first.')
-        }
-        const result = await context.api.request<Schemas.AccessControlRolesResponse>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_roles/`,
-            query: {
-                role_id: params.role_id,
-            },
-        })
-        return result
-    },
-})
-
 const AccessControlDefaultObjectsListSchema = () => {
     const OrganizationsProjectsAccessControlDefaultObjectsRetrieveParams =
         orvalSchemas.OrganizationsProjectsAccessControlDefaultObjectsRetrieveParams()
@@ -170,6 +60,36 @@ const accessControlDefaultPropertiesList = (): ToolBase<
         const result = await context.api.request<Schemas.AccessControlPropertyRulesResponse>({
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_default_properties/`,
+        })
+        return result
+    },
+})
+
+const AccessControlDefaultsGetSchema = () => {
+    const OrganizationsProjectsAccessControlDefaultsRetrieveParams =
+        orvalSchemas.OrganizationsProjectsAccessControlDefaultsRetrieveParams()
+    return OrganizationsProjectsAccessControlDefaultsRetrieveParams.omit({ organization_id: true }).extend({
+        id: OrganizationsProjectsAccessControlDefaultsRetrieveParams.shape['id']
+            .describe('Project id. If omitted, uses the active project.')
+            .optional(),
+    })
+}
+
+const accessControlDefaultsGet = (): ToolBase<
+    ReturnType<typeof AccessControlDefaultsGetSchema>,
+    Schemas.AccessControlDefaultsResponse
+> => ({
+    name: 'access-control-defaults-get',
+    schema: AccessControlDefaultsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlDefaultsGetSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        const result = await context.api.request<Schemas.AccessControlDefaultsResponse>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_defaults/`,
         })
         return result
     },
@@ -249,6 +169,46 @@ const accessControlMemberPropertiesList = (): ToolBase<
         const result = await context.api.request<Schemas.AccessControlPropertyRulesResponse>({
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_member_properties/`,
+            query: {
+                member_id: params.member_id,
+            },
+        })
+        return result
+    },
+})
+
+const AccessControlMembersListSchema = () => {
+    const OrganizationsProjectsAccessControlMembersRetrieveParams =
+        orvalSchemas.OrganizationsProjectsAccessControlMembersRetrieveParams()
+    const OrganizationsProjectsAccessControlMembersRetrieveQueryParams =
+        orvalSchemas.OrganizationsProjectsAccessControlMembersRetrieveQueryParams()
+    return OrganizationsProjectsAccessControlMembersRetrieveParams.omit({ organization_id: true })
+        .extend(OrganizationsProjectsAccessControlMembersRetrieveQueryParams.shape)
+        .extend({
+            id: OrganizationsProjectsAccessControlMembersRetrieveParams.shape['id']
+                .describe('Project id. If omitted, uses the active project.')
+                .optional(),
+            member_id: OrganizationsProjectsAccessControlMembersRetrieveQueryParams.shape['member_id'].describe(
+                'Optional. Narrow the result to one member, by organization membership id.'
+            ),
+        })
+}
+
+const accessControlMembersList = (): ToolBase<
+    ReturnType<typeof AccessControlMembersListSchema>,
+    Schemas.AccessControlMembersResponse
+> => ({
+    name: 'access-control-members-list',
+    schema: AccessControlMembersListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlMembersListSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        const result = await context.api.request<Schemas.AccessControlMembersResponse>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_members/`,
             query: {
                 member_id: params.member_id,
             },
@@ -337,14 +297,54 @@ const accessControlRolePropertiesList = (): ToolBase<
     },
 })
 
+const AccessControlRolesListSchema = () => {
+    const OrganizationsProjectsAccessControlRolesRetrieveParams =
+        orvalSchemas.OrganizationsProjectsAccessControlRolesRetrieveParams()
+    const OrganizationsProjectsAccessControlRolesRetrieveQueryParams =
+        orvalSchemas.OrganizationsProjectsAccessControlRolesRetrieveQueryParams()
+    return OrganizationsProjectsAccessControlRolesRetrieveParams.omit({ organization_id: true })
+        .extend(OrganizationsProjectsAccessControlRolesRetrieveQueryParams.shape)
+        .extend({
+            id: OrganizationsProjectsAccessControlRolesRetrieveParams.shape['id']
+                .describe('Project id. If omitted, uses the active project.')
+                .optional(),
+            role_id: OrganizationsProjectsAccessControlRolesRetrieveQueryParams.shape['role_id'].describe(
+                'Optional. Narrow the result to one role, by role id.'
+            ),
+        })
+}
+
+const accessControlRolesList = (): ToolBase<
+    ReturnType<typeof AccessControlRolesListSchema>,
+    Schemas.AccessControlRolesResponse
+> => ({
+    name: 'access-control-roles-list',
+    schema: AccessControlRolesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlRolesListSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        const result = await context.api.request<Schemas.AccessControlRolesResponse>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_roles/`,
+            query: {
+                role_id: params.role_id,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'access-control-defaults-get': accessControlDefaultsGet,
-    'access-control-members-list': accessControlMembersList,
-    'access-control-roles-list': accessControlRolesList,
     'access-control-default-objects-list': accessControlDefaultObjectsList,
     'access-control-default-properties-list': accessControlDefaultPropertiesList,
+    'access-control-defaults-get': accessControlDefaultsGet,
     'access-control-member-objects-list': accessControlMemberObjectsList,
     'access-control-member-properties-list': accessControlMemberPropertiesList,
+    'access-control-members-list': accessControlMembersList,
     'access-control-role-objects-list': accessControlRoleObjectsList,
     'access-control-role-properties-list': accessControlRolePropertiesList,
+    'access-control-roles-list': accessControlRolesList,
 }
