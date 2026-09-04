@@ -737,14 +737,21 @@ export function createDefaultPropertyFilter(
     taxonomicGroup: TaxonomicFilterGroup,
     describeProperty: propertyDefinitionsModelType['values']['describeProperty'],
     selectedItem?: SelectedTaxonomicItem | null
-): AnyPropertyFilter {
+): AnyPropertyFilter | null {
     if (propertyType === PropertyFilterType.Cohort) {
+        // A cohort filter carries the cohort id in `value`, so a non-numeric selection has no
+        // filter to build. Returning null keeps `NaN` (which serializes to null) out of the
+        // actors query, which the API rejects with a 400.
+        const cohortId = Number(propertyKey)
+        if (!Number.isInteger(cohortId)) {
+            return null
+        }
         const operator =
             (isPropertyFilterWithOperator(filter) && isOperatorCohort(filter?.operator) && filter?.operator) ||
             PropertyOperator.In
         const cohortProperty: CohortPropertyFilter = {
             key: 'id',
-            value: parseInt(String(propertyKey)),
+            value: cohortId,
             type: propertyType,
             operator: operator,
         }

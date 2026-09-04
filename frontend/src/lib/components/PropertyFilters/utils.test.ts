@@ -459,6 +459,17 @@ describe('createDefaultPropertyFilter()', () => {
         })
     })
 
+    it('refuses a cohort key that is not a cohort id, so no null value reaches the actors query', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'id',
+            PropertyFilterType.Cohort,
+            makeGroup(TaxonomicFilterGroupType.Cohorts),
+            noopDescribeProperty
+        )
+        expect(result).toBeNull()
+    })
+
     it('creates a HogQL filter with null value', () => {
         const result = createDefaultPropertyFilter(
             null,

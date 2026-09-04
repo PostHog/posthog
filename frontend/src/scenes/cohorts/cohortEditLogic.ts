@@ -57,6 +57,7 @@ import {
     AnyCohortGroupType,
     CohortCriteriaGroupFilter,
     CohortGroupType,
+    CohortPropertyFilter,
     CohortType,
     FilterLogicalOperator,
     PropertyDefinitionType,
@@ -72,6 +73,17 @@ import type { UserBasicType } from '../../types'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
+}
+
+/**
+ * The cohort filter for the persons table, empty while the cohort is a draft (its id is the
+ * string `new`). A `NaN` id here serializes to null, which the actors query rejects with a 400.
+ */
+function cohortFixedProperties(id: CohortType['id'] | undefined): CohortPropertyFilter[] {
+    const cohortId = Number(id)
+    return Number.isInteger(cohortId)
+        ? [{ type: PropertyFilterType.Cohort, key: 'id', value: cohortId, operator: PropertyOperator.In }]
+        : []
 }
 
 export type StaticCohortMode = 'criteria' | 'people'
@@ -654,9 +666,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    fixedProperties: [
-                        { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
-                    ],
+                    fixedProperties: cohortFixedProperties(props.id),
                 },
                 full: true,
                 showPropertyFilter: false,

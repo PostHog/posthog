@@ -125,6 +125,16 @@ export function expandRecentsForDisplay(
     return result
 }
 
+/** A cohort recent is stored under the cohort id, because a cohort filter holds the id in
+ *  `value` and always has the constant key `id`. An entry whose value is not a numeric id
+ *  points at no cohort, so it can never build a filter and must not be offered. */
+function isResolvableRecentFilter(recentFilter: Pick<RecentTaxonomicFilter, 'groupType' | 'value'>): boolean {
+    if (recentFilter.groupType === TaxonomicFilterGroupType.Cohorts) {
+        return Number.isInteger(Number(recentFilter.value))
+    }
+    return true
+}
+
 function isDuplicateRecentFilter(
     existing: RecentTaxonomicFilter,
     incoming: { groupType: TaxonomicFilterGroupType; value: TaxonomicFilterValue; propertyFilter?: AnyPropertyFilter }
@@ -220,7 +230,11 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                     state,
                     { groupType, groupName, value, item, teamId, propertyFilter, selectingKeyOnly }
                 ) => {
-                    if (EXCLUDED_RECENT_FILTER_GROUP_TYPES.has(groupType) || value == null) {
+                    if (
+                        EXCLUDED_RECENT_FILTER_GROUP_TYPES.has(groupType) ||
+                        value == null ||
+                        !isResolvableRecentFilter({ groupType, value })
+                    ) {
                         return state
                     }
 
@@ -264,9 +278,11 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                         return !isDuplicateRecentFilter(f, { groupType, value, propertyFilter })
                     })
 
-                    const withoutExpired = withoutDuplicate.filter((f) => f.timestamp > cutoff)
+                    // An entry that can no longer resolve is hidden from the list but still holds
+                    // a slot against MAX_RECENT_FILTERS, so drop it from storage with the expired ones.
+                    const keepable = withoutDuplicate.filter((f) => f.timestamp > cutoff && isResolvableRecentFilter(f))
 
-                    return [entry, ...withoutExpired].slice(0, MAX_RECENT_FILTERS)
+                    return [entry, ...keepable].slice(0, MAX_RECENT_FILTERS)
                 },
             },
         ],
@@ -275,7 +291,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
         recentFilterItems: [
             (s) => [s.recentFilters],
             (recentFilters: RecentTaxonomicFilter[]): TaxonomicDefinitionTypes[] =>
-                recentFilters.map(
+                recentFilters.filter(isResolvableRecentFilter).map(
                     (f) =>
                         ({
                             ...f.item,

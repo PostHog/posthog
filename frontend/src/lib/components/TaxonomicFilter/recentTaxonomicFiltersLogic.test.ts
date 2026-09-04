@@ -329,6 +329,73 @@ describe('recentTaxonomicFiltersLogic', () => {
         expect(logic.values.recentFilters).toHaveLength(0)
     })
 
+    it('neither stores nor offers a cohort recent whose value is not a cohort id', () => {
+        logic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.Cohorts,
+            groupName: 'Cohorts',
+            value: 'id',
+            item: { name: 'id' },
+            propertyFilter: { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+        })
+        logic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.Cohorts,
+            groupName: 'Cohorts',
+            value: 42,
+            item: { name: 'Power users' },
+            propertyFilter: { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+        })
+
+        expect(logic.values.recentFilters).toHaveLength(1)
+        expect(logic.values.recentFilters[0].value).toBe(42)
+        expect(logic.values.recentFilterItems).toHaveLength(1)
+        expect(logic.values.recentFilterItems[0]).toMatchObject({ name: 'Power users' })
+    })
+
+    it('frees the slots that stored cohort recents without a cohort id hold', () => {
+        logic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.Events,
+            groupName: 'Events',
+            value: 'seed',
+            item: { name: 'seed' },
+        })
+        const storageKey = Object.keys(localStorage).find((key) =>
+            key.endsWith('recentTaxonomicFiltersLogic.recentFilters')
+        )
+        expect(storageKey).toBeTruthy()
+
+        // An older client recorded every cohort recent under the constant key `id`, so a heavy
+        // cohort user can carry a full store of rows that resolve to no cohort.
+        logic.unmount()
+        localStorage.setItem(
+            storageKey as string,
+            JSON.stringify(
+                Array.from({ length: MAX_RECENT_FILTERS }, () => ({
+                    groupType: TaxonomicFilterGroupType.Cohorts,
+                    groupName: 'Cohorts',
+                    value: 'id',
+                    item: { name: 'id' },
+                    timestamp: Date.now(),
+                }))
+            )
+        )
+        initKeaTests()
+        logic = recentTaxonomicFiltersLogic.build()
+        logic.mount()
+
+        expect(logic.values.recentFilters).toHaveLength(MAX_RECENT_FILTERS)
+        expect(logic.values.recentFilterItems).toHaveLength(0)
+
+        logic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.Events,
+            groupName: 'Events',
+            value: '$pageview',
+            item: { name: '$pageview' },
+        })
+
+        expect(logic.values.recentFilters).toHaveLength(1)
+        expect(logic.values.recentFilterItems).toHaveLength(1)
+    })
+
     it('ignores selections with null value', () => {
         logic.actions.recordRecentFilter({
             groupType: TaxonomicFilterGroupType.Events,

@@ -1017,6 +1017,15 @@ describe('cohortEditLogic', () => {
     })
 
     describe('query state and column configuration', () => {
+        it.each([
+            ['new' as const, []],
+            [1, [{ type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In }]],
+        ])('filters the persons query on cohort %s with %j', async (id, expectedFixedProperties) => {
+            await initCohortLogic({ id })
+
+            expect((logic.values.query.source as ActorsQuery).fixedProperties).toEqual(expectedFixedProperties)
+        })
+
         it('preserves custom column configuration when setCohort is called', async () => {
             await initCohortLogic({ id: 1 })
 

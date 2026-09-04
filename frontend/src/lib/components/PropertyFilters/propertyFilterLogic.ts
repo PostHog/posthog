@@ -4,6 +4,7 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged,
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     isBehavioralPropertyFilter,
+    isCohortPropertyFilter,
     isValidPropertyFilter,
     parseProperties,
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
@@ -13,6 +14,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
 
 const TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME: Partial<Record<TaxonomicFilterGroupType, string>> = {
@@ -196,13 +198,24 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[property.type]
                 if (groupType && recentTaxonomicFiltersLogic.isMounted()) {
                     const groupName = TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME[groupType] ?? groupType
+                    // A cohort filter has the constant key `id` and holds the cohort id in
+                    // `value`, so the cohort id is what identifies the recent entry. Every other
+                    // filter type is identified by its key.
+                    const isCohort = isCohortPropertyFilter(property)
+                    const recentValue = isCohort ? property.value : property.key
                     // For Flag filters `key` is the numeric flag ID (see FlagPropertyFilter); the
-                    // human-readable key lives in `label`, set at selection time.
-                    const displayName = ('label' in property && property.label) || property.key
+                    // human-readable key lives in `label`, set at selection time. Cohorts keep the
+                    // name in `cohort_name`. That field is optional, so a filter built by the API
+                    // or by an older client carries no name. Read the name off the loaded cohort
+                    // list in that case.
+                    const cohortName = isCohort
+                        ? property.cohort_name || cohortsModel.findMounted()?.values.cohortsById?.[property.value]?.name
+                        : undefined
+                    const displayName = ('label' in property && property.label) || cohortName || String(recentValue)
                     recentTaxonomicFiltersLogic.actions.recordRecentFilter({
                         groupType,
                         groupName,
-                        value: property.key,
+                        value: recentValue,
                         item: { name: displayName },
                         teamId: teamLogic.values.currentTeamId ?? undefined,
                         propertyFilter: property,
