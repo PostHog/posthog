@@ -251,10 +251,14 @@ describe('PropertiesTable inline editor', () => {
             expect(cell.textContent).not.toContain(value)
             expect(cell.textContent?.length).toBeLessThan(value.length)
 
-            fireEvent.click(screen.getByText('Show more'))
+            const expandToggle = screen.getByText('Show more')
+            expect(expandToggle).toHaveAttribute('aria-expanded', 'false')
+            fireEvent.click(expandToggle)
             expect(valueCell(container).textContent).toContain(value)
 
-            fireEvent.click(screen.getByText('Show less'))
+            const collapseToggle = screen.getByText('Show less')
+            expect(collapseToggle).toHaveAttribute('aria-expanded', 'true')
+            fireEvent.click(collapseToggle)
             expect(valueCell(container).textContent).not.toContain(value)
         })
 

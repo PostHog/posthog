@@ -131,6 +131,7 @@ function ValueDisplay({
         <Link
             subtle
             className="ml-1 whitespace-nowrap"
+            aria-expanded={valueExpanded}
             // The cell around the value starts inline editing on click, so keep the two apart
             onClick={(e) => {
                 e.stopPropagation()
