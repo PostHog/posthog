@@ -58,5 +58,12 @@ async def verify_openai_credentials(settings: Settings) -> None:
     except openai.APIError as error:
         logger.warning("openai_credential_check_inconclusive", error=str(error))
         return
+    except Exception as error:
+        # The SDK parses a 2xx body without a guard, so a success response the gateway cannot read
+        # raises a plain JSONDecodeError or AttributeError instead of an openai error. A rejected
+        # credential always arrives as AuthenticationError above, so nothing that reaches here is
+        # a reason to stop the boot.
+        logger.warning("openai_credential_check_inconclusive", error=str(error), error_type=type(error).__name__)
+        return
 
     logger.info("openai_credential_check_passed", organization_configured=bool(organization))

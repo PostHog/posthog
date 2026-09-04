@@ -41,6 +41,20 @@ def _patch_client(answer: Exception | None = None) -> tuple[Any, AsyncMock]:
     return patch("llm_gateway.openai_credentials.openai.AsyncOpenAI", return_value=context), client
 
 
+def _patch_real_client(content: bytes, content_type: str, status: int = 200) -> Any:
+    # The real SDK client, so the test exercises its own parse path. Captured before the patch,
+    # which replaces the attribute this helper would otherwise read back.
+    client_class = openai.AsyncOpenAI
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(status, content=content, headers={"content-type": content_type})
+    )
+
+    def build(**kwargs: Any) -> openai.AsyncOpenAI:
+        return client_class(**kwargs, http_client=httpx.AsyncClient(transport=transport))
+
+    return patch("llm_gateway.openai_credentials.openai.AsyncOpenAI", side_effect=build)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for variable in ("OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_BASE_URL"):
@@ -101,6 +115,22 @@ class TestVerifyOpenAICredentials:
 
         with client_patch:
             await verify_openai_credentials(_make_settings())
+
+    @pytest.mark.parametrize(
+        "content,content_type",
+        [
+            (b"<html>bad gateway</html>", "application/json"),
+            (b"<html>bad gateway</html>", "text/html"),
+        ],
+    )
+    async def test_starts_when_the_response_body_cannot_be_read(self, content: bytes, content_type: str) -> None:
+        with _patch_real_client(content, content_type):
+            await verify_openai_credentials(_make_settings())
+
+    async def test_rejects_a_401_whose_body_cannot_be_read(self) -> None:
+        with _patch_real_client(b"<html>denied</html>", "application/json", status=401):
+            with pytest.raises(OpenAICredentialError):
+                await verify_openai_credentials(_make_settings())
 
     @pytest.mark.parametrize(
         "settings",

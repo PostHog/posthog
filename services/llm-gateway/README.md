@@ -192,8 +192,8 @@ base URL as live requests. This includes ambient `OPENAI_API_KEY`,
 `OPENAI_ORG_ID`, and `OPENAI_BASE_URL` values when the matching
 `LLM_GATEWAY_*` setting is not set. It sends one `GET /v1/models` request. Only
 a `401` stops the pod from booting. A `403` from an edge or proxy in front of
-OpenAI, any other error status, and an unreachable provider are all treated as
-inconclusive and let the pod start.
+OpenAI, any other error status, an unreachable provider, and a reply the gateway
+cannot read are all treated as inconclusive and let the pod start.
 
 Set `LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED=false` to skip the check, for
 example when an operator must start a pod that OpenAI rejects. The gateway also
