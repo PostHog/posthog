@@ -1,11 +1,11 @@
 ---
 name: optimizing-clickhouse-and-hogql-queries
-description: Workflow for optimizing ClickHouse and HogQL queries. Use when a HogQL query, query runner, insight, or report is too slow; when a hand-written ClickHouse query (via `sync_execute` or in a migration) is too slow; when ClickHouse times out or hits memory limits; when investigating a slow `system.query_log` row; or when reviewing a proposed HogQL printer change for performance. Covers extracting the ClickHouse SQL, common smells (`FROM ... FINAL`, `JSONExtract` over properties, missing skip indexes, self-joins, CTE blow-up), measuring against a real cluster, and applying the fix at the right layer (printer, query runner, or migration). Does NOT cover Postgres / Django ORM / app-database queries; those need pganalyze and the Postgres section of `query-performance-optimization.md`.
+description: Workflow for optimizing ClickHouse and HogQL queries. Use when a HogQL query, query runner, insight, or report is too slow; when a hand-written ClickHouse query (via `sync_execute` or in a migration) is too slow; when ClickHouse times out or hits memory limits; when investigating a slow `system.query_log` row; or when reviewing a proposed HogQL printer change for performance. Covers extracting the ClickHouse SQL, common smells (`FROM ... FINAL`, `JSONExtract` over properties, missing skip indexes, self-joins, CTE blow-up), measuring against a real cluster, and applying the fix at the right layer (printer, query runner, or migration). Does NOT cover Postgres / Django ORM / app-database queries; use `/optimizing-postgres-queries` for those.
 ---
 
 # Optimizing ClickHouse and HogQL queries
 
-Optimizes **ClickHouse and HogQL queries** (HogQL compiles to ClickHouse), not Postgres / Django ORM. For an app-DB query (`Model.objects.filter(...)`), stop and use pganalyze plus the Postgres section of [`query-performance-optimization.md`](../../../docs/published/handbook/engineering/databases/query-performance-optimization.md); Step 0 has the full triage.
+Optimizes **ClickHouse and HogQL queries** (HogQL compiles to ClickHouse), not Postgres / Django ORM. For an app-DB query (`Model.objects.filter(...)`), stop and use [`/optimizing-postgres-queries`](../optimizing-postgres-queries/SKILL.md); Step 0 has the full triage.
 
 **Work from the ClickHouse SQL, not the HogQL.** Get the ClickHouse SQL the query produces, optimize that, then translate the change back into the HogQL query, query runner, printer, or a migration. Reasoning about HogQL alone hides what ClickHouse executes.
 
@@ -28,12 +28,12 @@ The same query is sometimes implemented **twice** (backend runner plus frontend 
 
 Check how the query is built:
 
-| What you see                                                                                   | Where it goes                    | What to use                                                                                                                                                                                                 |
-| ---------------------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `execute_hogql_query(...)`, `HogQLQuery`, a `*QueryRunner`, an insight, a HogQL `.ambr`        | ClickHouse via the HogQL printer | This skill                                                                                                                                                                                                  |
-| `sync_execute(...)`, `client.execute(...)`, hand-written `SELECT ... FROM events`, a migration | ClickHouse directly (no HogQL)   | This skill (steps 2-5; skip step 1)                                                                                                                                                                         |
-| `Model.objects.filter(...)`, `.raw(...)`, a queryset, `RawSQL` over the app DB                 | Postgres via Django ORM          | Not this skill. [`query-performance-optimization.md`](../../../docs/published/handbook/engineering/databases/query-performance-optimization.md) (`## PostgreSQL`) + [pganalyze](https://app.pganalyze.com/) |
-| `personhog_client.*`, `get_personhog_client()`, `get_person_by_*`                              | personhog (gRPC, Postgres)       | Not this skill. [`posthog/personhog_client/README.md`](../../../posthog/personhog_client/README.md)                                                                                                         |
+| What you see                                                                                   | Where it goes                    | What to use                                                                                         |
+| ---------------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `execute_hogql_query(...)`, `HogQLQuery`, a `*QueryRunner`, an insight, a HogQL `.ambr`        | ClickHouse via the HogQL printer | This skill                                                                                          |
+| `sync_execute(...)`, `client.execute(...)`, hand-written `SELECT ... FROM events`, a migration | ClickHouse directly (no HogQL)   | This skill (steps 2-5; skip step 1)                                                                 |
+| `Model.objects.filter(...)`, `.raw(...)`, a queryset, `RawSQL` over the app DB                 | Postgres via Django ORM          | Not this skill. [`/optimizing-postgres-queries`](../optimizing-postgres-queries/SKILL.md)           |
+| `personhog_client.*`, `get_personhog_client()`, `get_person_by_*`                              | personhog (gRPC, Postgres)       | Not this skill. [`posthog/personhog_client/README.md`](../../../posthog/personhog_client/README.md) |
 
 If you were pointed at a coordinator / orchestrator / Celery task / Temporal workflow / management command, the ClickHouse query is usually **one layer in** (the dispatched activity, child workflow, or `apply_async` target). Follow the dispatch to the layer that builds the HogQL. A file may mix Postgres (pick work) and HogQL (do work); treat them as separate tasks.
 
