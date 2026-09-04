@@ -1466,12 +1466,27 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
 
     const fragments = new Map();
     const applyGeometry = (el, f) => {
+      el.style.zIndex = String(f.z ?? 0);
+      el.style.display = f.hidden === true ? "none" : "";
+      if (framedBox !== null && f.id === focusedId) {
+        el.style.left = "0px";
+        el.style.top = "0px";
+        el.style.width = "100%";
+        el.style.height = "100%";
+        return;
+      }
+      if (framedBox !== null && boxHolds(framedBox, f)) {
+        el.style.left =
+          ((f.x - framedBox.x) / framedBox.w) * 100 + "%";
+        el.style.top = ((f.y - framedBox.y) / framedBox.h) * 100 + "%";
+        el.style.width = (f.w / framedBox.w) * 100 + "%";
+        el.style.height = (f.h / framedBox.h) * 100 + "%";
+        return;
+      }
       el.style.left = f.x + "px";
       el.style.top = f.y + "px";
       el.style.width = f.w + "px";
       el.style.height = f.h + "px";
-      el.style.zIndex = String(f.z ?? 0);
-      el.style.display = f.hidden === true ? "none" : "";
     };
     const renderErrorBlock = async (entry, seq, message) => {
       try {
@@ -1631,16 +1646,6 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
     };
     // A frame goes full page with the fragments it holds, so a slideshow can
     // be presented. Everything else is left out of the picture.
-    const fitWorldTo = (box) => {
-      const scale = Math.min(
-        window.innerWidth / box.w,
-        window.innerHeight / box.h,
-      );
-      const left = (window.innerWidth - box.w * scale) / 2 - box.x * scale;
-      const top = (window.innerHeight - box.h * scale) / 2 - box.y * scale;
-      world.style.transform =
-        "translate(" + left + "px, " + top + "px) scale(" + scale + ")";
-    };
     const applyFocus = () => {
       const target = focusedId === null ? null : fragments.get(focusedId);
       const box = target && target.fragment ? target.fragment : null;
@@ -1661,10 +1666,8 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
         focusedId !== null && framedBox === null,
       );
       document.body.classList.toggle("ph-focus-frame", framedBox !== null);
-      if (framedBox !== null) {
-        document.body.style.backgroundImage = "none";
-        fitWorldTo(framedBox);
-        return;
+      for (const entry of fragments.values()) {
+        if (entry.fragment) applyGeometry(entry.el, entry.fragment);
       }
       if (focusedId !== null) document.body.style.backgroundImage = "none";
       else applyViewport(lastViewport);
@@ -1674,9 +1677,7 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
       applyFocus();
       notifyFocus();
     };
-    window.addEventListener("resize", () => {
-      if (framedBox !== null) fitWorldTo(framedBox);
-    });
+
     const setSelection = (ids) => {
       selectedIds = Array.isArray(ids) ? ids.slice() : [];
       const selected = new Set(selectedIds);
@@ -1776,10 +1777,11 @@ ${FREEFORM_QUILL_CSS_URLS.map(
   body.ph-focus #world { transform: none !important; will-change: auto !important; }
   body.ph-focus .fragment { display: none; }
   body.ph-focus-frame { background-image: none; }
+  body.ph-focus-frame #world { transform: none !important; will-change: auto !important; }
   body.ph-focus-frame .fragment { display: none; }
   body.ph-focus-frame .fragment.focused,
-  body.ph-focus-frame .fragment.in-frame { display: block; }
-  body.ph-focus-frame .fragment.focused { border-color: transparent; box-shadow: none; }
+  body.ph-focus-frame .fragment.in-frame { display: block; position: fixed !important; }
+  body.ph-focus-frame .fragment.focused { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: hidden; }
   @keyframes ph-slide-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   .fragment.entering { animation: ph-slide-in 220ms cubic-bezier(0.32, 0.72, 0, 1); }
   @media (prefers-reduced-motion: reduce) { .fragment.entering { animation: none; } }

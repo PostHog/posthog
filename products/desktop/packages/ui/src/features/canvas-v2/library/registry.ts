@@ -179,7 +179,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     name: "slideshow",
     label: "Slideshow",
     description:
-      "A slide for every fragment you drop on this frame. Full page it becomes a presentation.",
+      "One slide at a time. Drop a fragment on the frame to fill a slide, and go full page to present.",
     group: "frames",
     icon: "Presentation",
     defaultSize: { w: 800, h: 520 },

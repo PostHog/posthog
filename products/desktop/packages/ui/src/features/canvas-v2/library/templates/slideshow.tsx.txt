@@ -1,6 +1,5 @@
 import {
   ph,
-  useBoardBusy,
   useBoardFocus,
   useContainer,
   useSharedState,
@@ -11,190 +10,117 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const PADDING = 14;
 const HEADER = 38;
-const GAP = 18;
-const LABEL = 16;
-const SLIDE_ASPECT = 16 / 9;
 
-function slideCells(count, box) {
-  const total = Math.max(1, count);
-  let columns = 1;
-  let best = Infinity;
-  for (let tryColumns = 1; tryColumns <= total; tryColumns++) {
-    const rows = Math.ceil(total / tryColumns);
-    const width = (box.w - GAP * (tryColumns - 1)) / tryColumns;
-    const height = (box.h - GAP * (rows - 1)) / rows - LABEL;
-    if (width <= 0 || height <= 0) continue;
-    const score = Math.abs(width / height - SLIDE_ASPECT);
-    if (score < best) {
-      best = score;
-      columns = tryColumns;
-    }
+function readSlots(plan, ids, wanted) {
+  const stored = plan && typeof plan === "object" ? plan : {};
+  const order = Array.isArray(stored.order) ? stored.order : [];
+  const slots = order.map((id) =>
+    typeof id === "string" && ids.indexOf(id) !== -1 ? id : null,
+  );
+  const count = Math.max(1, Number(stored.count) || 0, slots.length);
+  while (slots.length < count) slots.push(null);
+
+  for (const id of ids) {
+    if (slots.indexOf(id) !== -1) continue;
+    const here =
+      wanted >= 0 && wanted < slots.length && slots[wanted] === null
+        ? wanted
+        : slots.indexOf(null);
+    if (here === -1) slots.push(id);
+    else slots[here] = id;
   }
-  const rows = Math.ceil(total / columns);
-  const cellWidth = (box.w - GAP * (columns - 1)) / columns;
-  const cellHeight = (box.h - GAP * (rows - 1)) / rows;
-  const cells = [];
-  for (let at = 0; at < total; at++) {
-    cells.push({
-      x: box.x + (at % columns) * (cellWidth + GAP),
-      y: box.y + Math.floor(at / columns) * (cellHeight + GAP) + LABEL,
-      w: Math.max(80, cellWidth),
-      h: Math.max(60, cellHeight - LABEL),
-    });
-  }
-  return cells;
-}
-
-function gapTo(child, cell) {
-  const dx = child.x + child.w / 2 - (cell.x + cell.w / 2);
-  const dy = child.y + child.h / 2 - (cell.y + cell.h / 2);
-  return dx * dx + dy * dy;
-}
-
-function assignCells(contents, cells, furthestFirst) {
-  const ranked = contents
-    .map((child) => {
-      let nearest = Infinity;
-      for (const cell of cells) {
-        const gap = gapTo(child, cell);
-        if (gap < nearest) nearest = gap;
-      }
-      return { child, nearest };
-    })
-    .sort((a, b) =>
-      furthestFirst ? b.nearest - a.nearest : a.nearest - b.nearest,
-    );
-
-  const taken = cells.map(() => null);
-  const placed = {};
-  for (const entry of ranked) {
-    let pick = -1;
-    let best = Infinity;
-    for (let at = 0; at < cells.length; at++) {
-      if (taken[at] !== null) continue;
-      const gap = gapTo(entry.child, cells[at]);
-      if (gap < best) {
-        best = gap;
-        pick = at;
-      }
-    }
-    if (pick === -1) continue;
-    taken[pick] = entry.child.id;
-    placed[entry.child.id] = pick;
-  }
-  return { taken, placed };
+  return slots;
 }
 
 export default function Slideshow({ fragmentId }) {
   const title = useSharedText("frame:" + fragmentId + ":title");
-  const [storedSlots, setSlots] = useSharedState("slides:" + fragmentId, 1);
+  const [plan, setPlan] = useSharedState("slides:" + fragmentId, null);
   const [storedIndex, setIndex] = useSharedState("slide:" + fragmentId, 0);
   const presenting = useBoardFocus() === fragmentId;
 
-  const busy = useBoardBusy();
-  const [pass, setPass] = useState(0);
-  const wasBusy = useRef(false);
-  const dropped = useRef(false);
-  useEffect(() => {
-    if (busy) {
-      wasBusy.current = true;
-      return;
-    }
-    if (!wasBusy.current) return;
-    wasBusy.current = false;
-    dropped.current = true;
-    setPass((value) => value + 1);
-  }, [busy]);
+  const [tick, setTick] = useState(0);
+  const visible = useRef(undefined);
 
-  const state = useRef(null);
-  state.current = {
-    presenting,
-    index: Number(storedIndex) || 0,
-    slots: Math.max(1, Number(storedSlots) || 1),
-  };
+  const layout = useCallback((contents, box) => {
+    if (visible.current === undefined) return [];
+    return contents.map((child) => ({
+      id: child.id,
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      hidden: child.id !== visible.current,
+    }));
+  }, [tick]);
 
-  const layout = useCallback(
-    (contents, box) => {
-      const now = state.current;
-      const count = Math.max(now.slots, contents.length, 1);
-      const cells = slideCells(count, box);
-      const { taken, placed } = assignCells(contents, cells, dropped.current);
-      if (!now.presenting) {
-        return contents.map((child) => {
-          const cell = cells[placed[child.id]];
-          if (!cell) return { id: child.id, hidden: false };
-          return {
-            id: child.id,
-            x: cell.x,
-            y: cell.y,
-            w: cell.w,
-            h: cell.h,
-            hidden: false,
-          };
-        });
-      }
-      const at = ((now.index % count) + count) % count;
-      const shown = taken[at];
-      return contents.map((child) => ({
-        id: child.id,
-        x: box.x,
-        y: box.y,
-        w: box.w,
-        h: box.h,
-        hidden: child.id !== shown,
-      }));
-    },
-    [presenting, storedIndex, storedSlots, pass],
-  );
-
-  const { self, children, inner } = useContainer(fragmentId, {
+  const { self, children } = useContainer(fragmentId, {
     padding: PADDING,
     header: HEADER,
     layout,
   });
 
-  const count = Math.max(
-    Math.max(1, Number(storedSlots) || 1),
-    children.length,
+  const wanted = Math.max(0, Number(storedIndex) || 0);
+  const slots = readSlots(
+    plan,
+    children.map((child) => child.id),
+    wanted,
   );
-  const cells = slideCells(count, inner);
-  const { taken } = assignCells(children, cells, dropped.current);
-  const at = (((Number(storedIndex) || 0) % count) + count) % count;
+  const count = slots.length;
+  const at = Math.min(wanted, count - 1);
+  const currentId = slots[at];
+  const current = children.find((child) => child.id === currentId) || null;
 
   useEffect(() => {
-    dropped.current = false;
-  });
+    if (visible.current === currentId) return;
+    visible.current = currentId;
+    setTick((value) => value + 1);
+  }, [currentId]);
 
-  const originX = self ? self.x : 0;
-  const originY = self ? self.y : 0;
-  const slots = (self ? cells : []).map((cell, position) => ({
-    index: position,
-    filled: taken[position] !== null,
-    left: cell.x - originX,
-    top: cell.y - originY,
-    labelTop: cell.y - originY - LABEL,
-    width: cell.w,
-    height: cell.h,
-  }));
+  const latest = useRef(null);
+  latest.current = { slots, at };
+  const known = useRef(null);
+  const idsKey = children.map((child) => child.id).join("|");
+  useEffect(() => {
+    const ids = idsKey ? idsKey.split("|") : [];
+    const before = known.current;
+    known.current = ids;
+    if (before === null) return;
+    const fresh = ids.filter((id) => before.indexOf(id) === -1);
+    if (fresh.length === 0) return;
+    const landed = latest.current.slots.indexOf(fresh[0]);
+    if (landed !== -1 && landed !== latest.current.at) setIndex(landed);
+  }, [idsKey, setIndex]);
 
-  const show = useCallback(
-    (next) => setIndex(((next % count) + count) % count),
-    [setIndex, count],
-  );
+  const signature = slots.map((id) => id || "").join("|");
+  const storedSignature = (
+    plan && Array.isArray(plan.order) ? plan.order : []
+  )
+    .map((id) => id || "")
+    .join("|");
+  useEffect(() => {
+    if (signature === storedSignature) return;
+    setPlan({ order: slots, count });
+  }, [signature, storedSignature]);
+
+  const show = (next) => setIndex(((next % count) + count) % count);
 
   const addSlide = () => {
-    setSlots(count + 1);
+    setPlan({ order: slots.concat([null]), count: count + 1 });
     setIndex(count);
   };
 
-  const removeSlide = (position) => {
-    const id = taken[position];
-    if (id && self) {
+  const removeSlide = () => {
+    if (currentId && self) {
       ph.board
-        .arrange([{ id, x: self.x + self.w + 24, y: self.y, hidden: false }])
+        .arrange([
+          { id: currentId, x: self.x + self.w + 24, y: self.y, hidden: false },
+        ])
         .catch(() => {});
     }
-    setSlots(Math.max(1, count - 1));
+    const rest = slots.filter((_, position) => position !== at);
+    if (rest.length === 0) rest.push(null);
+    setPlan({ order: rest, count: rest.length });
+    setIndex(Math.min(at, rest.length - 1));
   };
 
   const step = useRef(null);
@@ -221,9 +147,15 @@ export default function Slideshow({ fragmentId }) {
   }, [presenting, count, at]);
 
   return (
-    <div className="relative h-full w-full rounded-xl border border-border border-dashed bg-muted/20">
+    <div
+      className={
+        presenting
+          ? "flex h-full w-full flex-col"
+          : "flex h-full w-full flex-col rounded-xl border border-border border-dashed bg-muted/20"
+      }
+    >
       <div
-        className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5"
+        className="flex shrink-0 items-center gap-2 px-2.5"
         style={{ height: HEADER }}
       >
         <input
@@ -234,33 +166,29 @@ export default function Slideshow({ fragmentId }) {
           className="min-w-0 flex-1 border-0 bg-transparent p-0 font-medium text-[13px] outline-none placeholder:text-foreground/30"
           onChange={(event) => title.setText(event.target.value, null)}
         />
-        {presenting ? (
-          <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
-            <button
-              type="button"
-              aria-label="Previous slide"
-              className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              onClick={() => show(at - 1)}
-            >
-              <ChevronLeft size={12} />
-            </button>
-            <span className="px-1 text-[11px] text-muted-foreground tabular-nums">
-              {at + 1} of {count}
-            </span>
-            <button
-              type="button"
-              aria-label="Next slide"
-              className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              onClick={() => show(at + 1)}
-            >
-              <ChevronRight size={12} />
-            </button>
-          </div>
-        ) : (
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+          <button
+            type="button"
+            aria-label="Previous slide"
+            className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => show(at - 1)}
+          >
+            <ChevronLeft size={12} />
+          </button>
+          <span className="px-1 text-[11px] text-muted-foreground tabular-nums">
+            {at + 1} of {count}
+          </span>
+          <button
+            type="button"
+            aria-label="Next slide"
+            className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => show(at + 1)}
+          >
+            <ChevronRight size={12} />
+          </button>
+        </div>
+        {presenting ? null : (
           <>
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              {count === 1 ? "1 slide" : count + " slides"}
-            </span>
             <button
               type="button"
               aria-label="Add slide"
@@ -270,54 +198,28 @@ export default function Slideshow({ fragmentId }) {
               <Plus size={11} />
               Add slide
             </button>
+            <button
+              type="button"
+              aria-label={
+                current ? "Take this slide off the frame" : "Remove this slide"
+              }
+              className="shrink-0 rounded-full border border-border bg-card p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={removeSlide}
+            >
+              <X size={11} />
+            </button>
           </>
         )}
       </div>
 
-      {presenting
-        ? null
-        : slots.map((slot) => (
-            <div key={slot.index}>
-              <div
-                className="absolute flex items-center justify-between text-[10px] text-muted-foreground"
-                style={{
-                  left: slot.left,
-                  top: slot.labelTop,
-                  width: slot.width,
-                  height: LABEL - 2,
-                }}
-              >
-                <span className="tabular-nums">{slot.index + 1}</span>
-                {slot.filled || count > 1 ? (
-                  <button
-                    type="button"
-                    aria-label={
-                      slot.filled
-                        ? "Take slide " + (slot.index + 1) + " off the frame"
-                        : "Remove slot " + (slot.index + 1)
-                    }
-                    className="rounded p-0.5 transition-colors hover:bg-muted hover:text-foreground"
-                    onClick={() => removeSlide(slot.index)}
-                  >
-                    <X size={10} />
-                  </button>
-                ) : null}
-              </div>
-              {slot.filled ? null : (
-                <div
-                  className="absolute flex items-center justify-center rounded-lg border border-border border-dashed px-2 text-center text-[11px] text-muted-foreground"
-                  style={{
-                    left: slot.left,
-                    top: slot.top,
-                    width: slot.width,
-                    height: slot.height,
-                  }}
-                >
-                  Drop a fragment here
-                </div>
-              )}
-            </div>
-          ))}
+      {current || presenting ? null : (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-border border-dashed text-center text-[12px] text-muted-foreground"
+          style={{ margin: PADDING, marginTop: 0 }}
+        >
+          Drag a fragment onto this frame to fill the slide.
+        </div>
+      )}
     </div>
   );
 }
