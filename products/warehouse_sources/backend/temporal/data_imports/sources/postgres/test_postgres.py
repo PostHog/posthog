@@ -15,6 +15,7 @@ from django.db import (
     OperationalError as DjangoOperationalError,
     connection as django_connection,
 )
+from django.test import override_settings
 
 import psycopg
 import pyarrow as pa
@@ -24,6 +25,7 @@ from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
@@ -91,7 +93,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _capture_xmin_ceiling,
     _connect_to_postgres,
     _connect_with_dropped_retry,
-    _connect_with_options_fallback,
     _fetch_rows_for,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
@@ -114,6 +115,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
+    _open_connection,
     _pk_uniqueness_probe_timeout_error,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
@@ -2494,6 +2496,217 @@ class TestConnectToPostgresMultiAddressFailover:
         assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
 
 
+# Every direct Postgres connection dials the addresses it validated and nothing else. The tunnel
+# layer checks the host once but yields the hostname, so the client's own lookup is the one that
+# picks the socket target; validating that answer and pinning it through `hostaddr` is what stops
+# a record from answering public on the check and private on the connect.
+class TestConnectToPostgresDialsOnlyValidatedAddresses:
+    @staticmethod
+    def _addrinfo(*addresses: str) -> list:
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432)) for address in addresses]
+
+    @contextmanager
+    def _production_cloud(self, resolver_result):
+        resolver_kwargs = (
+            {"side_effect": resolver_result}
+            if isinstance(resolver_result, BaseException) or callable(resolver_result)
+            else {"return_value": resolver_result}
+        )
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+            ) as mock_settings,
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", **resolver_kwargs) as getaddrinfo_mock,
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock,
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            yield getaddrinfo_mock, connect_mock
+
+    @staticmethod
+    def _connect(host: str = "db.example.com", **kwargs) -> psycopg.Connection:
+        return _connect_to_postgres(
+            host=host, port=5432, database="postgres", user="user", password="password", **kwargs
+        )
+
+    @pytest.mark.parametrize(
+        "addresses",
+        [
+            ("10.0.0.5", "52.1.2.3"),
+            ("52.1.2.3", "169.254.169.254"),
+            ("64:ff9b::169.254.169.254",),
+        ],
+    )
+    def test_an_internal_address_anywhere_in_the_resolved_set_refuses_the_connect(self, addresses):
+        with self._production_cloud(self._addrinfo(*addresses)) as (_, connect_mock):
+            with pytest.raises(Exception, match="Database host not allowed"):
+                self._connect(team_id=999)
+
+        connect_mock.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "resolver_result",
+        [
+            socket.gaierror(-2, "Name or service not known"),
+            [],
+        ],
+    )
+    def test_a_failed_lookup_refuses_the_connect_rather_than_letting_libpq_resolve(self, resolver_result):
+        # Falling through to psycopg's own resolution would be a second, unvalidated lookup.
+        with self._production_cloud(resolver_result) as (_, connect_mock):
+            with pytest.raises(Exception, match="Database host not allowed"):
+                self._connect(team_id=999)
+
+        connect_mock.assert_not_called()
+
+    def test_a_public_set_is_dialed_whole_with_the_hostname_kept_for_sni(self):
+        with self._production_cloud(self._addrinfo("2600:1f18::1", "52.1.2.3")) as (_, connect_mock):
+            self._connect(team_id=999)
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com,db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
+
+    def test_an_allowlisted_team_dials_its_internal_addresses_pinned(self):
+        # The exemption travels with the addresses: the internal-analytics team is skipped by the
+        # check but still dials the set it resolved, not a fresh libpq lookup.
+        with self._production_cloud(self._addrinfo("10.0.0.5")) as (_, connect_mock):
+            self._connect(team_id=2)
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "10.0.0.5"
+
+    def test_a_missing_team_fails_closed(self):
+        with self._production_cloud(self._addrinfo("10.0.0.5")) as (_, connect_mock):
+            with pytest.raises(Exception, match="Database host not allowed"):
+                self._connect()
+
+        connect_mock.assert_not_called()
+
+    def test_an_exempt_host_whose_lookup_failed_is_left_for_libpq_to_resolve(self):
+        # The exemption skips the check, and a failed lookup leaves nothing to pin. The connect
+        # must go out with the plain hostname, not an empty `host`/`hostaddr` pair.
+        with self._production_cloud(socket.gaierror(-2, "Name or service not known")) as (_, connect_mock):
+            self._connect(team_id=2)
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com"
+        assert "hostaddr" not in connect_mock.call_args.kwargs
+
+    def test_an_ip_literal_host_is_dialed_as_is_without_a_lookup(self):
+        # The SSH tunnel yields its loopback bind address, which the policy would refuse. A literal
+        # has no lookup to race, so it bypasses both the resolve and the check.
+        with self._production_cloud(self._addrinfo("127.0.0.1")) as (getaddrinfo_mock, connect_mock):
+            self._connect(host="127.0.0.1", team_id=999)
+
+        getaddrinfo_mock.assert_not_called()
+        assert connect_mock.call_args.kwargs["host"] == "127.0.0.1"
+        assert "hostaddr" not in connect_mock.call_args.kwargs
+
+    def test_a_stalled_lookup_stays_a_retryable_timeout(self):
+        # The bounded resolver's timeout must surface unchanged. Turning it into the non-retryable
+        # rejection would stop a schedule over a resolver blip.
+        release = threading.Event()
+        try:
+            with self._production_cloud(lambda *a, **k: release.wait()) as (_, connect_mock):
+                with pytest.raises(psycopg.OperationalError, match="Timed out resolving") as exc_info:
+                    self._connect(team_id=999, connect_timeout=0)
+        finally:
+            release.set()
+
+        assert "Database host not allowed" not in str(exc_info.value)
+        connect_mock.assert_not_called()
+
+    def test_the_rejection_is_a_registered_non_retryable_error(self):
+        # Raised through the real path so the wording stays coupled to the registered pattern.
+        with self._production_cloud(self._addrinfo("10.0.0.5")):
+            with pytest.raises(Exception) as exc_info:
+                self._connect(team_id=999)
+
+        assert error_message_matches(str(exc_info.value), Any_Source_Errors.keys())
+
+
+# The sync path opens its connections through `postgres_source`, not `_connect_to_postgres`, so
+# it needs its own proof that the setup connect dials the validated set.
+class TestPostgresSourceDialsOnlyValidatedAddresses:
+    @staticmethod
+    @contextmanager
+    def _tunnel():
+        yield ("db.example.com", 5432)
+
+    @contextmanager
+    def _production_cloud(self, *addresses: str):
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432)) for address in addresses
+        ]
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+            ) as mock_settings,
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+            patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"),
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            yield
+
+    def _call_postgres_source(self, team_id: int | None):
+        return postgres_source(
+            tunnel=self._tunnel,
+            user="u",
+            password="p",
+            database="db",
+            sslmode="prefer",
+            schema="public",
+            table_names=["t"],
+            should_use_incremental_field=False,
+            logger=structlog.get_logger(),
+            db_incremental_field_last_value=None,
+            team_id=team_id,
+        )
+
+    def test_the_setup_connect_refuses_an_internal_address(self):
+        with self._production_cloud("52.1.2.3", "10.0.0.5"):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock:
+                with pytest.raises(Exception, match="Database host not allowed"):
+                    self._call_postgres_source(team_id=999)
+
+        connect_mock.assert_not_called()
+
+    def test_the_setup_connect_dials_the_validated_set(self):
+        # The first probe raises a non-retryable error so the run stops right after the connect;
+        # what matters is what the connect was handed.
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InternalError_("XX000: internal error")
+        cursor_cm = mock.MagicMock()
+        cursor_cm.__enter__.return_value = cursor
+        cursor_cm.__exit__.return_value = False
+        connection = mock.MagicMock()
+        connection.closed = False
+        connection.cursor.return_value = cursor_cm
+        connection.__enter__.return_value = connection
+        connection.__exit__.return_value = False
+
+        with self._production_cloud("2600:1f18::1", "52.1.2.3"):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+                return_value=connection,
+            ) as connect_mock:
+                with pytest.raises(psycopg.errors.InternalError_):
+                    self._call_postgres_source(team_id=999)
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com,db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
+
+
 # Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy,
 # Neon's pooled endpoint) reject the libpq `options` startup parameter we send to pin
 # client_encoding=UTF8 and, on the CDC path, server-side timeouts. When they do, we drop `options`
@@ -2547,7 +2760,7 @@ class TestConnectOptionsStartupParamFallback:
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             connect_mock,
         ):
-            result = _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+            result = _open_connection(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
         assert result is good_conn
         assert connect_mock.call_count == 2
@@ -2565,7 +2778,7 @@ class TestConnectOptionsStartupParamFallback:
             connect_mock,
         ):
             with pytest.raises(psycopg.OperationalError):
-                _connect_with_options_fallback(host="db")
+                _open_connection(host="db")
 
         assert connect_mock.call_count == 1
 
@@ -2577,7 +2790,7 @@ class TestConnectOptionsStartupParamFallback:
             connect_mock,
         ):
             with pytest.raises(psycopg.OperationalError):
-                _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+                _open_connection(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
         assert connect_mock.call_count == 1
 
@@ -2599,7 +2812,7 @@ class TestConnectOptionsStartupParamFallback:
             connect_mock,
         ):
             with pytest.raises(psycopg.OperationalError) as exc_info:
-                _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+                _open_connection(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
         assert connect_mock.call_count == 2
         assert "The password that was provided for the role" in str(exc_info.value)
