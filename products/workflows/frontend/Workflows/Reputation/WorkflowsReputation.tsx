@@ -183,7 +183,6 @@ const ISP_DISPLAY_NAMES: Record<string, string> = {
     ExchangeOnline: 'Microsoft Exchange Online',
     Gmx: 'GMX',
     Icloud: 'Apple iCloud',
-    'Unknown ISP': 'Unknown provider',
 }
 
 function ispDisplayName(isp: string): string {
