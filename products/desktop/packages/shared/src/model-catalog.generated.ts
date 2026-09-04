@@ -38,6 +38,8 @@ export interface CatalogModel {
   runtimeAdapter: RuntimeAdapter;
   /** Empty for a model with no effort control: render no dropdown. */
   reasoningEfforts: readonly ReasoningEffort[];
+  /** Display name, set only where formatting the id gets it wrong. */
+  label?: string;
 }
 
 /** Which vendor API each runtime adapter speaks. */
@@ -53,21 +55,31 @@ export const MODELS: readonly CatalogModel[] = [
     id: "@cf/zai-org/glm-5.2",
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
+    label: "GLM-5.2",
   },
   {
     id: "zai-org/glm-5.3",
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
+    label: "GLM-5.3",
   },
   {
     id: "zai-org/glm-5.3-flash",
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
+    label: "GLM-5.3 Flash",
   },
   {
     id: "moonshotai/kimi-k3",
     runtimeAdapter: "claude",
     reasoningEfforts: [],
+    label: "Kimi K3",
+  },
+  {
+    id: "deepseek-ai/deepseek-v4-flash-0731",
+    runtimeAdapter: "claude",
+    reasoningEfforts: [],
+    label: "DeepSeek V4 Flash",
   },
   {
     id: "claude-opus-4-5",
