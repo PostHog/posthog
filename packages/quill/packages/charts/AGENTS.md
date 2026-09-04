@@ -117,3 +117,5 @@ Import helpers from `@posthog/quill-charts/testing` (jsdom only): `getHogChart` 
 ## Maintenance
 
 When adding or changing a chart, overlay, or config option: write the JSDoc on the prop, add or update a story next to the component, and update the matching topic doc under `src/docs/` when the behavior spans more than one field. Add a row to this file only when the change alters which chart or approach a consumer should pick, or adds a gotcha. Do not append clauses to existing bullets here; this file stays a map.
+
+A library fact lives once, here or in `src/docs/`. The app-side skill in `.agents/skills/working-with-charts/` links to it and holds only what is true of the PostHog app; do not restate a library rule there, and do not put an app rule here.

@@ -34,7 +34,7 @@ it('dashes the in-progress tail of the current period only', () => {
 
 Render the real scene and read the chart through the DOM.
 
-- Insight charts: `renderInsight` from `~/test/insight-testing`, then the `chart`, `legend`, `display`, `compare`, `breakdown`, and `personsModal` interaction helpers from the same module. `chart.hoverTooltip(index)` returns an accessor with `row(label)`, `header()`, and friends.
+- Insight charts: `renderInsight` from `~/test/insight-testing`, then the `chart`, `legend`, `display`, `compare`, `breakdown`, and `personsModal` interaction helpers from the same module. `chart.hoverTooltip(index)` returns an accessor with `title()`, `row(label)`, and `rows()`.
 - Any other chart: your own `render`, then `getHogChart(container)` from `@posthog/quill-charts/testing` for `yTicks()`, `xTicks()`, `referenceLines()`, `valueLabels()`, `seriesCount`, and `hoverAtIndex` / `clickAtIndex` / `waitForHogChartTooltip` for interactions. `createDefaultTooltipAccessor(el)` reads a `DefaultTooltip` by its `hog-chart-tooltip-*` attributes.
 
 Every test file needs the jsdom shims, because the chart measures its container and paints on a frame:

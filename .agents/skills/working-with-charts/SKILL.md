@@ -15,6 +15,12 @@ The app wraps it with a small set of adapters, and every chart in the app follow
 2. The adapter closest to what you are building. `TrendsLineChart` and `TrendsBarChart` under `products/product_analytics/frontend/insights/trends/` exercise nearly every feature; [chart-types.md](./references/chart-types.md) names a precedent for each chart type.
 3. The reference in this skill for the part you are touching: [chart-types.md](./references/chart-types.md), [tooltips.md](./references/tooltips.md), [overlays.md](./references/overlays.md), [testing-and-stories.md](./references/testing-and-stories.md).
 
+## One home per fact
+
+A fact that is true of the library in any host (a prop, a context field, an overlay or tooltip rule) lives once, in the library's `src/docs/`, and this skill links to it.
+This skill and its references hold only what is true of the PostHog app: the `lib/charts` hooks, the insight tooltip and legend wiring, the precedents, and where files go.
+If you are writing a library fact here, move it to the topic doc and link.
+
 ## Where code goes
 
 | Zone               | Path                                                                                                                                                                                        | Rules                                                                                                                                                                                                                                                    |
@@ -153,7 +159,7 @@ Writing a new one, and the hooks it reads, are in [overlays.md](./references/ove
 1. Add the `ChartDisplayType` case to `renderViz` in `frontend/src/scenes/trends/Trends.tsx` (or the funnel, retention, or paths equivalent).
 2. Create `products/product_analytics/frontend/insights/<family>/<Name>Chart/` with `<Name>Chart.tsx`, `<name>ChartTransforms.ts`, tests for both, and `<Name>Chart.stories.tsx`.
 3. Reuse `useInsightsLegendConfig`, `InsightSeriesTooltip`, `handleTrendsChartClick`, `TrendsAlertOverlays`, `AnnotationsLayer`, `buildTrendsYAxisConfig`, and `goalLinesAdapter` before writing anything new.
-4. If the display is exposed to MCP UI apps, keep the transform free of `lib/`, `scenes/`, and `~/` imports; `trendsChartDisplayOptions.ts` shows the structural types that firewall works through.
+4. If the display is exposed to MCP UI apps, keep the transform free of `lib/`, `scenes/`, and `~/` imports; `products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions.ts` shows the structural types that firewall works through.
 5. Update the editor's display options and any docs under `docs/` that list display types.
 
 ## If the change reaches into the library

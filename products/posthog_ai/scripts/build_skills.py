@@ -106,6 +106,8 @@ _ENTITY_NOUN_RE = re.compile(r"\s+(?:feature|flag|event|property|properties|colu
 _CALL_REFERENCE_RE = re.compile(r"`([a-z0-9]+(?:[_-][a-z0-9]+)+)\(")
 # Backticked snake_case whose kebab form is a real tool — wrong casing.
 _SNAKE_CASE_REFERENCE_RE = re.compile(r"`([a-z0-9]+(?:_[a-z0-9]+)+)`")
+# Backticked repo path, e.g. `frontend/src/lib/charts/hooks.ts` or `products/foo/backend/`.
+_REPO_PATH_RE = re.compile(r"`([A-Za-z0-9_.\-]+/[A-Za-z0-9_./\-]+)`")
 
 
 def _load_mcp_tool_names(repo_root: Path) -> set[str] | None:
@@ -234,6 +236,36 @@ def _check_tool_references(
     return findings
 
 
+def _check_repo_paths(text: str, source_label: str, repo_root: Path) -> list[ReferenceFinding]:
+    """Flag backticked repo paths that do not exist.
+
+    Project skills cite files in this repo by path, and a moved file silently strands every skill
+    that names it. A candidate counts as a repo path only when its first segment names a directory
+    at the repo root (case-sensitive, so a `PostHog/repo` slug is not one), so relative links, URLs,
+    and prose like `a/b` are ignored. Glob and elided paths (`products/*/skills/`, `frontend/src/...`)
+    and two-segment shorthand without an extension (`common/sql`) are skipped. Advisory, like the
+    tool-reference check.
+    """
+    root_dirs = {entry.name for entry in repo_root.iterdir() if entry.is_dir()}
+    findings: list[ReferenceFinding] = []
+    seen: set[str] = set()
+    for m in _REPO_PATH_RE.finditer(text):
+        path = m.group(1).rstrip("/")
+        if path in seen or any(c in path for c in "*<{$") or "..." in path:
+            continue
+        seen.add(path)
+        segments = path.split("/")
+        if segments[0] not in root_dirs or (len(segments) == 2 and "." not in segments[1]):
+            continue
+        if (repo_root / path).exists():
+            continue
+        line, col = _line_col(text, m.start(1))
+        findings.append(
+            ReferenceFinding(source_label, line, col, path, f"'{path}' does not exist in the repo — moved or renamed?")
+        )
+    return findings
+
+
 def _emit_reference_findings(findings: list[ReferenceFinding]) -> None:
     """Surface advisory reference findings without failing the lint.
 
@@ -251,7 +283,7 @@ def _emit_reference_findings(findings: list[ReferenceFinding]) -> None:
         else:
             print(f"{f.source_label}:{f.line}:{f.col}: warning: {f.message}", file=sys.stderr)
     print(
-        f"\nNote: {len(findings)} possible stale tool/skill reference(s) flagged above (advisory, not blocking).",
+        f"\nNote: {len(findings)} possible stale tool/skill/path reference(s) flagged above (advisory, not blocking).",
         file=sys.stderr,
     )
 
@@ -667,6 +699,7 @@ class SkillBuilder:
         - Jinja2 syntax validation via parse-only (all .j2 files)
         - Frontmatter validation for product and project skill entry points
         - Tool/skill reference validation in markdown (against the MCP schema registries)
+        - Repo path validation in project skill markdown (advisory)
 
         Returns True if all checks pass, False otherwise.
         """
@@ -715,6 +748,10 @@ class SkillBuilder:
                 validate_frontmatter(skill_file.read_text(), source_label)
             except ValueError as e:
                 errors.append(str(e))
+            for md_file in [skill_file, *sorted((skill_file.parent / "references").glob("*.md"))]:
+                reference_findings.extend(
+                    _check_repo_paths(md_file.read_text(), str(md_file.relative_to(self.repo_root)), self.repo_root)
+                )
 
         jinja_env = _create_jinja_env()
 

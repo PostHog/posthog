@@ -15,33 +15,13 @@ Climb only as far as the requirement forces you.
 tooltip: { pinnable: true, placement: 'cursor' }
 ```
 
-`TooltipConfig` carries `enabled`, `pinnable`, `placement` (`'cursor'` is the app default via `DEFAULT_CHART_CONFIG`), `resolveClickToNearestSeries`, `hitArea` (bar charts), plus the formatting fields below.
 Insight charts share `INSIGHT_TOOLTIP_CONFIG` from `products/product_analytics/frontend/insights/shared/tooltipConfig.ts`.
-
-Set `pinnable: true` whenever a row click has somewhere to go (a persons modal, a drill-down).
-An unpinned tooltip has `pointer-events: none`, so rows are only clickable once the user pins it by clicking the chart.
-Leave `pinnable` off for a tooltip that is read-only, such as an aggregated bar or a sparkline.
-
-`resolveClickToNearestSeries: true` skips the pin step and fires `onPointClick` for the series under the cursor.
-Use it only where the target series is visually unambiguous (one funnel bar per variant), never where lines overlap.
+Set `pinnable: true` whenever a row click has somewhere to go (a persons modal, a drill-down), and leave it off for a read-only tooltip such as an aggregated bar or a sparkline.
+The fields (`enabled`, `pinnable`, `placement`, `resolveClickToNearestSeries`, `hitArea`) and when each is safe are in the library's [docs/tooltips.md](../../../../packages/quill/packages/charts/src/docs/tooltips.md).
 
 ### 2. Formatting only: still `config.tooltip`
 
-```ts
-tooltip: {
-    pinnable: true,
-    valueFormatter: (value, entry) => formatWith(entry.series.meta.settings, value),
-    labelFormatter: (label) => formatDate(label),
-    sortedByValue: true,
-    showTotal: true,
-    totalFormatter: formatCount,
-}
-```
-
-`config.tooltip` forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, and `sortedByValue` into `DefaultTooltip`.
-`valueFormatter` gets the row's `seriesData` entry as its second argument, so per-series formatting reads `entry.series.meta` instead of a lookup table.
-On time-series charts with `xAxis.timezone` and `interval`, the header already formats the ISO label; only override `labelFormatter` when the default wording is wrong.
-
+`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, and `sortedByValue` into `DefaultTooltip`, so per-row formatting needs no render prop.
 SQL insights are the reference for this rung: `buildSqlTooltipConfig` in `frontend/src/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter.ts`.
 
 ### 3. Content the config cannot express: render prop wrapping `DefaultTooltip`
@@ -66,11 +46,8 @@ const renderTooltip = useCallback(
 <TimeSeriesLineChart tooltip={renderTooltip} config={{ tooltip: { pinnable: true } }} />
 ```
 
-Once a render prop exists it owns the content, so move any formatters you had on `config.tooltip` into the props.
-The `config.tooltip` behavior flags (`pinnable`, `placement`) still apply.
-
-`onRowClick` fires with the row's `seriesData` entry.
-Call `ctx.onUnpin?.()` before opening a modal from it, or the pinned tooltip floats over the modal.
+Once a render prop exists it owns the content, so move any formatters you had on `config.tooltip` into the props; the behavior flags (`pinnable`, `placement`) still apply.
+Each prop's semantics are in the library's [docs/tooltips.md](../../../../packages/quill/packages/charts/src/docs/tooltips.md).
 
 ### 4. Insight series charts: `InsightSeriesTooltip`
 
@@ -105,11 +82,7 @@ Examples: `products/product_analytics/frontend/insights/funnels/shared/FunnelSte
 Do not hand-roll a `div` with your own shadow and padding.
 Do not import the legacy `InsightTooltip` for a new chart.
 
-## Reading the context correctly
+## Reading the context
 
-- `ctx.seriesData` holds one entry per visible series at `ctx.dataIndex`, in declaration order. Series with `visibility.tooltip: false` are absent. Look rows up by `entry.series.key`, never by array position.
-- On stacked and grouped bar charts, `ctx.hoveredSeriesKey` names the segment under the cursor. A tooltip that describes one segment (a funnel breakdown, a stacked bar's slice) selects by it rather than by `seriesData[0]`. It may name a series hidden from `seriesData`, and it is `undefined` on other chart types and on pinned rebuilds.
-- `ctx.inTrackArea` is true on grouped bars when the cursor is past the bar's filled extent, so a funnel tooltip can frame the hover as drop-off. It is measured on the same rectangles as click routing, so what the tooltip says and what a click does always agree.
-- In percent layouts, `value` is a 0..1 fraction. Format it as a percentage; do not divide again.
-- Overlay series (trend lines, moving averages) and series with `visibility.total: false` are excluded from `showTotal`.
-- Sparklines and inline strips usually set `tooltip: { enabled: false }` and surface the hovered value elsewhere through `useChartHover()`, so the chart does not paint a panel over a 12px bar.
+`seriesData`, `hoveredSeriesKey`, `inTrackArea`, percent-layout fractions, and `onUnpin` are documented in the library's [docs/tooltips.md](../../../../packages/quill/packages/charts/src/docs/tooltips.md) under "Reading `TooltipContext`", and the charts `AGENTS.md` gotchas list the ones that bite.
+One app habit on top: sparklines and inline strips set `tooltip: { enabled: false }` and surface the hovered value in a sibling element through `useChartHover()`, so the chart does not paint a panel over a 12px bar.
