@@ -355,7 +355,28 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(container.querySelector('iframe')?.getAttribute('title')).toBe('Widget')
     })
 
-    it('requires exact-build consent when the security review passes', async () => {
+    it.each([
+        {
+            label: 'runs a green widget immediately when it has no capabilities',
+            permissions: { notebook_data: false, hogql_queries: false, tool_calls: false },
+            autoRuns: true,
+        },
+        {
+            label: 'requires consent for a green widget with notebook data access',
+            permissions: { notebook_data: true, hogql_queries: false, tool_calls: false },
+            autoRuns: false,
+        },
+        {
+            label: 'requires consent for a green widget with HogQL access',
+            permissions: { notebook_data: false, hogql_queries: true, tool_calls: false },
+            autoRuns: false,
+        },
+        {
+            label: 'requires consent for a green widget with tool access',
+            permissions: { notebook_data: false, hogql_queries: false, tool_calls: true },
+            autoRuns: false,
+        },
+    ])('$label', async ({ permissions, autoRuns }) => {
         const versionId = '00000000-0000-0000-0000-000000000008'
         const buildHash = 'c'.repeat(64)
         const securityReview = {
@@ -378,6 +399,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             active_job: null,
             security_review: securityReview,
             build_hash: buildHash,
+            permissions,
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [
@@ -396,6 +418,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                     is_current: true,
                     security_review: securityReview,
                     build_hash: buildHash,
+                    permissions,
                 },
             ],
             count: 1,
@@ -407,14 +430,13 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        await screen.findByText('Review this widget before running it')
-        expect(container.querySelector('iframe')).toBeNull()
-        expect(screen.getByText('Automated review: No potential issues flagged')).toBeTruthy()
-
-        fireEvent.click(container.querySelector('[data-attr="notebook-widget-run"]')!)
-
-        await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull())
-        expect(container.querySelector('[data-attr="notebook-widget-run"]')).toBeNull()
+        await screen.findByText('Automated review: No potential issues flagged')
+        await waitFor(() => expect(container.querySelector('iframe') !== null).toBe(autoRuns))
+        expect(screen.queryByText('Review this widget before running it') !== null).toBe(!autoRuns)
+        expect(container.querySelector('[data-attr="notebook-widget-run"]') !== null).toBe(!autoRuns)
+        expect(container.querySelector('iframe')?.getAttribute('src') ?? null).toBe(
+            autoRuns ? 'https://example.com/reviewed-widget.html#theme=light' : null
+        )
     })
 
     it('opens regeneration from a failed preview when the filters are closed', async () => {
