@@ -202,19 +202,20 @@ fn frontier_mismatch(
     })
 }
 
-/// What a rejected charge or settlement can say about the offsets it carried.
-/// The two stages know different things, so each reports its own fields.
 #[derive(Debug, Clone, Copy)]
 enum RejectedSlice {
-    /// The offsets the charge delivered, in delivery order. A charge holds
-    /// its slice, so it names exactly what it submitted to the ledger.
+    /// Exactly the offsets the charge submitted to the ledger.
     Charged {
         first: Option<i64>,
         last: Option<i64>,
         offsets: usize,
     },
-    /// The batch's delivered span for the partition, which is what the commit
-    /// path submits.
+    /// The batch's delivered span for the partition, not the settled slice.
+    /// A generation change mid-batch drops the old generation's charges but
+    /// leaves the span whole, so the span can cover offsets the settlement
+    /// never submitted. The settled offsets are an iterator the happy path
+    /// does not collect, so the span is the closest description available.
+    /// The error names the offending offset.
     Settled { first: i64, last: i64 },
 }
 
@@ -227,11 +228,6 @@ impl RejectedSlice {
         }
     }
 
-    /// The span can cover more offsets than the settlement submitted: a
-    /// generation change mid-batch drops the old generation's charges but
-    /// leaves the span whole. The settled offsets are not retained, so the
-    /// span is reported as the batch's span and never as the settled slice.
-    /// The error names the offending offset.
     fn settled(span: &OffsetSpan) -> Self {
         Self::Settled {
             first: span.first,
@@ -242,9 +238,8 @@ impl RejectedSlice {
 
 /// Count one charge or settlement the ledger rejected. A stale slice is
 /// expected around a rebalance; a violation is a bug in the accounting.
-///
-/// Both callers build `slice` inside their error arm, so the happy path pays
-/// nothing for the detail.
+/// Callers must build `slice` inside their error arm so the happy path pays
+/// nothing for it.
 fn count_rejection(
     stage: &'static str,
     topic_partition: &TopicPartition,
@@ -267,8 +262,8 @@ fn count_rejection(
                 "kind" => error.kind()
             )
             .increment(1);
-            // The two stages name their offsets differently, and a tracing
-            // field name is fixed at the call site, so each gets its own call.
+            // A tracing field name is fixed at the call site, so each variant
+            // needs its own `warn!`.
             match slice {
                 RejectedSlice::Charged {
                     first,

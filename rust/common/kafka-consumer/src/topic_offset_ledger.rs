@@ -31,14 +31,11 @@ pub enum Rejection {
     /// The work violated the ledger's contract. The partition's window is
     /// unknown after this, so its ledger was reset to a new generation: work
     /// in flight drops as stale, and the next delivery founds a fresh ledger.
+    /// `generation` and `held` describe the ledger before that reset.
     Violation {
         error: LedgerError,
-        /// The generation the rejected work was stamped with.
         stamp: u64,
-        /// The generation the ledger held when it rejected the work. The
-        /// reset founds `generation + 1`.
         generation: u64,
-        /// What the partition's window held before the reset discarded it.
         held: Held,
     },
 }

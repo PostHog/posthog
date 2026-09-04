@@ -632,9 +632,6 @@ impl SentinelContext {
     }
 }
 
-/// The partitions in `tpl` as `topic:partition` names, sorted by topic and
-/// then by partition number. A rebalance log line carries the set itself,
-/// because a count cannot say whether a given partition moved.
 fn partition_names(tpl: &TopicPartitionList) -> Vec<String> {
     let mut partitions: Vec<(String, i32)> = tpl
         .elements()
