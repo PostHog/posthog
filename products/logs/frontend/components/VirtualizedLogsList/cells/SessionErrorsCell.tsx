@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { SessionErrorsBadge } from 'products/logs/frontend/components/VirtualizedLogsList/cells/SessionErrorsBadge'
 import { SESSION_ERRORS_WIDTH } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
@@ -11,7 +12,7 @@ import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 // page as counts arrive.
 export function SessionErrorsCell({ log }: { log: ParsedLogMessage }): JSX.Element {
     const { sessionErrorCounts } = useValues(logsViewerLogic)
-    const { openLogDetails, setLogDetailsTab } = useActions(logsViewerLogic)
+    const { openLogDetails, setActiveTab } = useActions(logDetailsModalLogic)
     const { configuredSessionIdKeys } = useValues(logsConfigLogic)
 
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
@@ -26,7 +27,7 @@ export function SessionErrorsCell({ log }: { log: ParsedLogMessage }): JSX.Eleme
                         // openLogDetails resets the drawer to its Details tab, so the tab selection
                         // has to follow it.
                         openLogDetails(log)
-                        setLogDetailsTab('related-errors')
+                        setActiveTab('related-errors')
                     }}
                 />
             )}

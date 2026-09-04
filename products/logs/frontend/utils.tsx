@@ -226,6 +226,10 @@ export function getSessionIdFromLogAttributes(
     return getSessionIdWithKey(attributes, resourceAttributes, configuredKeys)?.value ?? null
 }
 
+// How far either side of a log the Related errors lookup searches for exceptions in the same
+// session. Shared so the drawer's tab and the row badge that opens it agree on the range.
+export const RELATED_ERRORS_WINDOW_HOURS = 6
+
 // Wide enough to cover a session around a single event without drowning it in unrelated logs.
 export const SESSION_LOGS_WINDOW_MINUTES = 30
 

@@ -8,6 +8,8 @@ import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-
 import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { RELATED_ERRORS_WINDOW_HOURS } from 'products/logs/frontend/utils'
+
 export interface RelatedErrorsLogicProps {
     logUuid: string
     logTimestamp: string
@@ -80,8 +82,8 @@ export const relatedErrorsLogic = kea<relatedErrorsLogicType>([
                     kind: NodeKind.ErrorTrackingQuery,
                     orderBy: 'last_seen',
                     dateRange: {
-                        date_from: timestamp.subtract(6, 'hours').toISOString(),
-                        date_to: timestamp.add(6, 'hours').toISOString(),
+                        date_from: timestamp.subtract(RELATED_ERRORS_WINDOW_HOURS, 'hours').toISOString(),
+                        date_to: timestamp.add(RELATED_ERRORS_WINDOW_HOURS, 'hours').toISOString(),
                     },
                     filterGroup: {
                         type: FilterLogicalOperator.And,
