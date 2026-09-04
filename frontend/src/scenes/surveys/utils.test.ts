@@ -1184,6 +1184,37 @@ describe('survey utils', () => {
             expect(query!.match(/argMaxIf\(q0_raw/g)).toHaveLength(1)
         })
 
+        it.each([
+            ['rating', { id: 'q-rating', type: SurveyQuestionType.Rating, question: 'How was it?' }],
+            ['open', { id: 'q-open', type: SurveyQuestionType.Open, question: 'Why?' }],
+            [
+                'single choice',
+                {
+                    id: 'q-choice',
+                    type: SurveyQuestionType.SingleChoice,
+                    question: 'Pick one',
+                    choices: ['a', 'b'],
+                },
+            ],
+        ])('builds a valid query for a survey with only one required %s question', (_type, question) => {
+            const survey = { ...buildSurvey(true), questions: [question] } as Survey
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            // These questions each emit one label-pair expression, and HogQL rejects arrayConcat
+            // with a single argument, so the results tab failed to load.
+            expect(query).not.toContain('arrayConcat')
+            expect(query).toContain('arrayJoin(if(isNotNull(q0_answer)')
+        })
+
+        it('concatenates the label pairs when a survey emits more than one expression', () => {
+            const survey = buildSurvey(true)
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            expect(query).toContain('arrayJoin(arrayConcat(')
+        })
+
         it('does not alias the merged timestamp back onto the column the merge orders by', () => {
             const survey = buildSurvey(true)
 
