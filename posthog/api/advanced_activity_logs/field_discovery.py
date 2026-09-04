@@ -27,9 +27,7 @@ class AdvancedActivityLogFieldDiscovery:
         self.organization_id = organization_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
-        record_count = self._get_org_record_count()
-
-        if record_count > SMALL_ORG_THRESHOLD:
+        if self._exceeds_small_org_threshold():
             cached = get_cached_fields(str(self.organization_id))
             if cached:
                 return cached
@@ -46,7 +44,7 @@ class AdvancedActivityLogFieldDiscovery:
             "detail_fields": detail_fields,
         }
 
-        cache_fields(str(self.organization_id), result, record_count)
+        cache_fields(str(self.organization_id), result, is_large_org=False)
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
@@ -103,6 +101,19 @@ class AdvancedActivityLogFieldDiscovery:
 
     def _get_org_record_count(self) -> int:
         return ActivityLog.objects.filter(organization_id=self.organization_id).count()
+
+    def _exceeds_small_org_threshold(self) -> bool:
+        """Tell if the org has more rows than SMALL_ORG_THRESHOLD, without counting them all.
+
+        An exact count reads every row the org ever wrote, and the answer only selects the cache
+        path. A probe for one row past the threshold stops there, so the cost stays flat while the
+        org gets older.
+        """
+        return (
+            ActivityLog.objects.filter(organization_id=self.organization_id)
+            .values("id")[SMALL_ORG_THRESHOLD : SMALL_ORG_THRESHOLD + 1]
+            .exists()
+        )
 
     def get_activity_logs_queryset(self, hours_back: int | None = None) -> QuerySet:
         """Get the base queryset for activity logs, optionally filtered by time."""
@@ -178,8 +189,7 @@ class AdvancedActivityLogFieldDiscovery:
             "detail_fields": current_detail_fields,
         }
 
-        record_count = self._get_org_record_count()
-        cache_fields(str(self.organization_id), cache_data, record_count)
+        cache_fields(str(self.organization_id), cache_data, is_large_org=True)
 
     def _get_base_queryset(self):
         return ActivityLog.objects.filter(organization_id=self.organization_id)

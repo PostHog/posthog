@@ -1,6 +1,9 @@
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -110,3 +113,20 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    @parameterized.expand(
+        [
+            ("at_threshold_computes_fields", 0, True),
+            ("above_threshold_uses_cache_path", -1, False),
+        ]
+    )
+    def test_threshold_decides_between_fresh_and_cached_fields(
+        self, _name: str, threshold_offset: int, expects_fresh_fields: bool
+    ) -> None:
+        self._create_activity_log("Dashboard", {"field": "value"})
+        threshold = ActivityLog.objects.filter(organization_id=self.organization.id).count() + threshold_offset
+
+        with patch("posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD", threshold):
+            results = self._run_field_discovery()
+
+        self.assertEqual(bool(results["detail_fields"]), expects_fresh_fields)
