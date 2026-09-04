@@ -294,6 +294,7 @@ export interface replayScannerLogicValues {
     chartDateFrom: string | null
     chartDateTo: string | null
     copyingAllObservations: boolean
+    creationMethod: 'ai' | 'scratch' | 'template' | null
     creditLimitState: CreditLimitState
     durationValidationError: string | null
     estimateRequestVersion: number
@@ -799,7 +800,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         copyAllObservationsFinished: true,
     }),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         scanner: {
             defaults: newScanner(
                 props.id === 'new' ? currentTemplateKey() : null,
@@ -880,7 +881,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const body = apiScanner.query == null ? omitQuery(apiScanner) : apiScanner
                 try {
                     if (props.id === 'new') {
-                        const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
+                        // Tags the creation event with the entry point. Omitted when a reloaded draft
+                        // dropped it, so the backend records its `api` default rather than a wrong path.
+                        const createBody = values.creationMethod
+                            ? { ...body, creation_method: values.creationMethod }
+                            : body
+                        const response = await visionScannersCreate(String(teamId), scannerToApiBody(createBody))
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
@@ -1023,6 +1029,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 startFromTemplate: () => null,
+            },
+        ],
+        // How the current new-scanner draft was started, sent on create so the backend event splits
+        // the funnel by path. Set by the same actions that emit `creation_started`; null until one
+        // fires, so a draft resumed after a reload sends nothing and the backend records `api`.
+        creationMethod: [
+            null as 'ai' | 'template' | 'scratch' | null,
+            {
+                draftScannerFromGoal: () => 'ai',
+                startFromTemplate: (_, { templateKey }) => (templateKey ? 'template' : 'scratch'),
             },
         ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.

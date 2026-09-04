@@ -18,7 +18,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
+from products.replay_vision.backend.api.scanners import ReplayScannerSerializer, ScannerCreationMethod
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
@@ -1088,6 +1088,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                 "model": DEFAULT_SCAN_MODEL,
                 "sampling_rate": sampling_rate,
                 "enabled": enabled,
+                "creation_method": ScannerCreationMethod.MCP,
             },
             context={"get_team": lambda: self._team, "user": self._user},
         )

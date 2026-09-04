@@ -1420,7 +1420,8 @@ describe('replayScannerLogic', () => {
     })
 
     describe('creation path telemetry', () => {
-        // Both paths end on the same created event, so these captures are the only path marker.
+        // The frontend marks the entry point twice: a creation_started event, and creation_method
+        // on the create body. The backend fires the matching creation_completed event.
         it.each([
             ['dead_end', 'template'],
             [null, 'scratch'],
@@ -1443,6 +1444,44 @@ describe('replayScannerLogic', () => {
                 template_key: null,
                 goal_length: 'find users who get stuck'.length,
             })
+        })
+
+        it.each([
+            ['dead_end', 'template'],
+            [null, 'scratch'],
+        ])('sends creation_method after startFromTemplate(%s) as %s', async (templateKey, creationMethod) => {
+            let createdBody: any
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/': async ({ request }: { request: Request }) => {
+                        createdBody = await request.json()
+                        return [201, { id: 'created-scanner' }]
+                    },
+                },
+            })
+            logic.actions.startFromTemplate(templateKey)
+            logic.actions.setScannerValues({ scanner_config: { prompt: 'anything odd?' } })
+            router.actions.push(urls.replayVisionScannerBudget('new'))
+            await expectLogic(logic, () => logic.actions.submitScanner()).toDispatchActions(['scannerSaved'])
+            expect(createdBody.creation_method).toBe(creationMethod)
+        })
+
+        it('omits creation_method on create when the draft was resumed without a start action', async () => {
+            // A reload drops the in-memory method. Sending nothing lets the backend record its api
+            // default rather than a wrong path, so the create body must not carry the key at all.
+            let createdBody: any
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/': async ({ request }: { request: Request }) => {
+                        createdBody = await request.json()
+                        return [201, { id: 'created-scanner' }]
+                    },
+                },
+            })
+            logic.actions.setScannerValues({ scanner_config: { prompt: 'anything odd?' } })
+            router.actions.push(urls.replayVisionScannerBudget('new'))
+            await expectLogic(logic, () => logic.actions.submitScanner()).toDispatchActions(['scannerSaved'])
+            expect(createdBody).not.toHaveProperty('creation_method')
         })
     })
 
