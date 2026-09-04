@@ -37,6 +37,7 @@ export interface signalTeamConfigLogicValues {
     patchesInFlight: number
     reportsGeneratedToday: number
     saveMaxReportsPerDayDisabledReason: string | null
+    staleReportSweepEnabled: boolean
     teamConfig: SignalTeamConfig | null
     teamConfigLoading: boolean
     teamConfigUpdating: boolean
@@ -128,6 +129,7 @@ export interface signalTeamConfigLogicMeta {
         maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
         reportsGeneratedToday: (teamConfig: SignalTeamConfig | null) => number
         dailyReportLimitReached: (teamConfig: SignalTeamConfig | null) => boolean
+        staleReportSweepEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         teamConfigUpdating: (patchesInFlight: number) => boolean
         saveMaxReportsPerDayDisabledReason: (
             draftMaxReportsPerDay: number | null,
@@ -293,6 +295,12 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         dailyReportLimitReached: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.daily_report_limit_reached === true,
+        ],
+        // Same null-reads-as-on shape as autostartEnabled: only an explicit false opts a team out,
+        // and the backfill wrote that false for every team that predates the sweep.
+        staleReportSweepEnabled: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.stale_report_sweep_enabled !== false,
         ],
         // True only while a save (patch) is in flight. Deliberately not derived from teamConfigLoading:
         // the shared loader also raises that flag for the initial load and the background tab-return

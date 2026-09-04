@@ -269,6 +269,16 @@ A report keeps its first four notes as separate entries in its work log and coun
 The call still succeeds, and `corroboration_collapsed` in the response tells you it happened.
 Nothing is lost that the count doesn't already say, but if you have something genuinely new, put it in the note before the fourth one, or rewrite the summary.
 
+### A report you filed may be archived
+
+Reports that stop moving are archived automatically: 14 days with nothing happening, or 21 days without a person looking when a scout keeps revising it.
+Any open PR closes with the report, and the archive carries a `stale` dismissal reason.
+`inbox-reports-retrieve` shows it as `status: suppressed`.
+
+Do not re-file the finding — a fresh report is a duplicate and gets archived on the same rule.
+Editing the archived report still works, but only a person restoring it brings it back to the inbox.
+Treat the archive as feedback that nobody acted on it, and re-file only when something material changed.
+
 ## Finding "the report I made last time"
 
 There is no scout-specific report search — use the **vanilla inbox tools** the scout already has.

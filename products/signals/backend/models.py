@@ -153,6 +153,12 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
     max_reports_per_day = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # Whether the daily staleness sweep may archive this team's reports. Null means never set,
+    # which reads as enabled — so a team created after this shipped opts in by default. Every
+    # config row that existed when this shipped was stamped False by the accompanying backfill, so
+    # no established team wakes up to a mass archive of the backlog it has been accumulating. A
+    # team turns it on from inbox settings.
+    stale_report_sweep_enabled = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -213,6 +219,13 @@ SIGNALS_AT_RUN_INCREMENT = 3
 # about a report going quiet stops it writing to that report.
 MAX_SCOUT_CONTENT_REVISIONS = 4
 MAX_SCOUT_REPORT_NOTES = 4
+
+# The statuses the staleness sweep may archive: a report still somewhere in the pipeline or still
+# sitting in the inbox. `resolved`, `deleted` and `suppressed` are already terminal, and `failed`
+# carries an error a person may still want to see. Spelled as literals rather than `SignalReport.Status`
+# members because the partial indexes that use it are declared in the model's own `Meta`, which
+# Django evaluates while the class is still being built; the check below closes that gap.
+REAPABLE_REPORT_STATUSES: tuple[str, ...] = ("candidate", "in_progress", "pending_input", "ready")
 
 
 class InvalidStatusTransition(Exception):
@@ -320,6 +333,21 @@ class SignalReport(UUIDModel):
     # ID de-duplication would not. Null for reports that never notified or predate the field.
     inbox_notified_at = models.DateTimeField(null=True, blank=True)
 
+    # The last event that could still change this report: a signal assigned while research
+    # iterations remain, a research run, a scout content revision, a person acting on it, or a
+    # pull request event. Signals arriving after the iteration cap is exhausted deliberately do
+    # NOT stamp it — they are collected but can no longer change anything, so they must not hold
+    # the report open. Null only for reports that predate the column and its backfill; the
+    # staleness sweep falls back to `created_at` so a null never reads as infinitely stale.
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    # The last time a *person* touched this report. Drives the close rule for scout-touched
+    # reports, whose machine activity never stops and so can never go quiet on its own. Same
+    # evidence the scout inactivity sweep already counts as consumption (see
+    # `scout_harness/inactivity.py`): a user-attributed artefact, a `SignalReportAction` row, or a
+    # human review on its pull request. Null means nobody has ever touched it, and the sweep falls
+    # back to `created_at` there too.
+    last_human_touch_at = models.DateTimeField(null=True, blank=True)
+
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
         ArrayField(
@@ -345,6 +373,18 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial, on the statuses the staleness sweep can archive: the sweep is a fleet-wide
+            # range scan for reports whose clock ran out, and every other status is noise in it.
+            models.Index(
+                fields=["last_activity_at"],
+                condition=models.Q(status__in=REAPABLE_REPORT_STATUSES),
+                name="signals_report_last_activity",
+            ),
+            models.Index(
+                fields=["last_human_touch_at"],
+                condition=models.Q(status__in=REAPABLE_REPORT_STATUSES),
+                name="signals_report_human_touch",
             ),
         ]
 
@@ -499,9 +539,36 @@ class SignalReport(UUIDModel):
             self.first_visible_at = timezone.now()
             updated_fields.add("first_visible_at")
 
+        # Every transition is an event that changed the report, so every one resets the staleness
+        # clock. Blanket rather than per-case: this is also what stops a report restored from the
+        # archive, or promoted out of `potential`, re-entering a reapable status with a clock that
+        # never started and being archived again by the next sweep.
+        self.last_activity_at = timezone.now()
+
         self.status = new_status
-        updated_fields.update(["status", "updated_at"])
+        updated_fields.update(["status", "updated_at", "last_activity_at"])
         return list(updated_fields)
+
+    @classmethod
+    def stamp_activity(cls, *, team_id: int, report_id: str, human: bool = False) -> None:
+        """Reset this report's staleness clocks: always `last_activity_at`, and on a person's
+        touch `last_human_touch_at` too.
+
+        A queryset `update()` rather than `save()`, for three reasons. It does not move
+        `updated_at` (`auto_now`), so re-confirming a report neither reorders the inbox nor makes
+        a report that stopped moving read as if it had. It fires no `post_save` receiver, so a
+        stamp can never re-embed a report or close its pull request. And it needs no instance,
+        so the callers that hold only an id do not have to fetch the row to stamp it.
+
+        Every human touch is activity too, which is why `human=True` writes both: the two clocks
+        answer different questions (has anything happened, has a *person* been here) and only the
+        second one can distinguish a report a scout keeps alive from one someone still wants.
+        """
+        now = timezone.now()
+        fields: dict[str, Any] = {"last_activity_at": now}
+        if human:
+            fields["last_human_touch_at"] = now
+        cls.objects.filter(team_id=team_id, id=report_id).update(**fields)
 
     def restore_target_status(self) -> "SignalReport.Status":
         """
@@ -799,6 +866,14 @@ class SignalReport(UUIDModel):
         return models.Q(id__in=artefact_rows.values("report_id")) | models.Q(id__in=legacy_rows.values("report_id"))
 
 
+# The gap `REAPABLE_REPORT_STATUSES` leaves open, closed at import: a renamed status value would
+# otherwise leave the partial indexes above matching nothing and the staleness sweep selecting
+# nothing, with no error anywhere.
+_unknown_reapable = set(REAPABLE_REPORT_STATUSES) - set(SignalReport.Status.values)
+if _unknown_reapable:
+    raise ValueError(f"REAPABLE_REPORT_STATUSES names statuses SignalReport does not have: {sorted(_unknown_reapable)}")
+
+
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
 
@@ -945,7 +1020,7 @@ class SignalReportArtefact(UUIDModel):
         # not diverge. The FK comes from attribution, so require task attribution that matches.
         if isinstance(content, TaskRunArtefact) and content.task_id != attribution.task_id:
             raise ArtefactContentValidationError("task_run content.task_id must match the artefact's attributed task")
-        return cls.objects.create(
+        artefact = cls.objects.create(
             team_id=team_id,
             report_id=report_id,
             type=artefact_type_for(content),
@@ -954,6 +1029,14 @@ class SignalReportArtefact(UUIDModel):
             task_id=attribution.task_id,
             channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
         )
+        # A person-attributed artefact is the report's richest evidence that someone is still on
+        # it — a note, a dismissal, a code reference. Stamped from the write funnel rather than
+        # from each appender so no producer can add one without the clock hearing about it.
+        # Pipeline and task attribution both leave `user_id` null and are deliberately not counted:
+        # the whole point of the human clock is that machine writes cannot reset it.
+        if attribution.user_id is not None:
+            SignalReport.stamp_activity(team_id=team_id, report_id=str(report_id), human=True)
+        return artefact
 
     @classmethod
     def append_status(
@@ -1315,6 +1398,10 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
             updates["count"] = models.F("count") + 1
         if metadata is not None:
             updates["metadata"] = metadata
+        # Every row here is a person by construction (see the class docstring), so any interaction
+        # recorded through it is a human touch — including a plain view, which is how digest-style
+        # reports get consumed.
+        SignalReport.stamp_activity(team_id=team_id, report_id=report_id, human=True)
         row = cls.objects.for_team(team_id).filter(report_id=report_id, user_id=user_id, type=action_type)
         if row.update(**updates):
             return

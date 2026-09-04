@@ -288,6 +288,21 @@ SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
     "SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS", 30, type_cast=int
 )
 
+# Signals staleness sweep (products/signals/backend/report_staleness.py). The sweep always runs
+# and always reports what it found; this switch is what lets it act on that. Off until the
+# report-only numbers look right, and the global half of the three gates a report has to clear
+# before it is archived (the other two are the `signals-stale-report-reaper` flag and the team's
+# own `stale_report_sweep_enabled`).
+SIGNAL_STALE_REPORT_REAPER_ENABLED: bool = get_from_env(
+    "SIGNAL_STALE_REPORT_REAPER_ENABLED", False, type_cast=str_to_bool
+)
+# How long a report may go without anything happening to it, and how long a scout-revised report
+# may go without a person touching it, before the sweep archives it. Two clocks because scout
+# activity never stops, so an inactivity clock alone never fires on the reports that need it. Both
+# stay tunable from the day counts the sweep's own events carry.
+SIGNAL_STALE_REPORT_AGE_DAYS: int = get_from_env("SIGNAL_STALE_REPORT_AGE_DAYS", 14, type_cast=int)
+SIGNAL_SCOUT_REPORT_HUMAN_SILENCE_DAYS: int = get_from_env("SIGNAL_SCOUT_REPORT_HUMAN_SILENCE_DAYS", 21, type_cast=int)
+
 # Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
 EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")
 

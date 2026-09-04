@@ -107,7 +107,7 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
     return {report_id: pr.url for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids).items()}
 
 
-PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded"]
+PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded", "stale"]
 
 # Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.
 _PR_CLOSE_COMMENT_TEMPLATE = (
@@ -143,9 +143,18 @@ _SUPERSEDED_COMMENT_NO_URL = (
     "The report it came from is still open, and a new PR replaces this one.\n\n"
     "If this PR was still the right fix, reopen it."
 )
+# Staleness says nothing about the fix, only that nobody came back to it. So the comment names the
+# silence rather than judging the work, and points at the one thing that brings the PR back.
+_STALE_COMMENT = (
+    "🔕 Closing this PR because the PostHog report behind it went quiet. Nobody acted on it for "
+    "weeks, so it was archived along with this PR.\n\n"
+    "If the fix is still wanted, restore the report in PostHog and reopen this PR."
+)
 
 
 def _pr_close_comment(reason: PrCloseReason, replacement_pr_url: str | None) -> str:
+    if reason == "stale":
+        return _STALE_COMMENT
     if reason != "superseded":
         return _PR_CLOSE_COMMENTS[reason]
     if replacement_pr_url:

@@ -322,6 +322,12 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
         _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
+    if task_run is not None:
+        # Anything happening on the report's pull request is the report still moving: it opened,
+        # it left draft, someone reopened it. Not a human touch — the agent pushes most of these,
+        # and a human review comes through `handle_pull_request_review_event` instead.
+        _stamp_signal_report_activity(task_run.task_id, human=False)
+
     # Read after the backstop, so a URL it just persisted counts. The run has to carry the URL
     # before the handover closes anything: a report surfaces its PR from `output`, and
     # `_record_run_pr_url` swallows a failed write, so closing the older PR on a run that never
@@ -396,6 +402,12 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
     # One review submission = one event; GitHub redeliveries collapse on the review id.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:pr_reviewed:{review.get('id')}"))
     _capture_pr_review_event(payload, task_run, event_uuid)
+
+    if task_run is not None:
+        # A person reviewing the pull request is a person working the report, and it is the only
+        # such evidence that never reaches PostHog any other way. The bot filter above is what
+        # makes it trustworthy: without it StampHog and CI would keep every report alive forever.
+        _stamp_signal_report_activity(task_run.task_id, human=True)
 
     logger.info(
         "github_pr_review_webhook_processed",
@@ -1044,6 +1056,21 @@ def _close_superseded_signal_report_prs(task_run: TaskRun, pr_url: str) -> None:
             pr_url=pr_url,
             exc_info=True,
         )
+
+
+def _stamp_signal_report_activity(task_id: uuid.UUID, *, human: bool) -> None:
+    """Reset the staleness clocks on every signal report linked to this task.
+
+    Best-effort: a report whose clock does not move is archived a day late at worst, which must
+    never be worth failing a webhook GitHub is retrying.
+    """
+    try:
+        for team_id, report_id in SignalReport.objects.filter(
+            SignalReport.reports_for_task_filter(task_id)
+        ).values_list("team_id", "id"):
+            SignalReport.stamp_activity(team_id=team_id, report_id=str(report_id), human=human)
+    except Exception:
+        logger.warning("github_pr_webhook_signal_report_stamp_failed", task_id=str(task_id), exc_info=True)
 
 
 def _transition_signal_reports_for_pr(

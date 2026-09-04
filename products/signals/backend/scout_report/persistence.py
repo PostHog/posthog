@@ -204,6 +204,10 @@ def create_scout_report(
             first_visible_at=(
                 timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
             ),
+            # Born READY without passing through transition_to, which is where the staleness clock
+            # normally starts. Left null this report would read to the sweep as untouched since
+            # birth, which is true but says nothing — a report written a minute ago is not stale.
+            last_activity_at=timezone.now(),
         )
         report_id = str(report.id)
         # Provenance: every authored report carries a note marking it scout-authored, attributed to
@@ -506,7 +510,14 @@ def record_content_revision(*, team_id: int, report_id: str) -> int:
         if existing is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
         content_revision_count = existing + 1
-        SignalReport.objects.filter(team_id=team_id, id=report_id).update(content_revision_count=content_revision_count)
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            content_revision_count=content_revision_count,
+            # A rewrite is the one scout edit that changes what the report says, so it is the one
+            # that resets the staleness clock. A revalidation note does not: a scout restating that
+            # its finding still holds is exactly the machine noise the human-silence clock exists
+            # to see past, and letting it stamp here would make every scout report immortal.
+            last_activity_at=timezone.now(),
+        )
     return content_revision_count
 
 

@@ -105,6 +105,7 @@ from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     refresh_signal_repository_activity,
+    sweep_stale_signal_reports,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -349,6 +350,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="15"),
         pause_inactive_signal_scouts.s(),
         name="pause inactive signals scouts",
+    )
+
+    # Archive signals reports that stopped moving, and close their PRs - daily at 6:45 AM.
+    # After the scout sweep above so the two daily signals passes don't contend for the same
+    # worker slot, and both sit well clear of local business hours in every region we run in.
+    sender.add_periodic_task(
+        crontab(hour="6", minute="45"),
+        sweep_stale_signal_reports.s(),
+        name="sweep stale signals reports",
     )
 
     # Keep the signals repository area-activity cache warm - weekly, Monday early morning

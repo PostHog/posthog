@@ -33,6 +33,7 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.report_staleness import sweep_stale_reports
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -594,6 +595,79 @@ def pause_inactive_signal_scouts() -> None:
                     },
                     groups=groups(organization=organization),
                 )
+
+
+@shared_task(
+    name="products.signals.backend.tasks.sweep_stale_signal_reports",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def sweep_stale_signal_reports() -> None:
+    """Daily sweep: archive reports that stopped moving, and close the pull requests behind them.
+
+    Detection always runs; archiving needs all three gates open. See
+    `report_staleness.sweep_stale_reports` for the two clocks and why one would not do.
+    """
+    outcome = sweep_stale_reports()
+    logger.info(
+        "signals stale report sweep finished",
+        considered=outcome.considered,
+        detected=len(outcome.detected),
+        archived=len(outcome.archived),
+        gated=outcome.gated,
+        deferred=outcome.deferred,
+        scan_truncated=outcome.scan_truncated,
+    )
+    if not outcome.detected:
+        return
+
+    archived_ids = {str(candidate.report.id) for candidate in outcome.archived}
+    organizations = {
+        team.id: team.organization
+        for team in Team.objects.filter(
+            id__in={candidate.report.team_id for candidate in outcome.detected}
+        ).select_related("organization")
+    }
+    # Every candidate reports, archived or not. A report the sweep found and left alone is the
+    # measurement the staged rollout runs on, so it has to reach the same funnel as an archive.
+    with ph_scoped_capture() as capture:
+        for candidate in outcome.detected:
+            organization = organizations.get(candidate.report.team_id)
+            if organization is None:
+                continue
+            archived = str(candidate.report.id) in archived_ids
+            properties = {
+                "team_id": candidate.report.team_id,
+                "organization_id": str(organization.id),
+                "report_id": str(candidate.report.id),
+                "clock": candidate.clock,
+                # Both counts on every candidate, not only the one this report's clock used —
+                # that is what lets the two thresholds be retuned against each other later.
+                "days_idle": candidate.days_idle,
+                "days_since_human_touch": candidate.days_since_human_touch,
+                "status": candidate.report.status,
+                "run_count": candidate.report.run_count,
+                "content_revision_count": candidate.report.content_revision_count,
+                "has_open_pr": candidate.has_open_pr,
+            }
+            capture(
+                distinct_id=str(organization.id),
+                event="signal_report_stale_detected",
+                properties=properties,
+                groups=groups(organization=organization),
+            )
+            if archived:
+                capture(
+                    distinct_id=str(organization.id),
+                    event="signal_report_archived_stale",
+                    properties={**properties, "age_days": _report_age_days(candidate.report)},
+                    groups=groups(organization=organization),
+                )
+
+
+def _report_age_days(report: SignalReport) -> int:
+    return max(0, (timezone.now() - report.created_at).days)
 
 
 @shared_task(

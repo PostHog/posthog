@@ -299,6 +299,35 @@ function DailyReportLimit(): JSX.Element {
 }
 
 /**
+ * The daily staleness sweep's per-team opt-in, backed by `stale_report_sweep_enabled`. Housed with
+ * the autonomy throttles for the same reason as the daily limit: it is "how much should the agents
+ * do on their own", not a billing or plan setting. Renders regardless of the auto-start toggle,
+ * since the sweep archives reports whether or not the team lets agents open PRs.
+ */
+function StaleReportSweep(): JSX.Element {
+    const { staleReportSweepEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <div className="flex items-start justify-between gap-2 px-2.5 py-1.5">
+            <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-xs text-secondary">Archive stale reports</span>
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    After 14 days with no activity, or 21 days with nobody looking. Any open PR closes too, and you can
+                    restore the report.
+                </p>
+            </div>
+            <LemonSwitch
+                checked={staleReportSweepEnabled}
+                loading={teamConfigUpdating}
+                onChange={(enabled) => patchTeamConfig({ stale_report_sweep_enabled: enabled })}
+                aria-label="Archive stale reports"
+            />
+        </div>
+    )
+}
+
+/**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
  * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
  * reports keep generating and notifying either way. The threshold is the team default; a teammate's
@@ -404,6 +433,9 @@ export function SelfDrivingSection(): JSX.Element {
                 )}
                 <div className="border-t border-primary">
                     <DailyReportLimit />
+                </div>
+                <div className="border-t border-primary">
+                    <StaleReportSweep />
                 </div>
             </div>
         </div>
