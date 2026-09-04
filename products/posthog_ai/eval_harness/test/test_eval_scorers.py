@@ -219,8 +219,8 @@ def test_skill_triggered_skips_when_the_case_declares_no_direction(expected: dic
     "calls,expected_score,expected_answer_tool",
     [
         # Typed answer followed by an execute-sql validation call: the typed
-        # tool wins, the trailing SQL is validation. This is the regression
-        # LastToolCallNot shipped — it read only the last call and scored 0.
+        # tool wins, the trailing SQL is validation. Reading only the last
+        # call instead of the answer scored this 0.
         (
             [
                 ("query-trends", {"query": {}}, {"results": []}),

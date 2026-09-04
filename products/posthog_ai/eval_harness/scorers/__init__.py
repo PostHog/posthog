@@ -1,6 +1,6 @@
 from products.posthog_ai.eval_harness.log_parser import LogParser, normalize_tool_name
 
-from .deterministic import AnswerToolCallNot, ExitCodeZero, LastToolCallNot, NoToolCall, RequiredToolCall
+from .deterministic import AnswerToolCallNot, ExitCodeZero, NoToolCall, RequiredToolCall
 from .judged import (
     BINARY_CHOICE_SCORES,
     GRADED_ALIGNMENT_CHOICE_SCORES,
@@ -18,7 +18,6 @@ __all__ = [
     "AsyncOnlyScorerMixin",
     "ExitCodeZero",
     "JudgedScorer",
-    "LastToolCallNot",
     "LogParser",
     "NoToolCall",
     "RequiredToolCall",
