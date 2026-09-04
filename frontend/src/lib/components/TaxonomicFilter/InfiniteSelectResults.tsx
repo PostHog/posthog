@@ -186,7 +186,7 @@ export function InfiniteSelectResults({
         />
     ) : (
         <>
-            {hasMultipleGroups && (
+            {showCategoryColumn && (
                 <div className="taxonomic-group-title">
                     <TaxonomicGroupTitle openTab={openTab} />
                 </div>

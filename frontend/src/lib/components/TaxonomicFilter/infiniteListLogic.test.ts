@@ -1451,6 +1451,120 @@ describe('infiniteListLogic', () => {
         )
     })
 
+    describe('suggested list drops hidden recents and pinned from the aggregate', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const mountSuggestedList = (): ReturnType<typeof infiniteListLogic.build> => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'hidden-suggested-test',
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SuggestedFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        // A hidden event never comes back from the Events tab (its endpoint sends
+        // `exclude_hidden: true`), so it must not surface as an "Events" row in the aggregate.
+        it('excludes a hidden recent event but keeps a visible one', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'visible event',
+                item: { name: 'visible event' },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'hidden event',
+                item: { name: 'hidden event', hidden: true },
+            })
+
+            const listLogic = mountSuggestedList()
+            listLogic.actions.setSearchQuery('event')
+            await expectLogic(listLogic).toDispatchActions(['setSearchQuery'])
+
+            const names = listLogic.values.suggestedRecentMatches.map((item) => (item as { name?: string }).name)
+            expect(names).toContain('visible event')
+            expect(names).not.toContain('hidden event')
+        })
+
+        it('excludes a hidden pinned event but keeps a visible one', async () => {
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'visible event', {
+                name: 'visible event',
+            })
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'hidden event', {
+                name: 'hidden event',
+                hidden: true,
+            })
+
+            const listLogic = mountSuggestedList()
+            listLogic.actions.setSearchQuery('event')
+            await expectLogic(listLogic).toDispatchActions(['setSearchQuery'])
+
+            const names = listLogic.values.suggestedPinnedMatches.map((item) => (item as { name?: string }).name)
+            expect(names).toContain('visible event')
+            expect(names).not.toContain('hidden event')
+        })
+
+        // With no query typed, the aggregate leads with recent/pinned prefixes instead of the
+        // per-query matches. The hidden filter has to run here too, or clearing the query brings
+        // a hidden "Events" row back that the Events tab still returns nothing for.
+        it('excludes a hidden recent event from the idle prefix but keeps a visible one', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'visible event',
+                item: { name: 'visible event' },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'hidden event',
+                item: { name: 'hidden event', hidden: true },
+            })
+
+            const listLogic = mountSuggestedList()
+            await expectLogic(listLogic).toFinishAllListeners()
+
+            const names = listLogic.values.results.map((item) => (item as { name?: string }).name)
+            expect(names).toContain('visible event')
+            expect(names).not.toContain('hidden event')
+        })
+
+        it('excludes a hidden pinned event from the idle prefix but keeps a visible one', async () => {
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'visible event', {
+                name: 'visible event',
+            })
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'hidden event', {
+                name: 'hidden event',
+                hidden: true,
+            })
+
+            const listLogic = mountSuggestedList()
+            await expectLogic(listLogic).toFinishAllListeners()
+
+            const names = listLogic.values.results.map((item) => (item as { name?: string }).name)
+            expect(names).toContain('visible event')
+            expect(names).not.toContain('hidden event')
+        })
+    })
+
     describe('committed selection promotion', () => {
         beforeEach(() => {
             localStorage.clear()

@@ -74,6 +74,17 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { getItemGroup } from './InfiniteList'
 import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
 
+// Most category endpoints fetch with `exclude_hidden: true` (Events, Event properties, Person
+// properties), so a hidden item never appears under those category tabs. Drop it from the
+// aggregated tab too, or that tab shows an "Events" row (say) that the Events tab returns
+// nothing for. Feature flags and Numerical event properties omit the param, so their own tabs
+// still list hidden items. The aggregate drops those from recents and pinned anyway, which is a
+// deliberate minor inconsistency because the item still reaches the aggregate through its
+// group's own matches.
+function isHiddenDefinition(item: TaxonomicDefinitionTypes): boolean {
+    return 'hidden' in item && !!item.hidden
+}
+
 function pinnedItemMatchesSearch(
     item: TaxonomicDefinitionTypes,
     query: string,
@@ -1567,8 +1578,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return []
                 }
                 const q = searchQuery.trim().toLowerCase()
-                return (contextFilteredPinnedItems || []).filter((item) =>
-                    pinnedItemMatchesSearch(item, q, taxonomicGroups)
+                return (contextFilteredPinnedItems || []).filter(
+                    (item) => !isHiddenDefinition(item) && pinnedItemMatchesSearch(item, q, taxonomicGroups)
                 )
             },
         ],
@@ -1584,8 +1595,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return []
                 }
                 const q = searchQuery.trim().toLowerCase()
-                return (contextFilteredRecentItems || []).filter((item) =>
-                    recentItemMatchesSearch(item, q, taxonomicGroups)
+                return (contextFilteredRecentItems || []).filter(
+                    (item) => !isHiddenDefinition(item) && recentItemMatchesSearch(item, q, taxonomicGroups)
                 )
             },
         ],
@@ -1632,9 +1643,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (!isSuggested) {
                     return []
                 }
-                const recentPrefix = !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const recentPrefix = !searchQuery
+                    ? (contextFilteredRecentItems || []).filter((item) => !isHiddenDefinition(item)).slice(0, 3)
+                    : []
                 const pinnedPrefix = !searchQuery
-                    ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                    ? withoutPinnedDuplicatesOfRecents(
+                          (contextFilteredPinnedItems || []).filter((item) => !isHiddenDefinition(item)),
+                          recentPrefix
+                      ).slice(0, 3)
                     : []
 
                 const dedupeKeys = new Set<string>()
@@ -1753,12 +1769,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 }
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
-                const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const recentPrefix =
+                    isSuggested && !searchQuery
+                        ? (contextFilteredRecentItems || []).filter((item) => !isHiddenDefinition(item)).slice(0, 3)
+                        : []
                 // An item that is both recent and pinned shows once, under the section that
                 // renders first — recents (mirrors the rebuild Combobox's prefix dedupe).
                 const pinnedPrefix =
                     isSuggested && !searchQuery
-                        ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                        ? withoutPinnedDuplicatesOfRecents(
+                              (contextFilteredPinnedItems || []).filter((item) => !isHiddenDefinition(item)),
+                              recentPrefix
+                          ).slice(0, 3)
                         : []
                 const pinnedMatches = withoutPinnedDuplicatesOfRecents(suggestedPinnedMatches, suggestedRecentMatches)
                 const topMatches = isSuggested ? dedupedTopMatches : []

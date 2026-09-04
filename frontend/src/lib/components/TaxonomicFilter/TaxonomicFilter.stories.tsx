@@ -2,14 +2,12 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
-import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { CategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -472,18 +470,8 @@ export const MCPToolCallContextLeadsWithMCPProperties: Story = {
     },
 }
 
-function CategoryDropdownStoryRender({
-    variant,
-    ...args
-}: TaxonomicFilterProps & { variant: CategoryDropdownVariant }): JSX.Element {
+function CategoryDropdownStoryRender(args: TaxonomicFilterProps): JSX.Element {
     useMountedLogic(actionsModel)
-    useMountedLogic(featureFlagLogic)
-
-    useEffect(() => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
-        })
-    }, [variant])
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -502,15 +490,17 @@ const CATEGORY_DROPDOWN_ARGS: TaxonomicFilterProps = {
 }
 
 const CATEGORY_DROPDOWN_PARAMETERS = {
-    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+    // The picker mounts empty, hidden Recent/Pinned lists ahead of the active Events list, and the
+    // runner waits on the FIRST match. Skip the empty ones so it waits on the visible, populated list.
+    testOptions: { waitForSelector: '.taxonomic-infinite-list:not(.empty-infinite-list)' },
 }
 
 export const CategoryDropdownControl: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="control" />,
+    render: CategoryDropdownStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
     parameters: {
         ...CATEGORY_DROPDOWN_PARAMETERS,
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'control' },
         docs: {
             description: {
                 story: 'A/B test control: left-hand Categories column is visible and Tab/Shift+Tab cycles between categories.',
@@ -520,14 +510,14 @@ export const CategoryDropdownControl: Story = {
 }
 
 export const CategoryDropdownPill: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="pill" />,
+    render: CategoryDropdownStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
     parameters: {
         ...CATEGORY_DROPDOWN_PARAMETERS,
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
         docs: {
             description: {
-                story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
+                story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown once as a pill in the right-hand suffix of the search input, not repeated as a list heading.',
             },
         },
     },
