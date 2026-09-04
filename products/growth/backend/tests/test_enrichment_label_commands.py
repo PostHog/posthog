@@ -598,6 +598,24 @@ class TestBatchCommandPagesFetching(_BatchCommandTestCase):
         # transient one - see TestPageDeferral below.
         assert EnrichmentLabelResult.objects.filter(label_name="test_label").exists()
 
+    def test_an_unreachable_page_served_from_cache_counts_as_cached_not_unreachable(self):
+        self._pages_config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = self._pages_response()
+        page_store = {"home": {"domain": "posthog.com", "fetched_at": "x", "error": "unreachable", "source": "cache"}}
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert "pages_scraped 0" in out.getvalue()
+        assert "pages_cached 1" in out.getvalue()
+        assert "pages_unreachable 0" in out.getvalue()
+
 
 class TestPageDeferral(_BatchCommandTestCase):
     """A transient page-fetch problem (busy/not_configured) must defer the whole org - no

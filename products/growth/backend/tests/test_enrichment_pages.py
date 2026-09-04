@@ -38,7 +38,7 @@ class TestFetchPageHome(BaseTest):
             record = fetch_page(self.organization.id, None, "home")
 
         assert record["error"] == "no_domain"
-        assert record["markdown"] is None
+        assert "markdown" not in record
         scrape.assert_not_called()
 
     def test_a_successful_scrape_yields_markdown_at_the_domain_root(self):
@@ -77,14 +77,6 @@ class TestFetchPageHome(BaseTest):
 
         assert record["source"] == "scrape"
 
-    def test_a_cache_hit_is_tagged_with_its_source(self):
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="content")
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
-            fetch_page(self.organization.id, "acme.example", "home")
-            record = fetch_page(self.organization.id, "acme.example", "home")
-
-        assert record["source"] == "cache"
-
     @parameterized.expand(
         [
             ("not_configured", FirecrawlNotConfigured, "not_configured"),
@@ -99,16 +91,17 @@ class TestFetchPageHome(BaseTest):
 
         assert record["error"] == expected_error
 
-    def test_a_recent_fetch_is_reused_without_calling_firecrawl_again(self):
+    def test_a_successful_fetch_is_always_repeated_and_stores_no_markdown(self):
         scraped = FirecrawlScrape(url="https://acme.example", markdown="content")
         with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
             first = fetch_page(self.organization.id, "acme.example", "home")
             second = fetch_page(self.organization.id, "acme.example", "home")
 
-        scrape.assert_called_once()
+        assert scrape.call_count == 2
         assert first["markdown"] == second["markdown"] == "content"
-        assert first["source"] == "scrape"
-        assert second["source"] == "cache"
+        assert first["source"] == second["source"] == "scrape"
+        stored = OrganizationEnrichment.objects.get(organization=self.organization).data["pages"]["home"]
+        assert "markdown" not in stored
 
     def test_a_fetch_older_than_the_cache_window_is_refetched(self):
         OrganizationEnrichment.objects.create(
@@ -117,8 +110,8 @@ class TestFetchPageHome(BaseTest):
                 "pages": {
                     "home": {
                         "url": "https://acme.example",
-                        "markdown": "stale",
                         "domain": "acme.example",
+                        "error": "unreachable",
                         "fetched_at": (timezone.now() - dt.timedelta(days=31)).isoformat(),
                     }
                 }
@@ -139,8 +132,8 @@ class TestFetchPageHome(BaseTest):
                 "pages": {
                     "home": {
                         "url": "https://old-domain.example",
-                        "markdown": "old",
                         "domain": "old-domain.example",
+                        "error": "unreachable",
                         "fetched_at": timezone.now().isoformat(),
                     }
                 }
@@ -157,12 +150,14 @@ class TestFetchPageHome(BaseTest):
     def test_a_non_2xx_status_is_cached_so_it_is_not_refetched_every_day(self):
         scraped = FirecrawlScrape(url="https://acme.example", status_code=404, markdown=None)
         with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            fetch_page(self.organization.id, "acme.example", "home")
-            record = fetch_page(self.organization.id, "acme.example", "home")
+            first = fetch_page(self.organization.id, "acme.example", "home")
+            second = fetch_page(self.organization.id, "acme.example", "home")
 
         scrape.assert_called_once()
-        assert record["error"] == "unreachable"
-        assert record["markdown"] is None
+        assert first["error"] == "unreachable"
+        assert "markdown" not in first
+        assert second["error"] == "unreachable"
+        assert second["source"] == "cache"
 
     def test_a_successful_status_with_no_markdown_is_cached_as_unreachable(self):
         scraped = FirecrawlScrape(url="https://acme.example", status_code=200, markdown=None)
@@ -220,9 +215,9 @@ class TestFetchPagePricing(BaseTest):
 
         scrape.assert_called_once()
         assert first["error"] == "unreachable"
-        assert first["markdown"] is None
+        assert "markdown" not in first
         assert second["error"] == "unreachable"
-        assert second["markdown"] is None
+        assert "markdown" not in second
 
 
 class TestFetchPageUnsupportedType(BaseTest):

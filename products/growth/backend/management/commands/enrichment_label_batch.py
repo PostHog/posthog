@@ -257,10 +257,10 @@ class Command(BaseCommand):
                         error = page.get("error")
                         if error in TRANSIENT_PAGE_ERRORS:
                             deferred = True
-                        elif error:
-                            unreachable += 1
                         elif page.get("source") == "cache":
                             cached += 1
+                        elif error:
+                            unreachable += 1
                         else:
                             scraped += 1
                     with counts_lock:

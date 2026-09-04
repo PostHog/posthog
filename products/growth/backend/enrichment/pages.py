@@ -1,7 +1,8 @@
 """Company web pages that AI-enrichment labels read via a `pages.<type>.<key>` input field.
 
-Cached on OrganizationEnrichment.data["pages"] keyed by page type, kept out of EnrichmentFields so
-page markdown never projects onto group properties."""
+OrganizationEnrichment.data["pages"] holds one outcome record per page type (url, domain,
+fetched_at, source, error) for provenance, never the page text; only an unreachable outcome
+within CACHE_TTL skips a re-fetch."""
 
 import datetime as dt
 from collections.abc import Iterable
@@ -50,7 +51,6 @@ def page_types_from_input_fields(input_fields: Iterable[str]) -> set[str]:
 def _error_record(domain: str | None, error: PageFetchError, url: str | None = None) -> dict[str, Any]:
     return {
         "url": url,
-        "markdown": None,
         "fetched_at": timezone.now().isoformat(),
         "domain": domain,
         "error": error,
@@ -58,7 +58,7 @@ def _error_record(domain: str | None, error: PageFetchError, url: str | None = N
     }
 
 
-def _cached_page(organization_id: Any, domain: str, page_type: str) -> dict[str, Any] | None:
+def _cached_unreachable_page(organization_id: Any, domain: str, page_type: str) -> dict[str, Any] | None:
     record = OrganizationEnrichment.objects.filter(organization_id=organization_id).only("data").first()
     if record is None:
         return None
@@ -70,6 +70,10 @@ def _cached_page(organization_id: Any, domain: str, page_type: str) -> dict[str,
         return None
     # A domain change must invalidate the cache rather than serve a stale scrape of the org's former domain.
     if page.get("domain") != domain:
+        return None
+    # A stored success is provenance only, never a short-circuit: the text can change, and there's
+    # no signal here that it hasn't.
+    if page.get("error") != "unreachable":
         return None
     try:
         fetched_at = dt.datetime.fromisoformat(page["fetched_at"])
@@ -103,12 +107,13 @@ def _resolve_url(page_type: str, domain: str) -> str | None:
 
 
 def fetch_page(organization_id: Any, domain: str | None, page_type: str) -> dict[str, Any]:
-    """Fetches (or reuses a cached) page for one org; never raises, degrading a Firecrawl failure
-    to an "error" record instead of failing the label."""
+    """Fetches a page for one org, skipping the scrape only when the last attempt was cached as
+    unreachable within CACHE_TTL. A successful fetch is always repeated for its text. Never
+    raises, degrading a Firecrawl failure to an "error" record instead of failing the label."""
     if not domain:
         return _error_record(None, "no_domain")
 
-    cached = _cached_page(organization_id, domain, page_type)
+    cached = _cached_unreachable_page(organization_id, domain, page_type)
     if cached is not None:
         return {**cached, "source": "cache"}
 
@@ -141,18 +146,17 @@ def fetch_page(organization_id: Any, domain: str | None, page_type: str) -> dict
         _cache_page(organization_id, page_type, record)
         return record
 
-    record = {
+    stored = {
         "url": url,
-        "markdown": scraped.markdown[:MAX_INPUT_VALUE_CHARS],
         "fetched_at": timezone.now().isoformat(),
         "domain": domain,
         "source": "scrape",
     }
-    _cache_page(organization_id, page_type, record)
-    return record
+    _cache_page(organization_id, page_type, stored)
+    return {**stored, "markdown": scraped.markdown[:MAX_INPUT_VALUE_CHARS]}
 
 
 def ensure_pages_fetched(organization_id: Any, domain: str | None, page_types: Iterable[str]) -> dict[str, Any]:
-    """Fetches (or reuses cached) pages for every named type and returns them keyed by type; never
-    raises, since fetch_page never raises."""
+    """Fetches every named page type via fetch_page and returns them keyed by type; never raises,
+    since fetch_page never raises."""
     return {page_type: fetch_page(organization_id, domain, page_type) for page_type in page_types}
