@@ -12,7 +12,6 @@ import {
     useNodesInitialized,
     useReactFlow,
 } from '@xyflow/react'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
@@ -22,15 +21,14 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
-import { HogFlowLinearEditor } from './HogFlowLinearEditor'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { LOW_DETAIL_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
+import { HogFlowTreeEditor } from './tree/HogFlowTreeEditor'
 import { HogFlowActionEdge, HogFlowActionNode } from './types'
 
-// Inner component that encapsulates React Flow
-function HogFlowEditorContent({ isSimpleLayout }: { isSimpleLayout: boolean }): JSX.Element {
+function HogFlowGraphEditor(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isZoomedOutFar } = useValues(hogFlowEditorLogic)
@@ -79,14 +77,7 @@ function HogFlowEditorContent({ isSimpleLayout }: { isSimpleLayout: boolean }): 
             className="relative flex min-h-0 flex-1 overflow-hidden"
             data-attr="workflow-editor"
         >
-            <div
-                className={clsx(
-                    'flex min-h-0 min-w-0 grow',
-                    isSimpleLayout && 'absolute inset-0 pointer-events-none opacity-0'
-                )}
-                aria-hidden={isSimpleLayout}
-                {...(isSimpleLayout ? { inert: '' } : {})}
-            >
+            <div className="flex min-h-0 min-w-0 grow">
                 <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
                     className="grow"
                     fitView
@@ -130,19 +121,31 @@ function HogFlowEditorContent({ isSimpleLayout }: { isSimpleLayout: boolean }): 
                 </ReactFlow>
             </div>
 
-            {isSimpleLayout && <HogFlowLinearEditor />}
-            <HogFlowEditorPanel layout={isSimpleLayout ? 'panel' : 'floating'} />
+            <HogFlowEditorPanel />
         </div>
     )
 }
 
-export function HogFlowEditor({ isSimpleLayout }: { isSimpleLayout: boolean }): JSX.Element {
+function HogFlowTreeEditorContent(): JSX.Element {
+    return (
+        <div className="relative flex min-h-0 flex-1 overflow-hidden" data-attr="workflow-editor">
+            <HogFlowTreeEditor />
+            <HogFlowEditorPanel layout="panel" />
+        </div>
+    )
+}
+
+export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     return (
-        <ReactFlowProvider>
-            <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
-                <HogFlowEditorContent isSimpleLayout={isSimpleLayout} />
-            </BindLogic>
-        </ReactFlowProvider>
+        <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
+            {isTreeView ? (
+                <HogFlowTreeEditorContent />
+            ) : (
+                <ReactFlowProvider>
+                    <HogFlowGraphEditor />
+                </ReactFlowProvider>
+            )}
+        </BindLogic>
     )
 }
