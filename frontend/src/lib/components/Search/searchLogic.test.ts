@@ -8,6 +8,18 @@ import { initKeaTests } from '~/test/init'
 
 import { searchLogic } from './searchLogic'
 
+/** Poll until a condition holds. The searches settle in no fixed order, so an ordered
+ *  `toDispatchActions` list would wait on an action that had already gone past. */
+const waitFor = async (condition: () => boolean, timeoutMs = 4000): Promise<void> => {
+    const deadline = Date.now() + timeoutMs
+    while (!condition()) {
+        if (Date.now() > deadline) {
+            throw new Error('Timed out waiting for the other searches to settle')
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+}
+
 describe('searchLogic', () => {
     let logic: ReturnType<typeof searchLogic.build>
     let personSearchCalls: { clientQueryId?: string; signal?: AbortSignal }[]
@@ -166,6 +178,38 @@ describe('searchLogic', () => {
             'loadTicketSearchResultsSuccess',
         ])
         expect(logic.values.ticketItems).toHaveLength(1)
+    })
+
+    // Ticket search scans message content, so it is the slowest query in the palette and the one
+    // most likely to still be in flight when the others settle. Leaving it out of `isSearching`
+    // let the status line read "No results found" over a search that had not finished.
+    it('still counts as searching while only tickets are in flight', async () => {
+        personListMock.mockResolvedValue({ results: [] })
+        // The mock team has group types, so the groups query would otherwise stay in flight and
+        // hold `isSearching` true on its own, hiding the very thing under test.
+        jest.spyOn(api.groups, 'listClickhouse').mockResolvedValue({ results: [], columns: [] } as any)
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': () => new Promise(() => {}),
+            },
+        })
+
+        logic.actions.setSearch('billing')
+
+        // Every other search has to have settled, or `isSearching` would be true for a reason
+        // other than the one under test. They finish in no fixed order, so wait on the values.
+        await waitFor(
+            () =>
+                !logic.values.searchPending &&
+                !logic.values.searchedRecentsLoading &&
+                !logic.values.unifiedSearchResultsLoading &&
+                !logic.values.groupSearchResultsLoading &&
+                !logic.values.personSearchResultsLoading &&
+                !logic.values.playlistSearchResultsLoading
+        )
+
+        expect(logic.values.ticketSearchResultsLoading).toBe(true)
+        expect(logic.values.isSearching).toBe(true)
     })
 
     it('does not cancel a person search that already returned', async () => {

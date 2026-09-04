@@ -426,6 +426,7 @@ export interface searchLogicMeta {
             groupSearchResultsLoading: boolean,
             personSearchResultsLoading: boolean,
             accountSearchResultsLoading: boolean,
+            ticketSearchResultsLoading: boolean,
             playlistSearchResultsLoading: boolean,
             searchPending: boolean,
             search: string
@@ -514,7 +515,10 @@ export interface searchLogicMeta {
             newItems: SearchItem[],
             personItems: SearchItem[],
             groupItems: SearchItem[],
-            customerItems: any,
+            customerItems: {
+                accountItems: SearchItem[]
+                ticketItems: SearchItem[]
+            },
             playlistItems: SearchItem[],
             unifiedSearchItems: Record<string, SearchItem[]>,
             loadingStates: {
@@ -815,6 +819,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.groupSearchResultsLoading,
                 s.personSearchResultsLoading,
                 s.accountSearchResultsLoading,
+                s.ticketSearchResultsLoading,
                 s.playlistSearchResultsLoading,
                 s.searchPending,
                 s.search,
@@ -825,6 +830,7 @@ export const searchLogic = kea<searchLogicType>([
                 groupSearchResultsLoading: boolean,
                 personSearchResultsLoading: boolean,
                 accountSearchResultsLoading: boolean,
+                ticketSearchResultsLoading: boolean,
                 playlistSearchResultsLoading: boolean,
                 searchPending: boolean,
                 search: string
@@ -834,6 +840,7 @@ export const searchLogic = kea<searchLogicType>([
                     groupSearchResultsLoading ||
                     personSearchResultsLoading ||
                     accountSearchResultsLoading ||
+                    ticketSearchResultsLoading ||
                     playlistSearchResultsLoading ||
                     searchPending) &&
                 search.trim() !== '',
