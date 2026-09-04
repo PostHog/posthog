@@ -16,14 +16,8 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import {
-  TOOLBAR_CHAT,
-  TOOLBAR_FIT_TO_CONTENT,
   TOOLBAR_HISTORY,
-  TOOLBAR_LIBRARY,
   TOOLBAR_STATE,
-  TOOLBAR_ZOOM_IN,
-  TOOLBAR_ZOOM_OUT,
-  TOOLBAR_ZOOM_RESET,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import type { ReactElement, ReactNode } from "react";
 
@@ -61,7 +55,7 @@ export function BoardToolbar({
   return (
     <TooltipProvider delay={400}>
       <div className="-translate-x-1/2 absolute bottom-4 left-1/2 z-30 flex items-center gap-0.5 rounded-full border border-(--gray-a5) bg-(--gray-1)/85 p-1 shadow-lg backdrop-blur-md">
-        <IconAction label={TOOLBAR_ZOOM_OUT} onClick={onZoomOut}>
+        <IconAction label="Zoom out" onClick={onZoomOut}>
           <MagnifyingGlassMinusIcon />
         </IconAction>
         <Tooltip>
@@ -77,26 +71,26 @@ export function BoardToolbar({
               </Button>
             }
           />
-          <TooltipContent side="top">{TOOLBAR_ZOOM_RESET}</TooltipContent>
+          <TooltipContent side="top">Reset zoom to 100%</TooltipContent>
         </Tooltip>
-        <IconAction label={TOOLBAR_ZOOM_IN} onClick={onZoomIn}>
+        <IconAction label="Zoom in" onClick={onZoomIn}>
           <MagnifyingGlassPlusIcon />
         </IconAction>
-        <IconAction label={TOOLBAR_FIT_TO_CONTENT} onClick={onFitToContent}>
+        <IconAction label="Fit to content" onClick={onFitToContent}>
           <ArrowsOutIcon />
         </IconAction>
 
         <div className="mx-1 h-5 w-px bg-(--gray-a5)" />
 
         <IconToggle
-          label={TOOLBAR_LIBRARY}
+          label="Library"
           pressed={paletteOpen}
           onPressedChange={onTogglePalette}
         >
           <SquaresFourIcon />
         </IconToggle>
         <IconToggle
-          label={TOOLBAR_CHAT}
+          label="Agent"
           pressed={chatOpen}
           onPressedChange={onToggleChat}
         >

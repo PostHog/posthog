@@ -1,13 +1,5 @@
 import { WarningIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
-import {
-  BOARD_BUSY_HINT,
-  BOARD_BUSY_TITLE,
-  BOARD_START_ACTION,
-  BOARD_STOP_ACTION,
-  BOARD_STOPPED_HINT,
-  BOARD_STOPPED_TITLE,
-} from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import type { BoardFrameHealth } from "@posthog/ui/features/canvas-v2/components/BoardFrame";
 import type { ReactElement } from "react";
 
@@ -26,8 +18,12 @@ export function BoardHealthNotice({
 }: BoardHealthNoticeProps): ReactElement | null {
   if (!stopped && health === "running") return null;
 
-  const title = stopped ? BOARD_STOPPED_TITLE : BOARD_BUSY_TITLE;
-  const hint = stopped ? BOARD_STOPPED_HINT : BOARD_BUSY_HINT;
+  const title = stopped
+    ? "This board is stopped"
+    : "This board stopped answering";
+  const hint = stopped
+    ? "Nothing on it runs until you start it."
+    : "A fragment on it is busy. Stop the board, then start it again.";
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">
@@ -46,7 +42,7 @@ export function BoardHealthNotice({
           className="ml-1 shrink-0"
           onClick={stopped ? onStart : onStop}
         >
-          {stopped ? BOARD_START_ACTION : BOARD_STOP_ACTION}
+          {stopped ? "Start the board" : "Stop the board"}
         </Button>
       </div>
     </div>

@@ -16,7 +16,6 @@ import {
   type CanvasV2Viewport,
   maxZ,
 } from "@posthog/shared";
-import { EXIT_FULL_SCREEN_ACTION } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import {
   BoardFrame,
   type BoardFrameHealth,
@@ -438,7 +437,7 @@ export function BoardStage({
             onClick={() => setFocusedId(null)}
           >
             <ArrowsInIcon />
-            {EXIT_FULL_SCREEN_ACTION}
+            Exit full screen
             <Kbd>Esc</Kbd>
           </Button>
         </div>

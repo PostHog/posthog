@@ -20,14 +20,7 @@ import {
 } from "@posthog/shared";
 import {
   DIALOG_CANCEL,
-  EDIT_FRAGMENT_DIALOG_DESCRIPTION,
-  EDIT_FRAGMENT_DIALOG_TITLE,
   EDIT_FRAGMENT_SUBMIT,
-  FRAGMENT_CODE_BLOCKED_HINT,
-  FRAGMENT_CODE_BLOCKED_TITLE,
-  FRAGMENT_CODE_LABEL,
-  FRAGMENT_TITLE_LABEL,
-  FRAGMENT_TITLE_PLACEHOLDER,
   fragmentCodeBlockedReason,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { SkillCodeEditor } from "@posthog/ui/features/skills/SkillCodeEditor";
@@ -98,25 +91,23 @@ export function EditFragmentDialog({
     >
       <DialogContent size="wide">
         <DialogHeader>
-          <DialogTitle>{EDIT_FRAGMENT_DIALOG_TITLE}</DialogTitle>
+          <DialogTitle>Edit fragment</DialogTitle>
           <DialogDescription>
-            {EDIT_FRAGMENT_DIALOG_DESCRIPTION}
+            The new code runs for everyone on the board.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="flex min-h-0 flex-col gap-5 pt-1">
           <Field className="gap-1.5">
-            <FieldLabel htmlFor="canvas-v2-fragment-title">
-              {FRAGMENT_TITLE_LABEL}
-            </FieldLabel>
+            <FieldLabel htmlFor="canvas-v2-fragment-title">Title</FieldLabel>
             <Input
               id="canvas-v2-fragment-title"
               value={title}
-              placeholder={FRAGMENT_TITLE_PLACEHOLDER}
+              placeholder="Signups this week"
               onChange={(event) => setTitle(event.target.value)}
             />
           </Field>
           <Field className="gap-1.5">
-            <FieldLabel>{FRAGMENT_CODE_LABEL}</FieldLabel>
+            <FieldLabel>Code</FieldLabel>
             <div className="h-[min(52vh,440px)] overflow-hidden rounded-md border border-(--gray-6)">
               <SkillCodeEditor
                 key={fragment?.id ?? "none"}
@@ -133,13 +124,14 @@ export function EditFragmentDialog({
                 />
                 <div className="min-w-0 space-y-0.5">
                   <p className="font-medium text-(--red-11) text-[12px]">
-                    {FRAGMENT_CODE_BLOCKED_TITLE}
+                    This code cannot run on a board
                   </p>
                   <p className="text-(--red-11)/85 text-[12px]">
                     {fragmentCodeBlockedReason(blocked)}
                   </p>
                   <p className="text-(--gray-11) text-[11px]">
-                    {FRAGMENT_CODE_BLOCKED_HINT}
+                    A fragment draws data the board already has. It cannot load
+                    code from anywhere else.
                   </p>
                 </div>
               </div>

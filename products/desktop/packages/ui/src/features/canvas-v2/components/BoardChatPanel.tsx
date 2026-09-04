@@ -17,16 +17,7 @@ import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/Em
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import {
-  CHAT_COMPOSER_PLACEHOLDER,
-  CHAT_EXAMPLES,
-  CHAT_NEW_SESSION_ACTION,
-  CHAT_PANEL_CLOSE,
-  CHAT_PANEL_TITLE,
-  CHAT_PLACEHOLDER,
-  CHAT_START_ACTION,
-  CHAT_STARTER_TITLE,
-} from "../canvasV2Copy";
+import { CHAT_EXAMPLES } from "../canvasV2Copy";
 import { setTaskForBoard } from "../hooks/useBoardViewportStore";
 
 export interface BoardChatPanelProps {
@@ -49,8 +40,8 @@ export function BoardChatPanel({
 }: BoardChatPanelProps) {
   return (
     <BoardPanel
-      title={CHAT_PANEL_TITLE}
-      closeLabel={CHAT_PANEL_CLOSE}
+      title="Agent"
+      closeLabel="Close the agent panel"
       onClose={onClose}
       actions={
         taskId ? (
@@ -59,7 +50,7 @@ export function BoardChatPanel({
             size="sm"
             onClick={() => setTaskForBoard(boardId, undefined)}
           >
-            {CHAT_NEW_SESSION_ACTION}
+            New session
           </Button>
         ) : null
       }
@@ -122,9 +113,10 @@ function BoardChatStarter({
           <ChatCircleIcon size={19} />
         </span>
         <div className="flex flex-col gap-1">
-          <p className="font-semibold text-[13px]">{CHAT_STARTER_TITLE}</p>
+          <p className="font-semibold text-[13px]">Build with the agent</p>
           <p className="text-(--gray-11) text-[12px] leading-relaxed">
-            {CHAT_PLACEHOLDER}
+            Describe what you want on this board. The agent adds fragments as it
+            works.
           </p>
         </div>
         <div className="flex w-full flex-col gap-1.5">
@@ -144,7 +136,7 @@ function BoardChatStarter({
         <InputGroup>
           <InputGroupTextarea
             value={prompt}
-            placeholder={CHAT_COMPOSER_PLACEHOLDER}
+            placeholder="Ask for a fragment"
             className="min-h-[52px] resize-none text-[13px]"
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
@@ -159,7 +151,7 @@ function BoardChatStarter({
               className="ml-auto"
               size="icon-sm"
               variant="primary"
-              aria-label={CHAT_START_ACTION}
+              aria-label="Start"
               disabled={pending || prompt.trim().length === 0}
               onClick={() => void start(prompt)}
             >

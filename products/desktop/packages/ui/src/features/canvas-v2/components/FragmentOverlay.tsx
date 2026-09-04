@@ -16,16 +16,9 @@ import {
 } from "@posthog/quill";
 import type { CanvasV2Fragment } from "@posthog/shared";
 import {
-  BRING_TO_FRONT_ACTION,
   bringFragmentsToFrontAction,
-  DELETE_FRAGMENT_ACTION,
-  DUPLICATE_FRAGMENT_ACTION,
   deleteFragmentsAction,
   duplicateFragmentsAction,
-  EDIT_FRAGMENT_ACTION,
-  FRAGMENT_ERROR_BADGE,
-  FRAGMENT_MENU_LABEL,
-  FULL_SCREEN_FRAGMENT_ACTION,
   lastEditedByLabel,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import type { ReactElement } from "react";
@@ -175,7 +168,7 @@ export function FragmentOverlay({
             render={
               <button
                 type="button"
-                aria-label={FRAGMENT_MENU_LABEL}
+                aria-label="Fragment actions"
                 className="flex size-[18px] shrink-0 items-center justify-center rounded-(--radius-1) transition-colors hover:bg-(--gray-a4)"
               />
             }
@@ -185,28 +178,22 @@ export function FragmentOverlay({
           <DropdownMenuContent align="end">
             {isGroup ? null : (
               <DropdownMenuItem onClick={onFocus}>
-                {FULL_SCREEN_FRAGMENT_ACTION}
+                Open full screen
               </DropdownMenuItem>
             )}
             {isGroup ? null : (
-              <DropdownMenuItem onClick={onEdit}>
-                {EDIT_FRAGMENT_ACTION}
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onEdit}>Edit code…</DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={onDuplicate}>
-              {isGroup
-                ? duplicateFragmentsAction(selectionCount)
-                : DUPLICATE_FRAGMENT_ACTION}
+              {isGroup ? duplicateFragmentsAction(selectionCount) : "Duplicate"}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onBringToFront}>
               {isGroup
                 ? bringFragmentsToFrontAction(selectionCount)
-                : BRING_TO_FRONT_ACTION}
+                : "Bring to front"}
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              {isGroup
-                ? deleteFragmentsAction(selectionCount)
-                : DELETE_FRAGMENT_ACTION}
+              {isGroup ? deleteFragmentsAction(selectionCount) : "Delete"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -228,7 +215,7 @@ export function FragmentOverlay({
           title={error}
           className="-bottom-[22px] pointer-events-auto absolute left-0 h-[18px] px-1.5 text-[10px]"
         >
-          {FRAGMENT_ERROR_BADGE}
+          Did not run
         </Badge>
       ) : null}
     </div>

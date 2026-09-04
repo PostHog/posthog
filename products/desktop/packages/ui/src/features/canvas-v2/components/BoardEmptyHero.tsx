@@ -2,16 +2,7 @@ import { ArrowRightIcon, SquaresFourIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import type { CanvasV2Snapshot } from "@posthog/shared";
 import { BOARD_PROMPT_SUGGESTIONS } from "@posthog/ui/features/canvas-v2/boardPromptSuggestions";
-import {
-  BOARD_EMPTY_COMPOSER_PLACEHOLDER,
-  BOARD_EMPTY_HINT,
-  BOARD_EMPTY_LIBRARY_ACTION,
-  BOARD_EMPTY_LIBRARY_TITLE,
-  BOARD_EMPTY_SUGGESTIONS_TITLE,
-  BOARD_EMPTY_TITLE,
-} from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { useStartBoardSession } from "@posthog/ui/features/canvas-v2/hooks/useStartBoardSession";
-import { libraryEntryIcon } from "@posthog/ui/features/canvas-v2/library/entryIcon";
 import { libraryEntry } from "@posthog/ui/features/canvas-v2/library/registry";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
@@ -56,16 +47,18 @@ export function BoardEmptyHero({
             <SquaresFourIcon size={20} weight="duotone" />
           </span>
           <p className="font-semibold text-(--gray-12) text-[15px]">
-            {BOARD_EMPTY_TITLE}
+            Build this board
           </p>
-          <p className="text-(--gray-11) text-[13px]">{BOARD_EMPTY_HINT}</p>
+          <p className="text-(--gray-11) text-[13px]">
+            Describe what you want and the agent adds it.
+          </p>
         </div>
 
         <div className="rounded-(--radius-4) border border-(--gray-4) border-solid bg-(--gray-1) shadow-lg">
           <PromptInput
             ref={editorRef}
             sessionId={`canvas-v2:${boardId}`}
-            placeholder={BOARD_EMPTY_COMPOSER_PLACEHOLDER}
+            placeholder="Ask for a chart, a number, or a note"
             editorHeight="large"
             disabled={pending}
             isLoading={pending}
@@ -78,7 +71,7 @@ export function BoardEmptyHero({
 
         <div className="flex flex-col gap-2">
           <p className="px-1 font-medium text-(--gray-11) text-[12px]">
-            {BOARD_EMPTY_SUGGESTIONS_TITLE}
+            Suggestions
           </p>
           <div className="grid @sm:grid-cols-2 grid-cols-1 gap-2">
             {BOARD_PROMPT_SUGGESTIONS.map((suggestion) => (
@@ -97,7 +90,7 @@ export function BoardEmptyHero({
         <div className="flex flex-col gap-2 border-(--gray-4) border-t border-solid pt-4">
           <div className="flex items-center justify-between gap-2 px-1">
             <p className="font-medium text-(--gray-11) text-[12px]">
-              {BOARD_EMPTY_LIBRARY_TITLE}
+              Or place a fragment yourself
             </p>
             <Button
               variant="link-muted"
@@ -105,7 +98,7 @@ export function BoardEmptyHero({
               className="shrink-0"
               onClick={onOpenLibrary}
             >
-              {BOARD_EMPTY_LIBRARY_ACTION}
+              Browse the library
               <ArrowRightIcon size={12} />
             </Button>
           </div>
@@ -113,7 +106,7 @@ export function BoardEmptyHero({
             {LIBRARY_STARTERS.map((name) => {
               const entry = libraryEntry(name);
               if (!entry) return null;
-              const Icon = libraryEntryIcon(name);
+              const Icon = entry.icon;
               return (
                 <button
                   key={name}

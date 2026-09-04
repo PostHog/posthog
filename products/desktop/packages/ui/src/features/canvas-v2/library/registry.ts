@@ -1,3 +1,20 @@
+import {
+  CalendarBlankIcon,
+  ChartBarIcon,
+  ChartLineIcon,
+  FrameCornersIcon,
+  GaugeIcon,
+  type Icon,
+  LayoutIcon,
+  LightbulbIcon,
+  ListChecksIcon,
+  NoteIcon,
+  NotePencilIcon,
+  PresentationIcon,
+  TableIcon,
+  TextAaIcon,
+  TextAlignLeftIcon,
+} from "@phosphor-icons/react";
 import barChartCode from "./templates/bar-chart.tsx.txt?raw";
 import checklistCode from "./templates/checklist.tsx.txt?raw";
 import dateFrameCode from "./templates/date-frame.tsx.txt?raw";
@@ -26,8 +43,7 @@ export interface CanvasV2LibraryEntry {
   /** One sentence, read by people in the palette and by the agent in its prompt. */
   description: string;
   group: CanvasV2LibraryGroup;
-  /** A lucide-react icon name. */
-  icon: string;
+  icon: Icon;
   defaultSize: { w: number; h: number };
   surface?: "card" | "plain";
   /** A frame goes behind the fragments, so what sits on it stays clickable. */
@@ -43,7 +59,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "An editable note that all collaborators share, in one of four colors.",
     group: "notes",
-    icon: "StickyNote",
+    icon: NoteIcon,
     defaultSize: { w: 260, h: 220 },
     surface: "plain",
     code: stickyCode,
@@ -54,7 +70,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "Shared text with nothing drawn behind it, to write over or beside other fragments.",
     group: "notes",
-    icon: "Type",
+    icon: TextAlignLeftIcon,
     defaultSize: { w: 360, h: 120 },
     surface: "plain",
     code: textCode,
@@ -65,7 +81,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "One large heading with an optional second line, to give a group of fragments a name.",
     group: "notes",
-    icon: "Heading",
+    icon: TextAaIcon,
     defaultSize: { w: 480, h: 120 },
     surface: "plain",
     code: headingCode,
@@ -76,7 +92,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "Markdown text that everyone shares, with an edit button to change it.",
     group: "notes",
-    icon: "NotebookPen",
+    icon: NotePencilIcon,
     defaultSize: { w: 420, h: 320 },
     code: notesCode,
   },
@@ -86,7 +102,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "A shared list of items with checkboxes, and a title you can rename.",
     group: "notes",
-    icon: "ListChecks",
+    icon: ListChecksIcon,
     defaultSize: { w: 380, h: 320 },
     code: checklistCode,
   },
@@ -96,7 +112,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "The date range every data fragment on the board follows. Add one of these first.",
     group: "data",
-    icon: "CalendarRange",
+    icon: CalendarBlankIcon,
     defaultSize: { w: 300, h: 76 },
     surface: "plain",
     code: dateRangeCode,
@@ -107,7 +123,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "One number for an event you pick, with the change against the range before it.",
     group: "data",
-    icon: "Gauge",
+    icon: GaugeIcon,
     defaultSize: { w: 300, h: 180 },
     code: kpiCode,
   },
@@ -117,7 +133,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "A line of one event by day or by week, for an event you pick.",
     group: "data",
-    icon: "ChartLine",
+    icon: ChartLineIcon,
     defaultSize: { w: 560, h: 320 },
     code: trendChartCode,
   },
@@ -127,7 +143,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "The top values of a property you pick, such as the page path or the browser.",
     group: "data",
-    icon: "ChartColumn",
+    icon: ChartBarIcon,
     defaultSize: { w: 560, h: 320 },
     code: barChartCode,
   },
@@ -137,7 +153,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "A saved PostHog insight, drawn from its short id and re-scoped to the board date range.",
     group: "data",
-    icon: "Lightbulb",
+    icon: LightbulbIcon,
     defaultSize: { w: 420, h: 260 },
     code: insightCode,
   },
@@ -147,7 +163,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "A HogQL query and its result table. The query is shared and stays after a reload.",
     group: "data",
-    icon: "Table",
+    icon: TableIcon,
     defaultSize: { w: 720, h: 420 },
     code: sqlTableCode,
   },
@@ -157,7 +173,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "Drag fragments onto this frame and it puts them in a grid, and keeps them together.",
     group: "frames",
-    icon: "LayoutGrid",
+    icon: LayoutIcon,
     defaultSize: { w: 800, h: 520 },
     surface: "plain",
     layer: "back",
@@ -169,7 +185,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "Every data fragment on this frame follows the date range of the frame, not the board.",
     group: "frames",
-    icon: "CalendarRange",
+    icon: FrameCornersIcon,
     defaultSize: { w: 800, h: 420 },
     surface: "plain",
     layer: "back",
@@ -181,7 +197,7 @@ export const CANVAS_V2_LIBRARY: readonly CanvasV2LibraryEntry[] = [
     description:
       "One slide at a time. Drop a fragment on the frame to fill a slide, and go full page to present.",
     group: "frames",
-    icon: "Presentation",
+    icon: PresentationIcon,
     defaultSize: { w: 800, h: 520 },
     surface: "plain",
     layer: "back",

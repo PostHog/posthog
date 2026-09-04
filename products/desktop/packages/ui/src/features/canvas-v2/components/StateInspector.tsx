@@ -3,8 +3,6 @@ import { Badge, Text } from "@posthog/quill";
 import type { CanvasV2Fragment } from "@posthog/shared";
 import { isField, materializeList, materializeText } from "@posthog/shared";
 import {
-  STATE_EMPTY,
-  STATE_PANEL_CLOSE,
   STATE_USED_BY,
   TOOLBAR_STATE,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
@@ -48,13 +46,13 @@ export function StateInspector({
   return (
     <BoardPanel
       title={TOOLBAR_STATE}
-      closeLabel={STATE_PANEL_CLOSE}
+      closeLabel="Close state"
       onClose={onClose}
     >
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden p-3">
         {entries.length === 0 ? (
           <Text size="sm" variant="muted">
-            {STATE_EMPTY}
+            No shared state yet.
           </Text>
         ) : null}
         {entries.map((entry) => (

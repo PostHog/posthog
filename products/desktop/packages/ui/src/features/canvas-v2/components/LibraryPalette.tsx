@@ -1,13 +1,4 @@
 import { ScrollArea, Text } from "@posthog/quill";
-import { libraryEntryIcon } from "@posthog/ui/features/canvas-v2/library/entryIcon";
-import {
-  LIBRARY_GROUP_DATA,
-  LIBRARY_GROUP_FRAMES,
-  LIBRARY_GROUP_NOTES,
-  LIBRARY_PANEL_CLOSE,
-  LIBRARY_PANEL_HINT,
-  LIBRARY_PANEL_TITLE,
-} from "../canvasV2Copy";
 import {
   CANVAS_V2_LIBRARY,
   type CanvasV2LibraryEntry,
@@ -17,9 +8,9 @@ import { BoardPanel } from "./BoardPanel";
 import { CANVAS_V2_DRAG_MIME } from "./DropCaptureLayer";
 
 const GROUPS: { group: CanvasV2LibraryGroup; title: string }[] = [
-  { group: "notes", title: LIBRARY_GROUP_NOTES },
-  { group: "data", title: LIBRARY_GROUP_DATA },
-  { group: "frames", title: LIBRARY_GROUP_FRAMES },
+  { group: "notes", title: "Notes and text" },
+  { group: "data", title: "Data" },
+  { group: "frames", title: "Frames" },
 ];
 
 export interface LibraryPaletteProps {
@@ -35,14 +26,10 @@ export function LibraryPalette({
   onClose,
 }: LibraryPaletteProps) {
   return (
-    <BoardPanel
-      title={LIBRARY_PANEL_TITLE}
-      closeLabel={LIBRARY_PANEL_CLOSE}
-      onClose={onClose}
-    >
+    <BoardPanel title="Library" closeLabel="Close library" onClose={onClose}>
       <ScrollArea className="min-h-0 flex-1">
         <Text size="xs" variant="muted" className="block px-3 pt-3 pb-1">
-          {LIBRARY_PANEL_HINT}
+          Drag a fragment onto the board, or click to add it.
         </Text>
         {GROUPS.map(({ group, title }) => (
           <div className="flex flex-col gap-px p-2 pt-1" key={group}>
@@ -79,7 +66,7 @@ function LibraryRow({
   onAdd: (entry: CanvasV2LibraryEntry) => void;
   onDragStateChange: (dragging: boolean) => void;
 }) {
-  const Icon = libraryEntryIcon(entry.name);
+  const Icon = entry.icon;
 
   return (
     <button

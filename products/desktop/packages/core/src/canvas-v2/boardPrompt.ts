@@ -17,7 +17,7 @@ export interface BoardSessionPromptInput {
   boardName: string;
   snapshot: CanvasV2Snapshot;
   userPrompt: string;
-  library: BoardLibraryEntry[];
+  library: readonly BoardLibraryEntry[];
   headSeq?: number;
 }
 
@@ -162,7 +162,7 @@ Sizes and placement:
 </canvas_v2_instructions>`;
 }
 
-function libraryBlock(library: BoardLibraryEntry[]): string {
+function libraryBlock(library: readonly BoardLibraryEntry[]): string {
   if (library.length === 0) return "";
   const entries = library
     .map(

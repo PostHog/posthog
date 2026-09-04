@@ -32,6 +32,12 @@ only in its task's space. The task header must match the token's task binding.
    fragment libraries once, checks every byte against `canvas-modules.lock.json`,
    and the app serves them from disk. No content delivery network is trusted at
    run time, and a package that goes bad upstream cannot change what people run.
+   Each module key defines its download URL. The lock groups hashes by content
+   type and omits unused byte counts. The build expands these groups into the
+   runtime manifest; module lookup and hash checks do not change.
+   To change a package pin, edit `imports` or `runtime` in the lock, run
+   `node scripts/fetch-canvas-modules.mjs --update` from `products/desktop`,
+   then review the changed hashes before committing.
 3. **The content policy.** The browser applies it. It closes fetch, images,
    media, forms, frames and `eval`. It does not govern name resolution or WebRTC,
    so the frame also drops the WebRTC constructors and removes any `<link>` a
@@ -100,6 +106,9 @@ removed-entry IDs. Reads and edits skip invalid entries in older stored fields.
 These checks use the existing entry loop and do not copy the full field.
 An open board stream checks access before it sends each group of events.
 The stream closes if the board is deleted or moves to a space the user cannot read.
+Small event batches wait up to 100 ms before the next read, so cursor traffic
+shares access checks. Full batches drain at once. Reads keep the 32-entry limit;
+the stream does not cache access decisions or build a larger event buffer.
 
 The server uses a bulk insert for operation batches. A retry with no new
 operations does not update the board row. Each board uses its existing row lock

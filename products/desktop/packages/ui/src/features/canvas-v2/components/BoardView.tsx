@@ -34,12 +34,8 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import {
-  BACK_TO_CANVASES_ACTION,
-  BOARD_LOAD_ERROR_DESCRIPTION,
-  BOARD_LOAD_ERROR_TITLE,
   COPY_BOARD_LINK_ACTION,
   DEFAULT_BOARD_NAME,
-  RENAME_BOARD_ACTION,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { useApplyBoardToolCalls } from "@posthog/ui/features/canvas-v2/hooks/useApplyBoardToolCalls";
 import { useBoardApi } from "@posthog/ui/features/canvas-v2/hooks/useBoardApi";
@@ -269,8 +265,11 @@ export function BoardView({
           <EmptyMedia variant="icon">
             <SquaresFourIcon />
           </EmptyMedia>
-          <EmptyTitle>{BOARD_LOAD_ERROR_TITLE}</EmptyTitle>
-          <EmptyDescription>{BOARD_LOAD_ERROR_DESCRIPTION}</EmptyDescription>
+          <EmptyTitle>Could not load this board</EmptyTitle>
+          <EmptyDescription>
+            The board may be deleted, or the connection failed. Go back and try
+            again.
+          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -306,7 +305,7 @@ export function BoardView({
         <Button
           variant="default"
           size="icon-sm"
-          aria-label={BACK_TO_CANVASES_ACTION}
+          aria-label="Back to canvases"
           onClick={() =>
             channelId
               ? navigateToSpaceCanvases(channelId)
@@ -335,7 +334,7 @@ export function BoardView({
           ) : (
             <button
               type="button"
-              title={RENAME_BOARD_ACTION}
+              title="Rename…"
               disabled={isRenaming}
               className="min-w-0 truncate rounded-(--radius-2) px-1.5 py-0.5 text-left font-semibold text-[15px] tracking-tight transition-colors hover:bg-(--gray-3)"
               onClick={() => setRenaming(true)}

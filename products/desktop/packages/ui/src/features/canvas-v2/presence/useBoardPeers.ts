@@ -3,7 +3,6 @@ import {
   type PresencePeer,
 } from "@posthog/core/canvas-v2/boardPresence";
 import type { CanvasV2Presence } from "@posthog/shared";
-import { PRESENCE_UNKNOWN_NAME } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /** How often a quiet person is checked for and dropped. */
@@ -25,7 +24,7 @@ export function useBoardPeers(localClientId: string): BoardPeersHandle {
     () =>
       new BoardPresenceTracker({
         localClientId,
-        unknownName: PRESENCE_UNKNOWN_NAME,
+        unknownName: "Someone",
         onChange: setPeers,
       }),
     [localClientId],

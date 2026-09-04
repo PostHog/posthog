@@ -12,16 +12,8 @@ import {
   Input,
 } from "@posthog/quill";
 import {
-  BOARD_NAME_LABEL,
-  BOARD_NAME_PLACEHOLDER,
   DEFAULT_BOARD_NAME,
   DIALOG_CANCEL,
-  NEW_BOARD_DIALOG_DESCRIPTION,
-  NEW_BOARD_DIALOG_TITLE,
-  NEW_BOARD_SUBMIT,
-  RENAME_BOARD_DIALOG_DESCRIPTION,
-  RENAME_BOARD_DIALOG_TITLE,
-  RENAME_BOARD_SUBMIT,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { type ReactElement, useEffect, useState } from "react";
 
@@ -42,14 +34,14 @@ const COPY: Record<
   { title: string; description: string; submit: string }
 > = {
   create: {
-    title: NEW_BOARD_DIALOG_TITLE,
-    description: NEW_BOARD_DIALOG_DESCRIPTION,
-    submit: NEW_BOARD_SUBMIT,
+    title: "New board",
+    description: "Give the board a name. You can change it later.",
+    submit: "Create board",
   },
   rename: {
-    title: RENAME_BOARD_DIALOG_TITLE,
-    description: RENAME_BOARD_DIALOG_DESCRIPTION,
-    submit: RENAME_BOARD_SUBMIT,
+    title: "Rename board",
+    description: "The new name is shown to everyone on the board.",
+    submit: "Save name",
   },
 };
 
@@ -92,14 +84,12 @@ export function NewBoardDialog({
         </DialogHeader>
         <DialogBody>
           <Field className="gap-1.5">
-            <FieldLabel htmlFor="canvas-v2-board-name">
-              {BOARD_NAME_LABEL}
-            </FieldLabel>
+            <FieldLabel htmlFor="canvas-v2-board-name">Name</FieldLabel>
             <Input
               id="canvas-v2-board-name"
               autoFocus
               value={name}
-              placeholder={BOARD_NAME_PLACEHOLDER}
+              placeholder="Weekly metrics"
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {

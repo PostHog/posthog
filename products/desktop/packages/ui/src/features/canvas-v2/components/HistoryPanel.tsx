@@ -17,16 +17,6 @@ import {
 import { type CanvasV2Actor, emptyCanvasV2Snapshot } from "@posthog/shared";
 import {
   DIALOG_CANCEL,
-  HISTORY_ACTOR_AGENT,
-  HISTORY_ACTOR_UNKNOWN,
-  HISTORY_ACTOR_YOU,
-  HISTORY_EMPTY,
-  HISTORY_LOADING,
-  HISTORY_PANEL_CLOSE,
-  HISTORY_RESTORE_ACTION,
-  HISTORY_RESTORE_CONFIRM,
-  HISTORY_RESTORE_DESCRIPTION,
-  HISTORY_RESTORE_TITLE,
   TOOLBAR_HISTORY,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { BoardPanel } from "@posthog/ui/features/canvas-v2/components/BoardPanel";
@@ -99,7 +89,7 @@ export function HistoryPanel({
   return (
     <BoardPanel
       title={TOOLBAR_HISTORY}
-      closeLabel={HISTORY_PANEL_CLOSE}
+      closeLabel="Close history"
       onClose={onClose}
     >
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2">
@@ -107,14 +97,14 @@ export function HistoryPanel({
           <div className="flex items-center gap-2 pb-2">
             <Spinner className="size-3" />
             <Text size="xs" variant="muted">
-              {HISTORY_LOADING}
+              Loading the rest of the history…
             </Text>
           </div>
         )}
 
         {showEmpty ? (
           <Text size="sm" variant="muted">
-            {HISTORY_EMPTY}
+            No changes yet.
           </Text>
         ) : null}
 
@@ -141,9 +131,11 @@ export function HistoryPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{HISTORY_RESTORE_TITLE}</AlertDialogTitle>
+            <AlertDialogTitle>
+              Restore the board to this point?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {HISTORY_RESTORE_DESCRIPTION}
+              This adds a new change. Nothing in the history is lost.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -160,7 +152,7 @@ export function HistoryPanel({
               disabled={restorePending}
               onClick={() => void confirmRestore()}
             >
-              {HISTORY_RESTORE_CONFIRM}
+              Restore board
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -213,9 +205,7 @@ function HistoryRow({
             {actorName(group.actor)}
           </span>
           {isOwn ? (
-            <span className="shrink-0 text-(--gray-10) text-[11px]">
-              {HISTORY_ACTOR_YOU}
-            </span>
+            <span className="shrink-0 text-(--gray-10) text-[11px]">you</span>
           ) : null}
           <span className="ml-auto shrink-0 text-(--gray-10) text-[11px] tabular-nums">
             {formatMinute(group.minuteIso)}
@@ -234,7 +224,7 @@ function HistoryRow({
             onRestore();
           }}
         >
-          {HISTORY_RESTORE_ACTION}
+          Restore
         </Button>
       </span>
     </div>
@@ -251,8 +241,8 @@ function summarize(descriptions: readonly string[]): string {
 
 function actorName(actor: CanvasV2Actor): string {
   if (actor.userName) return actor.userName;
-  if (actor.kind === "agent") return HISTORY_ACTOR_AGENT;
-  return HISTORY_ACTOR_UNKNOWN;
+  if (actor.kind === "agent") return "Agent";
+  return "Someone";
 }
 
 function isOwnGroup(actor: CanvasV2Actor, currentUserId?: number): boolean {

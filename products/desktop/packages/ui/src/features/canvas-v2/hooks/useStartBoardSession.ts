@@ -49,12 +49,7 @@ export function useStartBoardSession({
               snapshot,
               headSeq,
               userPrompt: text,
-              library: CANVAS_V2_LIBRARY.map((entry) => ({
-                name: entry.name,
-                label: entry.label,
-                description: entry.description,
-                code: entry.code,
-              })),
+              library: CANVAS_V2_LIBRARY,
             }),
             taskDescription: `Canvas: ${boardName}`,
             originProduct: CANVAS_TASK_ORIGIN,

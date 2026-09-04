@@ -1,12 +1,5 @@
 import type { BoardSyncStatus } from "@posthog/core/canvas-v2/boardSync";
 import { Dot, Text } from "@posthog/quill";
-import {
-  SYNC_ERROR,
-  SYNC_LOADING,
-  SYNC_OFFLINE,
-  SYNC_SAVING,
-  SYNC_SYNCED,
-} from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import type { ReactElement } from "react";
 
 export interface SyncChipProps {
@@ -20,31 +13,31 @@ const STATUS_LOOK: Record<
   { label: string; dot: DotVariant; pulse: boolean; destructive: boolean }
 > = {
   loading: {
-    label: SYNC_LOADING,
+    label: "Loading…",
     dot: "default",
     pulse: true,
     destructive: false,
   },
   synced: {
-    label: SYNC_SYNCED,
+    label: "Synced",
     dot: "success",
     pulse: false,
     destructive: false,
   },
   saving: {
-    label: SYNC_SAVING,
+    label: "Saving…",
     dot: "default",
     pulse: true,
     destructive: false,
   },
   offline: {
-    label: SYNC_OFFLINE,
+    label: "Offline. Changes are saved when you reconnect.",
     dot: "warning",
     pulse: false,
     destructive: false,
   },
   error: {
-    label: SYNC_ERROR,
+    label: "Could not sync the board",
     dot: "destructive",
     pulse: false,
     destructive: true,

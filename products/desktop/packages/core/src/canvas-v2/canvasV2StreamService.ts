@@ -10,6 +10,7 @@ import {
   PROJECT_API_CLIENT,
   type ProjectApiClient,
 } from "../canvas/projectApiClient";
+import { type ApiActor, actorInput, boardPath } from "./canvasV2BoardsService";
 import type { ICanvasV2StreamService } from "./identifiers";
 
 const RECONNECT_INITIAL_MS = 500;
@@ -23,21 +24,6 @@ interface SseFrame {
   data: string;
 }
 
-function boardPath(id: string): string {
-  return `canvas_boards/${encodeURIComponent(id)}/`;
-}
-
-function actorInput(actor: Record<string, unknown>): unknown {
-  return {
-    kind: actor.kind,
-    userId: actor.user_id ?? undefined,
-    userUuid: actor.user_uuid ?? undefined,
-    userName: actor.user_name ?? undefined,
-    userEmail: actor.user_email ?? undefined,
-    taskId: actor.task_id ?? undefined,
-  };
-}
-
 function toLogEntry(data: unknown): CanvasV2StreamEvent | null {
   if (typeof data !== "object" || data === null) return null;
   const row = data as Record<string, unknown>;
@@ -47,7 +33,7 @@ function toLogEntry(data: unknown): CanvasV2StreamEvent | null {
     opId: row.op_id,
     actor:
       typeof actor === "object" && actor !== null
-        ? actorInput(actor as Record<string, unknown>)
+        ? actorInput(actor as ApiActor)
         : actor,
     createdAt: row.created_at,
     op: row.op,

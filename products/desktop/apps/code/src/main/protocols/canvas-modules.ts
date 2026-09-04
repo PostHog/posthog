@@ -17,10 +17,8 @@ import { logger } from "../utils/logger";
 const log = logger.scope("canvas modules");
 
 interface ModuleEntry {
-  url: string;
   sha256: string;
   type: string;
-  bytes: number;
 }
 
 interface ModuleManifest {

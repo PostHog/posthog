@@ -4,7 +4,6 @@ import {
   boardBounds,
 } from "@posthog/core/canvas-v2/boardGeometry";
 import type { CanvasV2Fragment, CanvasV2Viewport } from "@posthog/shared";
-import { MINIMAP_LABEL } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { type ReactElement, useRef } from "react";
 
 const MAP_WIDTH = 156;
@@ -70,7 +69,7 @@ export function BoardMinimap({
   return (
     <button
       type="button"
-      aria-label={MINIMAP_LABEL}
+      aria-label="Jump to a place on the board"
       className="absolute right-4 bottom-4 z-40 cursor-pointer touch-none overflow-hidden rounded-(--radius-3) border border-(--gray-a5) bg-(--gray-1)/85 shadow-lg backdrop-blur-md transition-opacity hover:opacity-100"
       style={{ width: MAP_WIDTH, height: MAP_HEIGHT, opacity: 0.85 }}
       onPointerDown={(event) => {

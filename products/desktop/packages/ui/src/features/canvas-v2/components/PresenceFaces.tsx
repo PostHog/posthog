@@ -8,10 +8,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
-import {
-  PRESENCE_FACES_LABEL,
-  presenceOverflowLabel,
-} from "@posthog/ui/features/canvas-v2/canvasV2Copy";
+import { presenceOverflowLabel } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import type { ReactElement } from "react";
 
 const MAX_FACES = 5;
@@ -29,7 +26,7 @@ export function PresenceFaces({
 
   return (
     <TooltipProvider delay={TOOLTIP_DELAY_MS}>
-      <AvatarGroup stacked reverse size="xs" aria-label={PRESENCE_FACES_LABEL}>
+      <AvatarGroup stacked reverse size="xs" aria-label="People on this board">
         {shown.map((peer) => (
           <Tooltip key={peer.clientId} disableHoverablePopup>
             <TooltipTrigger

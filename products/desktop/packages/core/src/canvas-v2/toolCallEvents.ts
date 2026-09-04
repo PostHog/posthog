@@ -24,34 +24,27 @@ export function collectCanvasV2ToolCalls(
   events: readonly AcpMessage[],
 ): CanvasV2ToolCallRecord[] {
   const byId = new Map<string, PartialRecord>();
-  const order: string[] = [];
 
   for (const event of events) {
     const update = readSessionUpdate(event);
     if (!update) continue;
     const existing = byId.get(update.toolCallId);
-    if (!existing) {
-      order.push(update.toolCallId);
-      byId.set(update.toolCallId, update);
-      continue;
-    }
     byId.set(update.toolCallId, {
       toolCallId: update.toolCallId,
-      meta: update.meta ?? existing.meta,
-      rawInput: update.rawInput ?? existing.rawInput,
-      status: update.status ?? existing.status,
+      meta: update.meta ?? existing?.meta,
+      rawInput: update.rawInput ?? existing?.rawInput,
+      status: update.status ?? existing?.status,
     });
   }
 
   const records: CanvasV2ToolCallRecord[] = [];
-  for (const id of order) {
-    const record = byId.get(id);
-    if (!record || record.status !== "completed") continue;
+  for (const record of byId.values()) {
+    if (record.status !== "completed") continue;
     if (!isCanvasV2ToolCall(record.meta)) continue;
     const tool = canvasV2ToolName(record.meta);
     if (!tool) continue;
     records.push({
-      toolCallId: id,
+      toolCallId: record.toolCallId,
       tool,
       rawInput: record.rawInput,
       status: record.status,

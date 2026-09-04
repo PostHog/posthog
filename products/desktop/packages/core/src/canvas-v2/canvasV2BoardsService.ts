@@ -23,7 +23,7 @@ import type { ICanvasV2BoardsService } from "./identifiers";
 
 const DEFAULT_OPS_PAGE_SIZE = 500;
 
-interface ApiActor {
+export interface ApiActor {
   kind: string;
   user_id?: number | null;
   user_uuid?: string | null;
@@ -80,7 +80,7 @@ interface ApiAppendOpsResult {
   head_seq: number;
 }
 
-function actorInput(actor: ApiActor): unknown {
+export function actorInput(actor: ApiActor): unknown {
   return {
     kind: actor.kind,
     userId: actor.user_id ?? undefined,
@@ -137,7 +137,7 @@ function boardInput(api: ApiBoard): unknown {
   };
 }
 
-function boardPath(id: string): string {
+export function boardPath(id: string): string {
   return `canvas_boards/${encodeURIComponent(id)}/`;
 }
 

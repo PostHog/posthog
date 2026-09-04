@@ -34,6 +34,7 @@ OPS_STREAM_TTL_SECONDS = 60 * 60 * 24  # 1 day, refreshed on every XADD
 OPS_STREAM_MAX_LENGTH = 5000
 OPS_STREAM_MAX_PAYLOAD_BYTES = 64 * 1024
 STREAM_READ_COUNT = 32
+STREAM_BATCH_INTERVAL_SECONDS = 0.1
 
 # Max XREAD wait, proxies idle-kill connections around 60s
 STREAM_BLOCK_MS = 15_000
@@ -204,7 +205,11 @@ async def stream_board_sse(
                         yield (f"id: {ops_id}\nevent: op\ndata: {json.dumps(data, separators=(',', ':'))}\n\n").encode()
 
                 # cooperative yield: prevents tight-loop monopolization when XREAD doesn't block
-                await asyncio.sleep(0)
+                await asyncio.sleep(
+                    0
+                    if any(len(entries) >= STREAM_READ_COUNT for _, entries in messages)
+                    else STREAM_BATCH_INTERVAL_SECONDS
+                )
     except TimeoutError:
         # Lifetime cap hit; the client reconnects with Last-Event-ID against a fresh worker
         return

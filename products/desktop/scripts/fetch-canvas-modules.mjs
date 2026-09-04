@@ -13,42 +13,10 @@ const OUT_DIR = join(root, "apps/code/resources/canvas-modules");
 
 const ESM = "https://esm.sh";
 const JSDELIVR = "https://cdn.jsdelivr.net";
-const QUILL_VERSION = "0.3.0-beta.18";
+const MODULE_LOCK = JSON.parse(await readFile(LOCK_PATH, "utf8"));
+const { imports: IMPORTS, runtime: RUNTIME } = MODULE_LOCK;
 
-const IMPORTS = {
-  react: `${ESM}/react@19.0.0`,
-  "react-dom": `${ESM}/react-dom@19.0.0?external=react`,
-  "react-dom/client": `${ESM}/react-dom@19.0.0/client?external=react`,
-  "react/jsx-runtime": `${ESM}/react@19.0.0/jsx-runtime`,
-  "react/jsx-dev-runtime": `${ESM}/react@19.0.0/jsx-dev-runtime`,
-  "@posthog/quill": `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom&deps=@base-ui/react@1.6.0`,
-  recharts: `${ESM}/recharts@2.15.0?external=react,react-dom`,
-  "lucide-react": `${ESM}/lucide-react@1.21.0?external=react`,
-  dayjs: `${ESM}/dayjs@1.11.13`,
-  d3: `${ESM}/d3@7.9.0`,
-  three: `${ESM}/three@0.179.1`,
-  "framer-motion": `${ESM}/framer-motion@12.23.12?external=react,react-dom`,
-  zod: `${ESM}/zod@3.25.76`,
-  "@tanstack/react-table": `${ESM}/@tanstack/react-table@8.21.3?external=react,react-dom`,
-  "@tanstack/react-virtual": `${ESM}/@tanstack/react-virtual@3.14.9?external=react,react-dom`,
-  "react-hook-form": `${ESM}/react-hook-form@7.85.0?external=react`,
-  "lodash-es": `${ESM}/lodash-es@4.18.1`,
-  "react-markdown": `${ESM}/react-markdown@10.1.0?external=react`,
-  papaparse: `${ESM}/papaparse@5.6.0`,
-};
-
-const RUNTIME = {
-  babel: `${ESM}/@babel/standalone@7.26.4`,
-  tailwind: `${JSDELIVR}/npm/@tailwindcss/browser@4.3.1`,
-  styles: [
-    `${ESM}/@posthog/quill@${QUILL_VERSION}/tokens.css`,
-    `${ESM}/@posthog/quill@${QUILL_VERSION}/color-system.css`,
-    `${ESM}/@posthog/quill@${QUILL_VERSION}/base.css`,
-    `${ESM}/@posthog/quill@${QUILL_VERSION}/primitives.css`,
-  ],
-};
-
-const HOST_KEYS = { [`${ESM}/`]: "esm", [`${JSDELIVR}/`]: "cdn" };
+const HOSTS = { esm: ESM, cdn: JSDELIVR };
 
 const SPECIFIER =
   /(?:\bfrom\s*|\bimport\s*|\bexport\s*\*\s*from\s*)["']([^"'\n]+)["']/g;
@@ -59,11 +27,19 @@ const update = process.argv.includes("--update");
 const concurrency = 16;
 
 async function main() {
+  if (MODULE_LOCK.version !== 2)
+    throw new Error("Unsupported canvas module lock version");
   if (update) {
     await crawlAndWriteLock();
     return;
   }
-  await restoreFromLock(await readLock());
+  await restoreFromLock({
+    files: Object.fromEntries(
+      Object.entries(MODULE_LOCK.files).flatMap(([type, files]) =>
+        Object.entries(files).map(([key, sha256]) => [key, { sha256, type }]),
+      ),
+    ),
+  });
 }
 
 async function crawlAndWriteLock() {
@@ -94,17 +70,18 @@ async function crawlAndWriteLock() {
   }
 
   const files = {};
+  const grouped = {};
   for (const [url, entry] of [...found].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    grouped[entry.type] ??= {};
+    grouped[entry.type][keyOf(url)] = entry.sha256;
     files[keyOf(url)] = {
-      url,
       sha256: entry.sha256,
       type: entry.type,
-      bytes: entry.body.length,
     };
   }
   await writeFile(
     LOCK_PATH,
-    `${JSON.stringify({ version: 1, imports: IMPORTS, runtime: RUNTIME, files }, null, 2)}\n`,
+    `${JSON.stringify({ version: 2, imports: IMPORTS, runtime: RUNTIME, files: grouped }, null, 2)}\n`,
   );
   await writeResources(found, files);
   const total = [...found.values()].reduce((sum, e) => sum + e.body.length, 0);
@@ -119,10 +96,10 @@ async function restoreFromLock(lock) {
   const entries = Object.entries(lock.files);
   for (let at = 0; at < entries.length; at += concurrency) {
     await Promise.all(
-      entries.slice(at, at + concurrency).map(async ([, entry]) => {
+      entries.slice(at, at + concurrency).map(async ([key, entry]) => {
         const path = join(OUT_DIR, "blobs", `${entry.sha256}.bin`);
         if (await hasDigest(path, entry.sha256)) return;
-        const result = await load(entry.url, lock, true);
+        const result = await load(urlOf(key), lock, true);
         await writeFile(path, result.body);
         fetched += 1;
       }),
@@ -201,8 +178,8 @@ function resolve(specifier, base) {
 }
 
 function hostKeyOf(url) {
-  for (const [prefix, key] of Object.entries(HOST_KEYS)) {
-    if (url.startsWith(prefix)) return key;
+  for (const [key, host] of Object.entries(HOSTS)) {
+    if (url.startsWith(`${host}/`)) return key;
   }
   return null;
 }
@@ -212,13 +189,11 @@ function keyOf(url) {
   return `${hostKeyOf(url)}|${parsed.pathname}${parsed.search}`;
 }
 
-async function readLock() {
-  if (!existsSync(LOCK_PATH)) {
-    throw new Error(
-      `No lock at ${LOCK_PATH}. Run "node scripts/fetch-canvas-modules.mjs --update" once, then commit it.`,
-    );
-  }
-  return JSON.parse(await readFile(LOCK_PATH, "utf8"));
+function urlOf(key) {
+  const separator = key.indexOf("|");
+  const host = HOSTS[key.slice(0, separator)];
+  if (!host) throw new Error(`Unknown module host: ${key}`);
+  return host + key.slice(separator + 1);
 }
 
 async function writeResources(found, files) {
