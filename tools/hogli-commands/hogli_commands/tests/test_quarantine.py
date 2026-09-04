@@ -514,15 +514,31 @@ def test_mention_qualifies_team_slugs_only(owner: str, expected: str) -> None:
     assert report.mention(owner) == expected
 
 
-@pytest.mark.parametrize("soon_id", ["soon", "a.spec.ts::flow a --> b"])
-def test_body_round_trips_the_state_it_embeds(soon_id: str) -> None:
+@pytest.mark.parametrize(
+    "soon_id, lapsed_id, lapsed_runner",
+    [
+        ("soon", "lapsed", "pytest"),
+        ("a.spec.ts::flow a --> b", "lapsed", "playwright"),
+        # One `product:` selector quarantines the same product under two runners.
+        ("product:batch-exports", "product:batch-exports", "jest"),
+    ],
+)
+def test_body_round_trips_the_state_it_embeds(soon_id: str, lapsed_id: str, lapsed_runner: str) -> None:
     entries = [
         make_entry(id=soon_id, expires=TODAY + timedelta(days=2)),
-        make_entry(id="lapsed", added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2)),
+        make_entry(
+            id=lapsed_id,
+            runner=lapsed_runner,
+            added=TODAY - timedelta(days=20),
+            expires=TODAY - timedelta(days=2),
+        ),
     ]
     items = report.collect(entries, TODAY)
     body = report.build_report(items, {}, core.DEFAULT_GRACE_DAYS).body
-    assert report.read_states(body) == {soon_id: core.EXPIRING_SOON, "lapsed": core.IN_GRACE}
+    assert report.read_states(body) == {
+        f"pytest:{soon_id}": core.EXPIRING_SOON,
+        f"{lapsed_runner}:{lapsed_id}": core.IN_GRACE,
+    }
     assert report.build_report(items, report.read_states(body), core.DEFAULT_GRACE_DAYS).comment is None
 
 
@@ -535,9 +551,11 @@ def test_read_states_tolerates_a_body_without_usable_state(body: str) -> None:
     "previous_states, expect_comment",
     [
         ({}, True),
-        ({"lapsed": core.EXPIRING_SOON}, True),
-        ({"lapsed": core.IN_GRACE}, False),
-        ({"lapsed": core.OVERDUE}, False),
+        ({"pytest:lapsed": core.EXPIRING_SOON}, True),
+        # The same state under another runner is another entry, so this slips.
+        ({"jest:lapsed": core.IN_GRACE}, True),
+        ({"pytest:lapsed": core.IN_GRACE}, False),
+        ({"pytest:lapsed": core.OVERDUE}, False),
     ],
 )
 def test_comment_goes_out_only_when_an_entry_slips(previous_states: dict[str, str], expect_comment: bool) -> None:

@@ -137,8 +137,16 @@ def _body(items: list[Item], grace_days: int, workflow_url: str) -> str:
     return "\n".join(lines)
 
 
+def _state_key(entry: core.Entry) -> str:
+    # An entry is identified by its selector and its runner, and a `product:`
+    # selector deliberately covers all three runners. Keyed on the selector
+    # alone, the two states overwrite each other, and the run reports the same
+    # slip every weekday.
+    return f"{entry.runner}:{entry.id}"
+
+
 def _state_marker(items: list[Item]) -> str:
-    payload = json.dumps({i.entry.id: i.state for i in items}, sort_keys=True)
+    payload = json.dumps({_state_key(i.entry): i.state for i in items}, sort_keys=True)
     # A jest or playwright test name can hold '-->', which ends the HTML comment
     # early and truncates the payload. The escape keeps the sequence inside the
     # comment, and json.loads gives the original id back.
@@ -187,15 +195,15 @@ def _footer(workflow_url: str) -> str:
 
 
 def _comment(items: list[Item], previous_states: dict[str, str]) -> str | None:
-    slipped = [i for i in items if REPORTABLE_STATES.index(i.state) < _previous_rank(previous_states, i.entry.id)]
+    slipped = [i for i in items if REPORTABLE_STATES.index(i.state) < _previous_rank(previous_states, i.entry)]
     if not slipped:
         return None
     lines = [f"- `{i.entry.id}` ({mention(i.entry.owner)}): {i.state}, {_when(i)}" for i in slipped]
     return "\n".join(["These entries moved closer to their deadline, or past it:", "", *lines])
 
 
-def _previous_rank(previous_states: dict[str, str], entry_id: str) -> int:
-    state = previous_states.get(entry_id)
+def _previous_rank(previous_states: dict[str, str], entry: core.Entry) -> int:
+    state = previous_states.get(_state_key(entry))
     return REPORTABLE_STATES.index(state) if state in REPORTABLE_STATES else len(REPORTABLE_STATES)
 
 
