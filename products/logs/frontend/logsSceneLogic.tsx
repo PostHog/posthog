@@ -37,6 +37,7 @@ import {
     isValidSeverityLevel,
     logsViewerFiltersLogic,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { GROUPABLE_COLUMN_KEYS } from 'products/logs/frontend/components/LogsViewer/groupBySource'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogsGroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
@@ -73,15 +74,24 @@ const parseGroupBysParam = (raw: unknown): LogsViewerGroupBy[] | null => {
     }
     const parsed: LogsViewerGroupBy[] = []
     for (const entry of value) {
-        if (
-            typeof entry !== 'object' ||
-            entry === null ||
-            typeof (entry as LogsViewerGroupBy).key !== 'string' ||
-            !VALID_GROUP_BY_SOURCES.includes((entry as LogsViewerGroupBy).source)
-        ) {
+        if (typeof entry !== 'object' || entry === null) {
             return null
         }
-        parsed.push({ key: (entry as LogsViewerGroupBy).key, source: (entry as LogsViewerGroupBy).source })
+        const { key, source } = entry as LogsViewerGroupBy
+        if (typeof key !== 'string' || key === '' || !VALID_GROUP_BY_SOURCES.includes(source)) {
+            return null
+        }
+        // A "column" dimension only groups by a top-level log field, so a link naming anything
+        // else there is a combination the endpoint rejects.
+        if (source === 'column' && !GROUPABLE_COLUMN_KEYS.has(key)) {
+            return null
+        }
+        // Duplicates are dropped rather than rejected, matching what addGroupBy does with a
+        // dimension already in the list.
+        if (parsed.some((d) => d.key === key && d.source === source)) {
+            continue
+        }
+        parsed.push({ key, source })
     }
     return parsed.slice(0, MAX_GROUP_BY_DIMENSIONS)
 }
@@ -148,9 +158,9 @@ export interface logsSceneLogicValues {
     facetNameSearch: string // facetRailLogic
     anomaliesDateRange: DateRange // logsAnomaliesLogic
     anomaliesService: string | null // logsAnomaliesLogic
+    groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
     viewMode: LogsViewerViewMode // logsViewerConfigLogic
-    groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
     initialLogsLimit: number | null // logsViewerDataLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
     utcDateRange: {
@@ -180,19 +190,6 @@ export interface logsSceneLogicActions {
     pushToFilterHistory: (filters: LogsViewerFilters) => {
         filters: LogsViewerFilters
     } // logsFilterHistoryLogic
-    setOrderBy: (
-        orderBy: LogsOrderBy,
-        source?: 'header' | 'toolbar' | undefined
-    ) => {
-        orderBy: LogsOrderBy
-        source: 'header' | 'toolbar'
-    } // logsViewerConfigLogic
-    setViewMode: (viewMode: LogsViewerViewMode) => {
-        viewMode: LogsViewerViewMode
-    } // logsViewerConfigLogic
-    setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
-        groupBys: LogsViewerGroupBy[]
-    } // logsViewerConfigLogic
     addGroupBy: (groupBy: LogsViewerGroupBy) => {
         groupBy: LogsViewerGroupBy
     } // logsViewerConfigLogic
@@ -205,6 +202,19 @@ export interface logsSceneLogicActions {
     ) => {
         groupBy: LogsViewerGroupBy
         index: number
+    } // logsViewerConfigLogic
+    setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
+        groupBys: LogsViewerGroupBy[]
+    } // logsViewerConfigLogic
+    setOrderBy: (
+        orderBy: LogsOrderBy,
+        source?: 'header' | 'toolbar' | undefined
+    ) => {
+        orderBy: LogsOrderBy
+        source: 'header' | 'toolbar'
+    } // logsViewerConfigLogic
+    setViewMode: (viewMode: LogsViewerViewMode) => {
+        viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
     fetchLogsSuccess: (
         logs: LogMessage[],

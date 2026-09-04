@@ -5,6 +5,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
+import { LogsViewerGroupBy } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import {
     SERVICE_NAME_FILTER,
     SEVERITY_LEVEL_FILTER,
@@ -418,7 +419,7 @@ describe('logsSceneLogic', () => {
         // router push in the same tick would see the guard still set and skip re-parsing. Flush
         // it between the two so each step exercises the real urlToAction path.
         const flushUrlSyncGuard = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
-        const GROUP_BYS = [
+        const GROUP_BYS: LogsViewerGroupBy[] = [
             { key: 'service.name', source: 'resource' },
             { key: 'severity_level', source: 'column' },
         ]
@@ -431,21 +432,33 @@ describe('logsSceneLogic', () => {
             expect(logic.values.groupBys).toEqual(GROUP_BYS)
         })
 
-        it('leaves the live grouping alone for a malformed groupBys param', async () => {
+        it.each([
+            ['a dimension with no source', '[{"key":"only-a-key"}]'],
+            ['an empty key', '[{"key":"","source":"resource"}]'],
+            ['a column source the endpoint cannot group by', '[{"key":"service.name","source":"column"}]'],
+        ])('leaves the live grouping alone for %s', async (_name, param) => {
             await expectLogic(logic, () => {
                 logic.actions.setGroupBys(GROUP_BYS)
             }).toFinishAllListeners()
             await flushUrlSyncGuard()
 
             await expectLogic(logic, () => {
-                router.actions.push('/logs', { groupBys: '[{"key":"only-a-key"}]' })
+                router.actions.push('/logs', { groupBys: param })
+            }).toFinishAllListeners()
+
+            expect(logic.values.groupBys).toEqual(GROUP_BYS)
+        })
+
+        it('drops duplicate dimensions from the URL', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { groupBys: JSON.stringify([...GROUP_BYS, GROUP_BYS[0]]) })
             }).toFinishAllListeners()
 
             expect(logic.values.groupBys).toEqual(GROUP_BYS)
         })
 
         it('caps groupBys from the URL at the dimension limit', async () => {
-            const overCap = [
+            const overCap: LogsViewerGroupBy[] = [
                 { key: 'a', source: 'resource' },
                 { key: 'b', source: 'resource' },
                 { key: 'c', source: 'resource' },
