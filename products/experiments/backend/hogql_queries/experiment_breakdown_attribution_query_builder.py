@@ -36,7 +36,10 @@ class ExperimentBreakdownAttributionQueryBuilder:
     def build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
         """Returns (alias, expression) tuples reading each breakdown property off the metric event.
 
-        Coalesces NULL to BREAKDOWN_NULL_STRING_LABEL. Empty list if no breakdowns.
+        A missing property and a property set to an empty string both become
+        BREAKDOWN_NULL_STRING_LABEL. The UI labels both as "None", so keeping them apart would
+        show two identical rows, each with its own samples and statistics. Empty list if no
+        breakdowns.
         """
         if not self.context.has_breakdown():
             return []
@@ -58,7 +61,7 @@ class ExperimentBreakdownAttributionQueryBuilder:
                 property_expr = ast.Field(chain=properties_chain)
 
             expr = parse_expr(
-                "coalesce(toString({property_expr}), {null_label})",
+                "coalesce(nullIf(toString({property_expr}), ''), {null_label})",
                 placeholders={
                     "property_expr": property_expr,
                     "null_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
@@ -103,9 +106,10 @@ class ExperimentBreakdownAttributionQueryBuilder:
         A candidate row must match an attribution step and carry a breakdown value. Every alias
         shares that one condition, so all breakdown values of a user come from the same event.
 
-        argMinIf/argMaxIf over zero matching rows returns ClickHouse's empty string, which would
-        create an invisible ``""`` bucket that collides with real empty-string values and steals a
-        top-N slot. Users with no attributable metric event get the null label instead.
+        argMinIf/argMaxIf over zero matching rows returns ClickHouse's empty string. The UI labels
+        that as "None" too, but it is a different value from the null label, so it would form a
+        second no-value bucket and steal a top-N slot. Users with no attributable metric event get
+        the null label instead.
         """
         resolution = self.context.resolve_attribution()
         condition: ast.Expr = ast.And(

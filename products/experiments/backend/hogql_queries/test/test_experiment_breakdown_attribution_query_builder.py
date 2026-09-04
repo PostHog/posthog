@@ -115,8 +115,8 @@ class TestExperimentBreakdownAttributionQueryBuilder:
         assert _matched_steps(steps) == expected_steps
 
     def test_unattributed_users_get_null_label_not_empty_string(self):
-        # argMinIf over zero matching rows returns "", which would form an invisible bucket that
-        # collides with real empty values and steals a top-N slot. It must map to the null label.
+        # argMinIf over zero matching rows returns "", which the UI labels "None" like the null
+        # label but counts as its own bucket, so it must map to the null label instead.
         metric = _funnel_metric(attribution=BreakdownAttributionType.FIRST_TOUCH, num_steps=2)
         builder = _builder(metric)
         query = _optimized_query()
@@ -181,8 +181,16 @@ class TestExperimentBreakdownAttributionQueryBuilder:
         assert query.ctes is not None
         base_cte = query.ctes["base_events"]
         assert isinstance(base_cte, ast.CTE) and isinstance(base_cte.expr, ast.SelectQuery)
-        base_aliases = [c.alias for c in base_cte.expr.select if isinstance(c, ast.Alias)]
-        assert "breakdown_value_1" in base_aliases
+        base_columns = {c.alias: c.expr for c in base_cte.expr.select if isinstance(c, ast.Alias)}
+        assert "breakdown_value_1" in base_columns
+        # A property set to "" reads as no value: the UI labels it "None" like a missing property,
+        # so leaving it distinct would split the no-value users across two identical rows.
+        read = base_columns["breakdown_value_1"]
+        assert isinstance(read, ast.Call) and read.name == "coalesce"
+        assert isinstance(read.args[0], ast.Call) and read.args[0].name == "nullIf"
+        empty, fallback = read.args[0].args[1], read.args[1]
+        assert isinstance(empty, ast.Constant) and empty.value == ""
+        assert isinstance(fallback, ast.Constant) and fallback.value == BREAKDOWN_NULL_STRING_LABEL
 
     def test_breakdown_added_to_final_select_and_group_by(self):
         metric = _funnel_metric()
