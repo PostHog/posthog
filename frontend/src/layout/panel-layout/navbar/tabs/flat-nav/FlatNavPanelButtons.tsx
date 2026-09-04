@@ -6,9 +6,10 @@ import { IconApps, IconChevronRight, IconDatabase, IconFolderOpen, IconStar } fr
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
-import { PanelIndicatorIcon } from '~/layout/panel-layout/ai-first/Nav'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidebarItemKey, uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
+
+import { PanelIndicatorIcon } from '../../NavBar'
 
 const PANEL_TRIGGER_ITEMS: {
     identifier: PanelLayoutNavIdentifier

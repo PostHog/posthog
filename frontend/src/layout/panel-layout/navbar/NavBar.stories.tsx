@@ -1,4 +1,4 @@
-import './Nav.scss'
+import './NavBar.scss'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
@@ -30,7 +30,7 @@ const MOCK_TOOLS = [
 }))
 
 /**
- * Density comes from `data-nav-density`, which `Nav` sets from the user's sidebar setting.
+ * Density comes from `data-nav-density`, which `NavBar` sets from the user's sidebar setting.
  * Setting the attribute here keeps the story independent of the user API.
  */
 function NavSidebar({ density }: { density: SidebarDensity }): JSX.Element {
