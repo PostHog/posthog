@@ -720,8 +720,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             labelClassName="text-sm font-medium"
                                                             info={
                                                                 <>
-                                                                    Keep flag values consistent before and after login.
-                                                                    Requires anonymous user profiles.{' '}
+                                                                    Keeps the flag value the same before and after
+                                                                    login. It needs anonymous person profiles, it adds a
+                                                                    database lookup to every evaluation, and flags that
+                                                                    use it cannot be evaluated locally or bootstrapped.{' '}
                                                                     <Link
                                                                         to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                                         target="_blank"

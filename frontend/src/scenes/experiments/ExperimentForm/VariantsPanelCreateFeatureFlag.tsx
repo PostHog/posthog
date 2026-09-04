@@ -338,8 +338,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                     }
                 />
                 <div className="text-secondary text-sm pl-6 mt-2">
-                    This is only relevant if your feature flag is shown to both logged out AND logged in users. Note
-                    that this feature is not compatible with all setups,{' '}
+                    Keeps a user in the same variant after they log in. Turn it on only if the experiment runs for both
+                    logged out and logged in users. It needs anonymous person profiles, it adds a database lookup to
+                    every flag evaluation, and flags that use it cannot be evaluated locally or bootstrapped.{' '}
                     <Link
                         to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                         target="_blank"
