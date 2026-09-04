@@ -2,15 +2,21 @@ use crate::{
     metrics_consts::{CACHE_EVICTIONS, CACHE_HITS, CACHE_MISSES, UPDATES_CACHE},
     types::Update,
 };
+use metrics::Counter;
 use quick_cache::{sync, DefaultHashBuilder, Lifecycle, UnitWeighter};
 
 // Per-subcache eviction observer. quick_cache's built-in `stats` feature
 // only tracks hits/misses on `get`/`get_key_value` paths (not `contains_key`/
 // `insert`, which is what we use), so all cache hit/miss/eviction signal in
 // this service comes from explicit metrics emitted here and in `contains_key`.
+//
+// Counter handles are resolved once at construction and reused: these paths run
+// per update (and `on_evict` runs under the shard write lock), so a registry
+// lookup per increment is measurable CPU. The metrics recorder must be installed
+// before `Cache::new`, because a handle resolved earlier is a no-op forever.
 #[derive(Clone)]
 struct EvictingLifecycle {
-    cache_label: &'static str,
+    evictions: Counter,
 }
 
 impl Lifecycle<Update, ()> for EvictingLifecycle {
@@ -19,26 +25,41 @@ impl Lifecycle<Update, ()> for EvictingLifecycle {
     fn begin_request(&self) -> Self::RequestState {}
 
     fn on_evict(&self, _state: &mut Self::RequestState, _key: Update, _val: ()) {
-        metrics::counter!(CACHE_EVICTIONS, &[("cache", self.cache_label)]).increment(1);
+        self.evictions.increment(1);
     }
 }
 
 type SubCache = sync::Cache<Update, (), UnitWeighter, DefaultHashBuilder, EvictingLifecycle>;
 
-fn build_subcache(capacity: usize, label: &'static str) -> SubCache {
-    sync::Cache::with(
+struct SubCacheEntry {
+    cache: SubCache,
+    hits: Counter,
+    misses: Counter,
+}
+
+fn build_subcache(capacity: usize, label: &'static str) -> SubCacheEntry {
+    let cache = sync::Cache::with(
         capacity,
         capacity as u64,
         UnitWeighter,
         DefaultHashBuilder::default(),
-        EvictingLifecycle { cache_label: label },
-    )
+        EvictingLifecycle {
+            evictions: metrics::counter!(CACHE_EVICTIONS, &[("cache", label)]),
+        },
+    );
+    SubCacheEntry {
+        cache,
+        hits: metrics::counter!(CACHE_HITS, &[("cache", label)]),
+        misses: metrics::counter!(CACHE_MISSES, &[("cache", label)]),
+    }
 }
 
 pub struct Cache {
-    eventdefs: SubCache,
-    eventprops: SubCache,
-    propdefs: SubCache,
+    eventdefs: SubCacheEntry,
+    eventprops: SubCacheEntry,
+    propdefs: SubCacheEntry,
+    removed: Counter,
+    not_cached: Counter,
 }
 
 // TODO: next iter, try using unsync::Cache(s) here and manage sync access to each
@@ -56,55 +77,54 @@ impl Cache {
             eventdefs: build_subcache(eventdefs_capacity, "eventdefs"),
             eventprops: build_subcache(eventprops_capacity, "eventprops"),
             propdefs: build_subcache(propdefs_capacity, "propdefs"),
+            removed: metrics::counter!(UPDATES_CACHE, &[("action", "removed")]),
+            not_cached: metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")]),
+        }
+    }
+
+    fn entry_for(&self, key: &Update) -> &SubCacheEntry {
+        match key {
+            Update::Event(_) => &self.eventdefs,
+            Update::EventProperty(_) => &self.eventprops,
+            Update::Property(_) => &self.propdefs,
         }
     }
 
     pub fn eventdefs_len(&self) -> usize {
-        self.eventdefs.len()
+        self.eventdefs.cache.len()
     }
 
     pub fn eventprops_len(&self) -> usize {
-        self.eventprops.len()
+        self.eventprops.cache.len()
     }
 
     pub fn propdefs_len(&self) -> usize {
-        self.propdefs.len()
+        self.propdefs.cache.len()
     }
 
     pub fn contains_key(&self, key: &Update) -> bool {
-        let (found, label) = match key {
-            Update::Event(_) => (self.eventdefs.contains_key(key), "eventdefs"),
-            Update::EventProperty(_) => (self.eventprops.contains_key(key), "eventprops"),
-            Update::Property(_) => (self.propdefs.contains_key(key), "propdefs"),
-        };
+        let entry = self.entry_for(key);
+        let found = entry.cache.contains_key(key);
         if found {
-            metrics::counter!(CACHE_HITS, &[("cache", label)]).increment(1);
+            entry.hits.increment(1);
         } else {
-            metrics::counter!(CACHE_MISSES, &[("cache", label)]).increment(1);
+            entry.misses.increment(1);
         }
         found
     }
 
     pub fn insert(&self, key: Update) {
-        match key {
-            Update::Event(_) => self.eventdefs.insert(key, ()),
-            Update::EventProperty(_) => self.eventprops.insert(key, ()),
-            Update::Property(_) => self.propdefs.insert(key, ()),
-        }
+        self.entry_for(&key).cache.insert(key, ());
     }
 
     // we don't return the retrieved KV since propdefs doesn't require it
     pub fn remove(&self, key: &Update) {
-        let result = match key {
-            Update::Event(_) => self.eventdefs.remove(key),
-            Update::EventProperty(_) => self.eventprops.remove(key),
-            Update::Property(_) => self.propdefs.remove(key),
-        };
+        let result = self.entry_for(key).cache.remove(key);
 
         if result.is_some() {
-            metrics::counter!(UPDATES_CACHE, &[("action", "removed")]).increment(1);
+            self.removed.increment(1);
         } else {
-            metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")]).increment(1);
+            self.not_cached.increment(1);
         }
     }
 }

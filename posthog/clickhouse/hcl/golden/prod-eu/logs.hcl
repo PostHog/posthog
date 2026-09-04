@@ -746,6 +746,85 @@ SQL
     }
   }
 
+  table "logs_pattern_buckets" {
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
+    partition_by = "toDate(time_bucket)"
+    ttl          = "time_bucket + toIntervalDay(42)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.logs_pattern_buckets"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "logs_pattern_buckets_distributed" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "logs_pattern_buckets"
+    }
+  }
+
   table "logs_volume_buckets" {
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"

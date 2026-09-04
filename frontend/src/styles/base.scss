@@ -315,6 +315,7 @@
     --color-product-product-analytics-light: rgb(47 128 250);
     --color-product-product-analytics-dark: rgb(96 165 250);
     --color-product-workflows-light: rgb(47 128 250);
+    --color-product-workflows-dark: rgb(96 156 255);
     --color-product-web-analytics-light: rgb(52 175 102);
     --color-product-web-analytics-dark: rgb(54 196 111); // original color
     --color-product-endpoints-light: rgb(243 153 109);
@@ -326,6 +327,7 @@
     --color-product-logs-light: rgb(214 37 123);
     --color-product-logs-dark: rgb(240 92 161);
     --color-product-marketing-analytics-light: rgb(214 37 123);
+    --color-product-marketing-analytics-dark: rgb(240 92 161);
     --color-product-live-debugger-light: rgb(76 14 200);
     --color-product-feature-flags-light: rgb(48 171 198);
     --color-product-experiments-light: rgb(182 42 217);
@@ -335,6 +337,8 @@
     --color-product-surveys-dark: rgb(248 121 121);
     --color-product-product-tours-light: rgb(243 84 84);
     --color-product-product-tours-dark: rgb(248 121 121);
+    --color-product-customer-analytics-light: rgb(23 158 172);
+    --color-product-customer-analytics-dark: rgb(85 199 211);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-data-warehouse-dark: rgb(160 135 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
@@ -2152,4 +2156,12 @@
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+// `-webkit-app-region` is an inherited property in Chromium, and a region marked as a drag
+// handle swallows click and drag text selection. Text entry must never become a drag handle.
+input,
+textarea,
+[contenteditable='true'] {
+    -webkit-app-region: no-drag;
 }

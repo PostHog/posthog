@@ -476,7 +476,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                             signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
                                         )
                                         .describe(
-                                            "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),
@@ -651,7 +651,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                 .boolean()
                                 .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -823,7 +823,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 .boolean()
                                 .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -933,6 +933,10 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
  */
 export const signalsScoutEditReportBodyTitleMax = 300
 
+export const signalsScoutEditReportBodySummaryMax = 20000
+
+export const signalsScoutEditReportBodyAppendNoteMax = 10000
+
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
 export const signalsScoutEditReportBodySuggestedReviewersItemReasonMax = 500
@@ -963,12 +967,14 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             ),
         summary: zod
             .string()
+            .max(signalsScoutEditReportBodySummaryMax)
             .nullish()
             .describe(
-                'Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.'
+                'Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. The pipeline may later re-research and overwrite it.'
             ),
         append_note: zod
             .string()
+            .max(signalsScoutEditReportBodyAppendNoteMax)
             .nullish()
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
         suggested_reviewers: zod
@@ -1055,7 +1061,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .max(signalsScoutEditReportBodySuggestedPromptsMax)
             .nullish()
             .describe(
-                "The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report."
+                "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report."
             ),
     })
     .describe(
@@ -1100,7 +1106,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
         summary: zod
             .string()
             .describe(
-                'The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view.'
+                'The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply.'
             ),
         evidence: zod
             .array(
@@ -1147,7 +1153,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                "Optional repo for autostart (opening a draft PR): `owner\/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner\/repo` when you know it."
+                "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner\/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo."
             ),
         priority: zod
             .union([
@@ -1248,7 +1254,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .max(signalsScoutEmitReportBodySuggestedPromptsMax)
             .optional()
             .describe(
-                "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them."
+                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
@@ -1422,6 +1428,25 @@ export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Return what each requested `SignalScoutRun` spent on model calls, summed from the `$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: a settled run's total is final, a run still in progress reports what it has spent so far. `available` is false where the internal AI observability project holding those events can't be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal operating number, and the events sit outside the project in the path. Strictly team-scoped — run ids belonging to another project contribute no rows.
+ * @summary Get the model spend of many runs at once
+ */
+export const signalsScoutRunsTokenCostsBodyRunIdsMax = 200
+
+export const SignalsScoutRunsTokenCostsBody = /* @__PURE__ */ zod
+    .object({
+        run_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutRunsTokenCostsBodyRunIdsMax)
+            .describe(
+                'UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.'
+            ),
+    })
+    .describe(
+        "Request body for the batched emissions \/ emission-reports lookups: the set of run UUIDs to\nresolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the\nreports lookup, one ClickHouse round-trip — per emitted run) into a single request."
+    )
+
+/**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
  * @summary Remember a scratchpad entry
  */
@@ -1445,7 +1470,7 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost."
+                "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run."
             ),
         expires_at: zod.iso
             .datetime({ offset: true })

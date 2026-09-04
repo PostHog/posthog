@@ -12,6 +12,11 @@ _PROMPT = (
     "Let's discuss this PostHog Inbox report: https://us.posthog.com/project/2/inbox/reports/x\n\n"
     "Is this still happening?"
 )
+_ACTION_PROMPT = (
+    "A user sent this about the PostHog Inbox report at https://us.posthog.com/project/2/inbox/reports/x. "
+    "If it is a question, answer it; if it asks for action, carry the action out and summarize what you did:\n\n"
+    "Create the alert this report recommends"
+)
 
 
 class TestExtractQuestion(SimpleTestCase):
@@ -21,6 +26,12 @@ class TestExtractQuestion(SimpleTestCase):
     @parameterized.expand(
         [
             ("strips_url_prefix", _PROMPT, "Is this still happening?"),
+            ("strips_action_capable_prefix", _ACTION_PROMPT, "Create the alert this report recommends"),
+            (
+                "strips_answer_this_question_prefix",
+                "Answer this question about the PostHog Inbox report at https://x.example/r/1:\n\nIs it fixed?",
+                "Is it fixed?",
+            ),
             ("no_prefix_returns_whole", "Why does stripe not sync?", "Why does stripe not sync?"),
             ("single_newline_still_strips_prefix", "Let's discuss this PostHog Inbox report: x\nWhy?", "Why?"),
             ("prefix_with_no_question_returns_blank", "Let's discuss this PostHog Inbox report: x\n\n   ", ""),

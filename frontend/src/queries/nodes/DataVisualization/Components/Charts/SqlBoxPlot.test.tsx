@@ -63,7 +63,7 @@ describe('SqlBoxPlot', () => {
         cleanup()
     })
 
-    it('renders grouped boxes with the standard axis defaults', async () => {
+    it('renders grouped boxes with the standard axis defaults and selected legend position', async () => {
         render(
             <SqlBoxPlot
                 rows={[
@@ -71,7 +71,7 @@ describe('SqlBoxPlot', () => {
                     ['Mon', 'Paid', 7, 8, 9, 10, 11, 12],
                 ]}
                 columns={columns}
-                chartSettings={chartSettings}
+                chartSettings={{ ...chartSettings, showLegend: true, legendPosition: 'bottom' }}
                 analyticsKey="grouped-test"
             />
         )
@@ -87,6 +87,7 @@ describe('SqlBoxPlot', () => {
             config: {
                 showGrid: true,
                 showAxisLines: { x: true, y: true },
+                legend: { show: true, position: 'bottom' },
             },
         })
     })
