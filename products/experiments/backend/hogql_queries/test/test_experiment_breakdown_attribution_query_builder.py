@@ -14,6 +14,7 @@ from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_breakdown_attribution_query_builder import (
     ExperimentBreakdownAttributionQueryBuilder,
 )
@@ -218,6 +219,14 @@ class TestExperimentBreakdownAttributionQueryBuilder:
         # count() DESC plus a breakdown-value tiebreak keeps the cutoff deterministic on ties
         assert in_top.right.order_by is not None
         assert [o.order for o in in_top.right.order_by] == ["DESC", "ASC"]
+        # Rank only users who reach the result: a bucket of users the final SELECT or the runner
+        # drops would otherwise take a top-N slot and then contribute no row.
+        assert isinstance(in_top.right.where, ast.And)
+        variant_present, not_multiple = in_top.right.where.exprs
+        assert isinstance(variant_present, ast.Call) and variant_present.name == "notEmpty"
+        assert isinstance(not_multiple, ast.CompareOperation)
+        assert not_multiple.op == ast.CompareOperationOp.NotEq
+        assert isinstance(not_multiple.right, ast.Constant) and not_multiple.right.value == MULTIPLE_VARIANT_KEY
         other = final_alias.expr.args[2]
         assert isinstance(other, ast.Constant)
         assert other.value == "$$_posthog_breakdown_other_$$"

@@ -19,6 +19,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_breakdown_attribution_query_context import (
     ExperimentBreakdownAttributionContext,
 )
@@ -132,6 +133,11 @@ class ExperimentBreakdownAttributionQueryBuilder:
         Selects from entity_metrics (one row per user) so the ranking measure is the
         number of experiment units in each breakdown bucket — the funnel analog of
         insights ranking by frequency.
+
+        Only users who reach the result are ranked. Users with no variant are dropped by the
+        final SELECT, and under "exclude" handling the runner drops multi-variant users after
+        the query, so counting either here would let a bucket take a top-N slot and then show
+        no row.
         """
         # Project a scalar for a single breakdown, or a tuple for multiple, so the
         # membership test on the outer query matches shapes.
@@ -142,6 +148,10 @@ class ExperimentBreakdownAttributionQueryBuilder:
         subquery = ast.SelectQuery(
             select=[projection],
             select_from=ast.JoinExpr(table=ast.Field(chain=["entity_metrics"])),
+            where=parse_expr(
+                "notEmpty(entity_metrics.variant) and entity_metrics.variant != {multiple_variant_key}",
+                placeholders={"multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+            ),
             group_by=[ast.Field(chain=["entity_metrics", alias]) for alias in aliases],
             # Tie-break by breakdown value so the cutoff at the limit is deterministic
             # across executions; count() alone lets ClickHouse pick tied tuples arbitrarily.
