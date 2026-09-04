@@ -1,5 +1,7 @@
 from uuid import UUID
 
+from django.db import transaction
+
 from posthog.dataclasses import frozen
 
 from products.wizard.backend.facade.contracts import (
@@ -9,7 +11,7 @@ from products.wizard.backend.facade.contracts import (
 )
 from products.wizard.backend.facade.enums import WizardRunArtifactType
 from products.wizard.backend.logic.artifacts.mappers import artifact_from_record, pull_request_metadata_to_record
-from products.wizard.backend.models import WizardRunArtifact
+from products.wizard.backend.models import WizardRun, WizardRunArtifact
 
 
 @frozen
@@ -29,18 +31,20 @@ def upsert_git_diff(
     additions: int,
     removals: int,
 ) -> WizardRunGitDiffArtifactDTO:
-    artifact, _ = WizardRunArtifact.objects.for_team(team_id).update_or_create(
-        run_id=run_id,
-        type=WizardRunArtifactType.GIT_DIFF.value,
-        defaults={
-            "team_id": team_id,
-            "storage_path": storage_path,
-            "external_url": None,
-            "metadata": {"additions": additions, "removals": removals},
-            "size_bytes": size_bytes,
-            "content_hash": content_hash,
-        },
-    )
+    with transaction.atomic():
+        WizardRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+        artifact, _ = WizardRunArtifact.objects.for_team(team_id).update_or_create(
+            run_id=run_id,
+            type=WizardRunArtifactType.GIT_DIFF.value,
+            defaults={
+                "team_id": team_id,
+                "storage_path": storage_path,
+                "external_url": None,
+                "metadata": {"additions": additions, "removals": removals},
+                "size_bytes": size_bytes,
+                "content_hash": content_hash,
+            },
+        )
 
     result = artifact_from_record(artifact)
 
@@ -60,18 +64,20 @@ def upsert_pull_request(
     head_branch: str,
     base_branch: str,
 ) -> WizardRunPullRequestArtifactDTO:
-    artifact, _ = WizardRunArtifact.objects.for_team(team_id).update_or_create(
-        run_id=run_id,
-        type=WizardRunArtifactType.PULL_REQUEST.value,
-        defaults={
-            "team_id": team_id,
-            "storage_path": None,
-            "external_url": url,
-            "metadata": pull_request_metadata_to_record(number, repository, head_branch, base_branch),
-            "size_bytes": None,
-            "content_hash": None,
-        },
-    )
+    with transaction.atomic():
+        WizardRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+        artifact, _ = WizardRunArtifact.objects.for_team(team_id).update_or_create(
+            run_id=run_id,
+            type=WizardRunArtifactType.PULL_REQUEST.value,
+            defaults={
+                "team_id": team_id,
+                "storage_path": None,
+                "external_url": url,
+                "metadata": pull_request_metadata_to_record(number, repository, head_branch, base_branch),
+                "size_bytes": None,
+                "content_hash": None,
+            },
+        )
 
     result = artifact_from_record(artifact)
 

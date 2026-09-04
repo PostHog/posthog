@@ -39,7 +39,8 @@ def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> Wiza
         run_observability.git_diff_omitted(run, len(content))
         return None
 
-    storage_path = _git_diff_storage_path(team_id, run_id)
+    content_hash = sha256(content).hexdigest()
+    storage_path = _git_diff_storage_path(team_id, run_id, content_hash)
     line_counts = _diff_line_counts(content)
 
     object_storage.write(
@@ -54,7 +55,7 @@ def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> Wiza
         run_id=run.id,
         storage_path=storage_path,
         size_bytes=len(content),
-        content_hash=sha256(content).hexdigest(),
+        content_hash=content_hash,
         additions=line_counts.additions,
         removals=line_counts.removals,
     )
@@ -129,5 +130,5 @@ def _diff_line_counts(content: bytes) -> _DiffLineCounts:
     return _DiffLineCounts(additions=additions, removals=removals)
 
 
-def _git_diff_storage_path(team_id: int, run_id: UUID) -> str:
-    return f"projects/{team_id}/wizard-runs/{run_id}/artifacts/git-diff.patch"
+def _git_diff_storage_path(team_id: int, run_id: UUID, content_hash: str) -> str:
+    return f"projects/{team_id}/wizard-runs/{run_id}/artifacts/git-diff-{content_hash}.patch"

@@ -1,3 +1,5 @@
+from hashlib import sha256
+
 import pytest
 from unittest.mock import patch
 
@@ -45,7 +47,7 @@ def test_create_git_diff_artifact_stores_content_by_reference(team, user) -> Non
     assert artifact.artifact_type == WizardRunArtifactType.GIT_DIFF
     assert artifact.size_bytes == len(diff)
     write.assert_called_once_with(
-        f"projects/{team.id}/wizard-runs/{run.id}/artifacts/git-diff.patch",
+        f"projects/{team.id}/wizard-runs/{run.id}/artifacts/git-diff-{sha256(diff).hexdigest()}.patch",
         diff,
         extras={"ContentType": "text/x-diff; charset=utf-8"},
         bucket=settings.WIZARD_RUN_ARTIFACTS_S3_BUCKET,
