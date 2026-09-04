@@ -832,6 +832,56 @@ describe('getProductUpgradePricing', () => {
         )
     })
 
+    it('converts the free allowance into the display unit with the price', () => {
+        const storageProduct = {
+            ...surveys,
+            unit: 'MB',
+            display_divisor: 1000,
+            display_unit: 'GB',
+            plans: [
+                {
+                    ...surveys.plans[1],
+                    unit: 'MB',
+                    tiers: [
+                        { flat_amount_usd: '0', unit_amount_usd: '0', up_to: 1000000 },
+                        { flat_amount_usd: '0', unit_amount_usd: '0.00035', up_to: null },
+                    ],
+                },
+            ],
+        } as unknown as BillingProductV2Type
+
+        const pricing = getProductUpgradePricing(storageProduct)
+
+        expect(pricing).toEqual({ freeAllocation: 1000, unitAmountUsd: '$0.35', unit: 'GB', flatRate: false })
+        expect(describeProductUpgradePricing(pricing!)).toEqual(
+            'The first 1,000 GB each month are free, then $0.35 per GB.'
+        )
+    })
+
+    it('stays in the raw unit when the product names no display unit', () => {
+        const creditProduct = {
+            ...surveys,
+            unit: 'credit',
+            display_divisor: 1500,
+            plans: [
+                {
+                    ...surveys.plans[1],
+                    unit: 'credit',
+                    tiers: [
+                        { flat_amount_usd: '0', unit_amount_usd: '0', up_to: 4500 },
+                        { flat_amount_usd: '0', unit_amount_usd: '0.01', up_to: null },
+                    ],
+                },
+            ],
+        } as unknown as BillingProductV2Type
+
+        const pricing = getProductUpgradePricing(creditProduct)
+
+        expect(describeProductUpgradePricing(pricing!)).toEqual(
+            'The first 4,500 credits each month are free, then $0.01 per credit.'
+        )
+    })
+
     it('returns null when the paid plan quotes no price', () => {
         const noPriceProduct = {
             ...surveys,

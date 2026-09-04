@@ -819,12 +819,23 @@ const unitPriceFormatter = new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 6,
 })
 
+/**
+ * The larger unit a product displays in, and how many internal units go into one of it.
+ * Null when the payload names no display unit: converting the numbers then leaves the sentence
+ * quoting the internal unit at the larger unit's price.
+ */
+const displayUnits = (
+    product: BillingProductV2Type | BillingProductV2AddonType
+): { unit: string; divisor: number } | null =>
+    hasDisplayFormatting(product) && product.display_unit
+        ? { unit: product.display_unit, divisor: product.display_divisor || 1 }
+        : null
+
 const formatUnitPrice = (unitAmountUsd: string, product: BillingProductV2Type | BillingProductV2AddonType): string => {
     const price = parseFloat(unitAmountUsd)
     // Products that display in a larger unit (per GB instead of per MB) price in the small unit.
-    const displayPrice =
-        hasDisplayFormatting(product) && product.display_divisor ? price * product.display_divisor : price
-    return unitPriceFormatter.format(displayPrice)
+    const display = displayUnits(product)
+    return unitPriceFormatter.format(display ? price * display.divisor : price)
 }
 
 // The free plan carries no price at all, so the plan that quotes one is the plan to upgrade to.
@@ -856,11 +867,15 @@ const tieredPricing = (
         return null
     }
     const freeTier = tiers.find((tier) => parseFloat(tier.unit_amount_usd) === 0)
+    const freeAllocation = freeTier?.up_to ?? plan.free_allocation ?? null
+    const display = displayUnits(product)
 
     return {
-        freeAllocation: freeTier?.up_to ?? plan.free_allocation ?? null,
+        // The allowance arrives in the internal unit, so it converts with the price.
+        freeAllocation:
+            display && freeAllocation !== null ? Math.round(freeAllocation / display.divisor) : freeAllocation,
         unitAmountUsd: formatUnitPrice(firstPaidTier.unit_amount_usd, product),
-        unit: (hasDisplayFormatting(product) && product.display_unit) || unit,
+        unit: display?.unit ?? unit,
         flatRate: false,
     }
 }
