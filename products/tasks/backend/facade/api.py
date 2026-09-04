@@ -264,6 +264,9 @@ __all__ = [
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
     "read_task_run_artifact",
+    "get_task_run_log_urls",
+    "get_task_run_log_size",
+    "read_task_run_log_content",
     "read_task_run_logs",
     "record_comment_activity",
     "signal_task_run_client_activity",
@@ -2197,6 +2200,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
         "stream_presence_gated",
+        "stream_thin_tail",
         PR_LOOP_ENABLED_STATE_KEY,
         "snapshot_external_id",
         "snapshot_kind",
@@ -2435,6 +2439,8 @@ def get_task_run_stream_info(
         id=run.id,
         state=run.state or {},
         origin_product=origin_product_label(run),
+        is_terminal=run.is_terminal,
+        state_event=run.build_stream_state_event(),
     )
 
 
@@ -3781,19 +3787,43 @@ def report_task_analysis_insight(run_id: str | UUID, task_id: str | UUID, team_i
 
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+    log_urls = get_task_run_log_urls(run_id, task_id, team_id)
+    if log_urls is None:
+        return None
+    return read_task_run_log_content(log_urls)
 
+
+def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
+    """Log URLs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    return [ancestor.log_url for ancestor in run.get_resume_chain()]
 
-    resume_chain = run.get_resume_chain()
+
+def get_task_run_log_size(log_urls: list[str]) -> int:
+    """Total byte size of the given log objects, without downloading them. Storage-only: safe off the request thread."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    def _size(log_url: str) -> int:
+        head = object_storage.head_object(log_url)
+        return int(head.get("ContentLength", 0)) if head else 0
+
+    if len(log_urls) == 1:
+        return _size(log_urls[0])
+    return sum(_TASK_LOG_READ_EXECUTOR.map(_size, log_urls))
+
+
+def read_task_run_log_content(log_urls: list[str]) -> str:
+    """Concatenated JSONL content for the given log URLs. Storage-only: safe off the request thread."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
     chunks: Iterable[str]
-    if len(resume_chain) == 1:
-        chunks = [object_storage.read(resume_chain[0].log_url, missing_ok=True) or ""]
+    if len(log_urls) == 1:
+        chunks = [object_storage.read(log_urls[0], missing_ok=True) or ""]
     else:
         chunks = _TASK_LOG_READ_EXECUTOR.map(
-            lambda ancestor: object_storage.read(ancestor.log_url, missing_ok=True) or "", resume_chain
+            lambda log_url: object_storage.read(log_url, missing_ok=True) or "", log_urls
         )
 
     parts: list[str] = []
@@ -5087,10 +5117,17 @@ def _task_detail_queryset():
 
 def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
     """Team-scoped live tasks, gated by read visibility — or by the narrower
-    control predicate when ``for_control`` (mutations, runs, agent commands)."""
+    control predicate when ``for_control`` (mutations, runs, agent commands).
+
+    The read branch ORs in ``_shared_slack_thread_q()`` so a task shared in a Slack channel
+    is readable team-wide, matching ``task_accessible_for_run_view``. Without it the run
+    endpoint admits a channel collaborator while task detail returns 404 for the same task.
+    """
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
-        qs = qs.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
+        qs = qs.filter(
+            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+        )
     return qs
 
 
