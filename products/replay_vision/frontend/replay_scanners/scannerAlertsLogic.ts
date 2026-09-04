@@ -52,10 +52,10 @@ export interface scannerAlertsLogicActions {
         errorObject?: any
     }
     loadAlertsSuccess: (
-        alerts: VisionAlertConfigurationApi[] | null,
+        alerts: VisionAlertConfigurationApi[],
         payload?: any
     ) => {
-        alerts: VisionAlertConfigurationApi[] | null
+        alerts: VisionAlertConfigurationApi[]
         payload?: any
     }
     openCreateAlertModal: () => {
