@@ -4,9 +4,9 @@ from django.conf import settings
 
 from temporalio import activity
 
-from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.event_retention import parse_events_feature_to_months
+from posthog.models.team.event_retention import organization_events_retention_months
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -44,28 +44,38 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
         last_pk = 0
         total_processed = 0
         total_updated = 0
+        # Teams far outnumber organizations, so parse each org's entitlement once and reuse it across every team it
+        # owns instead of decompressing the same TOASTed JSONB blob once per team. Kept across batches because teams
+        # order by pk, not by organization, so one org spans many pages.
+        org_target_months: dict[int, int] = {}
 
         while True:
             # Bounded keyset batches: pgbouncer disables server-side cursors, so iterating the full queryset
-            # would materialize every team (with its joined organization row) in memory at once.
+            # would materialize every team in memory at once.
             teams = [
                 team
                 async for team in Team.objects.filter(pk__gt=last_pk)
                 .order_by("pk")
-                .select_related("organization")
-                .only("id", "event_retention_months", "organization__available_product_features")[: input.batch_size]
+                .only("id", "event_retention_months", "organization")[: input.batch_size]
             ]
             if not teams:
                 break
             last_pk = teams[-1].pk
 
+            missing_org_ids = {team.organization_id for team in teams if team.organization_id not in org_target_months}
+            if missing_org_ids:
+                async for org in Organization.objects.filter(id__in=missing_org_ids).only(
+                    "id", "available_product_features"
+                ):
+                    org_target_months[org.id] = organization_events_retention_months(org)
+
             teams_to_update: list[Team] = []
             changes: list[dict] = []
             for team in teams:
-                retention_feature = team.organization.get_available_feature(
-                    AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
-                )
-                target_months = parse_events_feature_to_months(retention_feature)
+                target_months = org_target_months.get(team.organization_id)
+                if target_months is None:
+                    # Orphaned FK — the org row is gone. Skip rather than crash the nightly run.
+                    continue
                 if team.event_retention_months != target_months:
                     changes.append(
                         {
