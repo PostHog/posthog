@@ -3076,6 +3076,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         conversion = data.get("conversion")
         if conversion is not None:
+            # DRF replaces a nested object rather than merging it, so a PATCH carrying one part of the
+            # conversion arrives without the rest and the lines below would store it as empty — leaving a
+            # workflow that measures nothing, with no error to say so. Carry the omitted parts over from
+            # the stored value; a caller that means to clear one sends it explicitly as [].
+            #
+            # Only when nothing is staged. A content edit on an active workflow routes to the draft, and
+            # the draft is where a previous edit's goal lives — merging from live there would revert it,
+            # and would un-clear a goal the draft deliberately emptied. With no draft, _write_draft bases
+            # itself on a snapshot of live, so live is the right base for both routes.
+            if self.partial and instance and not instance.draft and isinstance(instance.conversion, dict):
+                for key in ("filters", "events", "window_minutes"):
+                    stored = instance.conversion.get(key)
+                    if key in conversion or stored is None:
+                        continue
+                    # A legacy goal stored an event object in `filters`; to_internal_value relocates that
+                    # shape on the way in, and copying it raw here would put it back past that check.
+                    if key == "filters" and not isinstance(stored, list):
+                        continue
+                    conversion[key] = stored
+                data["conversion"] = conversion
             filters = conversion.get("filters")
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
