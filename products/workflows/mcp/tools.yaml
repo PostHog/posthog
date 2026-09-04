@@ -465,8 +465,8 @@ tools:
         title: Suggest a workflow change
         description: >
             Suggest a change to a workflow for a human to review. Send only the content fields you want to change
-            (usually actions), the evidence behind the suggestion, and a rationale a person can judge without
-            re-deriving your numbers. This changes nothing on its own: a person approves the suggestion, which stages it
+            (usually actions), and in actions only the steps you change, each carrying its id. Send the evidence
+            behind the suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its own: a person approves the suggestion, which stages it
             as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so
             retrying returns the suggestion you already made instead of creating a second one. There is no tool to
             approve a suggestion, by design - only a person resolves one.
