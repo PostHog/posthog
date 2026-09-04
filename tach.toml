@@ -664,6 +664,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.dashboards",
+    "products.data_modeling",
     "products.event_definitions",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",

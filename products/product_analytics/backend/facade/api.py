@@ -19,7 +19,11 @@ from uuid import UUID
 from django.db.models import QuerySet
 
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
+from products.product_analytics.backend.facade.contracts import (
+    InsightDataModelDependencyDefinition,
+    InsightVariableDefinition,
+)
+from products.product_analytics.backend.lineage import reads as lineage_reads
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -36,6 +40,18 @@ def _to_variable_definition(variable: InsightVariable) -> InsightVariableDefinit
         default_value=variable.default_value,
         is_multi=variable.is_multi,
     )
+
+
+def insight_data_model_dependencies_by_insight_ids(
+    *, team_id: int, insight_ids: Collection[int]
+) -> list[InsightDataModelDependencyDefinition]:
+    return lineage_reads.dependencies_for_insights(team_id=team_id, insight_ids=insight_ids)
+
+
+def insight_data_model_dependencies_by_saved_query_ids(
+    *, team_id: int, saved_query_ids: Collection[str | UUID]
+) -> list[InsightDataModelDependencyDefinition]:
+    return lineage_reads.dependencies_for_saved_queries(team_id=team_id, saved_query_ids=saved_query_ids)
 
 
 def insight_variables_for_team(team_id: int) -> list[InsightVariableDefinition]:
