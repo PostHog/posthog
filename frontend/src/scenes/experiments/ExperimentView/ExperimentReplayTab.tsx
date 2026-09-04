@@ -513,7 +513,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         analyticsSource="experiment-recordings-tab"
                         filters={recordingsFilters}
                         onFiltersChange={(filters) => playlistFiltersChanged(filters)}
-                        onRecordingsLoaded={(recordings) => recordingsLoaded(recordings)}
+                        onRecordingsLoaded={(recordings, isFirstPage) => recordingsLoaded(recordings, isFirstPage)}
                         onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
                     />
                 )}

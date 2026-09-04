@@ -160,6 +160,8 @@ export interface ThreadItem {
     contextSize?: number
     /** For `task_notification` items — the milestone summary. */
     summary?: string
+    /** For `turn_separator` items — the turn's gateway trace id (`$ai_trace_id` on its generations). */
+    traceId?: string
     /** For `progress` items — backend-supplied group id, scoped to the task run. */
     progressGroup?: string
     /** For `progress` items — ordered setup/runtime progress rows. */
