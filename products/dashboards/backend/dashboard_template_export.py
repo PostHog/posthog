@@ -1,5 +1,7 @@
 from typing import Any
 
+from posthog.api.tagged_item import current_tag_names
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -54,7 +56,7 @@ def dashboard_to_template_payload(dashboard: Dashboard) -> dict[str, Any]:
         "template_name": dashboard.name or "",
         "dashboard_description": dashboard.description or "",
         "dashboard_filters": dashboard.filters or {},
-        "tags": sorted(tagged_item.tag.name for tagged_item in dashboard.tagged_items.all()),
+        "tags": sorted(current_tag_names(dashboard)),
         "tiles": [tile for tile in tiles if tile is not None],
         "variables": [],
     }

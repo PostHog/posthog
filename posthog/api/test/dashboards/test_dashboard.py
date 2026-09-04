@@ -2916,6 +2916,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(copied_insight_tiles[0]["insight"]["query"], insight["query"])
         self.assertEqual(copied_text_tiles[0]["text"]["body"], "Read me first")
 
+    def test_template_json_export_is_denied_without_dashboard_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "private"})
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=dashboard_id, team=self.team, access_level="none"
+        )
+        self.client.force_login(self._create_user("nosy@posthog.com", level=OrganizationMembership.Level.MEMBER))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/template_json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
     @parameterized.expand(
         [
             (None, None),
