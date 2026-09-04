@@ -6,8 +6,8 @@ rules and every resource that has resource-level rows. Return one change record 
 scope) pair whose level differs. Members are never enumerated: members with the same applicable
 rules resolve identically, so one subject-level record covers all of them.
 
-Read-only. Nothing here changes enforcement. The settings preview page and the divergent-org
-sweep command are the only callers.
+Read-only. Nothing here changes enforcement. The settings preview page and the
+migration command are the only callers.
 """
 
 from collections.abc import Iterator
