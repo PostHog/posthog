@@ -28,6 +28,23 @@ known_drift_skip() {
     # migration 0155 dropped on DATA; the ingestion-side objects survived because
     # 0155 targeted the wrong role, and 0253's cleanup is cloud-only.
     local-multi|local-single) echo "writable_error_tracking_issue_fingerprint_embeddings" ;;
+
+    # Cross-cluster validation only started resolving for the cloud envs when the data
+    # role gained env blocks: before that the `posthog` cluster was @absent there and
+    # every remote was skipped. What it found is live state, not a modelling mistake,
+    # so each name below is drift to carry rather than a declaration to change.
+    #
+    #   events, events_main, writable_*, distributed_* -- proxies whose remote lives on
+    #     a cluster the env does not compose (batch_exports, ai_events, aux), or whose
+    #     column set genuinely disagrees with the remote today. The sessions events
+    #     proxy is the clearest: it declares elements_hash and properties_group_ai_large,
+    #     which sharded_events does not have on any data cluster.
+    #   web_*_distributed, session_replay_events, log_entries_distributed,
+    #     persons_*_up_to_date_view -- same shape, different remote.
+    #
+    # Remove a name once its two sides agree. Do not add one without a drift-catalog row.
+    dev|prod-us|prod-eu) echo "ai_events,billing_usage_records,distributed_events_recent,distributed_posthog_document_embeddings,events,events_main,log_entries_distributed,new_raw_sessions,new_sessions,new_writable_raw_sessions,new_writable_sessions,persons_properties_up_to_date_view,persons_up_to_date_view,session_recording_events,session_replay_events,session_replay_features_mv,web_bounces_daily_distributed,web_bounces_hourly_distributed,web_stats_daily_distributed,web_stats_hourly_distributed,writable_events_recent,writable_ingestion_warnings,writable_posthog_document_embeddings,writable_raw_sessions_primary,writable_raw_sessions_v3,writable_session_recording_events,writable_session_replay_events,writable_sessions,writable_sessions_background" ;;
+
     *)       echo "" ;;
   esac
 }
