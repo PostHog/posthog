@@ -12,6 +12,8 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.temporal.ai.slack_app.attachments import (
     PreparedSlackAttachments,
+    SlackAttachmentBudget,
+    attachment_display_name,
     build_slack_attachment_prompt_text,
     get_slack_bot_token,
     merge_prepared_attachments,
@@ -110,7 +112,7 @@ def _format_author_token(user_id: str | None, display_name: str | None) -> str:
 
 
 def _attachment_names(msg: SlackThreadMessage) -> list[str]:
-    return [file.name or file.title or "attachment" for file in msg.files]
+    return [attachment_display_name(file) for file in msg.files]
 
 
 def _body_with_attachment_note(body: str, attachment_names: list[str]) -> str:
@@ -416,8 +418,12 @@ class ThreadContextUpdate:
 
     ``block`` is ``None`` when there is nothing new to surface — the caller should send
     the follow-up text plain in that case. ``watermark`` is the largest `ts` the caller
-    should persist after a successful forward. ``messages`` are the thread messages the
-    block describes, carried so their attachments can be fetched for the same turn.
+    should persist after a successful forward.
+
+    ``messages`` are every message the watermark moves past, carried so their attachments
+    can be fetched for the same turn. That is a wider set than ``block`` renders when the
+    window was truncated. The watermark advances regardless, so a file on a message the
+    block dropped gets no second chance to reach the agent.
     """
 
     block: str | None
@@ -478,11 +484,10 @@ def build_thread_context_update(
         return ThreadContextUpdate(block=None, watermark=new_watermark)
 
     truncated = len(in_window) > max_messages
-    if truncated:
-        in_window = in_window[-max_messages:]
+    rendered = in_window[-max_messages:] if truncated else in_window
 
     entries: list[str] = []
-    for msg in in_window:
+    for msg in rendered:
         author = _format_author_token(msg.user_id, msg.user)
         body = _body_with_attachment_note(
             _strip_context_tag(_strip_context_update_tag(msg.text)),
@@ -730,9 +735,12 @@ def create_posthog_code_task_for_repo_activity(
         # The thread's own attachments matter as much as the tagging message's: the
         # screenshot under discussion is usually the one the thread opened with, and the
         # request several replies down says "look at this" about it.
+        attachment_budget = SlackAttachmentBudget()
         prepared_attachments = merge_prepared_attachments(
-            prepare_slack_file_artifacts(event_files, bot_token),
-            prepare_slack_thread_file_artifacts(thread_messages, bot_token, already_requested=event_files),
+            prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget),
+            prepare_slack_thread_file_artifacts(
+                thread_messages, bot_token, already_requested=event_files, budget=attachment_budget
+            ),
         )
         uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
             tasks_facade,
@@ -937,7 +945,10 @@ def forward_posthog_code_followup_activity(
     user_text = decode_slack_event_text(slack, integration, event_text)
     bot_token = get_slack_bot_token(slack, integration)
     event_files = parse_slack_file_refs(inputs.event.get("files"))
-    prepared_attachments = prepare_slack_file_artifacts(event_files, bot_token)
+    # Shared with the thread fetch below, so the reply and the catch-up files draw on one
+    # allowance instead of two.
+    attachment_budget = SlackAttachmentBudget()
+    prepared_attachments = prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget)
     if not user_text and not prepared_attachments.has_files:
         return True
     if not user_text and not prepared_attachments.artifacts:
@@ -986,7 +997,9 @@ def forward_posthog_code_followup_activity(
     # has the screenshot to look at.
     prepared_attachments = merge_prepared_attachments(
         prepared_attachments,
-        prepare_slack_thread_file_artifacts(update.messages, bot_token, already_requested=event_files),
+        prepare_slack_thread_file_artifacts(
+            update.messages, bot_token, already_requested=event_files, budget=attachment_budget
+        ),
     )
 
     if user_message_ts:

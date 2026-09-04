@@ -21,7 +21,7 @@ without one.
 
 import re
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
@@ -257,13 +257,28 @@ class SlackThreadMessage:
     prompt builders can render the labeled ``<@U…|name>`` mention — the wire-format token
     the agent can echo back to ping that person. ``ts`` places the message in the thread,
     which is how callers tell the message that tagged the app from the ones around it.
+
+    Every field is a string because this rides in a Temporal payload that a worker on
+    the previous build decodes as ``dict[str, str]``. Temporal rejects the whole message
+    when any value is a list, so the attachments travel as ``files_json`` and are read
+    back through the ``files`` property. Read attachments through that property; nothing
+    outside this class should parse the JSON itself.
     """
 
     user: str = ""
     user_id: str = ""
     text: str = ""
     ts: str = ""
-    files: list[SlackFileRef] = field(default_factory=list)
+    files_json: str = ""
+
+    @property
+    def files(self) -> list[SlackFileRef]:
+        if not self.files_json:
+            return []
+        try:
+            return parse_slack_file_refs(json.loads(self.files_json))
+        except ValueError:
+            return []
 
 
 def _parse_int(value: Any) -> int | None:
@@ -305,8 +320,25 @@ def parse_slack_file_refs(files: Any) -> list[SlackFileRef]:
     ]
 
 
+def encode_slack_file_refs(refs: list[SlackFileRef]) -> str:
+    """Serialize references into the string `SlackThreadMessage.files_json` carries.
+
+    A message with no attachments encodes to the empty string, so the common payload
+    stays the size it was before attachments were carried at all.
+    """
+    if not refs:
+        return ""
+    return json.dumps([asdict(ref) for ref in refs])
+
+
+# Bump when SlackThreadMessage or SlackFileRef change shape: cached values are pickled, so old
+# entries would otherwise unpickle missing a field, and a worker on either build can read an
+# entry the other one wrote during a rolling deploy.
+_THREAD_REPLIES_CACHE_VERSION = 1
+
+
 def _thread_replies_cache_key(integration_id: int, channel: str, thread_ts: str) -> str:
-    return f"slack_thread_replies:{integration_id}:{channel}:{thread_ts}"
+    return f"slack_thread_replies:v{_THREAD_REPLIES_CACHE_VERSION}:{integration_id}:{channel}:{thread_ts}"
 
 
 def _message_exists_cache_key(channel: str, ts: str) -> str:
@@ -513,7 +545,7 @@ def collect_thread_messages(
                 user_id=user_id or "",
                 text=resolve_user_mentions_text(slack, integration, extract_message_text(msg)),
                 ts=msg.get("ts") or "",
-                files=parse_slack_file_refs(msg.get("files")),
+                files_json=encode_slack_file_refs(parse_slack_file_refs(msg.get("files"))),
             )
         )
 

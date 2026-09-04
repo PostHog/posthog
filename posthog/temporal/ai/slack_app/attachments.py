@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +23,18 @@ MAX_SLACK_ATTACHMENTS_PER_THREAD = 15
 MAX_SLACK_ATTACHMENT_BYTES = 10 * 1024 * 1024
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 15
 MAX_SLACK_DOWNLOAD_REDIRECTS = 5
+
+# What one turn may spend fetching attachments, across the triggering message and the
+# rest of the thread together. The per-file caps above bound a single download, but the
+# file counts multiply them: without these two budgets a turn could hold every payload
+# in memory at once, and could stay in the download loop past the activity's
+# `start_to_close` deadline, which fails the turn and repeats the whole batch on retry.
+# Both are sized well under the activity deadline and the worker's memory, and a turn
+# that reaches either one reports the remaining files as skipped instead of failing.
+MAX_SLACK_ATTACHMENT_TOTAL_BYTES = 50 * 1024 * 1024
+SLACK_ATTACHMENT_BATCH_SECONDS = 240
+
+_MAX_ATTACHMENT_NAME_CHARS = 120
 
 _ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
@@ -89,6 +102,15 @@ _ATTACHMENT_TYPE_SKIP_REASON = (
     "only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported"
 )
 
+_SLOW_BATCH_SKIP_MESSAGE = (
+    "Some Slack attachment(s) were skipped because they took too long to fetch. "
+    "Post the one you want the agent to look at."
+)
+_LARGE_BATCH_SKIP_MESSAGE = (
+    "Some Slack attachment(s) were skipped because the thread's files are too large to send together. "
+    "Post the one you want the agent to look at."
+)
+
 _EXECUTABLE_MAGIC_PREFIXES = (
     b"MZ",
     b"\x7fELF",
@@ -98,6 +120,39 @@ _EXECUTABLE_MAGIC_PREFIXES = (
     b"\xfe\xed\xfa\xce",
     b"\xca\xfe\xba\xbe",
 )
+
+
+class SlackAttachmentBudget:
+    """The bytes and the wall-clock time one turn may spend fetching Slack attachments.
+
+    A turn draws attachments from more than one place (the message that tagged the app,
+    then the rest of the thread), and the limits apply to their sum, so one budget is
+    created per turn and passed to each fetch.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_total_bytes: int = MAX_SLACK_ATTACHMENT_TOTAL_BYTES,
+        seconds: float = SLACK_ATTACHMENT_BATCH_SECONDS,
+    ) -> None:
+        self._remaining_bytes = max_total_bytes
+        self._deadline = time.monotonic() + seconds
+
+    # Methods rather than properties, because both answers change with the clock between
+    # two reads and an attribute reads like it does not.
+    def is_expired(self) -> bool:
+        return time.monotonic() >= self._deadline
+
+    def seconds_left(self) -> float:
+        return max(0.0, self._deadline - time.monotonic())
+
+    @property
+    def remaining_bytes(self) -> int:
+        return self._remaining_bytes
+
+    def spend_bytes(self, count: int) -> None:
+        self._remaining_bytes = max(0, self._remaining_bytes - count)
 
 
 @dataclass(frozen=True)
@@ -127,10 +182,23 @@ def _normalize_content_type(value: Any) -> str:
     return value.split(";")[0].strip().lower()
 
 
-def _safe_filename(file: SlackFileRef) -> str:
+def attachment_display_name(file: SlackFileRef) -> str:
+    """The one name an attachment is known by, in the prompt and as the uploaded artifact.
+
+    Slack takes both `name` and `title` as free text from the uploader, and both reach the
+    agent's prompt, so a name is untrusted input rendered into a trust boundary. Angle
+    brackets and line breaks are removed because the prompt marks its background-context
+    block with `<slack_thread_context>` tags: without this a participant could name a file
+    so that it closes the block and their text lands where the agent is told the real
+    request is. The length cap keeps one long name from crowding out the message it
+    belongs to.
+
+    The prompt and the artifact use the same string so the agent can match the file it
+    is told about to the file in its workspace.
+    """
     raw_name = file.name or file.title or file.id or "slack-attachment"
-    name = os.path.basename(raw_name).strip()
-    return name or "slack-attachment"
+    name = " ".join(os.path.basename(raw_name).replace("<", "").replace(">", "").split())
+    return name[:_MAX_ATTACHMENT_NAME_CHARS] or "slack-attachment"
 
 
 def _is_allowed_slack_file_url(url: str) -> bool:
@@ -174,9 +242,14 @@ def _source_url(file: SlackFileRef) -> str:
     return file.url_private_download or file.url_private
 
 
-def _download_slack_file(url: str, bot_token: str) -> bytes | None:
+def _download_slack_file(url: str, bot_token: str, budget: SlackAttachmentBudget) -> bytes | None:
     next_url = url
+    max_bytes = min(MAX_SLACK_ATTACHMENT_BYTES, budget.remaining_bytes)
     for _ in range(MAX_SLACK_DOWNLOAD_REDIRECTS + 1):
+        if budget.is_expired():
+            logger.warning("slack_attachment_download_deadline_reached")
+            return None
+
         if not _is_allowed_slack_file_url(next_url):
             parsed = urlparse(next_url)
             logger.warning("slack_attachment_download_rejected_host", host=parsed.hostname)
@@ -189,7 +262,11 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
             endpoint="files.download",
             app_id="posthog",
             headers={"Authorization": f"Bearer {bot_token}"},
-            timeout=SLACK_DOWNLOAD_TIMEOUT_SECONDS,
+            # `requests` applies a scalar timeout to the connect and to each socket read,
+            # not to the whole response, so a slow-drip body can hold a streamed download
+            # far past it. Clamping to what is left of the batch keeps one such download
+            # from consuming time the remaining files need.
+            timeout=min(SLACK_DOWNLOAD_TIMEOUT_SECONDS, budget.seconds_left()),
             allow_redirects=False,
             stream=True,
         )
@@ -217,7 +294,7 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
             content_length = response.headers.get("Content-Length")
             if content_length:
                 try:
-                    if int(content_length) > MAX_SLACK_ATTACHMENT_BYTES:
+                    if int(content_length) > max_bytes:
                         logger.warning("slack_attachment_download_rejected_size", content_length=content_length)
                         return None
                 except ValueError:
@@ -228,8 +305,11 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
             for chunk in response.iter_content(chunk_size=64 * 1024):
                 if not chunk:
                     continue
+                if budget.is_expired():
+                    logger.warning("slack_attachment_download_deadline_reached_mid_body", total=total)
+                    return None
                 total += len(chunk)
-                if total > MAX_SLACK_ATTACHMENT_BYTES:
+                if total > max_bytes:
                     logger.warning("slack_attachment_download_rejected_body_size", total=total)
                     return None
                 chunks.append(chunk)
@@ -251,7 +331,12 @@ def _file_dedupe_key(file: SlackFileRef) -> str:
     return file.id or _source_url(file)
 
 
-def prepare_slack_file_artifacts(files: list[SlackFileRef], bot_token: str | None) -> PreparedSlackAttachments:
+def prepare_slack_file_artifacts(
+    files: list[SlackFileRef],
+    bot_token: str | None,
+    *,
+    budget: SlackAttachmentBudget | None = None,
+) -> PreparedSlackAttachments:
     """Fetch the attachments on one Slack message, ready to upload to the agent's workspace."""
     return _prepare_files(
         files,
@@ -260,6 +345,7 @@ def prepare_slack_file_artifacts(files: list[SlackFileRef], bot_token: str | Non
         over_limit_message=(
             f"Additional Slack attachment(s) skipped: only {MAX_SLACK_ATTACHMENTS_PER_MESSAGE} files are supported per message."
         ),
+        budget=budget or SlackAttachmentBudget(),
     )
 
 
@@ -268,6 +354,7 @@ def prepare_slack_thread_file_artifacts(
     bot_token: str | None,
     *,
     already_requested: list[SlackFileRef] | None = None,
+    budget: SlackAttachmentBudget | None = None,
 ) -> PreparedSlackAttachments:
     """Fetch the attachments posted elsewhere in the thread, oldest first.
 
@@ -279,6 +366,9 @@ def prepare_slack_thread_file_artifacts(
 
     ``already_requested`` is that triggering message's file list, whose attachments the
     caller prepares separately. Anything in it is left alone rather than downloaded twice.
+
+    Pass the same ``budget`` the caller used for that separate fetch, so the two share one
+    allowance rather than each getting a full one.
     """
     seen = {_file_dedupe_key(file) for file in already_requested or []}
     files: list[SlackFileRef] = []
@@ -298,6 +388,7 @@ def prepare_slack_thread_file_artifacts(
             f"Slack attachment(s) from earlier in the thread skipped: only {MAX_SLACK_ATTACHMENTS_PER_THREAD} "
             "thread files are supported."
         ),
+        budget=budget or SlackAttachmentBudget(),
     )
 
 
@@ -316,6 +407,7 @@ def _prepare_files(
     *,
     max_files: int,
     over_limit_message: str,
+    budget: SlackAttachmentBudget,
 ) -> PreparedSlackAttachments:
     if not files:
         return PreparedSlackAttachments(artifacts=[], skipped_messages=[], requested_count=0)
@@ -335,8 +427,14 @@ def _prepare_files(
         if index >= max_files:
             skipped_messages.append(over_limit_message)
             break
+        if budget.is_expired():
+            skipped_messages.append(_SLOW_BATCH_SKIP_MESSAGE)
+            break
+        if budget.remaining_bytes <= 0:
+            skipped_messages.append(_LARGE_BATCH_SKIP_MESSAGE)
+            break
 
-        filename = _safe_filename(file)
+        filename = attachment_display_name(file)
         content_type = _normalize_content_type(file.mimetype) or "application/octet-stream"
         if not _is_allowed_metadata(filename, content_type, file.filetype):
             skipped_messages.append(f"{filename} was skipped because {_ATTACHMENT_TYPE_SKIP_REASON}.")
@@ -345,6 +443,11 @@ def _prepare_files(
         if file.size is not None and file.size > MAX_SLACK_ATTACHMENT_BYTES:
             skipped_messages.append(f"{filename} was skipped because it exceeds the 10 MB Slack attachment limit.")
             continue
+        # Slack reports the size on nearly every upload, so stopping here reports the real
+        # reason rather than starting a download the byte ceiling would abort part-way.
+        if file.size is not None and file.size > budget.remaining_bytes:
+            skipped_messages.append(_LARGE_BATCH_SKIP_MESSAGE)
+            break
 
         url = _source_url(file)
         if not url:
@@ -355,7 +458,7 @@ def _prepare_files(
             continue
 
         try:
-            payload = _download_slack_file(url, bot_token)
+            payload = _download_slack_file(url, bot_token, budget)
         except Exception:
             logger.exception("slack_attachment_download_exception", file_id=file.id)
             payload = None
@@ -363,6 +466,7 @@ def _prepare_files(
         if payload is None:
             skipped_messages.append(f"{filename} was skipped because it could not be downloaded from Slack.")
             continue
+        budget.spend_bytes(len(payload))
         if _is_dangerous_payload(payload):
             skipped_messages.append(f"{filename} was skipped because its content looks like an executable or script.")
             continue
