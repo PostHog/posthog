@@ -385,7 +385,7 @@ function SubscriptionDeliveryStep({
                         name="invite_message"
                         label="Note to new recipients"
                         showOptional
-                        help="We send this note once, in the invite email to the recipients you add. It is not saved with the subscription."
+                        help="We add this note to the first report that new recipients receive. It only goes out if 'Send a test run now' is on. It is not saved with the subscription."
                     >
                         <LemonTextArea placeholder="Say why you are sharing this report" />
                     </LemonField>
