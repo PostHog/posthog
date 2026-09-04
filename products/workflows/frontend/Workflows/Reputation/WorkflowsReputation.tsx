@@ -261,7 +261,7 @@ function IspBreakdown({
                         key: 'isp',
                         render: (_, row: IspSendingHealthApi) =>
                             row.isp === '__other__' ? (
-                                <Tooltip title="Mail to providers this table does not list. AWS reports it in a bucket it will not name, so this row is the domain's total minus the providers above.">
+                                <Tooltip title="Mail to providers this table does not list individually.">
                                     <span className="font-semibold cursor-default">{ispDisplayName(row.isp)}</span>
                                 </Tooltip>
                             ) : (
