@@ -1558,6 +1558,42 @@ describe("AgentServer HTTP Mode", () => {
       expect(appendRawLine).toHaveBeenCalledTimes(1);
     });
 
+    it("stamps console and turn-failure fan-outs with the id persisted to the log", () => {
+      const appendRawLine = vi.fn();
+      const testServer = new AgentServer({
+        port,
+        jwtPublicKey: TEST_PUBLIC_KEY,
+        repositoryPath: repo.path,
+        apiUrl: "http://localhost:8000",
+        apiKey: "test-api-key",
+        projectId: 1,
+        mode: "interactive",
+        taskId: "test-task-id",
+        runId: "test-run-id",
+      }) as unknown as {
+        session: unknown;
+        pendingEvents: Array<Record<string, unknown>>;
+        emitConsoleLog(level: string, scope: string, message: string): void;
+        broadcastTurnFailure(classification: string, message: string): void;
+      };
+      testServer.session = {
+        acpSessionId: "session-1",
+        payload: { run_id: "run-1" },
+        logWriter: { appendRawLine },
+        sseController: null,
+      };
+
+      testServer.emitConsoleLog("info", "scope", "hello");
+      testServer.broadcastTurnFailure("unknown", "boom");
+
+      expect(appendRawLine).toHaveBeenCalledTimes(2);
+      expect(testServer.pendingEvents).toHaveLength(2);
+      testServer.pendingEvents.forEach((event, index) => {
+        expect(event.event_id).toEqual(expect.any(String));
+        expect(appendRawLine.mock.calls[index]?.[2]).toBe(event.event_id);
+      });
+    });
+
     it("recognizes adapter turn_complete notifications on the tapped stream", () => {
       expect(
         isTurnCompleteNotification({
