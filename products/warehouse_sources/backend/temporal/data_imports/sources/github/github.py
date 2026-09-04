@@ -210,13 +210,13 @@ def _build_initial_params(
         # deliberate one-off backfill, not a connect-time cost. `is not None` keeps the field's
         # zero contract uniform with the fan-out floor: zero floors at now, so the poll backfills
         # nothing, rather than reading as "no floor" and walking the whole history.
-        # Floored to the UTC day so the URL is stable between polls. initial_lookback_days has day
-        # granularity, so the sub-day part carries no information, but it would put a fresh timestamp
-        # in every request and cost a repository that never sets a watermark its conditional-request
-        # cache entry on every sync.
-        floor = (_now_utc() - timedelta(days=config.initial_lookback_days)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        floor = _now_utc() - timedelta(days=config.initial_lookback_days)
+        if config.initial_lookback_days:
+            # Rounded down to the UTC day so the URL repeats between polls: a repository that never
+            # sets a watermark re-enters this branch every sync, and a live timestamp would hand it a
+            # new conditional-request cache key every time. Zero keeps its exact `now`, which is the
+            # backfill-nothing contract described above.
+            floor = floor.replace(hour=0, minute=0, second=0, microsecond=0)
         params["since"] = _format_incremental_value(floor)
 
     return params

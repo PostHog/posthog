@@ -14,10 +14,15 @@ _JSON = "application/vnd.github+json"
 _DIFF = "application/vnd.github.diff"
 
 
+# The Vary header GitHub sends on every REST response. Baked into the fixture because a storability
+# rule that rejects it silently disables the whole cache.
+_GITHUB_VARY = "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+
+
 def _response(status: int = 200, *, headers: dict[str, str] | None = None, body: bytes = b"{}") -> requests.Response:
     response = requests.models.Response()
     response.status_code = status
-    response.headers = CaseInsensitiveDict(headers or {})
+    response.headers = CaseInsensitiveDict({"Vary": _GITHUB_VARY, **(headers or {})})
     response._content = body
     prepared = requests.models.PreparedRequest()
     prepared.method = "GET"
@@ -54,8 +59,7 @@ class TestGitHubTransport(SimpleTestCase):
 
 
 class TestGitHubConditionalRequests(SimpleTestCase):
-    """The TEST cache backend is process-local LocMem, so each case clears it."""
-
+    # The TEST cache backend is process-local LocMem, so each case clears it.
     url = "https://api.github.com/repos/o/r/branches"
 
     def setUp(self) -> None:
@@ -123,6 +127,33 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         assert replayed.text == "diff --git a/é b/é"
         assert replayed.headers["Link"] == "<next>; rel=next"
 
+    def test_replay_carries_the_live_rate_limit_headers(self) -> None:
+        # remember_observed_core_limit reads these off whatever api_request returns, and drops the
+        # observation unless x-ratelimit-resource says core. An installation whose reads all hit the
+        # cache would stop re-learning its tier and fall back to the much larger default budget.
+        sender = MagicMock(
+            side_effect=[
+                _response(headers={"ETag": '"v1"', "Content-Type": "application/json"}),
+                _response(
+                    status=304,
+                    headers={
+                        "ETag": '"v1"',
+                        "X-RateLimit-Resource": "core",
+                        "X-RateLimit-Limit": "5000",
+                        "X-RateLimit-Remaining": "4998",
+                    },
+                ),
+            ]
+        )
+        self._get(sender)
+        replayed = self._get(sender)
+
+        assert replayed.headers["X-RateLimit-Resource"] == "core"
+        assert replayed.headers["X-RateLimit-Limit"] == "5000"
+        assert replayed.headers["X-RateLimit-Remaining"] == "4998"
+        # The 304 describes an empty body; the replay carries the stored one.
+        assert "Content-Length" not in replayed.headers
+
     @parameterized.expand(
         [
             ("different_identity", {"cache_identity": "installation:99"}),
@@ -149,7 +180,7 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         [
             ("no_etag", {"Content-Type": "application/json"}),
             ("no_store", {"ETag": '"v1"', "Cache-Control": "private, no-store"}),
-            ("unaccounted_vary", {"ETag": '"v1"', "Vary": "Accept, X-Github-Otp"}),
+            ("unaccounted_vary", {"ETag": '"v1"', "Vary": f"{_GITHUB_VARY}, X-Some-New-Dimension"}),
             ("vary_star", {"ETag": '"v1"', "Vary": "*"}),
         ]
     )

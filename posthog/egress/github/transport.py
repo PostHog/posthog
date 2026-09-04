@@ -35,24 +35,32 @@ from posthog.utils import get_safe_cache, safe_cache_set
 # layer stays free of any posthog.models import; integration.py imports it back from here.
 GITHUB_API_VERSION = "2022-11-28"
 
+# Bump the version when _CachedResponse changes shape: @frozen pickles positionally, so an entry
+# written by the previous shape would load with its fields shifted.
 _CONDITIONAL_CACHE_PREFIX = "github_egress:conditional:v1"
 
-# Replayed from the stored entry, because a 304 need not repeat them and a caller that reads .text or
-# branches on the media type would otherwise sniff a body we already know the type of.
+# Headers that describe the stored body rather than the exchange that revalidated it. A 304 need not
+# repeat them, and a caller that reads .text or branches on the media type would otherwise sniff a
+# body we already know the type of. Everything else on the replay comes from the live 304, so a
+# header a consumer reads (x-ratelimit-resource, say) cannot be dropped by an allowlist going stale.
 _STORED_HEADERS = frozenset({"content-type", "content-language", "content-disposition", "link", "last-modified"})
 
-# Taken from the live 304 instead, because they describe this exchange rather than the stored body.
-_LIVE_HEADERS = frozenset({"etag", "date", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"})
+# Dropped from the replay: they describe the 304's empty body, and requests serves the replay from
+# the stored bytes rather than from a length or an encoding.
+_ENTITY_LENGTH_HEADERS = frozenset({"content-length", "content-encoding"})
 
 # A request the caller already made conditional is theirs to interpret; we stand down entirely.
 _CALLER_CONDITIONAL_HEADERS = frozenset(
     {"if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range"}
 )
 
-# Vary dimensions the key already accounts for: `accept` is in it, `authorization` is subsumed by the
-# caller-declared identity, and requests decodes `accept-encoding` before we store. Anything else (or
-# `*`) means GitHub varies on something we do not key on, so we decline to store.
-_VARY_ACCOUNTED_FOR = frozenset({"accept", "authorization", "accept-encoding"})
+# Vary dimensions that cannot split our entries: `accept` is in the key, `authorization` is subsumed
+# by the caller-declared identity, requests decodes `accept-encoding` before we store, and we never
+# send the rest, so their value is the same empty one on every request. GitHub names all of these on
+# every REST response. A token outside this set, or `*`, means we would be keying too coarsely.
+_VARY_ACCOUNTED_FOR = frozenset(
+    {"accept", "authorization", "accept-encoding", "cookie", "x-github-otp", "x-requested-with"}
+)
 
 
 @frozen
@@ -80,16 +88,16 @@ def _storable(response: requests.Response) -> bool:
 
 
 def _replayed(response: requests.Response, cached: _CachedResponse) -> requests.Response:
-    """A 200 carrying the cached body, so callers never have to know the request was conditional.
-
-    The stored headers describe the body; the live ones describe this exchange. A 304 need not repeat
-    Content-Type, and a caller that reads ``.text`` would otherwise sniff a charset we already know.
-    """
+    """A 200 carrying the cached body, so callers never have to know the request was conditional."""
     replay = requests.models.Response()
     replay.status_code = 200
     replay.reason = "OK"
-    replay.headers = CaseInsensitiveDict(cached.headers)
-    replay.headers.update({name: value for name, value in response.headers.items() if name.lower() in _LIVE_HEADERS})
+    # The live 304 is the base so its rate-limit headers reach the limiter, with the stored
+    # body-describing headers laid over the ones a 304 omits.
+    replay.headers = CaseInsensitiveDict(
+        {name: value for name, value in response.headers.items() if name.lower() not in _ENTITY_LENGTH_HEADERS}
+    )
+    replay.headers.update(cached.headers)
     replay.encoding = get_encoding_from_headers(replay.headers)
     replay.url = response.url
     replay.request = response.request
@@ -193,7 +201,7 @@ class GitHubClient(EgressClient):
         because the credential decides what the response contains, and installation tokens rotate too
         often to key on directly — see ``GitHubIntegrationBase._installation_cache_scope``.
         """
-        merged = {**self._standard_headers(), **(headers or {})}
+        merged = CaseInsensitiveDict({**self._standard_headers(), **(headers or {})})
         declined = (
             method.upper() != "GET"
             or kwargs.get("stream")
