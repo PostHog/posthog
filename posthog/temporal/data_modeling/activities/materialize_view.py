@@ -499,6 +499,34 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _realign_decimal_buffers(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Rebuild every Decimal column whose values buffer is not aligned to 16 bytes.
+
+    ClickHouse streams Arrow IPC, and a decimal values buffer can arrive on an 8-byte boundary.
+    Rust's i128 needs 16 bytes, so delta-rs panics while it imports the buffer over FFI. The panic
+    reaches Python as a BaseException, which no ``except Exception`` catches, so the activity dies
+    and Temporal retries the same query until the view is suspended. ``pa.concat_arrays`` copies
+    through pyarrow's own allocator, which always returns aligned memory. The scan is cheap and the
+    copy runs only on a misaligned column, so an aligned batch is returned as it is.
+
+    See delta-io/delta-rs#3884, and ``realign_decimal_buffers`` in warehouse_sources, which guards
+    the data-import writes the same way at table level.
+    """
+    columns: list[pa.Array] = []
+    realigned = False
+    for column in batch.columns:
+        values = column.buffers()[1] if pa.types.is_decimal(column.type) else None
+        if values is not None and values.address % 16:
+            column = pa.concat_arrays([column])
+            realigned = True
+        columns.append(column)
+
+    if not realigned:
+        return batch
+
+    return pa.RecordBatch.from_arrays(columns, schema=batch.schema)
+
+
 async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
     """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
     is still queryable.
@@ -886,6 +914,7 @@ async def _materialize_fully(
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
         batch = _force_nullable(batch)
+        batch = _realign_decimal_buffers(batch)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
         await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
@@ -981,6 +1010,7 @@ async def _materialize_incrementally(
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _force_nullable(batch)
+            batch = _realign_decimal_buffers(batch)
 
             if batch.num_rows == 0:
                 # A quiet window is normal. Nothing to upsert, and no watermark to advance.

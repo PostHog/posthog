@@ -1,4 +1,5 @@
 import asyncio
+import decimal
 import contextlib
 from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
@@ -39,6 +40,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
+    _realign_decimal_buffers,
     get_aws_storage_options,
     get_s3_client,
     hogql_table,
@@ -1836,6 +1838,60 @@ class TestHogqlTableArrowTypeConversion:
 
         assert client.arrow_query is not None
         assert ("accurateCastOrNull(hash_key, %(hogql_val_0)s)" in client.arrow_query) is expect_cast
+
+
+def _decimal_batch(values: list[int], *, misaligned: bool) -> pa.RecordBatch:
+    """A Decimal128 batch whose values buffer is 8-byte but not 16-byte aligned when misaligned.
+
+    pyarrow always allocates aligned memory, so the only way to reach the bad case is to
+    over-allocate and slice 8 bytes off the front. That is what ClickHouse's Arrow IPC stream
+    produces once a boolean column shifts the decimal buffer off a 16-byte boundary.
+    """
+    decimal_type = pa.decimal128(20, 0)
+    aligned = pa.array([decimal.Decimal(value) for value in values], type=decimal_type)
+    if not misaligned:
+        return pa.RecordBatch.from_arrays([aligned], names=["hash_key"])
+
+    data_buffer = aligned.buffers()[1]
+    assert data_buffer is not None
+    padded = pa.allocate_buffer(data_buffer.size + 16)
+    memoryview(padded)[8 : 8 + data_buffer.size] = memoryview(data_buffer)
+    sliced = padded.slice(8, data_buffer.size)
+    assert sliced.address % 16 == 8
+    buffers: list[pa.Buffer | None] = [None, sliced]
+    column = pa.Array.from_buffers(decimal_type, len(values), buffers)
+    return pa.RecordBatch.from_arrays([column], names=["hash_key"])
+
+
+def _batch_is_misaligned(batch: pa.RecordBatch) -> bool:
+    return any(
+        pa.types.is_decimal(column.type) and (buffer := column.buffers()[1]) is not None and bool(buffer.address % 16)
+        for column in batch.columns
+    )
+
+
+class TestRealignDecimalBuffers:
+    async def test_a_misaligned_decimal_column_is_rebuilt(self) -> None:
+        values = [2**63, 2**64 - 1]
+        batch = _decimal_batch(values, misaligned=True)
+        assert _batch_is_misaligned(batch) is True
+
+        realigned = _realign_decimal_buffers(batch)
+
+        assert _batch_is_misaligned(realigned) is False
+        assert realigned.column("hash_key").to_pylist() == [decimal.Decimal(value) for value in values]
+        assert realigned.schema == batch.schema
+
+    @pytest.mark.parametrize(
+        "batch",
+        [
+            _decimal_batch([1, 2], misaligned=False),
+            pa.RecordBatch.from_arrays([pa.array([1, 2], type=pa.int64())], names=["id"]),
+        ],
+        ids=["aligned_decimal", "no_decimal_column"],
+    )
+    async def test_a_batch_that_needs_nothing_is_not_copied(self, batch: pa.RecordBatch) -> None:
+        assert _realign_decimal_buffers(batch) is batch
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
