@@ -77,18 +77,28 @@ def bulk_update_issues(
 
 
 def resolve_issue_from_slack(
-    issue_id: UUID, *, fingerprint: str | None = None, integration: Integration, user: User
+    issue_id: UUID,
+    *,
+    fingerprint: str | None = None,
+    team_id: int | None = None,
+    integration: Integration,
+    user: User,
 ) -> SlackActionOutcome:
     """Resolve an issue from a button on its alert thread. See logic.slack_actions for the checks."""
     return _slack_actions.resolve_issue_from_slack(
-        issue_id, fingerprint=fingerprint, integration=integration, user=user
+        issue_id, fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
     )
 
 
 def assign_issue_to_user_from_slack(
-    issue_id: UUID, *, fingerprint: str | None = None, integration: Integration, user: User
+    issue_id: UUID,
+    *,
+    fingerprint: str | None = None,
+    team_id: int | None = None,
+    integration: Integration,
+    user: User,
 ) -> SlackActionOutcome:
     """Assign an issue to the clicking user from a button on its alert thread."""
     return _slack_actions.assign_issue_to_user_from_slack(
-        issue_id, fingerprint=fingerprint, integration=integration, user=user
+        issue_id, fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
     )

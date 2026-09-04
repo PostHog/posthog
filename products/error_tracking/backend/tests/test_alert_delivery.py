@@ -262,7 +262,7 @@ class TestAlertMessages(SimpleTestCase):
             event="$error_tracking_issue_created",
             status="Active",
         )
-        actions = SlackActions(integration_id=7, issue_id="issue-1", fingerprint="fp-1")
+        actions = SlackActions(integration_id=7, issue_id="issue-1", team_id=1, fingerprint="fp-1")
 
         elements = build_root_message(inputs, actions=actions)["blocks"][-1]["elements"]
         by_action = {el.get("action_id"): el for el in elements}
@@ -270,6 +270,7 @@ class TestAlertMessages(SimpleTestCase):
         assert json.loads(by_action["error_tracking_issue_resolve"]["value"]) == {
             "integration_id": 7,
             "issue_id": "issue-1",
+            "team_id": 1,
             "fingerprint": "fp-1",
         }
         assert "error_tracking_issue_assign_me" in by_action

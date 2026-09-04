@@ -560,7 +560,10 @@ def _slack_actions(
     if destination.integration_id is None:
         return None
     return SlackActions(
-        integration_id=destination.integration_id, issue_id=inputs.issue_id, fingerprint=inputs.fingerprint
+        integration_id=destination.integration_id,
+        issue_id=inputs.issue_id,
+        team_id=inputs.team_id,
+        fingerprint=inputs.fingerprint,
     )
 
 

@@ -35,13 +35,21 @@ class TestErrorTrackingInteractivity(TestCase):
             "type": "block_actions",
             "team": {"id": slack_team_id},
             "user": {"id": "U777"},
+            "channel": {"id": "C0123"},
             "response_url": "https://hooks.slack.test/response",
             "actions": [{"action_id": action_id, "value": value}],
             "message": {"ts": "1234.9999", "blocks": []},
         }
 
     def _value(self, **overrides: Any) -> str:
-        return json.dumps({"integration_id": self.integration.id, "issue_id": str(self.issue_id), **overrides})
+        return json.dumps(
+            {
+                "integration_id": self.integration.id,
+                "issue_id": str(self.issue_id),
+                "team_id": self.team.id,
+                **overrides,
+            }
+        )
 
     def _post(self, payload: dict) -> Any:
         body = f"payload={json.dumps(payload)}"
@@ -60,7 +68,7 @@ class TestErrorTrackingInteractivity(TestCase):
             ("assign", "error_tracking_issue_assign_me", "assign_issue_to_user_from_slack", "Assigned to you."),
         ]
     )
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.tasks.SlackIntegration")
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_button_click_mutates_through_the_facade_and_acks_ephemerally(
@@ -74,12 +82,16 @@ class TestErrorTrackingInteractivity(TestCase):
 
         assert response.status_code == 200
         # Celery runs eagerly in tests, so the deferred task has already reported back.
-        facade.assert_called_once_with(self.issue_id, fingerprint=None, integration=self.integration, user=self.user)
-        body = mock_post.call_args.kwargs["json"]
-        assert body["response_type"] == "ephemeral"
-        assert body["text"].startswith(expected_text)
+        facade.assert_called_once_with(
+            self.issue_id, fingerprint=None, team_id=self.team.id, integration=self.integration, user=self.user
+        )
+        ephemeral = mock_post.return_value.client.chat_postEphemeral
+        ephemeral.assert_called_once()
+        assert ephemeral.call_args.kwargs["channel"] == "C0123"
+        assert ephemeral.call_args.kwargs["user"] == "U777"
+        assert ephemeral.call_args.kwargs["text"].startswith(expected_text)
 
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.tasks.SlackIntegration")
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_non_member_click_is_rejected_without_touching_the_issue(self, mock_config, mock_is_org_member, mock_post):
@@ -91,9 +103,9 @@ class TestErrorTrackingInteractivity(TestCase):
 
         assert response.status_code == 200
         facade.assert_not_called()
-        assert "linked PostHog account" in mock_post.call_args.kwargs["json"]["text"]
+        assert "linked PostHog account" in mock_post.return_value.client.chat_postEphemeral.call_args.kwargs["text"]
 
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.tasks.SlackIntegration")
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_workspace_that_does_not_own_the_integration_is_ignored(self, mock_config, mock_is_org_member, mock_post):
@@ -106,4 +118,4 @@ class TestErrorTrackingInteractivity(TestCase):
 
         assert response.status_code == 200
         facade.assert_not_called()
-        mock_post.assert_not_called()
+        mock_post.return_value.client.chat_postEphemeral.assert_not_called()

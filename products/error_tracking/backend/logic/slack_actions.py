@@ -4,7 +4,8 @@ The Slack interactivity handler (products.slack_app) has already verified the re
 signature and resolved the clicking Slack user to a PostHog user who is a member of the
 integration's organization. Everything else is re-derived here from the issue row: the
 issue id in a button value is untrusted, so the workspace must be connected to the issue's
-project and the user must be allowed to edit issues there before anything changes.
+project and the user must be allowed to edit issues there, under the same domain and
+resource access rules the API applies, before anything changes.
 """
 
 from typing import Literal
@@ -13,6 +14,7 @@ from uuid import UUID
 import structlog
 
 from posthog.models.integration import Integration
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
@@ -29,18 +31,18 @@ logger = structlog.get_logger(__name__)
 SlackActionOutcome = Literal["ok", "already", "not_found", "no_access"]
 
 
-def _find_issue(issue_id: UUID, fingerprint: str | None, project_id: int) -> ErrorTrackingIssue | None:
+def _find_issue(issue_id: UUID, fingerprint: str | None, team_id: int | None) -> ErrorTrackingIssue | None:
     # Slack webhook: no team in the request; the issue row is the source of the team, and
     # _authorized_issue decides whether this workspace and user may touch it.
     issue = (
         ErrorTrackingIssue.objects.filter(id=issue_id).select_related("team").first()
     )  # nosemgrep: idor-lookup-without-team
-    if issue is not None or not fingerprint:
+    if issue is not None or not fingerprint or team_id is None:
         return issue
     # A merge deletes the source issue but its Slack root stays. The fingerprint now belongs
-    # to the surviving issue, so the buttons keep working on that one.
+    # to the surviving issue in the same environment, so the buttons keep working on that one.
     owner = (
-        ErrorTrackingIssueFingerprintV2.objects.filter(team__project_id=project_id, fingerprint=fingerprint)
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
         .select_related("issue__team")
         .first()
     )
@@ -48,9 +50,9 @@ def _find_issue(issue_id: UUID, fingerprint: str | None, project_id: int) -> Err
 
 
 def _authorized_issue(
-    issue_id: UUID, fingerprint: str | None, integration: Integration, user: User
+    issue_id: UUID, fingerprint: str | None, team_id: int | None, integration: Integration, user: User
 ) -> ErrorTrackingIssue | SlackActionOutcome:
-    issue = _find_issue(issue_id, fingerprint, integration.team.project_id)
+    issue = _find_issue(issue_id, fingerprint, team_id)
     if issue is None:
         return "not_found"
     if integration.team.project_id != issue.team.project_id:
@@ -63,6 +65,11 @@ def _authorized_issue(
     if UserPermissions(user).team(issue.team).effective_membership_level is None:
         logger.warning("error_tracking_slack_action_no_access", issue_id=str(issue_id), user_id=user.id)
         return "no_access"
+    # Mirrors VerifiedDomainEnforcementPermission: an org that enforces verified domains blocks
+    # members outside them from every write, Slack included.
+    if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, issue.team.organization):
+        logger.warning("error_tracking_slack_action_domain_blocked", issue_id=str(issue_id), user_id=user.id)
+        return "no_access"
     # The API requires editor access on the error tracking resource to change an issue; so does Slack.
     if not UserAccessControl(user, team=issue.team).check_access_level_for_resource("error_tracking", "editor"):
         logger.warning("error_tracking_slack_action_not_editor", issue_id=str(issue_id), user_id=user.id)
@@ -71,9 +78,14 @@ def _authorized_issue(
 
 
 def resolve_issue_from_slack(
-    issue_id: UUID, *, fingerprint: str | None = None, integration: Integration, user: User
+    issue_id: UUID,
+    *,
+    fingerprint: str | None = None,
+    team_id: int | None = None,
+    integration: Integration,
+    user: User,
 ) -> SlackActionOutcome:
-    authorized = _authorized_issue(issue_id, fingerprint, integration, user)
+    authorized = _authorized_issue(issue_id, fingerprint, team_id, integration, user)
     if not isinstance(authorized, ErrorTrackingIssue):
         return authorized
     issue = authorized
@@ -90,9 +102,14 @@ def resolve_issue_from_slack(
 
 
 def assign_issue_to_user_from_slack(
-    issue_id: UUID, *, fingerprint: str | None = None, integration: Integration, user: User
+    issue_id: UUID,
+    *,
+    fingerprint: str | None = None,
+    team_id: int | None = None,
+    integration: Integration,
+    user: User,
 ) -> SlackActionOutcome:
-    authorized = _authorized_issue(issue_id, fingerprint, integration, user)
+    authorized = _authorized_issue(issue_id, fingerprint, team_id, integration, user)
     if not isinstance(authorized, ErrorTrackingIssue):
         return authorized
     issue = authorized
