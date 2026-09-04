@@ -1127,6 +1127,20 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = {r["id"] for r in response.json()["results"]}
         assert {str(a.id), str(b.id)} <= ids
 
+    def test_list_walks_actionability_artefacts_once_per_row(self):
+        # The latest-judgment values serve filters and the status rank only. Each one is a
+        # correlated walk per matched row, so the list query must not repeat the walk for a value
+        # it does not render.
+        report = self._create_report()
+        self._actionability_artefact(report, actionability="immediately_actionable")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        walks = max((q["sql"].count("'actionability_judgment'") for q in ctx.captured_queries), default=0)
+        assert walks <= 1
+
     def test_filter_actionability_invalid_value_returns_400(self):
         response = self.client.get(self._list_url(actionability="maybe_later"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -860,7 +860,7 @@ class SignalReportViewSet(
         if self.action in {"retrieve", "signals"}:
             qs = self._scope_signal_report_queryset(queryset)
             qs = self._apply_signal_report_status_filter(qs)
-            qs = self._annotate_latest_actionability(qs)
+            qs = self._alias_latest_actionability(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
             qs = self._annotate_is_suggested_reviewer(qs)
             return annotate_first_billable_pr_run_at(qs)
@@ -877,7 +877,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
-        qs = self._annotate_latest_actionability(qs)
+        qs = self._alias_latest_actionability(qs)
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
         qs = self._apply_signal_report_inbox_view_filter(qs)
@@ -1402,8 +1402,12 @@ class SignalReportViewSet(
             output_field=CharField(),
         )
 
-    def _annotate_latest_actionability(self, queryset):
-        return queryset.annotate(
+    def _alias_latest_actionability(self, queryset):
+        # No serializer reads these values. The rendered actionability comes from
+        # `prefetched_actionability_artefacts`. Each value is a correlated subquery, so `alias()`
+        # keeps both out of the SELECT list. A request then pays for a walk only when a filter or
+        # an ordering rank names the value.
+        return queryset.alias(
             latest_actionability_value=self._latest_actionability_field("actionability"),
             latest_already_addressed_value=self._latest_actionability_field("already_addressed"),
         )
