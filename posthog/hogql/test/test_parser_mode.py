@@ -9,9 +9,13 @@ from posthog.hogql import (
     ast,
     parser as parser_module,
 )
-from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
+from posthog.hogql.errors import (
+    ParsingError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.parser import (
     HogQLParserShadowMismatch,
+    ParseRule,
     ResolvedParserBackends,
     _resolve_parser_mode,
     parse_expr,
@@ -63,8 +67,8 @@ class TestParserMode(BaseTest):
             (ParserMode.CPP_ONLY, None),
             (ParserMode.CPP_WITH_RUST_SHADOW, None),
             (ParserMode.CPP_WITH_RUST_PY_SHADOW, None),
-            # cpp-as-shadow and rust-primary modes are safe (rust primary rejects deep input
-            # before the shadow runs) → passed through untouched.
+            # cpp-as-shadow and rust-primary modes are safe (the shadow legs bound what
+            # reaches cpp) → passed through untouched.
             (ParserMode.RUST_WITH_CPP_SHADOW, ParserMode.RUST_WITH_CPP_SHADOW),
             (ParserMode.RUST_PY_WITH_CPP_SHADOW, ParserMode.RUST_PY_WITH_CPP_SHADOW),
             (ParserMode.RUST_ONLY, ParserMode.RUST_ONLY),
@@ -239,6 +243,112 @@ class TestParserMode(BaseTest):
             node = parse_expr("nan", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
         self.assertIsInstance(node, ast.Constant)
         self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["agree"])
+
+    def test_rejection_shadow_reports_a_primary_only_rejection(self):
+        real_invoke = parser_module._invoke_parser
+
+        def only_primary_rejects(backend, rule, statement, start):
+            if backend == "cpp-json":
+                raise HogQLSyntaxError("simulated cpp-json regression")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=only_primary_rejects):
+            with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
+                with (
+                    patch("posthog.hogql.parser.capture_exception") as captured,
+                    patch("posthog.hogql.parser.safe_cache_add", return_value=True),
+                ):
+                    with self.assertRaises(HogQLSyntaxError):
+                        parse_select(
+                            "select rejection_probe from events",
+                            parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                        )
+        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["shadow_accepted"])
+        captured.assert_called_once()
+        self.assertIsInstance(captured.call_args.args[0], parser_module.HogQLParserPrimaryOnlyRejection)
+        props = captured.call_args.kwargs["additional_properties"]
+        self.assertIn("rejection_probe", props["hogql_parser_statement"])
+        self.assertIn("simulated cpp-json regression", props["hogql_parser_primary_error"])
+
+    def test_rejection_shadow_counts_internal_shadow_failure_as_shadow_error(self):
+        real_invoke = parser_module._invoke_parser
+
+        def primary_rejects_shadow_breaks(backend, rule, statement, start):
+            if backend == "cpp-json":
+                raise HogQLSyntaxError("simulated primary rejection")
+            if backend == "rust-py":
+                raise ParsingError("simulated broken shadow wheel")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=primary_rejects_shadow_breaks):
+            with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
+                with (
+                    patch("posthog.hogql.parser.capture_exception") as captured,
+                    patch("posthog.hogql.parser.safe_cache_add", return_value=True),
+                ):
+                    with self.assertRaises(HogQLSyntaxError):
+                        parse_select(
+                            "select rejection_probe from events",
+                            parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                        )
+        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["shadow_error"])
+        captured.assert_called_once()
+        self.assertIsInstance(captured.call_args.args[0], ParsingError)
+
+    def test_rejection_shadow_throttles_repeated_captures(self):
+        real_invoke = parser_module._invoke_parser
+
+        def only_primary_rejects(backend, rule, statement, start):
+            if backend == "cpp-json":
+                raise HogQLSyntaxError("simulated cpp-json regression")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=only_primary_rejects):
+            with patch("posthog.hogql.parser.safe_cache_add", side_effect=[True, False]) as throttle:
+                with patch("posthog.hogql.parser.capture_exception") as captured:
+                    for _ in range(2):
+                        with self.assertRaises(HogQLSyntaxError):
+                            parse_select(
+                                "select rejection_probe from events",
+                                parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                            )
+        self.assertEqual(throttle.call_count, 2)
+        captured.assert_called_once()
+
+    def test_rejection_shadow_stays_silent_when_both_backends_reject(self):
+        with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
+            with patch("posthog.hogql.parser.capture_exception") as captured:
+                with self.assertRaises(HogQLSyntaxError):
+                    parse_select("select a from events where", parser_mode=ParserMode.RUST_PY_WITH_CPP_SHADOW)
+        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["both_rejected"])
+        captured.assert_not_called()
+
+    def test_rejection_shadow_skips_deeply_nested_input(self):
+        statement = "select " + "(" * 200 + "1" + ")" * 200 + " frum events"
+        real_invoke = parser_module._invoke_parser
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=real_invoke) as invoke:
+            with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
+                with self.assertRaises(HogQLSyntaxError):
+                    parse_select(statement, parser_mode=ParserMode.RUST_PY_WITH_CPP_SHADOW)
+        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["skipped_deep_nesting"])
+        self.assertEqual([c.args[0] for c in invoke.call_args_list], ["rust-py"])
+
+    @parameterized.expand(
+        [
+            ("plain query", ParseRule.SELECT, "select a from events group by a having count() > 2", True),
+            ("nesting at the cap", ParseRule.SELECT, "select " + "(" * 24 + "1" + ")" * 24, True),
+            ("nesting past the cap", ParseRule.SELECT, "select " + "(" * 25 + "1" + ")" * 25, False),
+            # Unbalanced closers must not buy depth back for a later run of openers.
+            ("closers before deep nesting", ParseRule.SELECT, ")" * 100 + "(" * 25, False),
+            # `if` is a scalar function in SQL, so a query full of them is shallow and must still be shadowed.
+            ("many if() calls", ParseRule.SELECT, "select " + ", ".join(["if(a, 1, 2)"] * 20) + " from events", True),
+            # Statement nesting inside a lambda block adds no bracket depth.
+            ("statements in a block", ParseRule.SELECT, "select x -> {" + "if (1) " * 9 + "return 1;}", False),
+            ("statements in a program", ParseRule.PROGRAM, "if (1) " * 9 + "return 1;", False),
+        ]
+    )
+    def test_is_shallow_enough_to_shadow(self, _name, rule, statement, expected):
+        self.assertEqual(parser_module._is_shallow_enough_to_shadow(rule, statement), expected)
 
     def test_parser_version_falls_back_to_unknown_for_missing_dist(self):
         self.assertEqual(parser_module._parser_version("definitely-not-a-real-distribution"), "unknown")
