@@ -99,6 +99,7 @@ export function PersonsModal({
         actorsResponseLoading,
         actorsResponse,
         errorObject,
+        queryId,
         validationError,
         insightActorsQueryOptions,
         searchTerm,
@@ -112,8 +113,15 @@ export function PersonsModal({
         actorsQuery,
         recordingFilters,
     } = useValues(logic)
-    const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
-        useActions(logic)
+    const {
+        updateActorsQuery,
+        setSearchTerm,
+        saveAsCohort,
+        setIsCohortModalOpen,
+        closeModal,
+        loadNextActors,
+        loadActors,
+    } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { startExport } = useActions(exportsLogic)
 
@@ -313,7 +321,12 @@ export function PersonsModal({
                                     validationErrorCode={extractValidationErrorCode(errorObject)}
                                 />
                             ) : (
-                                <InsightErrorState query={query} />
+                                <InsightErrorState
+                                    query={query}
+                                    titleStatus={errorObject.status}
+                                    queryId={queryId}
+                                    onRetry={() => loadActors({ url: originalUrl, clear: true })}
+                                />
                             )
                         ) : actors && actors.length > 0 ? (
                             <>
