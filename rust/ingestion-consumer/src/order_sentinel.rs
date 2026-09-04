@@ -41,7 +41,7 @@
 //! The sentinels are pure observers: they never influence routing or commits.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -52,7 +52,7 @@ use tracing::{info, warn};
 
 use crate::ledger_shadow::set_held_gauges;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{Held, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{AssignmentEpoch, Held, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -578,7 +578,7 @@ pub struct SentinelContext {
     /// on sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances. Distinct from the offset ledger's generations, which move
     /// per partition and stamp offset accounting rather than stream order.
-    assignment_epoch: Option<Arc<AtomicU64>>,
+    assignment_epoch: Option<AssignmentEpoch>,
 }
 
 impl SentinelContext {
@@ -595,9 +595,9 @@ impl SentinelContext {
         }
     }
 
-    /// Wire the gRPC transport's assignment-epoch counter. Call before the
-    /// context is handed to the Kafka consumer.
-    pub fn set_assignment_epoch(&mut self, epoch: Arc<AtomicU64>) {
+    /// Wire the process-wide assignment epoch. Call before the context is
+    /// handed to the Kafka consumer.
+    pub fn set_assignment_epoch(&mut self, epoch: AssignmentEpoch) {
         self.assignment_epoch = Some(epoch);
     }
 
@@ -672,7 +672,7 @@ impl ConsumerContext for SentinelContext {
             // callback (an error rebalance, a fenced member).
             self.forget_ledger_partitions(tpl);
             if let Some(epoch) = &self.assignment_epoch {
-                epoch.fetch_add(1, Ordering::Relaxed);
+                epoch.bump();
             }
         }
     }

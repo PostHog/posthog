@@ -2181,24 +2181,41 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            # a live implementation claims the report's one slot
-            ("created_never_run", [], False, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("run_in_progress", [("in_progress", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("run_completed", [("completed", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
+            # a live implementation claims the report's one slot, and the message says it is live
+            ("created_never_run", [], False, status.HTTP_429_TOO_MANY_REQUESTS, "already in progress"),
+            (
+                "run_in_progress",
+                [("in_progress", None)],
+                False,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "already in progress",
+            ),
+            # a shipped PR claims the slot for good, whatever status the run that shipped it ended on
             (
                 "failed_but_pr_shipped",
                 [("failed", "https://github.com/acme/web/pull/1")],
                 False,
                 status.HTTP_429_TOO_MANY_REQUESTS,
+                "already has a pull request",
             ),
-            # only a fully dead prior implementation (or a deleted task) releases the slot
-            ("all_runs_failed", [("failed", None), ("failed", None)], False, status.HTTP_201_CREATED),
-            ("run_cancelled_no_pr", [("cancelled", None)], False, status.HTTP_201_CREATED),
-            ("prior_task_deleted", [("in_progress", None)], True, status.HTTP_201_CREATED),
+            (
+                "completed_and_pr_shipped",
+                [("completed", "https://github.com/acme/web/pull/1")],
+                False,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "already has a pull request",
+            ),
+            # a prior implementation that ended with nothing to show (or a deleted task) releases it.
+            # `completed` counts: the agent stops without a PR when the fix would be wrong, and that
+            # used to lock the report out of ever being tried again.
+            ("all_runs_failed", [("failed", None), ("failed", None)], False, status.HTTP_201_CREATED, None),
+            ("run_cancelled_no_pr", [("cancelled", None)], False, status.HTTP_201_CREATED, None),
+            ("run_completed_no_pr", [("completed", None)], False, status.HTTP_201_CREATED, None),
+            ("prior_task_deleted", [("in_progress", None)], True, status.HTTP_201_CREATED, None),
         ]
     )
     def test_second_implementation_task_per_report_gated_on_prior_state(
-        self, _name, run_specs, prior_deleted, expected_status
+        self, _name, run_specs, prior_deleted, expected_status, expected_detail
     ):
         from products.signals.backend.models import SignalReport
 
@@ -2210,6 +2227,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
             self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
     @parameterized.expand(
@@ -8454,7 +8472,15 @@ class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
         }
 
         first = self.client.post(url, {"references": [reference]}, format="json")
+        run.refresh_from_db()
+        task.refresh_from_db()
+        first_run_updated_at = run.updated_at
+        first_task_activity_at = task.last_activity_at
         retry = self.client.post(url, {"references": [reference]}, format="json")
+        run.refresh_from_db()
+        task.refresh_from_db()
+        self.assertEqual(run.updated_at, first_run_updated_at)
+        self.assertEqual(task.last_activity_at, first_task_activity_at)
         second_message = self.client.post(
             url,
             {"references": [{**reference, "source_message_id": "turn-2-message-1"}]},

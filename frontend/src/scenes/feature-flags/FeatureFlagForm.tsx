@@ -163,7 +163,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         showImplementation,
         openVariants,
         payloadExpanded,
-        expandAdvancedOnEdit,
+        advancedPanelOpen,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
     } = useValues(featureFlagLogic)
@@ -182,6 +182,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
+        setAdvancedExpanded,
         resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
@@ -518,10 +519,12 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
 
-                            {/* Advanced options - collapsed by default unless opened via overview pencil */}
+                            {/* Advanced options - collapsed by default. Controlled rather than seeded,
+                                because a failed save has to open the panel to show a tag error inside it. */}
                             <LemonCollapse
                                 className="bg-bg-light"
-                                defaultActiveKey={expandAdvancedOnEdit ? 'advanced' : undefined}
+                                activeKey={advancedPanelOpen ? 'advanced' : null}
+                                onChange={(key) => setAdvancedExpanded(key === 'advanced')}
                                 panels={[
                                     {
                                         key: 'advanced',

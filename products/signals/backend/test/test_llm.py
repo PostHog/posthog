@@ -116,3 +116,39 @@ async def test_eval_fixture_generation_opts_in_as_signals_eval():
     kwargs = generation_call.call_args.kwargs
     assert kwargs["ai_product"] == "signals_eval"
     assert kwargs["stage"] == "eval_signal_generation"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model,thinking,expect_prefill,expect_temperature,expect_thinking,expect_effort",
+    [
+        ("claude-sonnet-4-5", False, True, True, None, None),
+        ("claude-sonnet-4-5", True, False, True, "enabled", None),
+        ("claude-sonnet-5", False, False, False, None, "medium"),
+        ("claude-sonnet-5", True, False, False, "adaptive", "medium"),
+        ("claude-sonnet-4-6", False, False, True, None, "medium"),
+    ],
+)
+async def test_request_shape_follows_model_capabilities(
+    model, thinking, expect_prefill, expect_temperature, expect_thinking, expect_effort
+):
+    client = _mock_anthropic_client()
+    with (
+        patch(f"{MODULE_PATH}.MATCHING_MODEL", model),
+        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            thinking=thinking,
+            stage="match",
+        )
+
+    kwargs = client.messages.create.call_args.kwargs
+    prefilled = kwargs["messages"][-1]["role"] == "assistant"
+    assert prefilled is expect_prefill
+    assert ("temperature" in kwargs) is expect_temperature
+    assert (kwargs.get("thinking") or {}).get("type") == expect_thinking
+    assert kwargs.get("output_config") == ({"effort": expect_effort} if expect_effort else None)
