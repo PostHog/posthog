@@ -2218,7 +2218,6 @@ def get_teams_with_dwh_mat_views_storage_in_s3() -> list:
     return list(
         DataWarehouseSavedQuery.objects.filter(
             ~Q(table__deleted=True),
-            Q(status=DataWarehouseSavedQuery.Status.COMPLETED) | Q(last_run_at__isnull=False),
             table__isnull=False,
             table__size_in_s3_mib__isnull=False,
         )
