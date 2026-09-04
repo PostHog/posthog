@@ -175,12 +175,12 @@ class TestWorkflowProposals(APIBaseTest):
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
 
     @parameterized.expand([("actions",), ("variables",)])
-    def test_a_suggestion_older_than_the_live_workflow_is_refused_for_whole_list_fields(self, _mock_flag, field: str):
-        # Both fields are whole lists, so a stale copy of either drops whatever was added since —
-        # `variables` reads like a single setting but behaves like `actions`.
+    def test_a_suggestion_is_refused_once_someone_edits_what_it_changes(self, _mock_flag, field: str):
+        # `actions` collides here because the publish below renames the same step. `variables` reads
+        # like a single setting but is a whole list, so any publish since is a collision.
         flow_id = self._create_active_flow()
         content = (
-            {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]}
+            {"actions": [_webhook_action(url="https://proposed.example.com")]}
             if field == "actions"
             else {"variables": [{"key": "greeting", "type": "string", "default": "hi"}]}
         )
@@ -370,23 +370,90 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["after"]["version"] == 2
 
-    def test_a_partial_action_list_is_refused(self, _mock_flag):
+    def test_a_suggestion_carries_only_the_step_it_changes(self, _mock_flag):
         flow_id = self._create_active_flow()
-        # `actions` replaces the live list, so a caller that sends only the step it edited would stage a
-        # draft with the trigger deleted — and the human reviewing the suggestion cannot see what is gone.
+        proposal = self._propose(
+            flow_id,
+            content={"actions": [_webhook_action(url="https://proposed.example.com")]},
+        )
+
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        # The trigger was never in the payload, so it is still in the staged draft.
+        assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1"]
+        assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
+
+    def test_a_suggestion_survives_an_edit_to_a_different_step(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={"actions": [_webhook_action(url="https://proposed.example.com")]},
+        )
+        # Somebody renames the trigger and publishes while the suggestion sits in the queue.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "trigger_node", "patch": {"name": "renamed by a human"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        # The rename survives: the suggestion never carried the trigger, so there was nothing to revert it to.
+        assert draft["actions"][0]["name"] == "renamed by a human"
+        assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
+
+    def test_a_suggestion_is_refused_once_the_step_it_changes_is_deleted(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={"actions": [_webhook_action(url="https://proposed.example.com")]},
+        )
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/",
+            {"overwrite": True},
+        )
+
+        assert approve.status_code == 409, approve.json()
+        # The step is gone from the live workflow, so it has no name left to show.
+        assert "action_1" in approve.json()["detail"]
+
+    def test_a_step_needs_the_id_of_the_step_it_changes(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        webhook = _webhook_action(url="https://proposed.example.com")
+        webhook.pop("id")
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             {
-                "title": "Only the step I touched",
-                "rationale": "A truncated action list must not reach a draft.",
-                "content": {"actions": [_webhook_action(url="https://proposed.example.com")]},
+                "title": "A step with no id",
+                "rationale": "Merging is keyed on the id, so there is nothing to merge onto.",
+                "content": {"actions": [webhook]},
                 "base_version": 1,
                 "source_type": "scout",
             },
             format="json",
         )
+
         assert response.status_code == 400, response.json()
-        assert "replace the whole list" in str(response.json())
+        assert "needs the `id`" in str(response.json())
         assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 0
 
     @parameterized.expand([("approve",), ("reject",)])
