@@ -898,7 +898,10 @@ class SignalReportViewSet(
             qs = self._annotate_signal_report_priority(qs)
             qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        qs = self._annotate_is_suggested_reviewer(qs)
+        if self.action != "bulk_state":
+            # `bulk_state` answers with one outcome per id, never a serialized report, and the list
+            # ordering that reads this value does not apply to it either.
+            qs = self._annotate_is_suggested_reviewer(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
             # Both of these are correlated subqueries, so they cost one walk per row the query
             # matches. The multi-row actions do without them: `list` serves the same two values
@@ -1112,16 +1115,12 @@ class SignalReportViewSet(
         report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
         return queryset.filter(id__in=report_ids_with_prefix)
 
-    def _reports_with_suggested_reviewers(self, github_logins: list[str]):
-        """Ids of the team's reports whose *current* reviewer set names one of `github_logins`.
+    def _current_suggested_reviewer_artefacts(self, github_logins: list[str], scope: Q):
+        """`suggested_reviewers` rows under `scope` that are current and name one of `github_logins`.
 
         suggested_reviewers is append-only, so only the newest row is the live reviewer set —
         older versions remain as history and must not match. A row is current iff no newer row of
         the same type exists for its report.
-
-        The query reads no column of the outer report, so Postgres runs it once for the request and
-        joins the result. Correlated to each report instead, it is one subquery per row the list
-        scans — and the list scans every report in the team before it cuts the page.
         """
         containment = " OR ".join(["content::jsonb @> %s::jsonb"] * len(github_logins))
         params = [json.dumps([{"github_login": github_login}]) for github_login in github_logins]
@@ -1133,12 +1132,32 @@ class SignalReportViewSet(
             )
         )
         reviewer_artefacts = SignalReportArtefact.objects.filter(
-            team=self.team,
+            scope,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         )
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         reviewer_artefacts = reviewer_artefacts.extra(where=[containment], params=params)
-        return reviewer_artefacts.filter(~has_newer).values("report_id")
+        return reviewer_artefacts.filter(~has_newer)
+
+    def _reports_with_suggested_reviewers(self, github_logins: list[str]):
+        """Ids of the team's reports whose current reviewer set names one of `github_logins`.
+
+        The query reads no column of the outer report, so Postgres runs it once for the request and
+        joins the result. Correlated to each report instead, it is one subquery per row the list
+        scans — and the list scans every report in the team before it cuts the page.
+
+        It pays for that with a read of the team's whole reviewer history, so only a query over
+        many reports should use it. For one report, use `_report_has_suggested_reviewer`.
+        """
+        return self._current_suggested_reviewer_artefacts(github_logins, Q(team=self.team)).values("report_id")
+
+    def _report_has_suggested_reviewer(self, github_logins: list[str]):
+        """Whether the current reviewer set of the outer report names one of `github_logins`.
+
+        Anchored on the outer report, so it seeks the (report, type, -created_at) index for that
+        one report instead of reading the team's whole reviewer history.
+        """
+        return Exists(self._current_suggested_reviewer_artefacts(github_logins, Q(report_id=OuterRef("id"))))
 
     def _implementation_pr_report_filter(self):
         # Reports with a shipped implementation PR, as a `Q` on `SignalReport.id`. Decorrelated:
@@ -1477,11 +1496,19 @@ class SignalReportViewSet(
             return queryset.annotate(is_suggested_reviewer=Value(False))
 
         # github_login comes from our own UserSocialAuth DB, not user input.
+        # Only the list reads this value for many reports at once, and it sorts on it, so the
+        # decorrelated set pays for itself there. Every other action renders one report, where the
+        # correlated form is one index seek instead of a read of the team's reviewer history.
+        names_the_user = (
+            Q(id__in=self._reports_with_suggested_reviewers([github_login]))
+            if self.action == "list"
+            else Q(self._report_has_suggested_reviewer([github_login]))
+        )
         return queryset.annotate(
             is_suggested_reviewer=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
                 When(status=SignalReport.Status.FAILED, then=Value(False)),
-                When(id__in=self._reports_with_suggested_reviewers([github_login]), then=Value(True)),
+                When(names_the_user, then=Value(True)),
                 default=Value(False),
                 output_field=BooleanField(),
             ),
