@@ -141,6 +141,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                         timestamp={segmentSeekTime}
                         openPlayerIn={RecordingPlayerType.Modal}
                         checkRecordingExists
+                        subject="recording"
                         label="View replay"
                         type="secondary"
                         size="small"
