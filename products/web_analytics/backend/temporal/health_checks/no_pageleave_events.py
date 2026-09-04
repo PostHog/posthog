@@ -34,6 +34,15 @@ PAGELEAVE_VOLUME_NOTE = (
     "A visit that stays on one route still sends about one."
 )
 
+# Web analytics reads time on page from $prev_pageview_duration, which the SDK puts on the next $pageview
+# of the same page load, or on $pageleave.
+PAGELEAVE_TIME_ON_PAGE_NOTE = (
+    "A page's duration rides on the next pageview of the same page load. "
+    "A site with full page loads has one pageview per load, so without $pageleave it gets no "
+    "time on page at all. "
+    "A single-page app loses time on page only for the last route of each page load."
+)
+
 
 class NoPageleaveEventsCheck(HealthCheck):
     name = "no_pageleave_events"
@@ -48,7 +57,7 @@ class NoPageleaveEventsCheck(HealthCheck):
             Open the Web analytics health page. The fix is almost always on the SDK side — make sure you're
             on a recent posthog-js with pageview autocapture enabled, which emits $pageleave automatically
             when the user navigates away. {PAGELEAVE_VOLUME_NOTE} In return you get scroll depth, which
-            rides on $pageleave, accurate bounce rate, and time on page for the last page of a visit.
+            rides on $pageleave, accurate bounce rate, and time on page. {PAGELEAVE_TIME_ON_PAGE_NOTE}
         """,
         agent=f"""
             Use `execute-sql` to confirm the gap (`SELECT event, count() FROM events WHERE event IN
@@ -61,7 +70,7 @@ class NoPageleaveEventsCheck(HealthCheck):
             duration. Use `docs-search` for the pageview/pageleave capture docs. Tell the user what the
             change costs before they make it.
             {PAGELEAVE_VOLUME_NOTE} Say what they get for it — scroll depth, which rides on $pageleave,
-            accurate bounce rate, and time on page for the last page of a visit. Once $pageleave events
+            accurate bounce rate, and time on page. {PAGELEAVE_TIME_ON_PAGE_NOTE} Once $pageleave events
             arrive, the issue resolves on the next check run.
         """,
     )
