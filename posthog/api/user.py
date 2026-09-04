@@ -1174,7 +1174,7 @@ class UserViewSet(
         report_user_deleted_account(user)
         # Hold the recipient before the row goes: the account is hard-deleted, so nothing
         # is left to look up afterwards.
-        email, first_name, distinct_id = user.email, user.first_name, str(user.distinct_id)
+        email, first_name, distinct_id = user.email, user.first_name, user.distinct_id or str(user.uuid)
         super().perform_destroy(user)
         if is_email_available():
             send_account_deleted_email.delay(email=email, first_name=first_name, distinct_id=distinct_id)
