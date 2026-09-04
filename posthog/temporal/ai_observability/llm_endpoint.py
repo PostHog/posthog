@@ -48,21 +48,21 @@ class FlexFirstChatOpenAI(ChatOpenAI):
 
     flex_fallback_timeout: float | None = None
 
-    def _flex_fallback_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        fallback = {**kwargs, "service_tier": "default"}
-        if self.flex_fallback_timeout is not None:
-            # The openai SDK's create() takes timeout as a per-request option, so the
-            # standard call gets a standard-sized budget instead of the tight flex one.
-            fallback["timeout"] = self.flex_fallback_timeout
-        return fallback
-
-    def _log_flex_fallback(self, error: APIError) -> None:
+    def _fallback_kwargs_or_raise(self, error: APIError, kwargs: dict[str, Any]) -> dict[str, Any]:
+        if self.service_tier != "flex" or not is_flex_recoverable(error):
+            raise error
         logger.warning(
             "labeling_flex_call_fell_back",
             error=str(error),
             error_type=type(error).__name__,
             model=self.model_name,
         )
+        fallback = {**kwargs, "service_tier": "default"}
+        if self.flex_fallback_timeout is not None:
+            # The openai SDK's create() takes timeout as a per-request option, so the
+            # standard call gets a standard-sized budget instead of the tight flex one.
+            fallback["timeout"] = self.flex_fallback_timeout
+        return fallback
 
     def _generate(
         self,
@@ -74,10 +74,9 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         try:
             return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
-            if self.service_tier != "flex" or not is_flex_recoverable(error):
-                raise
-            self._log_flex_fallback(error)
-            return super()._generate(messages, stop=stop, run_manager=run_manager, **self._flex_fallback_kwargs(kwargs))
+            return super()._generate(
+                messages, stop=stop, run_manager=run_manager, **self._fallback_kwargs_or_raise(error, kwargs)
+            )
 
     async def _agenerate(
         self,
@@ -89,11 +88,8 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         try:
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
-            if self.service_tier != "flex" or not is_flex_recoverable(error):
-                raise
-            self._log_flex_fallback(error)
             return await super()._agenerate(
-                messages, stop=stop, run_manager=run_manager, **self._flex_fallback_kwargs(kwargs)
+                messages, stop=stop, run_manager=run_manager, **self._fallback_kwargs_or_raise(error, kwargs)
             )
 
 
