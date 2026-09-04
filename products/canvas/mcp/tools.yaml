@@ -390,6 +390,9 @@ tools:
     canvases-destroy:
         operation: canvases_destroy
         enabled: false
+    canvases-fork-create:
+        operation: canvases_fork_create
+        enabled: false
     canvases-home-create:
         operation: canvases_home_create
         enabled: false
