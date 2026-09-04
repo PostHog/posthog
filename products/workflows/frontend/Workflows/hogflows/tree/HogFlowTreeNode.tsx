@@ -31,14 +31,14 @@ export function HogFlowTreeNode({
     node,
     onDragEnd,
     onDragStart,
-    showIncomingArrow = true,
+    showIncomingConnector = true,
 }: {
     activeDropzones: boolean
     draggedActionId: string | null
     node: WorkflowTreeNode
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string) => void
-    showIncomingArrow?: boolean
+    showIncomingConnector?: boolean
 }): JSX.Element {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
@@ -73,7 +73,7 @@ export function HogFlowTreeNode({
                     active={activeDropzones}
                     draggedActionId={draggedActionId}
                     edge={node.incomingEdge}
-                    showArrow={showIncomingArrow}
+                    showConnector={showIncomingConnector}
                 />
             )}
             {node.branches.length === 0 ? (
@@ -150,7 +150,7 @@ export function HogFlowTreeNode({
                                             draggedActionId={draggedActionId}
                                             onDragStart={onDragStart}
                                             onDragEnd={onDragEnd}
-                                            showIncomingArrow={childIndex > 0}
+                                            showIncomingConnector={childIndex > 0}
                                         />
                                     ))}
                                     {branch.sequence.trailingEdge && (
@@ -158,7 +158,7 @@ export function HogFlowTreeNode({
                                             active={activeDropzones}
                                             draggedActionId={draggedActionId}
                                             edge={branch.sequence.trailingEdge}
-                                            showArrow={false}
+                                            showConnector={false}
                                         />
                                     )}
                                 </div>
@@ -191,7 +191,7 @@ export function HogFlowTreeNode({
                                         draggedActionId={draggedActionId}
                                         edge={joinEdge}
                                         isBranchJoin
-                                        showArrow={false}
+                                        showConnector={false}
                                     />
                                 )}
                             </>
