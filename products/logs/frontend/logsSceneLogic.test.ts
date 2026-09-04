@@ -412,4 +412,76 @@ describe('logsSceneLogic', () => {
             expect(router.values.searchParams).toHaveProperty('anomaliesService', 'checkout')
         })
     })
+
+    describe('groupBys URL sync', () => {
+        // The URL-sync guard clears on a macrotask (setTimeout(0)), so a write followed by a
+        // router push in the same tick would see the guard still set and skip re-parsing. Flush
+        // it between the two so each step exercises the real urlToAction path.
+        const flushUrlSyncGuard = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+        const GROUP_BYS = [
+            { key: 'service.name', source: 'resource' },
+            { key: 'severity_level', source: 'column' },
+        ]
+
+        it('parses groupBys from the URL', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { groupBys: JSON.stringify(GROUP_BYS) })
+            }).toFinishAllListeners()
+
+            expect(logic.values.groupBys).toEqual(GROUP_BYS)
+        })
+
+        it('leaves the live grouping alone for a malformed groupBys param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setGroupBys(GROUP_BYS)
+            }).toFinishAllListeners()
+            await flushUrlSyncGuard()
+
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { groupBys: '[{"key":"only-a-key"}]' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.groupBys).toEqual(GROUP_BYS)
+        })
+
+        it('caps groupBys from the URL at the dimension limit', async () => {
+            const overCap = [
+                { key: 'a', source: 'resource' },
+                { key: 'b', source: 'resource' },
+                { key: 'c', source: 'resource' },
+                { key: 'd', source: 'resource' },
+                { key: 'e', source: 'resource' },
+            ]
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { groupBys: JSON.stringify(overCap) })
+            }).toFinishAllListeners()
+
+            expect(logic.values.groupBys).toEqual(overCap.slice(0, 4))
+        })
+
+        it('resets the grouping when the param is absent', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setGroupBys(GROUP_BYS)
+            }).toFinishAllListeners()
+            await flushUrlSyncGuard()
+
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {})
+            }).toFinishAllListeners()
+
+            expect(logic.values.groupBys).toEqual([])
+        })
+
+        it('syncs the grouping to the URL and drops the param when empty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setGroupBys(GROUP_BYS)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.groupBys).toEqual(GROUP_BYS)
+
+            await expectLogic(logic, () => {
+                logic.actions.setGroupBys([])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('groupBys')
+        })
+    })
 })

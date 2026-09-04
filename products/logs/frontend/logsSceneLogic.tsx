@@ -15,7 +15,9 @@ import {
     DEFAULT_ORDER_BY,
     DEFAULT_VIEW_MODE,
     logsViewerConfigLogic,
+    LogsViewerGroupBy,
     LogsViewerViewMode,
+    MAX_GROUP_BY_DIMENSIONS,
 } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
@@ -37,6 +39,7 @@ import {
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { LogsGroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 import { DEFAULT_ANOMALIES_DATE_RANGE, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
 import type { DateRange, LogMessage } from '../../../frontend/src/queries/schema/schema-general'
@@ -49,6 +52,39 @@ export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${
 export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
 
 const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
+
+const VALID_GROUP_BY_SOURCES = Object.values(LogsGroupBySourceEnumApi)
+
+// A groupBys URL param is a JSON array of { key, source }. Returns null on any malformed shape so
+// a bad link leaves the live grouping alone rather than clearing it. Caps at the API's dimension
+// limit — the same guard the picker enforces — so a hand-edited URL can't build a combination the
+// endpoint would reject.
+const parseGroupBysParam = (raw: unknown): LogsViewerGroupBy[] | null => {
+    let value: unknown = raw
+    if (typeof value === 'string') {
+        try {
+            value = JSON.parse(value)
+        } catch {
+            return null
+        }
+    }
+    if (!Array.isArray(value)) {
+        return null
+    }
+    const parsed: LogsViewerGroupBy[] = []
+    for (const entry of value) {
+        if (
+            typeof entry !== 'object' ||
+            entry === null ||
+            typeof (entry as LogsViewerGroupBy).key !== 'string' ||
+            !VALID_GROUP_BY_SOURCES.includes((entry as LogsViewerGroupBy).source)
+        ) {
+            return null
+        }
+        parsed.push({ key: (entry as LogsViewerGroupBy).key, source: (entry as LogsViewerGroupBy).source })
+    }
+    return parsed.slice(0, MAX_GROUP_BY_DIMENSIONS)
+}
 
 export type LogsSceneActiveTab =
     | 'viewer'
@@ -114,6 +150,7 @@ export interface logsSceneLogicValues {
     anomaliesService: string | null // logsAnomaliesLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
     viewMode: LogsViewerViewMode // logsViewerConfigLogic
+    groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
     initialLogsLimit: number | null // logsViewerDataLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
     utcDateRange: {
@@ -152,6 +189,22 @@ export interface logsSceneLogicActions {
     } // logsViewerConfigLogic
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
+    } // logsViewerConfigLogic
+    setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
+        groupBys: LogsViewerGroupBy[]
+    } // logsViewerConfigLogic
+    addGroupBy: (groupBy: LogsViewerGroupBy) => {
+        groupBy: LogsViewerGroupBy
+    } // logsViewerConfigLogic
+    removeGroupByAt: (index: number) => {
+        index: number
+    } // logsViewerConfigLogic
+    replaceGroupByAt: (
+        index: number,
+        groupBy: LogsViewerGroupBy
+    ) => {
+        groupBy: LogsViewerGroupBy
+        index: number
     } // logsViewerConfigLogic
     fetchLogsSuccess: (
         logs: LogMessage[],
@@ -211,7 +264,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['setOrderBy', 'setViewMode'],
+            ['setOrderBy', 'setViewMode', 'setGroupBys', 'addGroupBy', 'removeGroupByAt', 'replaceGroupByAt'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -227,7 +280,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['orderBy', 'viewMode'],
+            ['orderBy', 'viewMode', 'groupBys'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -346,6 +399,13 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 : DEFAULT_VIEW_MODE
             if (viewMode !== values.viewMode) {
                 actions.setViewMode(viewMode)
+            }
+            // Grouping dimensions travel in the URL so a Group-lens link opens on the same
+            // grouping. Absent param means no grouping (reset); a malformed one is left alone so
+            // a broken link can't silently drop a live grouping.
+            const groupBys = params.groupBys != null ? parseGroupBysParam(params.groupBys) : []
+            if (groupBys && !equal(groupBys, values.groupBys)) {
+                actions.setGroupBys(groupBys)
             }
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
@@ -498,6 +558,17 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             )
         }
 
+        const syncGroupBys = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    // Empty grouping is the default, so it drops the param instead of pinning an
+                    // empty array into every copied URL.
+                    updateSearchParams(params, 'groupBys', values.groupBys, [])
+                    return params
+                })
+            )
+        }
+
         return {
             // initialLogsLimit is a one-shot override from "copy link to log" URLs.
             // It ensures the first fetch loads enough logs to include the linked log,
@@ -510,6 +581,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             setViewMode: () => syncViewMode(),
             setAnomaliesService: () => syncAnomalies(),
             setAnomaliesDateRange: () => syncAnomalies(),
+            setGroupBys: () => syncGroupBys(),
+            addGroupBy: () => syncGroupBys(),
+            removeGroupByAt: () => syncGroupBys(),
+            replaceGroupByAt: () => syncGroupBys(),
         }
     }),
 
