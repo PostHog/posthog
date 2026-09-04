@@ -8440,6 +8440,10 @@ snapshots:
         hash: v1.k794b7964.c9ccaaba4bf03f6923b41fe85e387d17139a6d7d69a6e06913a37cb5dd019532.bpCeuesKb9InCkdPuMqRPNFckeU7o1u6QcQfQf5ogSE
     scenes-app-settings-environment--settings-environment-access-control--light:
         hash: v1.k794b7964.9ea484177cb94c831f0508e3482b1a876fc2b69db66c95b8f69fe73586909a3b._EvRaax5KzNHywyiNOpnbtVEPebu79kfKuX5zFMrXj0
+    scenes-app-settings-environment--settings-environment-activity-logs--dark:
+        hash: v1.k794b7964.07a7c5284294ab47f8389e75130eb9da6fb7bfe1823be6b5fab8433e108e5512.oRiLyo7NyPY9iXCIWYaZnWfk6ZBFq4caKD2IKjchNRA
+    scenes-app-settings-environment--settings-environment-activity-logs--light:
+        hash: v1.k794b7964.147a8cc5a95a1a486933073ed663e3f0b6252c2061fdabd2f63e1519b891b30b.eq6S9YZ9D9YMyV7CAt1wI7zCreusJVqlbE4aQV4ME_8
     scenes-app-settings-environment--settings-environment-autocapture--dark:
         hash: v1.k794b7964.8defefc8ee81d152212ad970ee03afd0170e149183c700875620b83c94041edb.1GgekWHSuFhNxSx6MSUDbX9I0RjLB_eJK_x9Y356OXU
     scenes-app-settings-environment--settings-environment-autocapture--light:
