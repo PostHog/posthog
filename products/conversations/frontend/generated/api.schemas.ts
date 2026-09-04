@@ -395,6 +395,11 @@ export interface TicketMessageApi {
     readonly author_type: string
     /** Display name of the author. */
     readonly author_name: string
+    /**
+     * Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.
+     * @nullable
+     */
+    readonly author_email: string | null
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
     /** True when the complete inbound email body can be retrieved. */

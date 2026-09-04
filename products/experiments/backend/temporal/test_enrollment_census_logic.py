@@ -4,18 +4,27 @@ from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.team import Team
+
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.enrollment_census_logic import (
     BUILD_CAP_EXCLUSION_BYTES,
     EXCLUSION_BUILD_BYTE_CAP,
+    MAX_ENROLLMENTS_PER_RUN,
+    EnrollmentCensusReport,
     TeamDirectScanStats,
     TeamRunningLoad,
     build_census_report,
+    enroll_candidates,
+    run_enrollment_census_sync,
     running_experiment_load,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -97,3 +106,83 @@ class TestEnrollmentCensusCriteria(BaseTest):
         assert running_experiment_load([self.team.id]) == {
             self.team.id: TeamRunningLoad(running_experiments=1, running_metrics=4)
         }
+
+
+class TestEnrollmentWrites(BaseTest):
+    def _team(self) -> Team:
+        return Team.objects.create(organization=self.organization, name=f"team-{uuid.uuid4().hex[:8]}")
+
+    def _report_for(self, teams: list[Team]) -> EnrollmentCensusReport:
+        # Descending bytes in list order, matching the census sort.
+        stats = [
+            _stats(team_id=team.id, total_read_bytes=(len(teams) - i + 5) * 10**12) for i, team in enumerate(teams)
+        ]
+        return build_census_report(stats, window_days=14)
+
+    def test_enrolls_worst_first_up_to_cap(self):
+        teams = [self._team() for _ in range(MAX_ENROLLMENTS_PER_RUN + 2)]
+        report = self._report_for(teams)
+
+        enrolled = enroll_candidates(report)
+
+        assert enrolled == [team.id for team in teams[:MAX_ENROLLMENTS_PER_RUN]]
+        for team in teams[:MAX_ENROLLMENTS_PER_RUN]:
+            config = TeamExperimentsConfig.objects.get(team=team)
+            assert config.experiment_precomputation_enabled
+            assert config.precomputation_enabled_set_by == TeamExperimentsConfig.PrecomputationEnabledSetBy.AUTO
+        for team in teams[MAX_ENROLLMENTS_PER_RUN:]:
+            assert not TeamExperimentsConfig.objects.filter(team=team, experiment_precomputation_enabled=True).exists()
+
+    def test_never_overrides_a_human_and_skips_enabled_without_burning_cap(self):
+        manually_disabled, already_enabled = self._team(), self._team()
+        TeamExperimentsConfig.objects.update_or_create(
+            team=manually_disabled,
+            defaults={
+                "experiment_precomputation_enabled": False,
+                "precomputation_enabled_set_by": TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL,
+            },
+        )
+        TeamExperimentsConfig.objects.update_or_create(
+            team=already_enabled,
+            defaults={
+                "experiment_precomputation_enabled": True,
+                "precomputation_enabled_set_by": TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL,
+            },
+        )
+        # More fresh teams than cap slots: if the two skipped teams burned slots,
+        # fewer than a full capful would enroll.
+        fresh_teams = [self._team() for _ in range(MAX_ENROLLMENTS_PER_RUN)]
+        report = self._report_for([manually_disabled, already_enabled, *fresh_teams])
+
+        enrolled = enroll_candidates(report)
+
+        assert enrolled == [team.id for team in fresh_teams]
+        config = TeamExperimentsConfig.objects.get(team=manually_disabled)
+        assert not config.experiment_precomputation_enabled
+        assert config.precomputation_enabled_set_by == TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+
+    @parameterized.expand([("report_only", "report_only", False), ("enroll", "enroll", True)])
+    def test_mode_gates_the_write(self, _name: str, mode: str, expect_write: bool):
+        team = self._team()
+        row = (team.id, 100, 0, 10**9, 6 * 10**12, 0, 3)
+        with (
+            override_settings(EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE=mode),
+            patch(
+                "products.experiments.backend.temporal.enrollment_census_logic.sync_execute",
+                return_value=[row],
+            ),
+        ):
+            run_enrollment_census_sync()
+
+        enabled = TeamExperimentsConfig.objects.filter(team=team, experiment_precomputation_enabled=True).exists()
+        assert enabled == expect_write
+
+    def test_deleted_team_is_skipped_and_later_candidates_still_enroll(self):
+        fresh = self._team()
+        deleted_team_stats = _stats(team_id=999_999_999, total_read_bytes=9 * 10**12)
+        fresh_stats = _stats(team_id=fresh.id, total_read_bytes=6 * 10**12)
+        report = build_census_report([deleted_team_stats, fresh_stats], window_days=14)
+
+        enrolled = enroll_candidates(report)
+
+        assert enrolled == [fresh.id]

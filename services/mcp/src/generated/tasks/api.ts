@@ -735,7 +735,7 @@ export const LoopsRunsRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels.
+ * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels. Send `limit` (with `offset`) for one page and a `count`/`next` envelope; without `limit` the response is the full array of channels.
  * @summary List channels
  */
 export const TaskChannelsListParams = () => zod.object({

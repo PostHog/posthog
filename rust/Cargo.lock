@@ -5500,6 +5500,7 @@ dependencies = [
 name = "hogvm"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.12",
  "base64 0.22.1",
  "chrono",
  "chrono-tz",
@@ -8986,14 +8987,18 @@ dependencies = [
  "reqwest 0.12.28",
  "rmcp",
  "rust_decimal",
+ "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "tokio",
  "tokio-postgres",
+ "tokio-postgres-rustls",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9018,6 +9023,7 @@ dependencies = [
  "regex",
  "rust_decimal",
  "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -9552,6 +9558,7 @@ name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
  "ahash 0.8.12",
+ "aho-corasick",
  "anyhow",
  "axum 0.7.9",
  "chrono",

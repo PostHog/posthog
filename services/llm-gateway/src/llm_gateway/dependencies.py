@@ -301,6 +301,28 @@ async def enforce_throttles(
 
     model = await get_model_from_request(request)
 
+    access_flag = get_required_model_flag(model)
+    if access_flag is not None and not get_settings().debug:
+        if not await evaluate_flag(access_flag, user.distinct_id):
+            logger.warning(
+                "model_access_blocked",
+                user_id=user.user_id,
+                team_id=user.team_id,
+                product=product,
+                flag=access_flag,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": {
+                        "message": f"Model '{model}' is not available for your account. Choose another model. (rate_limit)",
+                        "type": "permission_error",
+                        "code": "model_gate",
+                        "reason": "model_not_available",
+                    }
+                },
+            )
+
     model_allowed, model_error = check_free_tier_model_access(
         product=product,
         model=model,
@@ -325,30 +347,6 @@ async def enforce_throttles(
                 }
             },
         )
-
-    # Entitlement gate for models not cleared for general use on this path (e.g. Kimi K3,
-    # Baseten-only DeepSeek). Each maps to its own access flag. Fails closed (a None eval outage
-    # blocks) since these decide spend / backend rollout.
-    access_flag = get_required_model_flag(model)
-    if access_flag is not None and not get_settings().debug:
-        if not await evaluate_flag(access_flag, user.distinct_id):
-            logger.warning(
-                "model_access_blocked",
-                user_id=user.user_id,
-                team_id=user.team_id,
-                product=product,
-                flag=access_flag,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": {
-                        "message": f"Model '{model}' is not available. Choose another model. (rate_limit)",
-                        "type": "permission_error",
-                        "code": "model_gate",
-                    }
-                },
-            )
 
     context = ThrottleContext(
         user=user,

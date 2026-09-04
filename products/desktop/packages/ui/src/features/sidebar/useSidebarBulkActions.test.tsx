@@ -115,6 +115,25 @@ describe("useSidebarBulkActions", () => {
     });
   });
 
+  it("observes live task ids only while sessions are selected", () => {
+    const { rerender } = renderHook(
+      ({ taskIds }) => useSidebarBulkActions(taskIds, TASKS),
+      { initialProps: { taskIds: [] as string[] } },
+    );
+
+    expect(hoisted.useTasks).toHaveBeenLastCalledWith(undefined, {
+      enabled: false,
+      subscribed: false,
+    });
+
+    rerender({ taskIds: ["t1"] });
+
+    expect(hoisted.useTasks).toHaveBeenLastCalledWith(undefined, {
+      enabled: true,
+      subscribed: true,
+    });
+  });
+
   it.each([
     {
       name: "none pinned",

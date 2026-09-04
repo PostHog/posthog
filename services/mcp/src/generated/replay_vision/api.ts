@@ -339,12 +339,12 @@ export const VisionScannersCreateBody = () => zod
             .optional()
             .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             )
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             ),
         enabled: zod
             .boolean()
@@ -492,13 +492,13 @@ export const VisionScannersPartialUpdateBody = () => zod
             .optional()
             .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             )
             .optional()
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             ),
         enabled: zod
             .boolean()
@@ -998,13 +998,13 @@ export const VisionScannersEstimateCreateBody = () => zod
                 "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
             ),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             )
             .default(visionScannersEstimateCreateBodyModelDefault)
             .describe(
-                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             ),
         experiment_targeting: zod
             .union([
@@ -1085,13 +1085,13 @@ export const VisionScannersInlineScanCreateBody = () => zod
                 'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
             ),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             )
             .default(visionScannersInlineScanCreateBodyModelDefault)
             .describe(
-                'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+                'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')

@@ -79,8 +79,8 @@ Two levers narrow it further, applied in this order:
 #### Which model?
 
 `model` sets the price of every observation the scanner makes, so it's a cost lever as much as a quality one:
-`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.7-flash`
-(15 credits). Start at the default and only reach for `gemini-3.7-flash` when the cheaper tiers demonstrably
+`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.8-flash`
+(15 credits). Start at the default and only reach for `gemini-3.8-flash` when the cheaper tiers demonstrably
 miss what the scanner is looking for.
 
 ### Step 3: Size it — the gut-check (do not skip)

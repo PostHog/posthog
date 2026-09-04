@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
@@ -53,6 +55,13 @@ pub struct Config {
         default = "clickhouse_billing_usage_records"
     )]
     pub topic: String,
+    /// Maximum age of a gRPC connection in seconds before the server sends GOAWAY.
+    /// Producers reconnect transparently, which restaggers them across the pods.
+    /// 0 = disabled (connections live indefinitely).
+    /// Shorter than personhog's 300 because a producer holds one connection and this fleet
+    /// runs near its CPU request when the load lands unevenly.
+    #[envconfig(from = "USAGE_INGESTION_GRPC_MAX_CONNECTION_AGE_SECS", default = "60")]
+    pub grpc_max_connection_age_secs: u64,
 }
 
 impl Config {
@@ -74,6 +83,12 @@ impl Config {
         if self.redis_max_series_per_bucket == 0 {
             return Err("USAGE_INGESTION_REDIS_MAX_SERIES_PER_BUCKET must be positive".to_string());
         }
+        // A few seconds would make every producer spend its time reconnecting.
+        if self.grpc_max_connection_age_secs > 0 && self.grpc_max_connection_age_secs < 10 {
+            return Err(
+                "USAGE_INGESTION_GRPC_MAX_CONNECTION_AGE_SECS must be 0 or at least 10".to_string(),
+            );
+        }
         Ok(())
     }
 
@@ -82,6 +97,14 @@ impl Config {
             connections: self.redis_connections,
             flush_concurrency: self.redis_flush_concurrency,
             max_series_per_bucket: self.redis_max_series_per_bucket,
+        }
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
         }
     }
 
@@ -130,6 +153,7 @@ mod tests {
             redis_flush_concurrency: 16,
             redis_max_series_per_bucket: 16,
             topic: "clickhouse_billing_usage_records".to_string(),
+            grpc_max_connection_age_secs: 60,
         }
     }
 
