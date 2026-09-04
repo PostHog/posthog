@@ -28,6 +28,7 @@ For a feature flag root:
 
 - Deleted, archived or missing flag row: every check evaluates false, so the enabled branch is dead and the check can go.
 - Flag disabled or not evaluated for a long time: the enabled branch is dead. The check can go once you confirm no SDK or backend reads it by another name.
+- Flag at 0% rollout, or checked by many users and enabled for none of them: the enabled branch is dead. Treat it like a disabled flag.
 - Flag at 100% rollout: the disabled branch is dead. Keep the enabled path and remove the check.
 - Concluded experiment: keep the variant the scout named, remove the other variants and the flag check.
 

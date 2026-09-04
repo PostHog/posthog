@@ -55,6 +55,7 @@ class FlagSummary:
     status_reason: str
     effectively_full_rollout: bool
     max_rollout_percentage: int | None
+    has_enrollment_overrides: bool
     variant_keys: tuple[str, ...]
     fully_rolled_out_variant: str | None
 
@@ -336,6 +337,13 @@ def list_flag_summaries(team_id: int) -> list[FlagSummary]:
         status, reason = FeatureFlagStatusChecker(feature_flag=flag).get_status()
         rollout = checker.get_rollout_summary(flag)
         _, rolled_out_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
+        filters = flag.get_filters()
+        has_enrollment_overrides = bool(
+            filters.get("holdout")
+            or filters.get("holdout_groups")
+            or filters.get("super_groups")
+            or flag.has_feature_enrollment
+        )
         summaries.append(
             FlagSummary(
                 id=flag.id,
@@ -350,6 +358,7 @@ def list_flag_summaries(team_id: int) -> list[FlagSummary]:
                 status_reason=reason,
                 effectively_full_rollout=rollout.effectively_full_rollout,
                 max_rollout_percentage=rollout.max_rollout_percentage,
+                has_enrollment_overrides=has_enrollment_overrides,
                 variant_keys=tuple(v["key"] for v in flag.variants if v.get("key")),
                 fully_rolled_out_variant=rolled_out_variant or None,
             )
