@@ -54,9 +54,12 @@ class NoPageleaveEventsCheck(HealthCheck):
             Use `execute-sql` to confirm the gap (`SELECT event, count() FROM events WHERE event IN
             ('$pageview', '$pageleave') AND timestamp > now() - INTERVAL 7 DAY GROUP BY event`). Then fix it
             in the user's codebase: locate the `posthog.init` call and ensure pageview autocapture is
-            enabled; if pageviews are captured manually (`capture_pageview: false`), add a matching
-            `posthog.capture` of `$pageleave` on route changes / unload. Use `docs-search` for the
-            pageview/pageleave capture docs. Tell the user what the change costs before they make it.
+            enabled; if pageviews are captured manually (`capture_pageview: false`), set
+            `capture_pageleave: true`, because its default of `if_capture_pageview` is what turns the event
+            off when pageviews are manual. Do not capture $pageleave on route changes: the SDK sends it on
+            page unload only, and the next $pageview already carries the previous page's scroll depth and
+            duration. Use `docs-search` for the pageview/pageleave capture docs. Tell the user what the
+            change costs before they make it.
             {PAGELEAVE_VOLUME_NOTE} Say what they get for it — scroll depth, which rides on $pageleave, and
             accurate bounce rate. Once $pageleave events arrive, the issue resolves on the next check run.
         """,
