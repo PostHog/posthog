@@ -8,45 +8,44 @@ import { Badge, Button, Item, ItemActions, ItemContent, ItemDescription, ItemMed
 import { workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import type { HogFlowAction } from '../types'
+import type { HogFlowAction, HogFlowActionNode } from '../types'
 import { isBranchingAction } from './workflowTree'
-
-function stepMediaClassName(action: HogFlowAction): string {
-    if (action.type === 'trigger') {
-        return 'bg-fill-success-highlight text-success'
-    }
-    if (action.type === 'exit') {
-        return 'bg-muted text-muted-foreground'
-    }
-    if (isBranchingAction(action)) {
-        return 'bg-fill-warning-highlight text-warning'
-    }
-    return 'bg-fill-info-tertiary text-primary'
-}
 
 export function HogFlowTreeStep({
     action,
-    branchCount,
     dragged,
     onDragEnd,
     onDragStart,
     showCollapseOffset = false,
 }: {
     action: HogFlowAction
-    branchCount?: number
     dragged: boolean
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string) => void
     showCollapseOffset?: boolean
 }): JSX.Element {
-    const { animatingEdgePair, nodesById, selectedNode, selectedNodeCanBeCopiedOrMoved, selectedNodeCanBeDeleted } =
-        useValues(hogFlowEditorLogic)
+    const { animatingEdgePair, nodesById, selectedNode } = useValues(hogFlowEditorLogic)
     const { duplicateNodeBelow, onNodesDelete, setSelectedNodeId } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { actionValidationErrorsById, workflow } = useValues(workflowLogic)
     const step = useHogFlowStep(action)
 
     const isSelected = selectedNode?.id === action.id
-    const node = nodesById[action.id] ?? (isSelected ? selectedNode : null)
+    const canHaveActions = !['trigger', 'exit'].includes(action.type)
+    const outgoingActionIds = workflow.edges.filter((edge) => edge.from === action.id).map((edge) => edge.to)
+    const canDelete = canHaveActions && (outgoingActionIds.length === 1 || new Set(outgoingActionIds).size === 1)
+    const canDuplicate = canDelete && !isBranchingAction(action)
+    const node =
+        nodesById[action.id] ??
+        ({
+            id: action.id,
+            type: 'action',
+            data: action,
+            position: { x: 0, y: 0 },
+            deletable: canHaveActions,
+            selectable: true,
+            draggable: false,
+            connectable: false,
+        } satisfies HogFlowActionNode)
     const canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action)
     const validationResult = actionValidationErrorsById[action.id]
     const hasValidationIssue =
@@ -85,7 +84,11 @@ export function HogFlowTreeStep({
                     <IconDrag />
                 </div>
             )}
-            <ItemMedia variant="image" className={cn('relative z-10', stepMediaClassName(action))}>
+            <ItemMedia
+                variant="image"
+                className="relative z-10 min-h-8 min-w-8 [&>svg]:size-4 [&>svg]:shrink-0"
+                style={step?.color ? { backgroundColor: `${step.color}20`, color: step.color } : undefined}
+            >
                 {step?.icon}
             </ItemMedia>
             <ItemContent className="pointer-events-none relative z-10 min-w-0">
@@ -102,46 +105,42 @@ export function HogFlowTreeStep({
                     </div>
                 )}
             </ItemContent>
-            {branchCount !== undefined && (
-                <Badge variant="default" className="relative z-10 ms-auto shrink-0">
-                    {branchCount} branches
-                </Badge>
-            )}
             {hasValidationIssue && (
-                <Badge variant="warning" className="relative z-10 shrink-0" aria-label="Some fields need attention">
+                <Badge
+                    variant="warning"
+                    className="pointer-events-none absolute end-1 top-1 z-20 shrink-0"
+                    aria-label="Some fields need attention"
+                >
                     !
                 </Badge>
             )}
-            <ItemActions
-                className={cn(
-                    'relative z-10 shrink-0 transition-opacity',
-                    branchCount === undefined && !hasValidationIssue && 'ms-auto',
-                    isSelected
-                        ? 'opacity-100'
-                        : 'pointer-events-none opacity-0 group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100'
-                )}
-            >
-                {isSelected && selectedNodeCanBeCopiedOrMoved && (
-                    <Button
-                        type="button"
-                        variant="default"
-                        size="icon-sm"
-                        aria-label="Duplicate step"
-                        title="Duplicate step"
-                        onClick={() => duplicateNodeBelow(action.id)}
-                        data-attr="workflow-tree-duplicate-step"
-                    >
-                        <IconCopy />
-                    </Button>
-                )}
-                {isSelected && node?.deletable && (
+            {canHaveActions && (
+                <ItemActions
+                    className={cn(
+                        'relative z-10 ms-auto me-4 shrink-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100',
+                        isSelected ? 'opacity-100' : 'opacity-20'
+                    )}
+                >
+                    {canDuplicate && (
+                        <Button
+                            type="button"
+                            variant="default"
+                            size="icon-sm"
+                            aria-label="Duplicate step"
+                            title="Duplicate step"
+                            onClick={() => duplicateNodeBelow(action.id)}
+                            data-attr="workflow-tree-duplicate-step"
+                        >
+                            <IconCopy />
+                        </Button>
+                    )}
                     <Button
                         type="button"
                         variant="default"
                         size="icon-sm"
                         aria-label="Delete step"
-                        title={selectedNodeCanBeDeleted ? 'Delete step' : 'Clean up branching steps first'}
-                        disabled={!selectedNodeCanBeDeleted}
+                        title={canDelete ? 'Delete step' : 'Clean up branching steps first'}
+                        disabled={!canDelete}
                         onClick={() => {
                             onNodesDelete([node])
                             setSelectedNodeId(null)
@@ -150,8 +149,8 @@ export function HogFlowTreeStep({
                     >
                         <IconTrash />
                     </Button>
-                )}
-            </ItemActions>
+                </ItemActions>
+            )}
         </Item>
     )
 }
