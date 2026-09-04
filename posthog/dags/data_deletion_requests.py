@@ -153,6 +153,26 @@ def _json_property_filter_clause(props: list[str], column: str = "properties") -
     return f"({' OR '.join(exprs)})"
 
 
+def _json_event_property_removal_expr(props: list[str]) -> tuple[str, dict[str, list[str]]]:
+    feature_flag_keys = (
+        [prop.removeprefix("$feature/") for prop in props if prop.startswith("$feature/")]
+        if "$feature_flags" not in props
+        else []
+    )
+    regular_keys = [prop for prop in props if not (feature_flag_keys and prop.startswith("$feature/"))]
+    keys_to_drop = regular_keys + (["$feature_flags"] if feature_flag_keys else [])
+    expression = "JSONDropKeys(%(keys)s)(toJSONString(properties))"
+    parameters = {"keys": keys_to_drop}
+    if feature_flag_keys:
+        expression = (
+            f"JSONMergePatch({expression}, concat('{{\"$feature_flags\":', "
+            "toJSONString(mapFilter((key, _) -> NOT has(%(feature_flag_keys)s, key), "
+            "properties.`$feature_flags`)), '}'))"
+        )
+        parameters["feature_flag_keys"] = feature_flag_keys
+    return expression, parameters
+
+
 def _property_filter_params(props: list[str], prefix: str = "fp_") -> dict:
     params: dict[str, str] = {}
     for i, prop in enumerate(props):
@@ -902,9 +922,13 @@ def process_property_removal_shard(
         # On the JSON table the column must round-trip through a string: serialize, drop the
         # keys, and let the assignment cast the cleaned string back to the JSON column type.
         if properties:
-            properties_read = "toJSONString(properties)" if json_schema else "properties"
-            update_parts.append(f"properties = JSONDropKeys(%(keys)s)({properties_read})")
-            mutation_params["keys"] = properties
+            if json_schema:
+                properties_read, properties_params = _json_event_property_removal_expr(properties)
+                update_parts.append(f"properties = {properties_read}")
+                mutation_params.update(properties_params)
+            else:
+                update_parts.append("properties = JSONDropKeys(%(keys)s)(properties)")
+                mutation_params["keys"] = properties
         if person_properties:
             person_properties_read = "toJSONString(person_properties)" if json_schema else "person_properties"
             update_parts.append(f"person_properties = JSONDropKeys(%(person_keys)s)({person_properties_read})")
