@@ -14,7 +14,7 @@
 //! and `AiOverflow` is the opt-in overflow valve — unset means routing never
 //! selects it.
 
-use crate::config::KafkaConfig;
+use crate::v1::sinks::kafka::config::Config as OutputKafkaConfig;
 
 /// Which configured output a routing decision selects, named **pipeline +
 /// lane** — the vocabulary the refactor converges on (typed per-pipeline
@@ -179,19 +179,21 @@ impl TopicTable {
     }
 }
 
-impl From<&KafkaConfig> for TopicTable {
-    fn from(config: &KafkaConfig) -> Self {
+/// An output's topic wiring comes from that output's own config block, so two
+/// outputs in one tree can name different topics.
+impl From<&OutputKafkaConfig> for TopicTable {
+    fn from(config: &OutputKafkaConfig) -> Self {
         Self {
-            main: config.kafka_topic.clone(),
-            overflow: config.kafka_overflow_topic.clone(),
-            historical: config.kafka_historical_topic.clone(),
-            client_ingestion_warning: config.kafka_client_ingestion_warning_topic.clone(),
-            heatmaps: config.kafka_heatmaps_topic.clone(),
-            replay_overflow: config.kafka_replay_overflow_topic.clone(),
-            dlq: config.kafka_dlq_topic.clone(),
-            error_tracking: config.kafka_error_tracking_topic.clone(),
-            ai_events: config.capture_analytics_ai_events_topic.clone(),
-            ai_events_overflow: config.capture_analytics_ai_events_overflow_topic.clone(),
+            main: config.topic_main.clone(),
+            overflow: config.topic_overflow.clone(),
+            historical: config.topic_historical.clone(),
+            client_ingestion_warning: config.topic_client_ingestion_warning.clone(),
+            heatmaps: config.topic_heatmap.clone(),
+            replay_overflow: config.topic_replay_overflow.clone().unwrap_or_default(),
+            dlq: config.topic_dlq.clone(),
+            error_tracking: config.topic_exception.clone(),
+            ai_events: config.topic_ai.clone(),
+            ai_events_overflow: config.topic_ai_overflow.clone(),
         }
     }
 }
