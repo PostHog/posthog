@@ -3900,14 +3900,17 @@ class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
     """The row a public share of a task-run artifact hangs off.
 
     Artifacts are manifest entries on ``TaskRun`` rows rather than rows of their
-    own, and a share needs something to point at. The anchor follows the logical
-    file, one per (task, name), so the public link keeps serving the newest
-    version as later runs upload the file again.
+    own, and a share needs something to point at. The anchor pins one upload,
+    so the public link keeps serving that version when a later run uploads the
+    file again under the same name.
     """
 
     # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="shared_artifacts")
+    run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="shared_artifacts")
+    # The manifest entry id of the pinned upload on ``run``.
+    artifact_id = models.CharField(max_length=128)
     name = models.CharField(max_length=512)
     # 255 to match what the artifact upload serializers accept, so a long media type cannot make
     # the first share of a file fail on the write.
@@ -3920,5 +3923,5 @@ class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_task_shared_artifact"
         constraints = [
-            models.UniqueConstraint(fields=["task", "name"], name="task_shared_artifact_task_name_unique"),
+            models.UniqueConstraint(fields=["run", "artifact_id"], name="task_shared_artifact_run_artifact_unique"),
         ]

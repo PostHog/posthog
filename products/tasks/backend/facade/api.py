@@ -9399,31 +9399,34 @@ def user_can_control_task(task_id: str | UUID, team_id: int, user_id: int | None
         return False
 
 
-def _output_artifact_entry(task: Task, artifact_id: str) -> dict | None:
+def _output_artifact_entry(task: Task, artifact_id: str) -> tuple[TaskRun, dict] | None:
     for run in task.runs.only("id", "artifacts"):
         for entry in run.artifacts or []:
             if entry.get("id") == artifact_id and entry.get("storage_path") and entry.get("name"):
-                return entry
+                return run, entry
     return None
 
 
 def resolve_shared_task_artifact(
     task_id: str | UUID, team_id: int, user_id: int | None, *, artifact_id: str
 ) -> contracts.SharedTaskArtifactIdentityDTO | None:
-    """The logical file an artifact id names, for the sharing API. ``None`` when the task isn't
-    visible to the user or the id is not a file on one of its runs. Never creates the anchor."""
+    """The upload an artifact id names, for the sharing API. ``None`` when the task isn't visible
+    to the user or the id is not a file on one of its runs. Never creates the anchor."""
     try:
         task = _visible_task(task_id, team_id, user_id)
     except DjangoValidationError:
         return None
     if task is None:
         return None
-    entry = _output_artifact_entry(task, artifact_id)
-    if entry is None:
+    found = _output_artifact_entry(task, artifact_id)
+    if found is None:
         return None
-    anchor = SharedTaskArtifact.objects.for_team(team_id).filter(task_id=task.id, name=entry["name"]).first()
+    run, entry = found
+    anchor = SharedTaskArtifact.objects.for_team(team_id).filter(run_id=run.id, artifact_id=artifact_id).first()
     return contracts.SharedTaskArtifactIdentityDTO(
         task_id=task.id,
+        run_id=run.id,
+        artifact_id=artifact_id,
         name=str(entry["name"]),
         content_type=str(entry.get("content_type") or ""),
         anchor_id=anchor.id if anchor else None,
@@ -9431,31 +9434,33 @@ def resolve_shared_task_artifact(
 
 
 def get_or_create_shared_task_artifact(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, name: str, content_type: str
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    run_id: UUID,
+    artifact_id: str,
+    name: str,
+    content_type: str,
 ) -> UUID:
-    """The share anchor for (task, name), created on first use. Returns its id."""
+    """The share anchor pinned to one upload, created on first use. Returns its id."""
     anchor, _ = SharedTaskArtifact.objects.for_team(team_id).get_or_create(
         team_id=team_id,
-        task_id=task_id,
-        name=name,
-        defaults={"content_type": content_type, "created_by_id": user_id},
+        run_id=run_id,
+        artifact_id=artifact_id,
+        defaults={"task_id": task_id, "name": name, "content_type": content_type, "created_by_id": user_id},
     )
     return anchor.id
 
 
-def _latest_artifact_entry(task_id: UUID, team_id: int, name: str) -> tuple[TaskRun, dict] | None:
-    """The newest undismissed file with this name across the task's runs, the server-side twin of
-    the desktop's version grouping (newest ``uploaded_at`` wins, then the newest run)."""
-    best: tuple[TaskRun, dict] | None = None
-    best_key = ""
-    for run in TaskRun.objects.filter(task_id=task_id, team_id=team_id).only("id", "artifacts").order_by("-created_at"):
-        for entry in run.artifacts or []:
-            if entry.get("name") != name or not entry.get("storage_path") or entry.get("dismissed_at"):
-                continue
-            key = str(entry.get("uploaded_at") or "")
-            if best is None or key > best_key:
-                best, best_key = (run, entry), key
-    return best
+def _pinned_artifact_entry(anchor: SharedTaskArtifact) -> dict | None:
+    """The manifest entry the anchor pins. ``None`` once the upload was dismissed or lost its file,
+    so a public link fails closed with the version it captured."""
+    for entry in anchor.run.artifacts or []:
+        if entry.get("id") != anchor.artifact_id:
+            continue
+        return entry if entry.get("storage_path") and not entry.get("dismissed_at") else None
+    return None
 
 
 def _shared_artifact_file(run: TaskRun, entry: dict) -> contracts.SharedTaskArtifactFileDTO:
@@ -9473,39 +9478,38 @@ def _shared_artifact_file(run: TaskRun, entry: dict) -> contracts.SharedTaskArti
 def _shared_anchor(anchor_id: str | UUID, team_id: int) -> SharedTaskArtifact | None:
     return (
         SharedTaskArtifact.objects.for_team(team_id)
-        .select_related("task")
+        .select_related("task", "run")
         .filter(id=anchor_id, task__deleted=False)
         .first()
     )
 
 
 def shared_task_artifact_file(anchor_id: str | UUID, team_id: int) -> contracts.SharedTaskArtifactFileDTO | None:
-    """The version a public link serves right now. ``None`` when the task is gone or no run
-    carries the file any more."""
+    """The upload a public link serves. ``None`` when the task is gone or that version was
+    dismissed."""
     anchor = _shared_anchor(anchor_id, team_id)
     if anchor is None:
         return None
-    found = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
-    if found is None:
+    entry = _pinned_artifact_entry(anchor)
+    if entry is None:
         return None
-    run, entry = found
-    return _shared_artifact_file(run, entry)
+    return _shared_artifact_file(anchor.run, entry)
 
 
 def read_shared_task_artifact(
     anchor_id: str | UUID, team_id: int, *, max_bytes: int | None = None
 ) -> tuple[bytes, contracts.SharedTaskArtifactFileDTO] | None:
-    """The bytes of the version a public link serves, with its metadata. ``None`` when there is
+    """The bytes of the upload a public link serves, with its metadata. ``None`` when there is
     nothing to serve or the file is larger than ``max_bytes``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     anchor = _shared_anchor(anchor_id, team_id)
     if anchor is None:
         return None
-    found = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
-    if found is None:
+    entry = _pinned_artifact_entry(anchor)
+    if entry is None:
         return None
-    run, entry = found
+    run = anchor.run
     file = _shared_artifact_file(run, entry)
     if max_bytes is not None and file.size is not None and file.size > max_bytes:
         return None

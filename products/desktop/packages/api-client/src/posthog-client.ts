@@ -4125,7 +4125,7 @@ export class PostHogAPIClient {
   }
 
   /**
-   * The public-sharing state of a run artifact, addressed by any version's
+   * The public-sharing state of one run artifact upload, addressed by its
    * manifest id. Null when the backend has no sharing route for artifacts.
    */
   async getTaskArtifactSharing(

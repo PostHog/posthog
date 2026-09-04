@@ -862,10 +862,12 @@ class ComputeQuotaDenialReason(StrEnum):
 
 @dataclass(frozen=True)
 class SharedTaskArtifactIdentityDTO:
-    """What a task-run artifact id resolves to for sharing: the logical file (task + name) and the
-    share anchor that follows it across runs, when one has been created."""
+    """What a task-run artifact id resolves to for sharing: the upload itself (task, run, manifest
+    entry) and the share anchor pinned to it, when one has been created."""
 
     task_id: UUID
+    run_id: UUID
+    artifact_id: str
     name: str
     content_type: str
     anchor_id: UUID | None
@@ -873,7 +875,7 @@ class SharedTaskArtifactIdentityDTO:
 
 @dataclass(frozen=True)
 class SharedTaskArtifactFileDTO:
-    """The newest version of a shared artifact across the task's runs."""
+    """The upload a public link is pinned to."""
 
     artifact_id: str
     run_id: UUID

@@ -1,3 +1,4 @@
+import type { TaskArtifactSharing } from "@posthog/api-client/posthog-client";
 import { Separator } from "@posthog/quill";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -15,14 +16,59 @@ import {
   useSetArtifactSharing,
 } from "./useArtifactSharing";
 
+export interface ArtifactShareBodyViewProps {
+  appUrl: string | null;
+  publicUrl: string | null;
+  visibility: ShareVisibility;
+  sharing: TaskArtifactSharing | null | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  isPending: boolean;
+  onToggle: (enabled: boolean) => void;
+}
+
+/** The share dialog's file body, given everything it shows. */
+export function ArtifactShareBodyView({
+  appUrl,
+  publicUrl,
+  visibility,
+  sharing,
+  isLoading,
+  isError,
+  isPending,
+  onToggle,
+}: ArtifactShareBodyViewProps) {
+  return (
+    <div className="flex flex-col gap-5">
+      <LinkCopyRow
+        label="Link"
+        description="Opens the file in PostHog Desktop, inside its task."
+        url={appUrl}
+        copiedDescription="Anyone in this project with access to the task can open the file."
+        dataAttr="share-artifact-copy-link"
+      />
+      <AccessSection visibility={visibility} noun="file" />
+      <Separator />
+      <PublicShareSection
+        sharing={sharing}
+        isLoading={isLoading}
+        isError={isError}
+        isPending={isPending}
+        publicUrl={publicUrl}
+        description="Anyone with the link can view this version of the file. Versions uploaded later stay private unless you share them."
+        dataAttrPrefix="share-artifact"
+        onToggle={onToggle}
+      />
+    </div>
+  );
+}
+
 export function ArtifactShareBody({
   taskId,
   artifactId,
-  name,
 }: {
   taskId: string;
   artifactId: string;
-  name: string;
 }) {
   const task = useQuery(taskDetailQuery(taskId));
   const { channels, isLoading: channelsLoading } = useChannels();
@@ -36,37 +82,23 @@ export function ArtifactShareBody({
     : task.isLoading || channelsLoading
       ? "unknown"
       : "project";
-  const sharing = useArtifactSharingQuery(taskId, artifactId, name);
-  const { setEnabled, isPending } = useSetArtifactSharing(
-    taskId,
-    artifactId,
-    name,
-  );
-  const publicUrl = sharing.data?.accessToken
-    ? sharedResourceUrl(sharing.data.accessToken)
-    : null;
+  const sharing = useArtifactSharingQuery(taskId, artifactId);
+  const { setEnabled, isPending } = useSetArtifactSharing(taskId, artifactId);
 
   return (
-    <div className="flex flex-col gap-5">
-      <LinkCopyRow
-        label="Link"
-        description="Opens the file in PostHog Desktop, inside its task."
-        url={artifactShareUrl(taskId, artifactId)}
-        copiedDescription="Anyone in this project with access to the task can open the file."
-        dataAttr="share-artifact-copy-link"
-      />
-      <AccessSection visibility={visibility} noun="file" />
-      <Separator />
-      <PublicShareSection
-        sharing={sharing.data}
-        isLoading={sharing.isLoading}
-        isError={sharing.isError}
-        isPending={isPending}
-        publicUrl={publicUrl}
-        description="Anyone with the link can view the newest version of this file, including versions uploaded later."
-        dataAttrPrefix="share-artifact"
-        onToggle={(enabled) => void setEnabled(enabled)}
-      />
-    </div>
+    <ArtifactShareBodyView
+      appUrl={artifactShareUrl(taskId, artifactId)}
+      publicUrl={
+        sharing.data?.accessToken
+          ? sharedResourceUrl(sharing.data.accessToken)
+          : null
+      }
+      visibility={visibility}
+      sharing={sharing.data}
+      isLoading={sharing.isLoading}
+      isError={sharing.isError}
+      isPending={isPending}
+      onToggle={(enabled) => void setEnabled(enabled)}
+    />
   );
 }

@@ -22,8 +22,14 @@ class CanvasSharingTestBase(CanvasAPIBaseTest):
     def _sharing_url(self, canvas_id: str) -> str:
         return f"/api/projects/{self.team.id}/canvases/{canvas_id}/sharing"
 
-    def _publish_ready(self, canvas_id: str) -> CanvasBuild:
-        response = self._publish(canvas_id)
+    def _publish_ready(self, canvas_id: str, code: str | None = None) -> CanvasBuild:
+        with team_scope(self.team.id):
+            head = Canvas.objects.get(id=canvas_id).current_source_version_id
+        response = self._publish(
+            canvas_id,
+            self._project(code) if code else None,
+            expected_current_version_id=str(head) if head else None,
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
         with team_scope(self.team.id):
             canvas = Canvas.objects.get(id=canvas_id)
@@ -75,27 +81,60 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         assert payload["canvas"]["artifact_url"].startswith("https://canvas.example.com/canvas-artifacts/")
         assert payload["canvas"]["artifact_url"].endswith("/index.html")
 
-    def test_unpublished_canvas_shares_without_an_artifact_url(self):
+    def test_public_link_keeps_the_build_captured_when_sharing_was_turned_on(self):
         canvas_id = self._create_canvas()
+        first = self._publish_ready(canvas_id)
         access_token = self._enable_sharing(canvas_id)
+        second = self._publish_ready(canvas_id, code="export default function C() { return 2 }")
+        settings_only = self.client.patch(
+            self._sharing_url(canvas_id), {"settings": {"allowForking": True}}, format="json"
+        )
+        assert settings_only.status_code == status.HTTP_200_OK, settings_only.json()
 
+        with team_scope(self.team.id):
+            canvas = Canvas.objects.get(id=canvas_id)
+            assert canvas.published_build_id == second.id
+            assert canvas.shared_build_id == first.id
         self.client.logout()
-        payload = self._shared_payload(access_token)
+        with self.settings(CANVAS_ARTIFACT_ORIGIN="https://canvas.example.com"):
+            payload = self._shared_payload(access_token)
+        assert payload["canvas"]["published"] is True
+        assert payload["canvas"]["artifact_url"] is not None
 
-        assert payload["canvas"]["published"] is False
-        assert payload["canvas"]["artifact_url"] is None
+    def test_turning_sharing_off_and_on_moves_the_link_to_the_latest_build(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        self._enable_sharing(canvas_id)
+        second = self._publish_ready(canvas_id, code="export default function C() { return 2 }")
 
-    def test_grid_canvas_cannot_be_shared(self):
-        canvas_id = self._create_canvas(kind=Canvas.KIND_GRID)
+        off = self.client.patch(self._sharing_url(canvas_id), {"enabled": False})
+        assert off.status_code == status.HTTP_200_OK, off.json()
+        with team_scope(self.team.id):
+            assert Canvas.objects.get(id=canvas_id).shared_build_id is None
+        self._enable_sharing(canvas_id)
+
+        with team_scope(self.team.id):
+            assert Canvas.objects.get(id=canvas_id).shared_build_id == second.id
+
+    @parameterized.expand(
+        [
+            ("grid", Canvas.KIND_GRID, "This kind of canvas can't be shared publicly yet."),
+            ("unpublished", Canvas.KIND_FREEFORM, "Publish the canvas before sharing it."),
+        ]
+    )
+    def test_canvas_without_a_build_to_capture_cannot_be_shared(self, _name: str, kind: str, detail: str):
+        canvas_id = self._create_canvas(kind=kind)
 
         response = self.client.patch(self._sharing_url(canvas_id), {"enabled": True})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == detail
         assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
 
     @parameterized.expand([("deleted",), ("grid",)])
     def test_public_page_refuses_a_canvas_that_stopped_being_shareable(self, case: str):
         canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
         access_token = self._enable_sharing(canvas_id)
         with team_scope(self.team.id):
             canvas = Canvas.objects.get(id=canvas_id)
@@ -125,6 +164,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
 
     def test_refresh_rotates_the_token_and_keeps_the_canvas(self):
         canvas_id = self._create_canvas()
+        build = self._publish_ready(canvas_id)
         old_token = self._enable_sharing(canvas_id)
 
         response = self.client.post(f"{self._sharing_url(canvas_id)}/refresh")
@@ -137,3 +177,4 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
             assert str(new_config.canvas_id) == canvas_id
             assert new_config.enabled is True
             assert SharingConfiguration.objects.get(access_token=old_token).expires_at is not None
+            assert Canvas.objects.get(id=canvas_id).shared_build_id == build.id

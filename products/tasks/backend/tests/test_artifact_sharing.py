@@ -96,25 +96,30 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert response.json()["enabled"] is False
         assert not SharedTaskArtifact.objects.for_team(self.team.id).exists()
 
-    def test_sharing_an_old_version_publishes_the_newest_one(self):
+    def test_a_share_serves_the_upload_that_was_shared_not_a_newer_one(self):
         access_token = self._enable_sharing("art-1")
 
         with team_scope(self.team.id):
-            anchor = SharedTaskArtifact.objects.get(task=self.task, name="report.md")
+            anchor = SharedTaskArtifact.objects.get(run=self.older_run, artifact_id="art-1")
+            assert anchor.task_id == self.task.id
             assert SharingConfiguration.objects.get(access_token=access_token).task_artifact_id == anchor.id
         self.client.logout()
         payload = self._shared_payload(access_token)
 
         assert payload["task_artifact"]["kind"] == "markdown"
-        assert payload["task_artifact"]["markdown"] == "# Final\n"
+        assert payload["task_artifact"]["markdown"] == "# Draft\n"
         assert payload["task_artifact"]["file_url"] == f"/shared/{access_token}.md"
 
-    def test_both_versions_share_one_anchor(self):
+    def test_each_upload_has_its_own_share(self):
         first = self._enable_sharing("art-1")
+
+        assert self.client.get(self._sharing_url("art-2")).json()["enabled"] is False
         second = self._enable_sharing("art-2")
 
-        assert first == second
-        assert SharedTaskArtifact.objects.for_team(self.team.id).count() == 1
+        assert first != second
+        assert SharedTaskArtifact.objects.for_team(self.team.id).count() == 2
+        self.client.logout()
+        assert self._shared_payload(second)["task_artifact"]["markdown"] == "# Final\n"
 
     def test_image_streams_inline_with_nosniff(self):
         access_token = self._enable_sharing("img-1")
@@ -141,10 +146,15 @@ class TestTaskArtifactSharing(APIBaseTest):
         assert response["Content-Type"] == "application/octet-stream"
         assert response["Content-Disposition"].startswith("attachment")
 
-    def test_public_page_404s_once_the_task_is_deleted(self):
+    @parameterized.expand([("task deleted",), ("upload dismissed",)])
+    def test_public_page_404s_once_the_file_is_gone(self, case: str):
         access_token = self._enable_sharing("art-1")
-        self.task.deleted = True
-        self.task.save()
+        if case == "task deleted":
+            self.task.deleted = True
+            self.task.save()
+        else:
+            self.older_run.artifacts[0]["dismissed_at"] = "2026-03-01T00:00:00+00:00"
+            self.older_run.save(update_fields=["artifacts"])
         self.client.logout()
 
         assert self.client.get(f"/shared/{access_token}").status_code == status.HTTP_404_NOT_FOUND

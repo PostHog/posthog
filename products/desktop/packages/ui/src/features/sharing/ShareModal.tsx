@@ -8,9 +8,50 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
+import type { ReactNode } from "react";
 import { ArtifactShareBody } from "./ArtifactShareBody";
 import { CanvasShareBody } from "./CanvasShareBody";
 import type { ShareSurface, ShareTarget } from "./shareTarget";
+
+/** The frame every share body sits in: a title, the thing's name, the body, a Done button. */
+export function ShareDialog({
+  title,
+  description,
+  onClose,
+  children,
+}: {
+  title: string;
+  description: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogBody>{children}</DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClose}
+            data-attr="share-modal-done"
+          >
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * One dialog for everything a person can share out of the app: the link that
@@ -27,45 +68,23 @@ export function ShareModal({
   onClose: () => void;
 }) {
   return (
-    <Dialog
-      open
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
+    <ShareDialog
+      title={target.kind === "canvas" ? "Share canvas" : "Share file"}
+      description={target.name}
+      onClose={onClose}
     >
-      <DialogContent className="max-w-[520px]">
-        <DialogHeader>
-          <DialogTitle>
-            {target.kind === "canvas" ? "Share canvas" : "Share file"}
-          </DialogTitle>
-          <DialogDescription>{target.name}</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          {target.kind === "canvas" ? (
-            <CanvasShareBody
-              channelId={target.channelId}
-              dashboardId={target.dashboardId}
-              surface={surface}
-            />
-          ) : (
-            <ArtifactShareBody
-              taskId={target.taskId}
-              artifactId={target.artifactId}
-              name={target.name}
-            />
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onClose}
-            data-attr="share-modal-done"
-          >
-            Done
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {target.kind === "canvas" ? (
+        <CanvasShareBody
+          channelId={target.channelId}
+          dashboardId={target.dashboardId}
+          surface={surface}
+        />
+      ) : (
+        <ArtifactShareBody
+          taskId={target.taskId}
+          artifactId={target.artifactId}
+        />
+      )}
+    </ShareDialog>
   );
 }

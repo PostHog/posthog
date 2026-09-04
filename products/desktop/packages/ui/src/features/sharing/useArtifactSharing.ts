@@ -10,17 +10,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 const SHARING_STALE_TIME_MS = 30_000;
 
-// Keyed by task and file name rather than one version's id: the share follows
-// the file, so every version of it reads and writes the same entry.
-export function artifactSharingKey(taskId: string, name: string): string[] {
-  return ["task-artifact-sharing", taskId, name];
+export function artifactSharingKey(
+  taskId: string,
+  artifactId: string,
+): string[] {
+  return ["task-artifact-sharing", taskId, artifactId];
 }
 
-/** A run artifact's public-sharing state. `data` is null when the backend cannot share artifacts. */
+/** One upload's public-sharing state. `data` is null when the backend cannot share artifacts. */
 export function useArtifactSharingQuery(
   taskId: string,
   artifactId: string,
-  name: string,
 ): {
   data: TaskArtifactSharing | null | undefined;
   isLoading: boolean;
@@ -28,7 +28,7 @@ export function useArtifactSharingQuery(
 } {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const { data, isLoading, isError } = useQuery({
-    queryKey: artifactSharingKey(taskId, name),
+    queryKey: artifactSharingKey(taskId, artifactId),
     queryFn: () => sessionService.getTaskArtifactSharing(taskId, artifactId),
     meta: AUTH_SCOPED_QUERY_META,
     staleTime: SHARING_STALE_TIME_MS,
@@ -39,7 +39,6 @@ export function useArtifactSharingQuery(
 export function useSetArtifactSharing(
   taskId: string,
   artifactId: string,
-  name: string,
 ): {
   setEnabled: (enabled: boolean) => Promise<TaskArtifactSharing | null>;
   isPending: boolean;
@@ -50,7 +49,7 @@ export function useSetArtifactSharing(
     mutationFn: (enabled: boolean) =>
       sessionService.setTaskArtifactSharing(taskId, artifactId, enabled),
     onSuccess: (sharing) => {
-      queryClient.setQueryData(artifactSharingKey(taskId, name), sharing);
+      queryClient.setQueryData(artifactSharingKey(taskId, artifactId), sharing);
     },
     onError: (error) => {
       toast.error("Couldn't update public sharing", {

@@ -1243,11 +1243,11 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
 /**
  * Copy a canvas into the caller's personal space.
  *
- * The copy starts from the source's published version and gets its own
- * source, version history, and build; the original is untouched. The
- * source is either a canvas in this project the caller can open, or a
- * public share link (`share_token`) whose owner allowed copies, which
- * may come from another project.
+ * The copy gets its own source, version history, and build; the original
+ * is untouched. The source is either a canvas in this project the caller
+ * can open, copied from its published version, or a public share link
+ * (`share_token`) whose owner allowed copies, which may come from another
+ * project and is copied from the version the link shows.
  */
 export const canvasesForkCreateBodyShareTokenMax = 400
 

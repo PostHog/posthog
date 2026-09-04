@@ -96,7 +96,7 @@ export default function ExporterCanvasScene({
         portRef.current?.postMessage({ channel: CANVAS_CHANNEL, type: 'set-theme', theme })
     }, [theme])
 
-    // A copy starts from the published build, so the endpoint refuses an unpublished canvas.
+    // A copy starts from the build the link shows, so the endpoint refuses a link whose build is gone.
     const openCopy =
         canCopy && canvas.allow_forking && canvas.published && accessToken ? (
             <div className="SharedCanvas-actions flex justify-end px-4 py-2">
@@ -119,7 +119,7 @@ export default function ExporterCanvasScene({
                 <LemonBanner type="info" className="m-4">
                     {canvas.published
                         ? "This canvas can't be shown right now. Try again later."
-                        : "This canvas hasn't been published yet. Ask its owner to publish it, then reload this page."}
+                        : 'The shared version of this canvas is no longer available. Ask its owner to share it again.'}
                 </LemonBanner>
             </>
         )

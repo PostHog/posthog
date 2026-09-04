@@ -75,8 +75,16 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.canvas.backend.build_service import CanvasNotPublished
 from products.canvas.backend.models import Canvas
-from products.canvas.backend.sharing import canvas_is_shareable, shared_canvas_payload, user_can_access_canvas
+from products.canvas.backend.sharing import (
+    canvas_has_ready_build,
+    canvas_is_shareable,
+    clear_shared_build,
+    pin_shared_build,
+    shared_canvas_payload,
+    user_can_access_canvas,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
@@ -722,6 +730,8 @@ class SharingConfigurationViewSet(
             identity.task_id,
             self.team_id,
             user.id if user.is_authenticated else None,
+            run_id=identity.run_id,
+            artifact_id=identity.artifact_id,
             name=identity.name,
             content_type=identity.content_type,
         )
@@ -761,12 +771,13 @@ class SharingConfigurationViewSet(
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
 
-        if (
-            context.get("canvas")
-            and request.data.get("enabled")
-            and not canvas_is_shareable(cast(Canvas, context.get("canvas")))
-        ):
-            raise ValidationError("This kind of canvas can't be shared publicly yet.")
+        canvas = cast(Canvas | None, context.get("canvas"))
+        if canvas is not None and request.data.get("enabled"):
+            if not canvas_is_shareable(canvas):
+                raise ValidationError("This kind of canvas can't be shared publicly yet.")
+            # A public link is a capture of a published build, so there has to be one to capture.
+            if not canvas_has_ready_build(canvas):
+                raise ValidationError("Publish the canvas before sharing it.")
 
         # Publishing is the access decision for shared links (queries on the public page execute
         # without warehouse access control), so gate the enable transition: the publisher must have
@@ -789,6 +800,18 @@ class SharingConfigurationViewSet(
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        # Enabling always captures the build published right now, so turning sharing off and on
+        # again is how a newer publish reaches the link. A toggle-free PATCH (settings only) never
+        # moves the pin.
+        if canvas is not None and "enabled" in request.data:
+            if serializer.data.get("enabled"):
+                try:
+                    pin_shared_build(canvas)
+                except CanvasNotPublished:
+                    raise ValidationError("Publish the canvas before sharing it.")
+            else:
+                clear_shared_build(canvas)
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
@@ -1047,7 +1070,7 @@ class SharingConfigurationViewSet(
             "artifact_id",
             OpenApiTypes.STR,
             OpenApiParameter.PATH,
-            description="Manifest id of any version of the artifact. The share follows the file across versions.",
+            description="Manifest id of the artifact upload. Each upload has its own share.",
         ),
     ],
     extensions={"x-product": "tasks"},
@@ -1204,7 +1227,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "interviewee_context",
                         "interviewee_context__topic",
                         "canvas",
-                        "canvas__published_build",
+                        "canvas__shared_build",
                         "task_artifact",
                     )
                     .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
@@ -1735,7 +1758,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             )
             exported_data.update({"canvas": canvas_payload})
         elif isinstance(resource, SharingConfiguration) and resource.task_artifact_id:
-            # The share follows the file, not one upload: whatever version is newest now is served.
+            # The link serves the upload that was shared, never a later upload of the same name.
             file = tasks_facade.shared_task_artifact_file(resource.task_artifact_id, resource.team_id)
             if file is None:
                 raise NotFound("No resource found")

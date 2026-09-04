@@ -121,13 +121,19 @@ class TestCanvasFork(CanvasSharingTestBase):
         client.force_login(user)
         return client, team
 
-    def test_share_token_fork_copies_across_projects(self):
+    def test_share_token_fork_copies_the_build_the_link_shows_across_projects(self):
         access_token = self._shared_canvas(allow_forking=True)
+        with team_scope(self.team.id):
+            shared = SharingConfiguration.objects.select_related("canvas__shared_build").get(access_token=access_token)
+            source = cast(Canvas, shared.canvas)
+            shared_version_id = cast(CanvasBuild, source.shared_build).source_version_id
+        self._publish_ready(str(source.id), code="export default function C() { return 2 }")
         client, team = self._other_project_client()
 
         response = client.post(f"/api/projects/{team.id}/canvases/fork/", {"share_token": access_token}, format="json")
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["forked_from_version_id"] == str(shared_version_id)
         with team_scope(team.id):
             fork = Canvas.objects.get(id=response.json()["id"])
             assert fork.team_id == team.id

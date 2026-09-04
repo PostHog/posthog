@@ -1329,8 +1329,9 @@ def sweep_canvas_builds() -> dict[str, int]:
 def cleanup_canvas_builds() -> int:
     """Apply the artifact retention policy; returns the number of builds pruned.
 
-    Keeps, per canvas: the active (published) build, the most recent other
-    successful build (instant rollback), and every pinned build. Other ready
+    Keeps, per canvas: the active (published) build, the build the public
+    link is pinned to, the most recent other successful build (instant
+    rollback), and every pinned build. Other ready
     builds lose their artifacts after 30 days (they remain rebuildable from
     the retained source); failed builds lose theirs after 24 hours. Source
     versions are never pruned — history, undo, and rebuilds depend on them.
@@ -1367,7 +1368,10 @@ def cleanup_canvas_builds() -> int:
     for build in stale.iterator(chunk_size=500):
         canvas_key = str(build.canvas_id)
         if canvas_key not in protected:
-            keep = {str(build.canvas.published_build_id) if build.canvas.published_build_id else None}
+            keep = {
+                str(build.canvas.published_build_id) if build.canvas.published_build_id else None,
+                str(build.canvas.shared_build_id) if build.canvas.shared_build_id else None,
+            }
             rollback = (
                 CanvasBuild.objects.unscoped()
                 .filter(
@@ -1409,21 +1413,24 @@ class CanvasFork:
 
 def fork_canvas(
     source: Canvas,
+    build: CanvasBuild | None,
     *,
     team_id: int,
     channel_id: str | UUID,
     created_by: User | None,
     was_impersonated: bool = False,
 ) -> CanvasFork:
-    """Copy the source canvas's published version into a new canvas the caller owns.
+    """Copy the version behind ``build`` into a new canvas the caller owns.
 
-    The copy gets the bytes of the version the published build was compiled
-    from, uploaded under its own content-addressed key so nothing is shared
-    with the source (which may live in another team). Lineage is recorded as
-    plain ids that survive the source's deletion. The copy's first build is
-    queued like any publish, under the same capacity cap.
+    The build is the source's published build, or the one its public link is
+    pinned to when the copy comes through a share token. The copy gets the
+    bytes of the version that build was compiled from, uploaded under its own
+    content-addressed key so nothing is shared with the source (which may live
+    in another team). Lineage is recorded as plain ids that survive the
+    source's deletion. The copy's first build is queued like any publish, under
+    the same capacity cap.
     """
-    published = source.published_build
+    published = build
     if published is None or published.status != CanvasBuild.STATUS_READY:
         raise CanvasNotPublished()
     with team_scope(source.team_id):

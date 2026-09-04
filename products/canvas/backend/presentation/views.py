@@ -1274,11 +1274,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def fork(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Copy a canvas into the caller's personal space.
 
-        The copy starts from the source's published version and gets its own
-        source, version history, and build; the original is untouched. The
-        source is either a canvas in this project the caller can open, or a
-        public share link (`share_token`) whose owner allowed copies, which
-        may come from another project.
+        The copy gets its own source, version history, and build; the original
+        is untouched. The source is either a canvas in this project the caller
+        can open, copied from its published version, or a public share link
+        (`share_token`) whose owner allowed copies, which may come from another
+        project and is copied from the version the link shows.
         """
         user = self._request_user()
         if user is None or self._is_sandbox_authenticated(request):
@@ -1288,13 +1288,15 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
         payload = CanvasForkSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        source = self._fork_source(payload.validated_data)
-        if isinstance(source, Response):
-            return source
+        resolved = self._fork_source(payload.validated_data)
+        if isinstance(resolved, Response):
+            return resolved
+        source, build = resolved
         channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
         try:
             fork = build_service.fork_canvas(
                 source,
+                build,
                 team_id=self.team_id,
                 channel_id=channel_id,
                 created_by=user,
@@ -1322,8 +1324,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
         return Response(CanvasSerializer(fork.canvas).data, status=status.HTTP_201_CREATED)
 
-    def _fork_source(self, data: dict[str, Any]) -> Canvas | Response:
-        """The canvas a fork request names, or the refusal to send back."""
+    def _fork_source(self, data: dict[str, Any]) -> tuple[Canvas, CanvasBuild | None] | Response:
+        """The canvas a fork request names and the build to copy, or the refusal to send back."""
         source_canvas_id = data.get("source_canvas_id")
         if source_canvas_id is not None:
             source = self.get_queryset().filter(pk=source_canvas_id).first()
@@ -1333,10 +1335,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             # the source rather than changing it, so viewer is the level it needs.
             if source is None or not self.user_access_control.check_access_level_for_object(source, "viewer"):
                 return Response({"detail": "Canvas not found in this project."}, status=status.HTTP_404_NOT_FOUND)
-            return source
+            return source, source.published_build
         share = (
             SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q(), canvas__isnull=False)
-            .select_related("canvas", "canvas__published_build")
+            .select_related("canvas", "canvas__shared_build")
             .filter(access_token=data["share_token"])
             .first()
         )
@@ -1360,7 +1362,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             return Response(
                 {"detail": "Password-protected canvases can't be copied."}, status=status.HTTP_403_FORBIDDEN
             )
-        return shared_canvas
+        return shared_canvas, shared_canvas.shared_build
 
     @extend_schema(
         operation_id="canvases_home_create",

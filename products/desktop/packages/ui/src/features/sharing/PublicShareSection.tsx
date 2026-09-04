@@ -20,6 +20,7 @@ export function PublicShareSection({
   onToggle,
   publicUrl,
   description,
+  disabledReason,
   dataAttrPrefix,
   children,
 }: {
@@ -31,6 +32,8 @@ export function PublicShareSection({
   onToggle: (enabled: boolean) => void;
   publicUrl: string | null;
   description: string;
+  /** Why sharing cannot be turned on right now; shown in place of the description. */
+  disabledReason?: string;
   dataAttrPrefix: string;
   /** Extra controls that only apply while sharing is on. */
   children?: ReactNode;
@@ -59,14 +62,14 @@ export function PublicShareSection({
         <Switch
           id={switchId}
           checked={sharing.enabled}
-          disabled={isPending}
+          disabled={isPending || disabledReason !== undefined}
           onCheckedChange={(checked) => onToggle(checked)}
           data-attr={`${dataAttrPrefix}-public-toggle`}
         />
         <div className="flex min-w-0 flex-col gap-0.5">
           <Label htmlFor={switchId}>Share publicly</Label>
           <Text size="xs" variant="muted">
-            {description}
+            {disabledReason ?? description}
           </Text>
         </div>
       </div>

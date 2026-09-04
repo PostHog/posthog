@@ -45,18 +45,18 @@ export interface SharedCanvasPayload {
     name: string
     kind: 'freeform' | 'grid' | 'component'
     description: string
-    /** Whether the canvas has a live build. False leaves `artifact_url` null. */
+    /** Whether the build captured when sharing was turned on still exists. False leaves `artifact_url` null. */
     published: boolean
     /**
-     * Signed URL of the published build's entry HTML, minted for this page load. Null until the
-     * canvas is published, or when artifact delivery is not configured on this instance.
+     * Signed URL of the shared build's entry HTML, minted for this page load. Null when that build is
+     * gone, or when artifact delivery is not configured on this instance.
      */
     artifact_url: string | null
     /** Whether the owner lets anyone with the link copy the canvas into their own project. */
     allow_forking: boolean
 }
 
-/** A publicly shared file a task run produced. The share follows the file, so this is its newest version. */
+/** A publicly shared file a task run produced: the exact upload that was shared. */
 export interface SharedTaskArtifactPayload {
     name: string
     content_type: string

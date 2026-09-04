@@ -54,13 +54,23 @@ describe("PublicShareSection", () => {
     },
   );
 
-  it("disables the switch while a toggle is in flight", () => {
-    renderSection({ isPending: true });
+  it.each([
+    ["a toggle is in flight", { isPending: true }],
+    [
+      "there is nothing to share yet",
+      { disabledReason: "Publish the canvas before sharing it publicly." },
+    ],
+  ])("disables the switch while %s", (_name, overrides) => {
+    renderSection(overrides);
     const toggle = screen.getByRole("switch");
     expect(
       toggle.hasAttribute("disabled") ||
         toggle.getAttribute("aria-disabled") === "true" ||
         toggle.hasAttribute("data-disabled"),
     ).toBe(true);
+    if ("disabledReason" in overrides) {
+      expect(screen.getByText(overrides.disabledReason)).toBeTruthy();
+      expect(screen.queryByText("Anyone with the link can view.")).toBeNull();
+    }
   });
 });
