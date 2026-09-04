@@ -17,7 +17,6 @@ import {
     ItemTitle,
     Separator,
     Text,
-    cn,
 } from 'lib/ui/quill'
 
 import { getHogFlowBranchColor, getHogFlowBranchTint, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
@@ -114,23 +113,22 @@ export function HogFlowTreeNode({
                             return (
                                 <div
                                     key={`${branch.edge.from}-${branch.edge.type}-${branch.edge.index ?? 'continue'}`}
-                                    className={cn(
-                                        'flex min-w-0 flex-col border-s ps-0 transition-[border-width] motion-reduce:transition-none',
-                                        isBranchSelected && 'border-s-2'
-                                    )}
-                                    style={{ borderColor: branchColor }}
+                                    className="relative flex min-w-0 flex-col ps-0"
                                     data-workflow-branch-index={branchIndex ?? 'continue'}
                                 >
+                                    <div
+                                        aria-hidden="true"
+                                        className={`pointer-events-none absolute bottom-0 start-0 top-2 ${isBranchSelected ? 'w-0.5' : 'w-px'}`}
+                                        style={{ backgroundColor: branchColor }}
+                                    />
                                     <Item
                                         render={<button type="button" />}
                                         variant="muted"
                                         size="xs"
-                                        className={cn(
-                                            'flex-nowrap rounded-s-none text-start',
-                                            isBranchSelected && 'border-2'
-                                        )}
+                                        className="relative z-10 flex-nowrap rounded-bl-none text-start"
                                         style={{
                                             borderColor: branchColor,
+                                            borderWidth: isBranchSelected ? 2 : undefined,
                                             backgroundColor: isBranchSelected
                                                 ? getHogFlowBranchTint(branchIndex)
                                                 : undefined,
@@ -156,7 +154,7 @@ export function HogFlowTreeNode({
                                             </ItemTitle>
                                         </ItemContent>
                                         {branchFilters.length > 0 && (
-                                            <div className="ms-auto min-w-0 max-w-[60%] overflow-hidden">
+                                            <div className="ms-auto min-w-0 max-w-[60%] overflow-hidden [&_.PropertyFilterButton]:!gap-1 [&_.PropertyFilterButton]:!px-1.5 [&_.PropertyFilterButton]:!py-px [&_.PropertyFilterButton]:!text-xs [&_.PropertyFilterButton>_.LemonIcon]:!text-xs">
                                                 <PropertyFiltersDisplay filters={branchFilters} compact />
                                             </div>
                                         )}
@@ -171,57 +169,59 @@ export function HogFlowTreeNode({
                                             </Text>
                                         )}
                                     </Item>
-                                    {branch.sequence.nodes.length === 0 && (
-                                        <Text size="xs" variant="muted" className="py-2">
-                                            No steps in this branch.
-                                        </Text>
-                                    )}
-                                    {branch.sequence.nodes.map((childNode, childIndex) => (
-                                        <HogFlowTreeNode
-                                            key={childNode.action.id}
-                                            node={childNode}
-                                            activeDropzones={activeDropzones}
-                                            draggedActionId={draggedActionId}
-                                            onDragStart={onDragStart}
-                                            onDragEnd={onDragEnd}
-                                            showIncomingConnector={childIndex > 0}
-                                        />
-                                    ))}
-                                    {branch.sequence.trailingEdge && (
-                                        <HogFlowTreeDropzone
-                                            active={activeDropzones}
-                                            draggedActionId={draggedActionId}
-                                            edge={branch.sequence.trailingEdge}
-                                            showConnector={false}
-                                            compact
-                                        />
-                                    )}
-                                    {joinAction && (
-                                        <div className="flex items-center gap-1">
-                                            <Text size="xxs" variant="muted" render={<span />}>
-                                                {node.action.type === 'random_cohort_branch'
-                                                    ? 'End of cohort split · continues to'
-                                                    : 'End of condition · continues to'}
+                                    <div className="flex flex-col ps-3">
+                                        {branch.sequence.nodes.length === 0 && (
+                                            <Text size="xs" variant="muted" className="py-2">
+                                                No steps in this branch.
                                             </Text>
-                                            <Button
-                                                type="button"
-                                                variant="link"
-                                                size="xs"
-                                                className="min-w-0 max-w-56 px-0"
-                                                onClick={() => {
-                                                    setSelectedBranch(null)
-                                                    setSelectedNodeId(joinAction.id)
-                                                    document
-                                                        .getElementById(`workflow-tree-step-${joinAction.id}`)
-                                                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                                }}
-                                                data-attr="workflow-tree-select-continuation"
-                                            >
-                                                <span className="truncate">{joinAction.name}</span>
-                                                <IconArrowRight className="size-3" />
-                                            </Button>
-                                        </div>
-                                    )}
+                                        )}
+                                        {branch.sequence.nodes.map((childNode, childIndex) => (
+                                            <HogFlowTreeNode
+                                                key={childNode.action.id}
+                                                node={childNode}
+                                                activeDropzones={activeDropzones}
+                                                draggedActionId={draggedActionId}
+                                                onDragStart={onDragStart}
+                                                onDragEnd={onDragEnd}
+                                                showIncomingConnector={childIndex > 0}
+                                            />
+                                        ))}
+                                        {branch.sequence.trailingEdge && (
+                                            <HogFlowTreeDropzone
+                                                active={activeDropzones}
+                                                draggedActionId={draggedActionId}
+                                                edge={branch.sequence.trailingEdge}
+                                                showConnector={false}
+                                                compact
+                                            />
+                                        )}
+                                        {joinAction && (
+                                            <div className="flex items-center gap-1">
+                                                <Text size="xxs" variant="muted" render={<span />}>
+                                                    {node.action.type === 'random_cohort_branch'
+                                                        ? 'End of cohort split · continues to'
+                                                        : 'End of condition · continues to'}
+                                                </Text>
+                                                <Button
+                                                    type="button"
+                                                    variant="link"
+                                                    size="xs"
+                                                    className="min-w-0 max-w-56 px-0"
+                                                    onClick={() => {
+                                                        setSelectedBranch(null)
+                                                        setSelectedNodeId(joinAction.id)
+                                                        document
+                                                            .getElementById(`workflow-tree-step-${joinAction.id}`)
+                                                            ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                    }}
+                                                    data-attr="workflow-tree-select-continuation"
+                                                >
+                                                    <span className="truncate">{joinAction.name}</span>
+                                                    <IconArrowRight className="size-3" />
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )
                         })}
