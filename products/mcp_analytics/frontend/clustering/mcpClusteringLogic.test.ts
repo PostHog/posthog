@@ -12,15 +12,18 @@ import { mcpAnalyticsIntentClustersRetrieve } from '../generated/api'
 import type {
     MCPIntentClusterApi,
     MCPIntentClusterSnapshotApi,
+    MCPIntentClusterSnapshotMetaApi,
     MCPIntentClusterToolEntryApi,
     MCPToolPivotApi,
     MCPToolPivotClusterEntryApi,
 } from '../generated/api.schemas'
 import {
+    LOW_SESSION_COVERAGE_PCT,
     type ClusterFilter,
     type RouteShape,
     clusterCategories,
     fitDomain,
+    lowSampleCaveat,
     mcpClusteringLogic,
     routeShape,
     routingSegments,
@@ -780,5 +783,30 @@ describe('mcpClusteringLogic helpers', () => {
         const [low, high] = fitDomain(fits)
 
         expect(high - low).toBeGreaterThan(0)
+    })
+
+    // The snapshot has always reported its own coverage, but nothing rendered it, so
+    // a run over a fraction of a percent of sessions read exactly like a census.
+    describe('lowSampleCaveat', () => {
+        const meta = (session_coverage_pct: number | null): MCPIntentClusterSnapshotMetaApi =>
+            ({ ...SNAPSHOT.computed_with, session_coverage_pct }) as MCPIntentClusterSnapshotMetaApi
+
+        it('names the coverage when the run sampled a sliver of the window', () => {
+            expect(lowSampleCaveat(meta(0.3))).toContain('0.3%')
+        })
+
+        it.each([
+            ['coverage clears the bar', LOW_SESSION_COVERAGE_PCT + 0.1],
+            ['coverage sits exactly on the bar', LOW_SESSION_COVERAGE_PCT],
+        ])('stays quiet when %s', (_name, pct) => {
+            expect(lowSampleCaveat(meta(pct))).toBeNull()
+        })
+
+        it.each([
+            ['the snapshot predates coverage metadata', null],
+            ['there is no metadata at all', undefined],
+        ])('stays quiet when %s rather than implying full coverage', (_name, value) => {
+            expect(lowSampleCaveat(value === null ? meta(null) : undefined)).toBeNull()
+        })
     })
 })

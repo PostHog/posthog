@@ -17,6 +17,7 @@ import { mcpAnalyticsIntentClustersRecompute, mcpAnalyticsIntentClustersRetrieve
 import type {
     MCPIntentClusterApi,
     MCPIntentClusterSnapshotApi,
+    MCPIntentClusterSnapshotMetaApi,
     MCPToolOverlapApi,
     MCPToolPivotApi,
     MCPToolPivotClusterEntryApi,
@@ -213,6 +214,28 @@ export function fitDomain(fits: number[]): [number, number] {
     return [Math.max(-1, low - pad), Math.min(1, high + pad)]
 }
 
+/**
+ * Session coverage under this reads as a sliver of the window rather than a view
+ * of it. Clustering has always sampled and always reported how much, but nothing
+ * rendered the figure, so a run over a fraction of a percent looked like a census.
+ */
+export const LOW_SESSION_COVERAGE_PCT = 5
+
+export function lowSampleCaveat(meta: MCPIntentClusterSnapshotMetaApi | null | undefined): string | null {
+    const coverage = meta?.session_coverage_pct
+    // Null coverage means the snapshot never measured it. Saying nothing is right;
+    // warning would invent a problem, and a silent pass would imply a full window.
+    if (coverage === null || coverage === undefined || coverage >= LOW_SESSION_COVERAGE_PCT) {
+        return null
+    }
+    return `This run clustered ${formatCoverage(coverage)}% of the sessions in the window. Every count and percentage here describes that sample, so read small clusters and per-tool rates as directional.`
+}
+
+/** Keeps a sub-1% coverage figure from rounding to a flat "0%". */
+function formatCoverage(pct: number): string {
+    return pct >= 1 ? pct.toFixed(0) : pct.toFixed(1)
+}
+
 function median(values: number[]): number | null {
     if (values.length === 0) {
         return null
@@ -242,6 +265,7 @@ export interface mcpClusteringLogicValues {
     hasToolPivot: boolean
     intentRoutingEnabled: boolean
     isComputing: boolean
+    lowSampleWarning: string | null
     routeShapeCounts: RouteShapeCounts
     scatterPoints: ScatterPoint[]
     scopedClusters: MCPIntentClusterApi[]
@@ -397,6 +421,7 @@ export interface mcpClusteringLogicMeta {
         routeShapeCounts: (searchedClusters: MCPIntentClusterApi[]) => RouteShapeCounts
         isComputing: (snapshot: MCPIntentClusterSnapshotApi) => boolean
         hasSnapshot: (snapshot: MCPIntentClusterSnapshotApi) => boolean
+        lowSampleWarning: (snapshot: MCPIntentClusterSnapshotApi) => string | null
     }
 }
 
@@ -791,6 +816,10 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (s) => [s.snapshot],
             (snapshot: MCPIntentClusterSnapshotApi): boolean =>
                 snapshot.last_computed_at !== null || snapshot.clusters.length > 0,
+        ],
+        lowSampleWarning: [
+            (s) => [s.snapshot],
+            (snapshot: MCPIntentClusterSnapshotApi): string | null => lowSampleCaveat(snapshot.computed_with),
         ],
     }),
     listeners(({ actions, values, cache }) => ({

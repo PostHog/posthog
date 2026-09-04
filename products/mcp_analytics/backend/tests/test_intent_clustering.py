@@ -61,6 +61,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     fetch_session_calls,
     fetch_tool_descriptions,
     fetch_window_stats,
+    normalize_intent_text,
     sample_corpus_sessions,
     top_corpus_tools,
 )
@@ -421,7 +422,72 @@ class TestBuildSnapshot:
 # build_call_corpus --------------------------------------------------------
 
 
+class TestNormalizeIntentText:
+    @parameterized.expand(
+        [
+            ("a run id", "Signals scout run 01a01cae-fdd4-772e-b35c-07d69a095632", "Signals scout run <id>"),
+            ("an uppercase run id", "run 01A01CAE-FDD4-772E-B35C-07D69A095632", "run <id>"),
+            (
+                "two ids in one intent",
+                "copy 01a01cae-fdd4-772e-b35c-07d69a095632 to 7f2e1b90-aaaa-4bcd-8123-0f9e2d3c4b5a",
+                "copy <id> to <id>",
+            ),
+            ("a trailing period", "Read tool schema before use.", "Read tool schema before use"),
+            ("trailing punctuation after an id", "scout run 01a01cae-fdd4-772e-b35c-07d69a095632.", "scout run <id>"),
+            (
+                "the whitespace a replacement leaves",
+                "run   01a01cae-fdd4-772e-b35c-07d69a095632   again",
+                "run <id> again",
+            ),
+        ]
+    )
+    def test_folds_the_spellings_of_one_intent_together(self, _name: str, raw: str, expected: str) -> None:
+        assert normalize_intent_text(raw) == expected
+
+    @parameterized.expand(
+        [
+            ("case, which becomes the cluster label", "Read Tool Schema Before Use"),
+            ("short numbers that carry meaning", "count errors over the last 7 days"),
+            ("a long number that is not a run id", "window starting 1755763299000"),
+            ("a date, since two dates are two questions", "audit for 2026-08-20"),
+            ("mid-sentence punctuation", "check flags, then read logs"),
+            ("no identifiers at all", "find the slowest endpoints"),
+        ]
+    )
+    def test_leaves_text_alone_when_folding_it_would_merge_real_differences(self, _name: str, raw: str) -> None:
+        # Every rule here can merge two goals that differ for a reason, so the set
+        # stays at the rules that measurably earned their place on a real corpus.
+        assert normalize_intent_text(raw) == raw
+
+
 class TestBuildCallCorpus:
+    def test_collapses_intent_variants_that_differ_only_by_a_run_id(self) -> None:
+        # A recurring job stamps its run id into a fixed template, so one goal
+        # arrives as N intents. Each variant carries too few calls to clear the
+        # top-N cut, so the calls left clustering entirely instead of grouping.
+        rows = [
+            ("s1", "query_logs", "scout run 01a01cae-fdd4-772e-b35c-07d69a095632", False),
+            ("s2", "query_logs", "scout run 7f2e1b90-aaaa-4bcd-8123-0f9e2d3c4b5a", False),
+            ("s3", "query_logs", "scout run 3c9d5e21-bbbb-4aef-9012-1a2b3c4d5e6f", False),
+        ]
+
+        records, _, _ = build_call_corpus(rows)
+
+        assert [r.intent_text for r in records] == ["scout run <id>"]
+        assert records[0].frequency == 3
+        assert records[0].session_count == 3
+
+    def test_keeps_distinct_goals_apart_when_only_their_run_ids_match(self) -> None:
+        run_id = "01a01cae-fdd4-772e-b35c-07d69a095632"
+        rows = [
+            ("s1", "query_logs", f"read logs for {run_id}", False),
+            ("s2", "query_apm_spans", f"read spans for {run_id}", False),
+        ]
+
+        records, _, _ = build_call_corpus(rows)
+
+        assert sorted(r.intent_text for r in records) == ["read logs for <id>", "read spans for <id>"]
+
     def test_attributes_tool_counts_to_the_calls_own_intent(self) -> None:
         # The v1 pipeline smeared the session's first intent across every call in
         # the session, so tools used for a later intent were mis-credited.
@@ -803,6 +869,7 @@ def _cluster_fixture() -> list[dict[str, Any]]:
             "id": 0,
             "label": "check flags",
             "call_count": 10,
+            "intent_count": 4,
             "routing_entropy": 0.5,
             "tool_distribution": [
                 {"tool": "t1", "count": 6, "pct": 60.0, "errors": 1, "error_rate_pct": 16.7},
@@ -813,6 +880,7 @@ def _cluster_fixture() -> list[dict[str, Any]]:
             "id": 1,
             "label": "run queries",
             "call_count": 4,
+            "intent_count": 2,
             "routing_entropy": 0.0,
             "tool_distribution": [
                 {"tool": "t1", "count": 4, "pct": 100.0, "errors": 0, "error_rate_pct": 0.0},
@@ -851,6 +919,26 @@ class TestComputeToolPivot:
         assert t2["clusters"][0]["rank"] == 2
         assert t2["clusters"][0]["top_competitor"] == {"tool": "t1", "pct": 60.0}
         assert by_tool["t1"]["clusters"][1]["top_competitor"] is None
+
+    def test_withholds_a_competitor_from_a_cluster_holding_one_intent(self) -> None:
+        # One intent's tool spread is one agent's sequence, not two tools competing
+        # for a goal. Naming a competitor there reads as a routing conflict that
+        # the sample cannot show.
+        clusters = _cluster_fixture()
+        clusters[0]["intent_count"] = 1
+
+        pivot, _ = compute_tool_pivot(
+            clusters,
+            calls_by_session={"s1": [_attributed_call("s1", "t1"), _attributed_call("s1", "t2")]},
+            advertised_by_session={},
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        by_tool = {t["tool"]: t for t in pivot}
+        assert by_tool["t1"]["clusters"][0]["top_competitor"] is None
+        # Capture share still stands: it is a count, not an inference about routing.
+        assert by_tool["t1"]["clusters"][0]["capture_pct"] == pytest.approx(60.0)
 
     def test_advertised_denominator_ignores_sessions_absent_from_the_corpus(self) -> None:
         # The row cap can drop whole sessions after their ids were sampled. Leaving

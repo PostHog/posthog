@@ -194,7 +194,8 @@ function IntentsView(): JSX.Element {
 }
 
 export function MCPAnalyticsClustering(): JSX.Element {
-    const { snapshot, hasSnapshot, isComputing, snapshotLoading, viewMode } = useValues(mcpClusteringLogic)
+    const { snapshot, hasSnapshot, isComputing, snapshotLoading, viewMode, lowSampleWarning } =
+        useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
 
     if (snapshot.status === 'error') {
@@ -223,6 +224,10 @@ export function MCPAnalyticsClustering(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-quill>
             <StatusRow />
+            {/* The coverage line in the status row states the same sample, but at the
+                size of a timestamp. A thin sample changes how every number below it
+                should be read, so it gets its own banner. */}
+            {lowSampleWarning && <LemonBanner type="warning">{lowSampleWarning}</LemonBanner>}
             <div className="flex flex-wrap items-center gap-3">
                 <ViewToggle />
                 <CategoryScope />
