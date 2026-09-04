@@ -2616,20 +2616,28 @@ mod tests {
 
     /// A composed change carries the run of the last seed that touched the person, in offset
     /// order. Picking it in leaf-key order would stamp whichever leaf happens to sort last, so the
-    /// test runs both orders: one of them is the key order, and both must answer alike.
+    /// test runs both orders: one of them is the key order, and both must answer alike. The
+    /// register diff's lagging pass walks the same leaves in key order after the fold, so it must
+    /// not move the provenance either.
     #[tokio::test]
     async fn a_composed_change_carries_the_run_of_the_last_seed_by_offset() {
         const FIRST_HASH: &str = "0123456789abcdef";
         const SECOND_HASH: &str = "fedcba0123456789";
         let person = Uuid::from_u128(0x5EED);
         let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
-        let cohorts = vec![(
-            1,
-            wrap(vec![
-                single_leaf_json_with(FIRST_HASH, 7),
-                single_leaf_json_with(SECOND_HASH, 7),
-            ]),
-        )];
+        // Each hash also backs a single-leaf cohort, so the register diff finds the person's rows
+        // lagging (absent) and revisits their leaves after the fold has spoken.
+        let cohorts = vec![
+            (
+                1,
+                wrap(vec![
+                    single_leaf_json_with(FIRST_HASH, 7),
+                    single_leaf_json_with(SECOND_HASH, 7),
+                ]),
+            ),
+            (2, wrap(vec![single_leaf_json_with(FIRST_HASH, 7)])),
+            (3, wrap(vec![single_leaf_json_with(SECOND_HASH, 7)])),
+        ];
 
         for [earlier, later] in [[FIRST_HASH, SECOND_HASH], [SECOND_HASH, FIRST_HASH]] {
             let mut shell = Shell::new(cohorts.clone());
@@ -2650,13 +2658,17 @@ mod tests {
                 .await;
 
             let changes = shell.sink.changes();
+            let composed: Vec<_> = changes
+                .iter()
+                .filter(|change| change.cohort_id == 1)
+                .collect();
             assert_eq!(
-                changes.len(),
-                1,
-                "both leaves entered, so the composed cohort flipped once",
+                (changes.len(), composed.len()),
+                (3, 1),
+                "both single-leaf cohorts entered and the composed cohort flipped once",
             );
             assert_eq!(
-                changes[0].run_id,
+                composed[0].run_id,
                 Some(RunId(Uuid::from_u128(0xB))),
                 "the later seed by offset owns the composed flip, whichever leaf sorts last",
             );
