@@ -322,6 +322,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 **Interfaces:**
 
 - Add `KeyTableScheduler` and `KeyTable` in `key_table.rs`: per-key FIFO, outstanding flag, parked list. Implements `Scheduler`. Tests only, no production callers.
+- Modify `Scheduler::on_deadline`: takes a `Deadline` — the per-batch flush deadline (the pin-stash pacing) or the parked-retry deadline (the key-table pacing). Each implementation answers its own arm; the other arm is a no-op. The dispatcher keeps firing per-batch deadlines.
 
 **Metrics:**
 
@@ -343,6 +344,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 - Modify `Config`: add the scheduler selection.
 - Modify the batcher construction: select `KeyTableScheduler` or `PinStashScheduler`.
+- Modify the flush driver: fire `Deadline::ParkedRetry` when the key-table scheduler is selected, instead of the per-batch deadlines.
 - No interface shapes change.
 
 ### 11. Delete the old scheduler (cleanup)
