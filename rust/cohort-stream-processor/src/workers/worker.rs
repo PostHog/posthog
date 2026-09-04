@@ -50,7 +50,7 @@ use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::reconcile::{handle_reconcile_drain, ReconcileQueue};
 use crate::workers::seed_apply::{handle_seed_groups, ApplyDeps};
-use crate::workers::seed_run::{group_seeds, leaf_weight, Admitted, SeedOffset};
+use crate::workers::seed_run::{group_seeds, row_weight, Admitted, SeedOffset};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -575,9 +575,7 @@ async fn apply_seed_runs(
         sink,
         merge,
     };
-    let groups = group_seeds(seeds, merge.seed_budget, |work| {
-        leaf_weight(&snapshot, work)
-    });
+    let groups = group_seeds(seeds, merge.seed_budget, |work| row_weight(&snapshot, work));
     handle_seed_groups(deps, queue, reconcile_queue, clock, groups).await;
     false
 }

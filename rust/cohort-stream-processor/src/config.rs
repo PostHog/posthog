@@ -283,12 +283,14 @@ pub struct Config {
     #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX", default = "256")]
     pub cohort_seed_apply_batch_max: usize,
 
-    /// Leaves one run may fold over. Bounds the overlay exactly, so a hash resolving to many
-    /// leaves or a 1,024-hash person seed cannot make a run arbitrarily heavy. The register read
-    /// and the recompute fan out again by the cohorts each leaf backs, so they scale with this
-    /// rather than being capped by it. A run closes before the seed that would exceed it.
-    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX_LEAVES", default = "4096")]
-    pub cohort_seed_apply_batch_max_leaves: usize,
+    /// Store rows one run may touch: the stage-1 rows its seeds fold plus one stage-2 register per
+    /// cohort those leaves back. A ceiling on the run's whole footprint — overlay, register read,
+    /// recompute set, membership output and cascades — so a hash resolving to many leaves, a leaf
+    /// backing many cohorts, or a 1,024-hash person seed cannot make a run arbitrarily heavy. A run
+    /// closes before the seed that would exceed it; a seed heavier than the whole budget still
+    /// runs alone, which is the per-seed apply's own exposure.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX_ROWS", default = "4096")]
+    pub cohort_seed_apply_batch_max_rows: usize,
 
     /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
     /// `0` disables the trigger.
@@ -689,7 +691,7 @@ impl Config {
     pub fn seed_run_budget(&self) -> RunBudget {
         RunBudget {
             seeds: NonZeroUsize::new(self.cohort_seed_apply_batch_max).unwrap_or(NonZeroUsize::MIN),
-            leaves: NonZeroUsize::new(self.cohort_seed_apply_batch_max_leaves)
+            rows: NonZeroUsize::new(self.cohort_seed_apply_batch_max_rows)
                 .unwrap_or(NonZeroUsize::MIN),
         }
     }
@@ -808,8 +810,8 @@ impl Config {
             "COHORT_SEED_APPLY_BATCH_MAX must be greater than zero (1 = the per-seed apply).",
         );
         ensure!(
-            self.cohort_seed_apply_batch_max_leaves > 0,
-            "COHORT_SEED_APPLY_BATCH_MAX_LEAVES must be greater than zero.",
+            self.cohort_seed_apply_batch_max_rows > 0,
+            "COHORT_SEED_APPLY_BATCH_MAX_ROWS must be greater than zero.",
         );
 
         let pacing = self.seed_pacing_config()?;
@@ -1209,7 +1211,7 @@ mod tests {
             cohort_seed_person_apply_enabled: false,
             cohort_seed_person_live_margin_ms: 900_000,
             cohort_seed_apply_batch_max: 256,
-            cohort_seed_apply_batch_max_leaves: 4096,
+            cohort_seed_apply_batch_max_rows: 4096,
             cohort_seed_live_lag_pause_ms: 120_000,
             cohort_seed_live_lag_resume_ms: 60_000,
             cohort_seed_disk_pause_pct: 60.0,
@@ -1296,7 +1298,7 @@ mod tests {
     fn seed_run_budget_rejects_zero_ceilings_and_maps_the_defaults() {
         let defaults = test_config();
         assert_eq!(defaults.seed_run_budget().seeds.get(), 256);
-        assert_eq!(defaults.seed_run_budget().leaves.get(), 4096);
+        assert_eq!(defaults.seed_run_budget().rows.get(), 4096);
 
         let mut config = test_config();
         config.cohort_seed_apply_batch_max = 0;
@@ -1307,15 +1309,15 @@ mod tests {
             .contains("COHORT_SEED_APPLY_BATCH_MAX"),);
 
         config.cohort_seed_apply_batch_max = 1;
-        config.cohort_seed_apply_batch_max_leaves = 0;
+        config.cohort_seed_apply_batch_max_rows = 0;
         assert!(config
             .validate_startup()
             .unwrap_err()
             .to_string()
-            .contains("COHORT_SEED_APPLY_BATCH_MAX_LEAVES"),);
+            .contains("COHORT_SEED_APPLY_BATCH_MAX_ROWS"),);
 
         // `1` is the documented hatch back to the per-seed apply, so it must start.
-        config.cohort_seed_apply_batch_max_leaves = 1;
+        config.cohort_seed_apply_batch_max_rows = 1;
         assert!(config.validate_startup().is_ok());
         assert_eq!(config.seed_run_budget().seeds.get(), 1);
     }

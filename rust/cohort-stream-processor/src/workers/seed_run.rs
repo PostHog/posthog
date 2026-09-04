@@ -11,10 +11,12 @@
 
 use std::num::NonZeroUsize;
 
-use cohort_core::seed::{PersonSeed, ReconcileTile, SeedTile};
+use cohort_core::seed::{ConditionHash, PersonSeed, ReconcileTile, SeedTile};
 
 use crate::consumers::seeds::{SeedSkipReason, SeedWork};
+use crate::filters::reverse_index::TeamFilters;
 use crate::filters::FilterCatalog;
+use crate::stage1::key::LeafStateKey;
 
 /// One message's offset on `cohort_stream_seed_events`. A newtype so the seed tracker can never be
 /// handed another topic's offset.
@@ -115,19 +117,16 @@ impl SeedKind {
     }
 }
 
-/// Both ceilings on one run. `seeds` bounds messages; `leaves` bounds the overlay exactly, so a
-/// hash resolving to many leaves or a 1,024-hash person seed cannot make a run arbitrarily heavy.
-///
-/// The register read and the recompute set scale with `leaves` but are not bounded by it: both fan
-/// out again by the cohorts each leaf backs, which the catalog owns. Watch
-/// `store_offload_permit_wait_duration_seconds` rather than assuming a hard ceiling there.
+/// Both ceilings on one run. `seeds` bounds messages; `rows` bounds the run's footprint, so a hash
+/// resolving to many leaves, a leaf backing many cohorts, or a 1,024-hash person seed cannot make
+/// a run arbitrarily heavy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunBudget {
     /// Seeds per run. `1` restores the per-seed apply, which is the hatch if batching misbehaves.
     pub seeds: NonZeroUsize,
-    /// Leaves per run, as [`leaf_weight`] weighs them. A run closes before the seed that would
+    /// Store rows per run, as [`row_weight`] weighs them. A run closes before the seed that would
     /// exceed it; a seed heavier than the whole budget still runs alone.
-    pub leaves: NonZeroUsize,
+    pub rows: NonZeroUsize,
 }
 
 impl Default for RunBudget {
@@ -135,27 +134,60 @@ impl Default for RunBudget {
     fn default() -> Self {
         Self {
             seeds: NonZeroUsize::new(256).expect("256 > 0"),
-            leaves: NonZeroUsize::new(4096).expect("4096 > 0"),
+            rows: NonZeroUsize::new(4096).expect("4096 > 0"),
         }
     }
 }
 
-/// How many leaves one seed can touch, against the catalog snapshot the run will fold with.
+/// How many store rows one seed can touch, against the catalog snapshot the run will fold with:
+/// its stage-1 rows (one per leaf a tile reaches; one record per person seed) plus one stage-2
+/// register per cohort each of those leaves backs. Every per-run structure — the overlay, the
+/// register read, the recompute set, the membership output and its cascades — holds at most one
+/// entry per row, so the budget this feeds is a ceiling on all of them, not on the overlay alone.
 ///
 /// A seed the catalog cannot place weighs one, so a run of them is still bounded by the seed cap
 /// rather than by nothing. Control and skip seeds weigh nothing: they are always their own group.
-pub(crate) fn leaf_weight(catalog: &FilterCatalog, work: &SeedWork) -> usize {
-    let leaves = match work {
+pub(crate) fn row_weight(catalog: &FilterCatalog, work: &SeedWork) -> usize {
+    let rows = match work {
         SeedWork::Tile(tile) => catalog.team(tile.team_id()).map_or(0, |filters| {
-            filters
-                .by_condition_to_lsk
-                .get(&tile.condition_hash().as_bytes())
-                .map_or(0, Vec::len)
+            leaves_of(filters, tile.condition_hash())
+                .map(|lsk| 1 + registers_backed_by(filters, lsk))
+                .sum::<usize>()
         }),
-        SeedWork::Person(seed) => seed.evaluated().len(),
+        SeedWork::Person(seed) => catalog.team(seed.team_id()).map_or(0, |filters| {
+            1 + seed
+                .evaluated()
+                .iter()
+                .flat_map(|&hash| leaves_of(filters, hash))
+                .map(|lsk| registers_backed_by(filters, lsk))
+                .sum::<usize>()
+        }),
         SeedWork::Reconcile(_) | SeedWork::Skip(_) => return 0,
     };
-    leaves.max(1)
+    rows.max(1)
+}
+
+/// The leaves a condition hash resolves to: one per window the catalog keeps over it.
+fn leaves_of(filters: &TeamFilters, hash: ConditionHash) -> impl Iterator<Item = &LeafStateKey> {
+    filters
+        .by_condition_to_lsk
+        .get(&hash.as_bytes())
+        .into_iter()
+        .flatten()
+}
+
+/// The `cf_stage2` rows one leaf reaches for one person: one per single-leaf cohort the register
+/// diff keys on it, one per composable cohort the recompute re-walks for it.
+fn registers_backed_by(filters: &TeamFilters, lsk: &LeafStateKey) -> usize {
+    let single = filters
+        .by_lsk_to_single_leaf_cohorts
+        .get(lsk)
+        .map_or(0, Vec::len);
+    let composable = filters
+        .by_lsk_to_composable_cohorts
+        .get(lsk)
+        .map_or(0, Vec::len);
+    single + composable
 }
 
 /// Split `seeds` into runs of one kind, in offset order, each within `budget` under `weigh`.
@@ -210,11 +242,11 @@ pub(crate) fn group_seeds(
     groups
 }
 
-/// A run of one kind still accepting seeds, with the leaf weight it has admitted so far.
+/// A run of one kind still accepting seeds, with the row weight it has admitted so far.
 struct OpenRun<T> {
     into: fn(SeedRun<T>) -> SeedGroup,
     items: Vec<Admitted<T>>,
-    leaves: usize,
+    rows: usize,
 }
 
 impl<T> OpenRun<T> {
@@ -222,12 +254,12 @@ impl<T> OpenRun<T> {
         Self {
             into,
             items: Vec::new(),
-            leaves: 0,
+            rows: 0,
         }
     }
 
     /// Admit one seed, closing the run around it as the budget demands: before, when its weight
-    /// would overflow the leaf budget; after, when it fills the seed count.
+    /// would overflow the row budget; after, when it fills the seed count.
     ///
     /// An empty run always admits, so a seed heavier than the whole budget still applies alone
     /// instead of never being marked or held.
@@ -238,12 +270,12 @@ impl<T> OpenRun<T> {
         budget: RunBudget,
         groups: &mut Vec<SeedGroup>,
     ) {
-        let overflows = self.leaves.saturating_add(weight) > budget.leaves.get();
+        let overflows = self.rows.saturating_add(weight) > budget.rows.get();
         if overflows && !self.items.is_empty() {
             self.close(groups);
         }
         self.items.push(item);
-        self.leaves = self.leaves.saturating_add(weight);
+        self.rows = self.rows.saturating_add(weight);
         if self.items.len() >= budget.seeds.get() {
             self.close(groups);
         }
@@ -254,7 +286,7 @@ impl<T> OpenRun<T> {
         let Some(run) = SeedRun::new(std::mem::take(&mut self.items)) else {
             return;
         };
-        self.leaves = 0;
+        self.rows = 0;
         groups.push((self.into)(run));
     }
 }
@@ -341,14 +373,14 @@ mod tests {
             .collect()
     }
 
-    fn budget(seeds: usize, leaves: usize) -> RunBudget {
+    fn budget(seeds: usize, rows: usize) -> RunBudget {
         RunBudget {
             seeds: NonZeroUsize::new(seeds).unwrap(),
-            leaves: NonZeroUsize::new(leaves).unwrap(),
+            rows: NonZeroUsize::new(rows).unwrap(),
         }
     }
 
-    /// Group under the seed cap alone: every seed weighs one and the leaf budget is unbounded.
+    /// Group under the seed cap alone: every seed weighs one and the row budget is unbounded.
     fn group_by_count(seeds: Vec<Admitted<SeedWork>>, max_seeds: usize) -> Vec<SeedGroup> {
         group_seeds(seeds, budget(max_seeds, usize::MAX), |_| 1)
     }
@@ -435,7 +467,7 @@ mod tests {
     /// The budget bounds what a run expands to, so it has to be checked before a seed is admitted:
     /// applied after, every run would overshoot by one seed's whole leaf set.
     #[test]
-    fn a_run_closes_before_the_seed_that_would_exceed_the_leaf_budget() {
+    fn a_run_closes_before_the_seed_that_would_exceed_the_row_budget() {
         let groups = group_seeds(tiles(0..5), budget(256, 10), |_| 4);
 
         assert_eq!(spans(&groups), vec![(0, 1), (2, 3), (4, 4)]);
@@ -499,10 +531,11 @@ mod tests {
         );
     }
 
-    /// The weight is the leaf set a seed folds over. A hash shared by many cohorts still reaches
-    /// one leaf, so counting cohorts here would close runs the overlay could carry.
+    /// The weight is the run's footprint, not its leaf count: a leaf backing many cohorts costs a
+    /// register read, a recompute, and an emission per cohort, and that is what the budget has to
+    /// bound for a run's memory and output to stay finite.
     #[test]
-    fn leaf_weight_counts_leaves_and_floors_an_unplaceable_seed_at_one() {
+    fn row_weight_counts_stage1_rows_plus_backed_registers_and_floors_at_one() {
         let behavioral = |condition_hash: &str, window_days: i64| {
             json!({
                 "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -519,7 +552,9 @@ mod tests {
         let cohort =
             |leaves: Vec<Value>| json!({ "properties": { "type": "AND", "values": leaves } });
         let mut builder = TeamFiltersBuilder::default();
-        // Two windows over one condition hash: two leaves. Three cohorts share them.
+        // Two windows over one condition hash: two leaves. Three single-leaf cohorts share the
+        // 7-day one, a fourth keys on the 30-day one, and a composed cohort walks the 7-day one
+        // together with the person leaf.
         for id in 1..=3 {
             builder
                 .add_cohort(CohortId(id), TEAM, &cohort(vec![behavioral(BEHAVIORAL, 7)]))
@@ -529,17 +564,24 @@ mod tests {
             .add_cohort(CohortId(4), TEAM, &cohort(vec![behavioral(BEHAVIORAL, 30)]))
             .unwrap();
         builder
-            .add_cohort(CohortId(5), TEAM, &cohort(vec![person_property]))
+            .add_cohort(CohortId(5), TEAM, &cohort(vec![person_property.clone()]))
+            .unwrap();
+        builder
+            .add_cohort(
+                CohortId(6),
+                TEAM,
+                &cohort(vec![behavioral(BEHAVIORAL, 7), person_property]),
+            )
             .unwrap();
         let catalog = FilterCatalog::from_teams([(TEAM, builder.freeze(chrono_tz::UTC))]);
 
         assert_eq!(
-            leaf_weight(&catalog, &SeedWork::Tile(tile_with(TEAM, BEHAVIORAL))),
-            2,
-            "two windows over one hash are two leaves, however many cohorts share them",
+            row_weight(&catalog, &SeedWork::Tile(tile_with(TEAM, BEHAVIORAL))),
+            (1 + 3 + 1) + (1 + 1),
+            "the 7-day leaf is its row, three single-leaf registers and one composed; the 30-day leaf its row and one register",
         );
         assert_eq!(
-            leaf_weight(
+            row_weight(
                 &catalog,
                 &SeedWork::Tile(tile_with(TEAM, "no_such_cond0000"))
             ),
@@ -547,21 +589,26 @@ mod tests {
             "a hash the catalog no longer resolves still weighs one",
         );
         assert_eq!(
-            leaf_weight(&catalog, &SeedWork::Tile(tile_with(TeamId(99), BEHAVIORAL))),
+            row_weight(&catalog, &SeedWork::Tile(tile_with(TeamId(99), BEHAVIORAL))),
             1,
             "an unknown team still weighs one",
         );
         assert_eq!(
-            leaf_weight(
+            row_weight(&catalog, &SeedWork::Person(person_seed(&[PERSON]))),
+            1 + (1 + 1),
+            "a person seed is one record plus the registers its hashes back: one single-leaf, one composed",
+        );
+        assert_eq!(
+            row_weight(
                 &catalog,
                 &SeedWork::Person(person_seed(&[BEHAVIORAL, PERSON])),
             ),
-            2,
-            "a person seed weighs its evaluated set, one leaf per hash",
+            1 + (3 + 1) + 1 + (1 + 1),
+            "every hash the seed evaluated counts, whatever the fold later drops",
         );
-        assert_eq!(leaf_weight(&catalog, &SeedWork::Reconcile(reconcile())), 0);
+        assert_eq!(row_weight(&catalog, &SeedWork::Reconcile(reconcile())), 0);
         assert_eq!(
-            leaf_weight(&catalog, &SeedWork::Skip(SeedSkipReason::UnknownKind)),
+            row_weight(&catalog, &SeedWork::Skip(SeedSkipReason::UnknownKind)),
             0,
         );
     }
