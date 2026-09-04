@@ -27,7 +27,7 @@ import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { sourceManagementLogic } from '../logics/sourceManagementLogic'
+import { sourceSummariesLogic } from '../logics/sourceSummariesLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
@@ -42,9 +42,9 @@ const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
 ]
 
 export function ManagedSourcesTable(): JSX.Element {
-    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
-        useValues(sourceManagementLogic)
-    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
+    const { filteredManagedSourceSummaries, sourceSummariesLoading, sourceReloadingById, managedSearchTerm } =
+        useValues(sourceSummariesLogic)
+    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceSummariesLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
@@ -65,8 +65,8 @@ export function ManagedSourcesTable(): JSX.Element {
             </div>
             <LemonTable
                 id="managed-sources"
-                dataSource={filteredManagedSources}
-                loading={dataWarehouseSourcesLoading}
+                dataSource={filteredManagedSourceSummaries}
+                loading={sourceSummariesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
@@ -134,11 +134,7 @@ export function ManagedSourcesTable(): JSX.Element {
                         title: 'Total Rows Synced',
                         key: 'rows_synced',
                         tooltip: 'Total number of rows synced across all schemas in this source',
-                        render: (_, source) =>
-                            ('schemas' in source
-                                ? source.schemas.reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
-                                : source.rows_synced
-                            ).toLocaleString(),
+                        render: (_, source) => source.rows_synced.toLocaleString(),
                     },
                     ...(showMetrics
                         ? [
@@ -174,20 +170,14 @@ export function ManagedSourcesTable(): JSX.Element {
                                 return null
                             }
                             const counts = SCHEMA_STATUS_ORDER.map((status) => {
-                                const schemaNames =
-                                    'schemas' in source
-                                        ? source.schemas
-                                              .filter((schema) => schema.should_sync && schema.status === status)
-                                              .map((schema) => schema.label ?? schema.name)
-                                        : (source.schema_status_names[status] ?? [])
+                                const schemaNames = source.schema_status_names[status] ?? []
                                 return { status, schemaNames, count: schemaNames.length }
                             }).filter(({ count }) => count > 0)
 
                             if (counts.length === 0) {
                                 // Source has schemas but none are enabled — source.status can be stale
                                 // ("Running" from before they were disabled), so show a neutral tag instead.
-                                const schemasCount = 'schemas' in source ? source.schemas.length : source.schemas_count
-                                if (schemasCount > 0) {
+                                if (source.schemas_count > 0) {
                                     return <LemonTag type="muted">Not syncing</LemonTag>
                                 }
                                 const tagContent = (

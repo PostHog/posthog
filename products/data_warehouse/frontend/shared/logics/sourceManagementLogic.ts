@@ -26,7 +26,6 @@ import {
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSource,
-    ExternalDataSourceListItem,
     ExternalDataSourceSchema,
 } from '~/types'
 
@@ -39,6 +38,7 @@ import type { ExternalDataSourceRevenueAnalyticsConfig } from '../../../../../fr
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { joinsLogic } from './joinsLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
+import { shouldLoadSourceSummaries } from './sourceSummariesLogic'
 
 // Poll fast while something is actively syncing so sync status feels live; otherwise poll slowly. The
 // list response can be very large (a source can have tens of thousands of schemas), so refetching it
@@ -47,25 +47,16 @@ import { sourcesDataLogic } from './sourcesDataLogic'
 const REFRESH_INTERVAL = 10000
 const IDLE_REFRESH_INTERVAL = 15000
 
-export const isActivelySyncing = (sources: PaginatedResponse<ExternalDataSourceListItem> | null): boolean =>
+export const isActivelySyncing = (sources: PaginatedResponse<ExternalDataSource> | null): boolean =>
     (sources?.results ?? []).some(
         (source) =>
             source.status === ExternalDataJobStatus.Running ||
-            ('schemas' in source
-                ? source.schemas.some((schema) => schema.status === ExternalDataSchemaStatus.Running)
-                : (source.schema_status_names[ExternalDataSchemaStatus.Running]?.length ?? 0) > 0)
+            source.schemas.some((schema) => schema.status === ExternalDataSchemaStatus.Running)
     )
 
-// Pages that actually render the sources list and want live sync-status updates. The 10s poll
-// runs only on these. Every other page that mounts this logic (the new-source wizard, SQL editor,
-// person/group profiles, debug, etc.) reads the sources once on mount without polling. This
-// matters because the list response is large and was previously re-fetched every REFRESH_INTERVAL
-// on pages that never display it.
-const SOURCE_LIST_PATHS = [
-    '/data-management/sources', // SourcesScene: managed, direct connect and self-managed sources tables
-    '/data-management/revenue', // Revenue analytics settings: external source configuration
-    '/settings/environment-marketing-analytics', // Marketing analytics settings: source configuration
-]
+// Marketing analytics still consumes full source records and needs live status updates.
+// Summary-backed pages use sourceSummariesLogic instead.
+const SOURCE_LIST_PATHS = ['/settings/environment-marketing-analytics']
 
 const shouldPollSources = (): boolean => SOURCE_LIST_PATHS.includes(router.values.location.pathname)
 
@@ -75,17 +66,17 @@ export interface sourceManagementLogicValues {
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
-    dataWarehouseSources: PaginatedResponse<ExternalDataSourceListItem> | null // sourcesDataLogic
+    dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
     directSearchTerm: string
-    directSources: ExternalDataSourceListItem[]
-    filteredDirectSources: ExternalDataSourceListItem[]
-    filteredManagedSources: ExternalDataSourceListItem[]
+    directSources: ExternalDataSource[]
+    filteredDirectSources: ExternalDataSource[]
+    filteredManagedSources: ExternalDataSource[]
     filteredSelfManagedTables: DatabaseSchemaDataWarehouseTable[]
     hasZendeskSource: boolean
     managedSearchTerm: string
-    managedSources: ExternalDataSourceListItem[]
-    managedSourcesFuse: Fuse<ExternalDataSourceListItem>
+    managedSources: ExternalDataSource[]
+    managedSourcesFuse: Fuse<ExternalDataSource>
     schemaReloadingById: Record<string, boolean>
     schemas: null
     schemasLoading: boolean
@@ -122,14 +113,14 @@ export interface sourceManagementLogicActions {
         errorObject?: any
     } // sourcesDataLogic
     loadSourcesSuccess: (
-        dataWarehouseSources: PaginatedResponse<ExternalDataSourceListItem>,
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource>,
         payload?:
             | {
                   value: true
               }
             | undefined
     ) => {
-        dataWarehouseSources: PaginatedResponse<ExternalDataSourceListItem>
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource>
         payload?: {
             value: true
         }
@@ -137,10 +128,10 @@ export interface sourceManagementLogicActions {
     updateSource: (source: ExternalDataSource) => ExternalDataSource // sourcesDataLogic
     updateSourceRevenueAnalyticsConfig: (args_0: {
         config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
-        source: ExternalDataSourceListItem
+        source: ExternalDataSource
     }) => {
         config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
-        source: ExternalDataSourceListItem
+        source: ExternalDataSource
     } // sourcesDataLogic
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
@@ -148,14 +139,14 @@ export interface sourceManagementLogicActions {
     deleteSelfManagedTable: (tableId: string) => {
         tableId: string
     }
-    deleteSource: (source: ExternalDataSourceListItem) => {
-        source: ExternalDataSourceListItem
+    deleteSource: (source: ExternalDataSource) => {
+        source: ExternalDataSource
     }
     refreshSelfManagedTableSchema: (tableId: string) => {
         tableId: string
     }
-    reloadSource: (source: ExternalDataSourceListItem) => {
-        source: ExternalDataSourceListItem
+    reloadSource: (source: ExternalDataSource) => {
+        source: ExternalDataSource
     }
     schemaLoadingFinished: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
@@ -169,8 +160,8 @@ export interface sourceManagementLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
-    sourceLoadingFinished: (source: ExternalDataSourceListItem) => {
-        source: ExternalDataSourceListItem
+    sourceLoadingFinished: (source: ExternalDataSource) => {
+        source: ExternalDataSource
     }
     updateSchema: (schema: ExternalDataSourceSchema) => ExternalDataSourceSchema
     updateSchemaFailure: (
@@ -199,26 +190,19 @@ export interface sourceManagementLogicMeta {
             selfManagedTables: DatabaseSchemaDataWarehouseTable[],
             searchTerm: string
         ) => DatabaseSchemaDataWarehouseTable[]
-        managedSources: (
-            dataWarehouseSources: PaginatedResponse<ExternalDataSourceListItem> | null
-        ) => ExternalDataSourceListItem[]
-        directSources: (
-            dataWarehouseSources: PaginatedResponse<ExternalDataSourceListItem> | null
-        ) => ExternalDataSourceListItem[]
-        filteredDirectSources: (
-            directSources: ExternalDataSourceListItem[],
-            directSearchTerm: string
-        ) => ExternalDataSourceListItem[]
+        managedSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        directSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        filteredDirectSources: (directSources: ExternalDataSource[], directSearchTerm: string) => ExternalDataSource[]
         managedSourcesFuse: (
-            managedSources: ExternalDataSourceListItem[],
+            managedSources: ExternalDataSource[],
             availableSources: Record<string, SourceConfig> | null
-        ) => Fuse<ExternalDataSourceListItem>
+        ) => Fuse<ExternalDataSource>
         filteredManagedSources: (
-            managedSources: ExternalDataSourceListItem[],
-            managedSourcesFuse: Fuse<ExternalDataSourceListItem>,
+            managedSources: ExternalDataSource[],
+            managedSourcesFuse: Fuse<ExternalDataSource>,
             managedSearchTerm: string
-        ) => ExternalDataSourceListItem[]
-        hasZendeskSource: (dataWarehouseSources: PaginatedResponse<ExternalDataSourceListItem> | null) => boolean
+        ) => ExternalDataSource[]
+        hasZendeskSource: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => boolean
     }
 }
 
@@ -256,9 +240,9 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         ],
     })),
     actions({
-        deleteSource: (source: ExternalDataSourceListItem) => ({ source }),
-        reloadSource: (source: ExternalDataSourceListItem) => ({ source }),
-        sourceLoadingFinished: (source: ExternalDataSourceListItem) => ({ source }),
+        deleteSource: (source: ExternalDataSource) => ({ source }),
+        reloadSource: (source: ExternalDataSource) => ({ source }),
+        sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
@@ -275,16 +259,14 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     // Optimistic UI updates before sending updates to the backend
                     const clonedSources = JSON.parse(
                         JSON.stringify(values.dataWarehouseSources?.results ?? [])
-                    ) as ExternalDataSourceListItem[]
-                    const sourceIndex = clonedSources.findIndex(
-                        (source) => 'schemas' in source && source.schemas.some((item) => item.id === schema.id)
+                    ) as ExternalDataSource[]
+                    const sourceIndex = clonedSources.findIndex((source) =>
+                        source.schemas.some((item) => item.id === schema.id)
                     )
                     if (sourceIndex !== -1) {
                         const source = clonedSources[sourceIndex]
-                        if ('schemas' in source) {
-                            const schemaIndex = source.schemas.findIndex((item) => item.id === schema.id)
-                            source.schemas[schemaIndex] = schema
-                        }
+                        const schemaIndex = source.schemas.findIndex((item) => item.id === schema.id)
+                        source.schemas[schemaIndex] = schema
 
                         actions.loadSourcesSuccess({
                             ...values.dataWarehouseSources,
@@ -369,8 +351,8 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         managedSources: [
             (s) => [s.dataWarehouseSources],
             (
-                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSourceListItem>
-            ): ExternalDataSourceListItem[] =>
+                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSource>
+            ): ExternalDataSource[] =>
                 (dataWarehouseSources?.results ?? []).filter(
                     (source) => source.access_method?.toLowerCase() !== 'direct'
                 ),
@@ -378,15 +360,15 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         directSources: [
             (s) => [s.dataWarehouseSources],
             (
-                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSourceListItem>
-            ): ExternalDataSourceListItem[] =>
+                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSource>
+            ): ExternalDataSource[] =>
                 (dataWarehouseSources?.results ?? []).filter(
                     (source) => source.access_method?.toLowerCase() === 'direct'
                 ),
         ],
         filteredDirectSources: [
             (s) => [s.directSources, s.directSearchTerm],
-            (directSources: ExternalDataSourceListItem[], directSearchTerm: string): ExternalDataSourceListItem[] => {
+            (directSources: ExternalDataSource[], directSearchTerm: string): ExternalDataSource[] => {
                 const normalizedSearch = directSearchTerm?.trim().toLowerCase()
                 if (!normalizedSearch) {
                     return directSources
@@ -403,9 +385,9 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         managedSourcesFuse: [
             (s) => [s.managedSources, s.availableSources],
             (
-                managedSources: ExternalDataSourceListItem[],
+                managedSources: ExternalDataSource[],
                 availableSources: Record<string, import('~/queries/schema').SourceConfig> | null
-            ): Fuse<ExternalDataSourceListItem> =>
+            ): Fuse<ExternalDataSource> =>
                 createFuse(managedSources, {
                     keys: [
                         {
@@ -421,10 +403,10 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         filteredManagedSources: [
             (s) => [s.managedSources, s.managedSourcesFuse, s.managedSearchTerm],
             (
-                managedSources: ExternalDataSourceListItem[],
-                managedSourcesFuse: Fuse<ExternalDataSourceListItem>,
+                managedSources: ExternalDataSource[],
+                managedSourcesFuse: Fuse<ExternalDataSource>,
                 managedSearchTerm: string
-            ): ExternalDataSourceListItem[] => {
+            ): ExternalDataSource[] => {
                 const trimmed = managedSearchTerm?.trim()
                 if (!trimmed) {
                     return managedSources
@@ -434,7 +416,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         ],
         hasZendeskSource: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSourceListItem>): boolean => {
+            (dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSource>): boolean => {
                 const sources = dataWarehouseSources?.results
                 if (!sources) {
                     return false
@@ -487,22 +469,16 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             // Optimistic UI updates before sending updates to the backend
             const clonedSources = JSON.parse(
                 JSON.stringify(values.dataWarehouseSources?.results ?? [])
-            ) as ExternalDataSourceListItem[]
+            ) as ExternalDataSource[]
             const sourceIndex = clonedSources.findIndex((n) => n.id === source.id)
             const clonedSource = clonedSources[sourceIndex]
-            clonedSources[sourceIndex] =
-                'schemas' in clonedSource
-                    ? {
-                          ...clonedSource,
-                          status: ExternalDataJobStatus.Running,
-                          schemas: clonedSource.schemas.map((schema) =>
-                              schema.should_sync ? { ...schema, status: ExternalDataSchemaStatus.Running } : schema
-                          ),
-                      }
-                    : {
-                          ...clonedSource,
-                          status: ExternalDataJobStatus.Running,
-                      }
+            clonedSources[sourceIndex] = {
+                ...clonedSource,
+                status: ExternalDataJobStatus.Running,
+                schemas: clonedSource.schemas.map((schema) =>
+                    schema.should_sync ? { ...schema, status: ExternalDataSchemaStatus.Running } : schema
+                ),
+            }
 
             actions.loadSourcesSuccess({
                 ...values.dataWarehouseSources,
@@ -580,7 +556,9 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 actions.ensureAllTableFields()
             }
         }
-        actions.loadSources()
+        if (!shouldLoadSourceSummaries(router.values.location.pathname)) {
+            actions.loadSources()
+        }
     }),
     beforeUnmount(() => {
         // Disposables plugin handles cleanup automatically

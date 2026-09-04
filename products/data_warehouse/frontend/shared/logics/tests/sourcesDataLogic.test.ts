@@ -1,4 +1,3 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api, { ApiError, PaginatedResponse } from 'lib/api'
@@ -6,9 +5,7 @@ import api, { ApiError, PaginatedResponse } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
 
-import type { PaginatedExternalDataSourceSummaryListApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-
-import { shouldLoadSourceSummaries, sourcesDataLogic } from '../sourcesDataLogic'
+import { sourcesDataLogic } from '../sourcesDataLogic'
 
 // Stub the default `api` export but keep the real ApiError class so both the
 // test fixtures and the loader reference the same constructor — the loader's
@@ -22,7 +19,6 @@ jest.mock('lib/api', () => {
         default: {
             externalDataSources: {
                 list: jest.fn(),
-                listSummaries: jest.fn(),
                 update: jest.fn(),
                 updateRevenueAnalyticsConfig: jest.fn(),
             },
@@ -36,13 +32,6 @@ const emptyResponse: PaginatedResponse<ExternalDataSource> = {
     next: null,
     previous: null,
 } as PaginatedResponse<ExternalDataSource>
-
-const emptySummaryResponse: PaginatedExternalDataSourceSummaryListApi = {
-    results: [],
-    count: 0,
-    next: null,
-    previous: null,
-}
 
 describe('sourcesDataLogic', () => {
     let logic: ReturnType<typeof sourcesDataLogic.build>
@@ -97,24 +86,6 @@ describe('sourcesDataLogic', () => {
             })
 
         expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
-    })
-
-    it('loads source summaries on source-level pages', async () => {
-        expect(shouldLoadSourceSummaries('/data-management/sources')).toBe(true)
-        expect(shouldLoadSourceSummaries('/project/997/data-management/sources')).toBe(true)
-        expect(shouldLoadSourceSummaries('/data-management/revenue')).toBe(true)
-        expect(shouldLoadSourceSummaries('/project/997/data-management/revenue')).toBe(true)
-        expect(shouldLoadSourceSummaries('/sql')).toBe(false)
-
-        jest.spyOn(api.externalDataSources, 'listSummaries').mockResolvedValue(emptySummaryResponse)
-        jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(emptyResponse)
-
-        logic.mount()
-        router.actions.push('/project/997/data-management/sources')
-        await expectLogic(logic, () => logic.actions.loadSources()).toDispatchActions(['loadSourcesSuccess'])
-
-        expect(api.externalDataSources.listSummaries).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
-        expect(api.externalDataSources.list).not.toHaveBeenCalled()
     })
 
     it.each([

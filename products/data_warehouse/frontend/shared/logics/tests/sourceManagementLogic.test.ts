@@ -10,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
-import { isActivelySyncing, sourceManagementLogic } from '../sourceManagementLogic'
+import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
 jest.mock('~/queries/query')
@@ -43,19 +43,6 @@ describe('sourceManagementLogic', () => {
     afterEach(() => {
         logic.unmount()
         databaseLogic.unmount()
-    })
-
-    it('detects a running schema in summary results even when aggregate source status is failed', () => {
-        expect(
-            isActivelySyncing({
-                results: [
-                    {
-                        status: 'Failed',
-                        schema_status_names: { Running: ['Customers'] },
-                    },
-                ],
-            } as any)
-        ).toBe(true)
     })
 
     it.each([
@@ -183,12 +170,11 @@ describe('sourceManagementLogic', () => {
         await shallowLoad
     })
 
-    it('loads sources once on the initial sources page mount', () => {
+    it('does not load full sources on the summary-backed sources page', () => {
         router.actions.push('/data-management/sources')
-        const loadSources = jest.spyOn(logic.actions, 'loadSources')
 
         logic.mount()
 
-        expect(loadSources).toHaveBeenCalledTimes(1)
+        expect(api.externalDataSources.list).not.toHaveBeenCalled()
     })
 })
