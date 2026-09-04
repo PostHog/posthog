@@ -32,6 +32,20 @@ function selectExpression(property: PinnedProperty): string {
     return `properties.${identifier}`
 }
 
+/**
+ * HogQL answers with the stored type, so a duration or a screen width comes back as a number and an
+ * opt-in flag as a boolean. Everything downstream of the strip reads text, so it is made text here.
+ */
+function toDisplayValue(value: unknown): string | null {
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value)
+    }
+    return String(value)
+}
+
 function buildQuery(sessionId: string, properties: PinnedProperty[]): HogQLQueryString {
     // Positional aliases, because the same key can be pinned from two namespaces and would collide.
     const selects = properties
@@ -132,7 +146,7 @@ export const observationSessionPropertiesLogic = kea<observationSessionPropertie
                     }
                     return Object.fromEntries(
                         // An event carrying the key with an empty value reads the same as never carrying it.
-                        properties.map((property, index) => [pinnedPropertyId(property), row[index] || null])
+                        properties.map((property, index) => [pinnedPropertyId(property), toDisplayValue(row[index])])
                     )
                 },
             },
