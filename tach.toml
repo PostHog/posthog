@@ -124,6 +124,7 @@ depends_on = [
     "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
+    "products.reaper_hog",
     "products.review_hog",
     "products.signals",
     "products.skills",
@@ -1455,6 +1456,9 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_reaper_hog_schedules",
 ]
 from = [
     "products.reaper_hog",
