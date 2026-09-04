@@ -138,6 +138,15 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         """
         disabling = kwargs.get("should_sync") is False
         deleting = kwargs.get("deleted") is True
+
+        # `auto_disabled_at` is written by `save()`, which a bulk write skips. The auto-disable
+        # path always runs through `update_should_sync`, which saves the instance, so a bulk
+        # write that names `should_sync` is the user's decision. An earlier halt must not
+        # outlive it, or a schema nobody halted stays in the failure digest. An explicit value
+        # still wins, so a caller can stage a halted row.
+        if "should_sync" in kwargs and "auto_disabled_at" not in kwargs:
+            kwargs["auto_disabled_at"] = None
+
         transitioning: list[tuple[uuid.UUID, int]] = []
         if disabling or deleting:
             predicate = models.Q()

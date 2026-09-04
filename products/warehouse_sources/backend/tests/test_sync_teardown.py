@@ -184,8 +184,8 @@ class TestDisableChokepointDispatch:
         assert (schema.auto_disabled_at is not None) is halted_by_posthog
 
     def test_re_enabling_clears_the_record_of_an_earlier_halt(self, team):
-        # A record left behind by an earlier halt survives a later bulk disable, which bypasses
-        # save(), and puts a schema nobody halted back into the failure digest.
+        # A record left behind by an earlier halt must not outlive the re-enable, or a later
+        # disable puts a schema nobody halted back into the failure digest.
         schema, _job = _create_schema_with_running_job(team)
         with patch(TASK_DELAY):
             ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False, auto_disabled_at=timezone.now())
@@ -193,8 +193,38 @@ class TestDisableChokepointDispatch:
 
             schema.should_sync = True
             schema.save()
+            schema.refresh_from_db()
+            assert schema.auto_disabled_at is None
 
             ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False)
+
+        schema.refresh_from_db()
+        assert schema.auto_disabled_at is None
+
+    def test_bulk_disable_clears_the_record_of_an_earlier_halt(self, team, django_capture_on_commit_callbacks):
+        # `disable_cdc` turns schemas off with a bulk update, which bypasses save(). A halt
+        # recorded before it would survive, and keep the failure digest emailing the team
+        # about a sync they switched off themselves.
+        schema, _job = _create_schema_with_running_job(team)
+
+        with (
+            patch(TASK_DELAY),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+                return_value=False,
+            ),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            update_should_sync(
+                schema_id=str(schema.id),
+                team_id=team.pk,
+                should_sync=False,
+                disable_error_message="Your account does not have access to this table",
+            )
+            schema.refresh_from_db()
+            assert schema.auto_disabled_at is not None
+
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(sync_type=None, should_sync=False)
 
         schema.refresh_from_db()
         assert schema.auto_disabled_at is None
