@@ -137,6 +137,27 @@ describe('teamLogic', () => {
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
         })
 
+        it.each([
+            ['a 404 response', () => [404, { detail: 'Not found.' }]],
+            ['a transport failure', () => Promise.reject(new TypeError('Failed to fetch'))],
+        ])('keeps the team and reports no failure on %s', async (_name, handler) => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                patch: {
+                    '/api/environments/:id/complete_product_onboarding': handler,
+                },
+            })
+
+            // A failure here must stay silent: kea's onFailure toasts the raw API detail and
+            // reports the exception, which is what reached users at the end of onboarding.
+            await expectLogic(logic, () => {
+                logic.actions.recordProductIntentOnboardingComplete({ product_type: ProductKey.SURVEYS })
+            }).toDispatchActions(['recordProductIntentOnboardingCompleteSuccess'])
+
+            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
+            expect(logic.values.hasOnboardedAnyProduct).toBe(true)
+        })
+
         it('forwards the intent context', async () => {
             let requestBody: Record<string, unknown> | undefined
             useMocks({
@@ -182,6 +203,22 @@ describe('teamLogic', () => {
 
         it('currentTeamId returns null (non-breaking)', () => {
             expect(logic.values.currentTeamId).toBeNull()
+        })
+
+        it('does not record a product intent against the @current fallback', async () => {
+            let requests = 0
+            useMocks({
+                patch: {
+                    '/api/environments/:id/complete_product_onboarding': () => {
+                        requests++
+                        return [404, { detail: 'Not found.' }]
+                    },
+                },
+            })
+
+            await logic.asyncActions.recordProductIntentOnboardingComplete({ product_type: ProductKey.SURVEYS })
+
+            expect(requests).toBe(0)
         })
     })
 })

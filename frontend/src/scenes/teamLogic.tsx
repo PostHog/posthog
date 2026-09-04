@@ -90,7 +90,7 @@ export interface ProductOnboardingCompleteProperties {
 }
 
 export async function completeProductOnboarding(
-    teamId: TeamType['id'] | string,
+    teamId: TeamType['id'],
     { product_type, intent_context }: ProductOnboardingCompleteProperties
 ): Promise<TeamType | null> {
     return await api.update(`api/environments/${teamId}/complete_product_onboarding`, {
@@ -498,10 +498,21 @@ export const teamLogic = kea<teamLogicType>([
                     return withProductIntentsFrom(values.currentTeam, result)
                 },
                 recordProductIntentOnboardingComplete: async (properties: ProductOnboardingCompleteProperties) => {
-                    const result = await completeProductOnboarding(values.currentTeamIdStrict, properties)
-                    actions.loadCustomProducts()
+                    // Recording the intent is a side effect of onboarding, so a failure must never
+                    // surface an error to a user who is finishing the flow. Without a loaded team
+                    // the id would fall back to "@current", which the API answers with a 404.
+                    const teamId = values.currentTeamId
+                    if (teamId === null) {
+                        return values.currentTeam
+                    }
+                    try {
+                        const result = await completeProductOnboarding(teamId, properties)
+                        actions.loadCustomProducts()
 
-                    return withProductIntentsFrom(values.currentTeam, result)
+                        return withProductIntentsFrom(values.currentTeam, result)
+                    } catch {
+                        return values.currentTeam
+                    }
                 },
             },
         ],
