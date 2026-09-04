@@ -1,103 +1,182 @@
-# Explicit filter editing and temporary views
+# Dashboard configuration editing and temporary views
 
-Use this reference when a dashboard change affects filter editing, saving, previews, URL filters, or layout editing.
+Use this reference when a dashboard change affects filters, SQL variables, previews, URL overrides, saving, or layout editing.
 
-## Filter states
+## Configuration model
 
-| State                       | Source                                           | Who sees it            | Persisted | Required treatment                                                   |
-| --------------------------- | ------------------------------------------------ | ---------------------- | --------- | -------------------------------------------------------------------- |
-| Saved filters               | `dashboard.persisted_filters`                    | Every dashboard viewer | Yes       | Render as the dashboard default.                                     |
-| Unsaved filter edits        | Local edit state                                 | The current editor     | No        | Show a count and allow preview, discard, or save.                    |
-| Temporary URL filters       | `query_filters` URL state                        | The current viewer     | No        | Show a temporary-filter notice and allow clear.                      |
-| Temporary URL variables     | Initial `query_variables` URL state              | The current viewer     | No        | Show temporary variables and list each variable and value.           |
-| Unsaved variable edits      | Editor changes to dashboard variables            | The current editor     | No        | Show the changed-variable count, old and new values, discard, save.  |
-| Contextual embedded filters | `setExternalFilters`, currently group dashboards | The current viewer     | No        | Apply to the embedded view. Never count or save as an editor change. |
-| Per-tile filter overrides   | `tile.filters_overrides`                         | Every compatible tile  | Yes       | Keep separate from dashboard filter editing.                         |
+Treat dashboard filters and SQL variables as one editable configuration.
 
-Do not call normal saved filters temporary. All filters change the displayed data. The temporary state means the current URL selects a different view of the dashboard.
+```ts
+type DashboardConfiguration = {
+  filters: DashboardFilter
+  variables: Record<string, HogQLVariable>
+}
+```
 
-## State transitions
+Use three explicit sources:
 
-1. A filter edit creates an unsaved local difference from the saved dashboard filters.
-2. Preview updates the current dashboard data. Preview does not save the filters.
-3. Save filters persists the current filters as the dashboard default.
-4. Discard restores the filters saved to the dashboard.
-5. Clear temporary filters removes `query_filters` and returns to the saved dashboard view.
-6. Clear temporary variables removes `query_variables`. It does not change dashboard filters.
-7. An editor variable change creates an unsaved difference from `dashboard.persisted_variables` or the variable default value.
-8. Save changes persists variables through the dashboard save path. Discard removes the URL variable override and refreshes the dashboard data.
-9. An embedded contextual filter constrains its current view. It must not enter the unsaved-filter count or `saveDashboardFilters` payload.
+| Source               | Contents                                      | Lifetime                             |
+| -------------------- | --------------------------------------------- | ------------------------------------ |
+| Saved configuration  | `persisted_filters` and `persisted_variables` | Persists for every applicable viewer |
+| Initial URL override | `query_filters` and `query_variables`         | Temporary for the initial view       |
+| User draft           | Current filter and variable edits             | Local until save or discard          |
 
-## Layout editing
+Resolve the effective configuration in this order:
 
-- Users can enter layout editing while filter edits exist.
-- Filter controls remain editable during layout editing.
-- Save layout saves only layout changes.
-- Save filters saves only filter changes.
-- Cancel layout restores layout changes only. It must preserve unsaved filter edits and their preview state.
-- Filter actions must remain available during layout editing when unsaved filter edits exist.
-- Variable edits use the dashboard save path. Save layout persists unsaved variable edits with layout changes.
-- Cancel layout must preserve unsaved variable edits.
+```text
+saved configuration
+→ initial URL override
+→ user draft
+```
+
+- Freeze the initial URL override after the dashboard opens.
+- Do not infer configuration state from `dashboardMode`, `hasIntermittentFilters`, or `filterEditModeActive`.
+- Do not combine separate temporary-filter and temporary-variable conditions in UI components.
+- Keep embedded context and tile overrides outside this configuration.
+
+## Visible states
+
+Derive exactly one visible state from the configuration model:
+
+| State            | Condition                                               | Required treatment                                            |
+| ---------------- | ------------------------------------------------------- | ------------------------------------------------------------- |
+| `temporaryView`  | An initial URL override exists and no user draft exists | Show the temporary values. Do not show unsaved changes.       |
+| `unsavedChanges` | A user draft exists                                     | Show one count, one change list, and save or discard actions. |
+| `saved`          | No initial URL override or user draft exists            | Render the saved dashboard configuration.                     |
+
+- A filter or SQL-variable edit creates one user draft from the effective configuration.
+- The first edit replaces the temporary state with the unsaved state.
+- UI code must consume the single derived visible state.
+- UI code must not reconstruct state from several selector flags.
+
+## Actions and transitions
+
+Use explicit actions for each boundary:
+
+- `previewDashboardChanges` updates dashboard data only.
+- `saveDashboardChanges` sends one dashboard update with `filters` and `variables`.
+- `discardDashboardChanges` clears the user draft and restores the saved configuration.
+- `saveLayoutChanges` persists layout changes only.
+- `discardLayoutChanges` restores layout changes only.
+
+Save behavior:
+
+1. Persist the final effective configuration.
+2. Include both `filters` and `variables` in one dashboard update.
+3. Clear `query_filters` and `query_variables`.
+4. Clear the initial URL override and user draft.
+5. Confirm that reload shows the saved configuration.
+
+Discard behavior:
+
+1. Clear the user draft.
+2. Clear `query_filters` and `query_variables`.
+3. Clear the initial URL override.
+4. Restore the saved configuration.
+5. Never restore the initial temporary view.
+
+- Do not use `saveDashboardFilters` for combined changes.
+- Do not use `saveEditModeChanges` for SQL-variable-only changes.
+- Do not use `DashboardHeaderOverridesBanner` as a generic clear action.
+- For automatic preview, filter and variable controls can update their URL parameters after the draft exists.
+- Above the automatic-preview threshold, Preview updates data without clearing or saving the draft.
+
+## Unified change list
+
+Build one `DashboardConfigurationChange[]` for filters and SQL variables.
+
+Each displayed row must include:
+
+- A label.
+- The old saved or default value.
+- The new value.
+- A `new`, `changed`, or `removed` status.
+
+Additional requirements:
+
+- The displayed count must equal the number of displayed rows.
+- Include every filter and variable change when both types exist.
+- Render multi-value changes as individual pills.
+- Use generic configuration copy when both types exist.
+- Make the save target explicit. Saving changes the dashboard default for every viewer.
+- Make the preview target explicit. Preview changes only the current data view.
+
+## Layout independence
+
+- Entering layout mode must preserve the dashboard configuration draft.
+- Saving layout must preserve the dashboard configuration draft.
+- Discarding layout must preserve the dashboard configuration draft.
+- Saving dashboard changes must preserve the layout draft.
+- Discarding dashboard changes must preserve the layout draft.
+- Filter and variable controls remain editable during layout editing.
+- Dashboard configuration actions remain available during layout editing.
+
+## Other filter boundaries
+
+- `setExternalFilters` supplies embedded context, currently for group dashboards.
+- Embedded context must not enter the user draft, change count, change list, or save payload.
+- `tile.filters_overrides` remains a separate persisted tile action.
+- Shared-token requests ignore URL filter and variable overrides.
+- Do not show temporary treatment where the request path ignores URL overrides.
+- Public, export, feature-flag, DataOps, group, and built-in placements may use different controls. Check each placement.
 
 ## UI requirements
 
-- Use one visible status for one state. Do not show an unsaved-edit status for a URL-only temporary view.
-- Make the save target explicit: saving changes the dashboard default for every viewer.
-- Make the preview target explicit: preview changes only the current data view.
-- The filter-change details must show added, changed, and removed values.
-- Render multi-value changes as individual pills.
-- Use container queries for narrow dashboard content. At the small filter-bar breakpoint, keep the status visible and move actions into a dropdown.
-- Keep temporary-filter details available through an information icon and through click or hover.
-- Use filter-specific copy only for filter-only states. Use variable or generic change copy when variables change the dashboard view.
-- When temporary variables exist, a later filter or variable edit must replace the temporary state with the unsaved state.
-- Do not show a temporary URL-filter treatment where the request path ignores URL overrides, such as a shared-token request.
-
-## Entry paths and placements
-
-- A person can open a dashboard with `query_filters` or `query_variables` in a pasted link, browser history entry, or direct URL edit.
-- Filter controls write `query_filters` during automatic preview. For large dashboards, Preview writes the same URL state after an explicit action.
-- Variable controls write `query_variables`. Initial URL values are temporary. Editor changes are unsaved dashboard variable edits and save through `saveEditModeChanges`.
-- Group dashboards use `setExternalFilters` for the current group. The embedded dashboard has no dashboard filter editor. Its editor link opens the normal dashboard path without that group context.
-- Feature-flag, DataOps, built-in, public, and export placements do not use the normal filter editor. Check each placement before rendering a status or action.
-- Tile override dialogs use `tile.filters_overrides`. They are a separate persisted tile action, not a dashboard URL or filter-bar action.
+- Show SQL-variable controls before the advanced-options ellipsis.
+- Keep the status visible at narrow dashboard widths.
+- Move actions into a dropdown at the defined narrow container breakpoint.
+- Keep temporary details available through the information control.
+- Show save and discard labels that describe dashboard configuration changes.
 
 ## Required regression checks
 
-- Edit one and multiple filters. Confirm the unsaved count matches the number of changed filter settings.
-- Add, change, and remove a property filter, date range, interval, breakdown, and test-account setting.
-- Preview edits. Confirm that the dashboard data changes without a persistence request.
-- Save filters. Confirm that a reload uses the new saved defaults.
-- Discard filter edits. Confirm that saved filters return.
-- Open a dashboard with URL filters. Confirm that only the temporary-view treatment appears.
-- Clear temporary filters. Confirm that the saved dashboard filters return.
-- Open a dashboard with URL variables only. Confirm that the UI identifies temporary variables or values without calling them filters.
-- Change one and multiple SQL variables. Confirm the unsaved count matches the popover. Confirm each entry shows default or saved value to new value.
-- Open with temporary variables, then edit a filter or variable. Confirm the unsaved state replaces the temporary state.
-- Save and discard SQL variable edits. Confirm save persists `persisted_variables` and discard removes only `query_variables`.
-- Edit URL filters through browser history or a direct URL edit. Confirm that the resolved dashboard state updates.
-- Open a group dashboard. Confirm that its contextual group filter does not make dashboard filters dirty and cannot enter a dashboard filter save.
-- Check public, shared, export, feature-flag, DataOps, group, and built-in placements. Confirm that each URL override treatment matches whether that placement applies overrides.
-- Edit a tile filter override. Confirm that it does not change dashboard unsaved-filter state.
-- Enter and cancel layout editing with unsaved filters. Confirm that filter edits remain.
-- Save layout with unsaved filters. Confirm that the layout saves and filter edits remain unsaved.
-- Check wide and narrow filter-bar containers. Confirm that direct actions switch to an actions dropdown only at the defined container breakpoint.
+Use one parameterized Kea logic scenario suite for configuration transitions:
+
+1. Edit one filter. Save it. Confirm that reload shows the saved filter.
+2. Edit one SQL variable. Save it. Confirm that reload shows the saved variable.
+3. Edit a filter and three SQL variables. Confirm one count, one list, value transitions, and one save.
+4. Open a temporary URL view. Edit a filter. Confirm that unsaved state replaces temporary state.
+5. Open a temporary URL view. Edit a SQL variable. Confirm that unsaved state replaces temporary state.
+6. Edit filters and variables from a temporary URL view. Discard. Confirm that saved state returns.
+7. Edit filters and variables from a temporary URL view. Save. Confirm that the final state persists.
+8. Above the automatic-preview threshold, preview filters and variables. Confirm that preview changes data only.
+9. Check the complete layout independence matrix for save and discard actions.
+
+Use DOM tests only for these visible outcomes:
+
+- Temporary pill versus unsaved pill.
+- Count matches visible popover rows.
+- Save and discard labels and actions.
+- Narrow action dropdown.
+- SQL-variable controls appear before the advanced-options ellipsis.
+
+Do not keep tests that only assert selector flags, action order, a temporary variable, or a dirty filter.
+
+Also check these separate boundaries:
+
+- Embedded contextual filters never enter dashboard configuration changes.
+- Tile overrides never enter dashboard configuration changes.
+- Shared, public, export, feature-flag, DataOps, group, and built-in placements match their override support.
+- Browser history and direct URL edits resolve to the correct effective configuration.
 
 ## Manual reproduction
 
-Use one local dashboard with at least two working insight tiles. Text, button, and widget tiles do not affect the preview threshold.
+Use one local dashboard with at least two working insight tiles and three SQL variables.
 
-1. To test automatic preview, remove the `dashboard-auto-preview-limit` feature flag payload or set it above the dashboard insight-tile count. Change filters. The URL updates immediately.
-2. To test manual preview, set the local `dashboard-auto-preview-limit` feature flag payload to a number at or below the dashboard insight-tile count. Reload the dashboard. Change filters. The URL stays unchanged until you select Preview.
-3. To test a temporary URL-filter view, append `query_filters` with encoded dashboard filters to a normal dashboard URL. Reload. Clear returns to the dashboard defaults.
-4. To test saved filters, change filters, select Save filters, then reload the normal dashboard URL without `query_filters`.
-5. To test filter and layout independence, create unsaved filters, enter layout editing, then cancel or save layout. The filter state remains. Save or discard filters while layout edits exist. The layout state remains.
+1. Set `dashboard-auto-preview-limit` above the insight-tile count. Edit filters and variables. Confirm immediate preview and one draft.
+2. Set the limit at or below the insight-tile count. Edit filters and variables. Confirm that Preview changes data only.
+3. Open with both URL override parameters. Confirm temporary state. Make one edit. Confirm unsaved state replaces it.
+4. Save combined changes. Confirm both URL parameters clear. Reload and confirm the saved values.
+5. Open with both URL override parameters. Make combined edits. Discard and confirm the original saved values return.
+6. Create both dashboard configuration and layout drafts. Run each save and discard action. Confirm that each draft remains independent.
 
 ## Storybook coverage
 
-- Keep a Storybook state for saved filters, unsaved filters, a combined temporary URL-filter view, and temporary URL filters without edit access.
-- Keep a Storybook state for layout editing with unsaved filters and for the manual-preview dashboard size.
-- Add a URL-variable story when a visible temporary-variable treatment exists. Do not add an empty story before that UI exists.
-- Do not create a dashboard filter-bar story for embedded context when the embedding surface owns that context. Add the story beside the embedding surface if it gains visible context UI.
+- Keep stories for saved configuration, unsaved configuration, and combined temporary URL overrides.
+- Keep a temporary URL override story without edit access.
+- Keep stories for layout editing with an unsaved configuration and for the manual-preview dashboard size.
+- Keep a story with several SQL variables. Confirm that they appear before the advanced-options ellipsis.
+- Do not create a dashboard filter-bar story for embedded context when the embedding surface owns that context.
 
 ## Source files
 
