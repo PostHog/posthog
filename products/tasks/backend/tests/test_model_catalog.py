@@ -11,7 +11,7 @@ from products.tasks.backend import model_catalog
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-GENERATOR = REPO_ROOT / "bin" / "build-task-model-catalog.py"
+GENERATOR = REPO_ROOT / "products" / "tasks" / "scripts" / "build_model_catalog.py"
 
 
 def _load_generator():
