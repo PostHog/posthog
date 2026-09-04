@@ -11,6 +11,7 @@ from posthog.models import Team, User
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import (
+    CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
     LLMSkillFile,
     LLMSkillOwner,
@@ -113,6 +114,17 @@ class LLMSkillEditError(Exception):
 
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+@dataclass
+class LLMSkillRegisteredPrefixError(Exception):
+    """A rename that would move a skill into or out of a registered name prefix.
+
+    Signals and ReviewHog claim skills by name prefix and keep their own config rows keyed on that
+    name, so moving a skill across the boundary would orphan those rows or spawn new ones.
+    """
+
+    prefix: str
 
 
 @frozen
@@ -681,6 +693,63 @@ def rename_skill_file(
         next_skill = _create_next_version_with_files(team, user, current_latest, next_files)
 
     return _refresh_with_annotations(team, next_skill)
+
+
+def _registered_prefix(name: str) -> str | None:
+    return next((prefix for prefix, _ in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), None)
+
+
+def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
+    """Move every version of a logical skill, and its owners, to `new_name`.
+
+    A rename is not a publish: versions are immutable rows, so the name moves on the rows that
+    already exist instead of creating a new version.
+    """
+    blocked_prefix = _registered_prefix(skill_name) or _registered_prefix(new_name)
+    if blocked_prefix is not None:
+        raise LLMSkillRegisteredPrefixError(prefix=blocked_prefix)
+
+    with transaction.atomic():
+        versions = list(
+            LLMSkill.objects.select_for_update()
+            .filter(team=team, name=skill_name, deleted=False)
+            .order_by("version", "created_at", "id")
+        )
+        if not versions:
+            raise LLMSkillNotFoundError()
+
+        if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
+            raise LLMSkillDuplicateNameConflictError()
+
+        try:
+            # All versions move in one statement: the unique constraints are on (team, name, version)
+            # and (team, name, is_latest), so a partial move would collide with the rows left behind.
+            # `updated_at` is set explicitly because a queryset update skips `auto_now`, and the
+            # marketplace plugin version keys on the latest change time — without it the Claude Code
+            # plugin keeps serving the skill under the old directory.
+            LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).update(
+                name=new_name,
+                category=category_for_skill_name(new_name),
+                updated_at=timezone.now(),
+            )
+        except IntegrityError as err:
+            if "unique_llm_skill_latest_per_team" in str(err) or "unique_llm_skill_version_per_team" in str(err):
+                raise LLMSkillDuplicateNameConflictError() from err
+            raise
+
+        # Owners are keyed on the logical `(team, skill_name)`, not on a version row, so they have to
+        # move in the same transaction or the skill silently loses them.
+        _owner_qs(team).filter(skill_name=skill_name).update(skill_name=new_name)
+
+    renamed = (
+        get_active_skill_queryset(team)
+        .filter(name=new_name, is_latest=True)
+        .order_by("-version", "-created_at", "-id")
+        .first()
+    )
+    if renamed is None:
+        raise LLMSkillNotFoundError()
+    return renamed
 
 
 def archive_skill(team: Team, skill_name: str) -> list[int]:

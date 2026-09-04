@@ -633,7 +633,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
         if name is not None and self.instance.name != name:
             raise serializers.ValidationError(
-                {"name": "Skill name cannot be changed after creation."},
+                {"name": "Use the rename action to change a skill name."},
                 code="immutable",
             )
 
@@ -749,6 +749,16 @@ class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
         help_text="Name for the duplicated skill. Must be unique.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_skill_name_value(value)
+
+
+class LLMSkillRenameSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=64,
+        help_text="New name for the skill. Must be unique and not already in use by an active skill.",
     )
 
     def validate_new_name(self, value: str) -> str:

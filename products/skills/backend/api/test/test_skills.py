@@ -31,9 +31,11 @@ from ...api.skill_services import (
     archive_skill,
     create_skill,
     publish_skill_version,
+    rename_skill,
     resolve_skill_owners,
     set_skill_owners,
 )
+from ...marketplace.adapters import _team_plugin_version
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -1005,6 +1007,121 @@ class TestLLMSkillAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- Rename ---
+
+    def test_rename_moves_every_version_and_its_owners(self):
+        first = self.create_skill(name="old-name", version=1, is_latest=False)
+        LLMSkillFile.objects.create(skill=first, path="scripts/run.sh", content="#!/bin/bash")
+        self.create_skill(name="old-name", version=2)
+        set_skill_owners(self.team, "old-name", [self.user])
+
+        response = self.client.post(
+            self._url("name/old-name/rename"),
+            data={"new_name": "new-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "new-name"
+        assert response.json()["version"] == 2
+        assert not LLMSkill.objects.filter(name="old-name", deleted=False).exists()
+        assert sorted(LLMSkill.objects.filter(name="new-name", deleted=False).values_list("version", flat=True)) == [
+            1,
+            2,
+        ]
+        assert LLMSkillFile.objects.filter(skill=first, path="scripts/run.sh").exists()
+        assert resolve_skill_owners(self.team, "new-name") == [self.user]
+        assert resolve_skill_owners(self.team, "old-name") == []
+
+    def test_old_name_is_free_to_reuse_after_a_rename(self):
+        self.create_skill(name="old-name")
+
+        rename = self.client.post(
+            self._url("name/old-name/rename"),
+            data={"new_name": "new-name"},
+            format="json",
+        )
+        recreate = self.client.post(
+            self._url(),
+            data={"name": "old-name", "description": "A fresh skill.", "body": "# Fresh"},
+            format="json",
+        )
+
+        assert rename.status_code == status.HTTP_200_OK
+        assert recreate.status_code == status.HTTP_201_CREATED
+
+    def test_rename_advances_the_marketplace_plugin_version(self):
+        self.create_skill(name="plugin-skill")
+        before = _team_plugin_version(self.team)
+
+        response = self.client.post(
+            self._url("name/plugin-skill/rename"),
+            data={"new_name": "plugin-skill-renamed"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert _team_plugin_version(self.team) > before
+
+    @parameterized.expand(
+        [
+            ("collision", "taken"),
+            ("unchanged", "to-rename"),
+            ("reserved", "new"),
+            ("malformed", "Not A Slug"),
+        ]
+    )
+    def test_rename_rejects_bad_new_name(self, _name: str, new_name: str):
+        self.create_skill(name="to-rename")
+        self.create_skill(name="taken")
+
+        response = self.client.post(
+            self._url("name/to-rename/rename"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "new_name"
+        assert LLMSkill.objects.filter(name="to-rename", deleted=False).exists()
+
+    @parameterized.expand(
+        [
+            ("out_of_prefix", "signals-scout-watcher", "plain-watcher"),
+            ("into_prefix", "plain-watcher", "review-hog-perspective-lens"),
+            ("within_prefix", "signals-scout-watcher", "signals-scout-other"),
+        ]
+    )
+    def test_rename_rejects_registered_name_prefixes(self, _name: str, skill_name: str, new_name: str):
+        self.create_skill(name=skill_name)
+
+        response = self.client.post(
+            self._url(f"name/{skill_name}/rename"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "new_name"
+        assert "Duplicate the skill" in response.json()["detail"]
+        assert LLMSkill.objects.filter(name=skill_name, deleted=False).exists()
+
+    def test_rename_of_unknown_skill_is_not_found(self):
+        response = self.client.post(
+            self._url("name/no-such-skill/rename"),
+            data={"new_name": "some-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_rename_service_recomputes_the_category(self):
+        self.create_skill(name="uncategorized", category="scout")
+
+        renamed = rename_skill(self.team, skill_name="uncategorized", new_name="still-uncategorized")
+
+        assert renamed.category == ""
 
     # --- Get file ---
 
