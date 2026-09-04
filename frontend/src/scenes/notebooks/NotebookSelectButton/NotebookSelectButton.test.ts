@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { isSessionSummaryTitle, stripSessionSummaryPrefix } from './NotebookSelectButton'
 import { notebookSelectButtonLogic } from './notebookSelectButtonLogic'
@@ -46,6 +47,23 @@ describe('notebookSelectButtonLogic filters', () => {
     afterEach(() => {
         jest.restoreAllMocks()
         logic.unmount()
+        delete (window.POSTHOG_APP_CONTEXT as any)?.effective_resource_access_control
+    })
+
+    test.each([
+        [AccessControlLevel.None, false],
+        [AccessControlLevel.Viewer, true],
+    ])('with %s notebook access, requests the list: %s', async (level, expectedToRequest) => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            effective_resource_access_control: { [AccessControlResourceType.Notebook]: level },
+        } as any
+
+        logic.actions.loadAllNotebooks()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listMock).toHaveBeenCalledTimes(expectedToRequest ? 1 : 0)
     })
 
     test('passes search and created_by to api', async () => {

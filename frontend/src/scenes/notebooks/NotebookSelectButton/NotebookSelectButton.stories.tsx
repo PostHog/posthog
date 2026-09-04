@@ -1,5 +1,6 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { delay, HttpResponse } from 'msw'
+import { useEffect, useRef } from 'react'
 
 import {
     NotebookSelectButton,
@@ -7,8 +8,32 @@ import {
 } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebookNodeType } from '../types'
+
+// Take notebook access away on the storybook app context before the story mounts, and restore the
+// original on unmount so story order can't leak.
+const denyNotebookAccess: Decorator = function DenyNotebookAccess(Story): JSX.Element {
+    const appContext = (window as any).POSTHOG_APP_CONTEXT
+    const original = useRef<{ value: unknown }>()
+    if (appContext && !original.current) {
+        original.current = { value: appContext.effective_resource_access_control }
+        appContext.effective_resource_access_control = {
+            ...appContext.effective_resource_access_control,
+            [AccessControlResourceType.Notebook]: AccessControlLevel.None,
+        }
+    }
+    useEffect(
+        () => () => {
+            if (appContext && original.current) {
+                appContext.effective_resource_access_control = original.current.value
+            }
+        },
+        [appContext]
+    )
+    return <Story />
+}
 
 type Story = StoryObj<NotebookSelectButtonProps>
 const meta: Meta<NotebookSelectButtonProps> = {
@@ -119,6 +144,33 @@ export const WithNoNotebooks: Story = {
     render: renderNotebookSelect,
     args: {
         resource: { type: NotebookNodeType.Recording, attrs: { id: 'there_are_no_notebooks' } },
+        visible: true,
+    },
+}
+
+const renderDeniedNotebookSelect = (props: any): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            // What the access-controlled list endpoint answers a role with no notebook access.
+            '/api/projects/:team_id/notebooks/': () => [
+                403,
+                { type: 'authentication_error', code: 'permission_denied', detail: 'You do not have viewer access.' },
+            ],
+        },
+    })
+
+    return (
+        <div className="min-h-100">
+            <NotebookSelectButton resource={props.resource} visible={props.visible} />
+        </div>
+    )
+}
+
+export const WithoutNotebookAccess: Story = {
+    render: renderDeniedNotebookSelect,
+    decorators: [denyNotebookAccess],
+    args: {
+        resource: { type: NotebookNodeType.Recording, attrs: { id: '123' } },
         visible: true,
     },
 }
