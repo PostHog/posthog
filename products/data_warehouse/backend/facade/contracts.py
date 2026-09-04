@@ -21,3 +21,13 @@ class TeamDataWarehouseConfig:
 
     team_id: int
     overview_dashboard_ids: list[int]
+
+
+@dataclass(frozen=True)
+class WebhookHogFunctionCreateResult:
+    """Outcome of creating or updating the HogFunction that receives a source's webhook events."""
+
+    hog_function_id: str | None = None
+    webhook_url: str = ""
+    error: str | None = None
+    hog_function_created: bool = False

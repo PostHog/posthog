@@ -37,7 +37,7 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -152,6 +152,7 @@ jobs:
                   fi
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -171,7 +172,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -271,59 +272,6 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
-    # Skill markdown is embedded verbatim into the scene agent-context payloads. The only
-    # other check that regenerates those payloads is Backend CI's OpenAPI check, whose
-    # paths filter never matches markdown. Master pushes skip that filter and run the
-    # check anyway, so a skill-only PR merges green and then turns master red. This job
-    # makes the same assertion on the same inputs without needing the backend stack.
-    check-embedded-skills:
-        name: Check embedded skill payloads
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        needs: changes
-        if: needs.changes.outputs.skills == 'true'
-        permissions:
-            contents: read
-
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm --filter=@posthog/root --filter=@posthog/mcp... install --frozen-lockfile
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Check embedded skill payloads are up to date
-              run: |
-                  pnpm --filter=@posthog/mcp run generate-scene-tool-context
-                  if git diff --exit-code; then
-                      echo "Embedded skill payloads are up to date"
-                      exit 0
-                  fi
-                  echo ""
-                  echo "::error::Embedded skill payloads are out of date!"
-                  echo ""
-                  echo "A skill this PR edits is embedded into a scene agent-context payload"
-                  echo "(products/*/frontend/generated/agentContext.ts), so the payload has to be"
-                  echo "regenerated alongside it."
-                  echo ""
-                  echo "To fix, run locally:  hogli build:openapi-scene-tool-context"
-                  echo "Then commit the updated generated file."
-                  echo ""
-                  echo "Questions? #team-devex on Slack"
-                  exit 1
-
     current-master:
         name: Check current master
         runs-on: ubuntu-latest
@@ -402,6 +350,7 @@ jobs:
                   fi
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -421,7 +370,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -515,13 +464,6 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
-            - name: Mint release GitHub token
-              id: release-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-
             - name: Determine next version
               id: version
               run: |
@@ -532,8 +474,11 @@ jobs:
                   echo "tag=agent-skills-v0.$((MINOR + 1)).0" >> "$GITHUB_OUTPUT"
 
             - name: Create versioned release
+              # The job's own contents:write GITHUB_TOKEN, like build-phrocs.yml and
+              # build-livestream-tui.yml. No workflow triggers off these releases, so the
+              # app token bought nothing and only added a permission that can drift away.
               env:
-                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   gh release create "$RELEASE_TAG" \
@@ -545,7 +490,7 @@ jobs:
 
             - name: Update latest release
               env:
-                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   if gh release view agent-skills-latest &>/dev/null; then

@@ -1,5 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +22,7 @@ import {
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
     supportsBarValueStacking,
+    taxonomicSessionFilterToHogQL,
 } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
@@ -155,6 +157,29 @@ describe('escapeDottedHogQLIdentifier', () => {
 
     it('quotes each dotted segment independently when needed', () => {
         expect(escapeDottedHogQLIdentifier('demo.order items')).toEqual('demo."order items"')
+    })
+})
+
+describe('taxonomicSessionFilterToHogQL', () => {
+    it('maps session properties to the session prefix', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.SessionProperties, '$entry_current_url')).toEqual(
+            'session.$entry_current_url'
+        )
+    })
+
+    it('maps person properties to person.properties', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.PersonProperties, '$browser')).toEqual(
+            'person.properties.$browser'
+        )
+    })
+
+    it('passes SQL expressions through', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.HogQLExpression, 'count()')).toEqual('count()')
+    })
+
+    it('rejects event-scoped picks, which the sessions table cannot resolve', () => {
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.EventProperties, '$browser')).toBeNull()
+        expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.EventFeatureFlags, '$feature/foo')).toBeNull()
     })
 })
 

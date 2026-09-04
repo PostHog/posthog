@@ -18,6 +18,16 @@ TRINO_SYSTEM_SCHEMAS = ("information_schema",)
 TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR = (
     "Turn on TLS certificate verification to use password or JWT authentication."
 )
+POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
+    {
+        "trino.dw.dev.postwh.com",
+        "trino.dw.us.postwh.com",
+    }
+)
+
+
+def _is_posthog_managed_trino_host(host: str) -> bool:
+    return host.lower().rstrip(".") in POSTHOG_MANAGED_TRINO_HOSTS
 
 
 @frozen
@@ -84,6 +94,8 @@ def connect_trino(config: TrinoSourceConfig) -> Iterator[Connection]:
         value for value in (config.auth_type.password, config.auth_type.token) if isinstance(value, str) and value
     )
     session = make_tracked_session(redact_values=redacted, allow_redirects=False)
+    if _is_posthog_managed_trino_host(config.host) and config.port == 443 and config.use_ssl and config.verify_ssl:
+        session.trust_env = False
     session.verify = config.verify_ssl
     log_connection_open(db_host=config.host, via="trino_https" if config.use_ssl else "trino_http")
     connection: Connection | None = None

@@ -84,6 +84,18 @@
       "types": "./dist/adapters/claude/conversion/tool-use-to-acp.d.ts",
       "import": "./dist/adapters/claude/conversion/tool-use-to-acp.js"
     },
+    "./adapters/codex-app-server/subscription-login": {
+      "types": "./dist/adapters/codex-app-server/subscription-login.d.ts",
+      "import": "./dist/adapters/codex-app-server/subscription-login.js"
+    },
+    "./adapters/claude/machine-auth": {
+      "types": "./dist/adapters/claude/machine-auth.d.ts",
+      "import": "./dist/adapters/claude/machine-auth.js"
+    },
+    "./adapters/claude/subscription-login": {
+      "types": "./dist/adapters/claude/subscription-login.d.ts",
+      "import": "./dist/adapters/claude/subscription-login.js"
+    },
     "./adapters/claude/session/jsonl-hydration": {
       "types": "./dist/adapters/claude/session/jsonl-hydration.d.ts",
       "import": "./dist/adapters/claude/session/jsonl-hydration.js"
@@ -111,10 +123,6 @@
     "./resume": {
       "types": "./dist/resume.d.ts",
       "import": "./dist/resume.js"
-    },
-    "./handoff-checkpoint": {
-      "types": "./dist/handoff-checkpoint.d.ts",
-      "import": "./dist/handoff-checkpoint.js"
     },
     "./pi": {
       "types": "./dist/pi/rpc-client.d.ts",
@@ -163,16 +171,14 @@
     "@posthog/enricher": "workspace:*",
     "@posthog/harness": "workspace:*",
     "@types/bun": "1.3.14",
-    "@types/tar": "^6.1.13",
     "msw": "^2.12.7",
     "tsup": "^8.5.1",
-    "tsx": "^4.20.6",
     "typescript": "^5.5.0",
     "vitest": "^4.1.8"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.1.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.197",
+    "@anthropic-ai/claude-agent-sdk": "0.3.251",
     "@anthropic-ai/sdk": "0.109.0",
     "@earendil-works/pi-agent-core": "catalog:",
     "@earendil-works/pi-ai": "catalog:",
@@ -195,7 +201,6 @@
     "lru-cache": "^11.1.0",
     "minimatch": "^10.0.3",
     "@modelcontextprotocol/sdk": "1.29.0",
-    "tar": "^7.5.19",
     "uuid": "13.0.0",
     "yoga-wasm-web": "^0.3.3",
     "zod": "^4.2.0"

@@ -1,16 +1,10 @@
-import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
 from django.apps import apps
 
-from parameterized import parameterized
-
 from products.customer_analytics.backend.logic.custom_property_sync import (
-    MAX_CONSECUTIVE_SYNC_FAILURES,
     _read_view,
-    record_sync_outcome,
-    run_custom_property_sync,
     sync_custom_properties_for_account,
     sync_custom_property_values,
 )
@@ -138,28 +132,6 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert result.written == 0
         execute.assert_not_called()  # empty key set -> zero batches -> no ClickHouse query
 
-    def test_run_sync_records_success_outcome(self):
-        source = self._source(self.mrr_def, "mrr")
-        with patch(_EXECUTE, return_value=_Response([(100.0, "acme")])):
-            run_custom_property_sync(team_id=self.team.id, saved_query_id=self.view.id)
-
-        source.refresh_from_db()
-        assert source.last_synced_at is not None
-        assert source.last_sync_error is None
-        assert source.consecutive_failures == 0
-
-    @patch("products.customer_analytics.backend.logic.custom_property_sync.capture_exception")
-    def test_run_sync_records_failure_outcome_and_reraises(self, mock_capture):
-        source = self._source(self.mrr_def, "mrr")
-        sync_path = "products.customer_analytics.backend.logic.custom_property_sync.sync_custom_property_values"
-        with patch(sync_path, side_effect=RuntimeError("boom")), pytest.raises(RuntimeError):
-            run_custom_property_sync(team_id=self.team.id, saved_query_id=self.view.id)
-
-        source.refresh_from_db()
-        assert source.consecutive_failures == 1
-        assert source.last_sync_error == "boom"
-        mock_capture.assert_called_once()
-
     def test_read_view_batches_key_filter_and_merges_rows(self):
         batch_size = "products.customer_analytics.backend.logic.custom_property_sync._SYNC_KEYS_PER_QUERY"
         responses = [_Response([(100.0, "acme")]), _Response([(200.0, "globex")])]
@@ -219,7 +191,7 @@ class SyncCustomPropertiesForAccountTest(TeamScopedTestMixin, BaseTest):
             source_model.objects.for_team.side_effect = Exception("db down")
             sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
 
-    def test_swallows_errors_and_records_no_sync_outcome(self):
+    def test_swallows_errors_without_changing_source_health(self):
         with patch(_EXECUTE, side_effect=Exception("clickhouse down")):
             sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
 
@@ -232,7 +204,7 @@ class SyncCustomPropertiesForAccountTest(TeamScopedTestMixin, BaseTest):
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class ReadViewAccessControlTest(ClickhouseTestMixin, TeamScopedTestMixin, BaseTest):
     def test_userless_sync_reads_view_despite_warehouse_access_control(self):
-        # The Celery sync runs with no user, so HogQL warehouse-view access control (flag on)
+        # The system sync runs with no user, so HogQL warehouse-view access control (flag on)
         # fails closed and denies the view unless the sync bypasses it.
         view = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -265,81 +237,3 @@ class ReadViewLimitTest(ClickhouseTestMixin, TeamScopedTestMixin, BaseTest):
         rows = _read_view(self.team, view.name, ["org_id", "score"], "org_id", external_ids)
 
         assert len(rows) == 120
-
-
-class RecordSyncOutcomeTest(TeamScopedTestMixin, BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.view = DataWarehouseSavedQuery.objects.create(team=self.team, name="billing_view", columns={})
-        self.definition = CustomPropertyDefinition.objects.create(team=self.team, name="MRR")
-        self.source = CustomPropertySource.objects.create(
-            team=self.team, definition=self.definition, saved_query=self.view, source_column="mrr", key_column="org_id"
-        )
-
-    def _record(self, **kwargs):
-        record_sync_outcome(team_id=self.team.id, saved_query_id=self.view.id, **kwargs)
-        self.source.refresh_from_db()
-
-    @parameterized.expand(
-        [
-            ("clean_success", {}, True, 0, None),
-            ("view_not_found", {"view_found": False}, False, 0, "View not found"),
-            ("run_failed", {"run_failed": True, "run_error": "boom"}, True, 1, "boom"),
-        ]
-    )
-    def test_single_run_outcome(self, _name, kwargs, expected_enabled, expected_failures, expected_error):
-        self._record(**kwargs)
-
-        assert self.source.is_enabled is expected_enabled
-        assert self.source.consecutive_failures == expected_failures
-        assert self.source.last_sync_error == expected_error
-        assert self.source.last_synced_at is not None
-
-    def test_per_source_column_error_increments_only_that_source(self):
-        other_def = CustomPropertyDefinition.objects.create(team=self.team, name="Plan")
-        other = CustomPropertySource.objects.create(
-            team=self.team, definition=other_def, saved_query=self.view, source_column="plan", key_column="org_id"
-        )
-
-        self._record(source_errors={str(self.source.id): "View billing_view has no column(s): mrr"})
-        other.refresh_from_db()
-
-        assert self.source.consecutive_failures == 1
-        assert self.source.last_sync_error == "View billing_view has no column(s): mrr"
-        assert other.consecutive_failures == 0
-        assert other.last_sync_error is None
-
-    def test_success_resets_failure_streak_and_clears_error(self):
-        CustomPropertySource.objects.filter(id=self.source.id).update(consecutive_failures=3, last_sync_error="old")
-
-        self._record()
-
-        assert self.source.consecutive_failures == 0
-        assert self.source.last_sync_error is None
-
-    def test_view_not_found_disables_and_resets_failure_streak(self):
-        CustomPropertySource.objects.filter(id=self.source.id).update(consecutive_failures=3)
-
-        self._record(view_found=False)
-
-        assert self.source.is_enabled is False
-        assert self.source.consecutive_failures == 0
-
-    @parameterized.expand(
-        [("below_cap", MAX_CONSECUTIVE_SYNC_FAILURES - 2, True), ("at_cap", MAX_CONSECUTIVE_SYNC_FAILURES - 1, False)]
-    )
-    def test_auto_disables_at_failure_cap(self, _name, starting_failures, expected_enabled):
-        CustomPropertySource.objects.filter(id=self.source.id).update(consecutive_failures=starting_failures)
-
-        self._record(run_failed=True, run_error="boom")
-
-        assert self.source.consecutive_failures == starting_failures + 1
-        assert self.source.is_enabled is expected_enabled
-
-    def test_disabled_sources_are_not_touched(self):
-        CustomPropertySource.objects.filter(id=self.source.id).update(consecutive_failures=2, is_enabled=False)
-
-        self._record()
-
-        assert self.source.consecutive_failures == 2
-        assert self.source.last_synced_at is None

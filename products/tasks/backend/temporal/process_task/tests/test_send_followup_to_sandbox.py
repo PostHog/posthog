@@ -11,6 +11,7 @@ from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     DENIED_PERMISSION_STOP_MESSAGE,
     REFRESH_RETRY_DELAY_SECONDS,
+    RUN_STOPPING_MESSAGE,
     SANDBOX_STOPPED_MESSAGE,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
@@ -114,7 +115,12 @@ class TestRefreshSandboxMcp:
 
         mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
         mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
+            token="fresh-token",
+            project_id=7,
+            scopes="read_only",
+            interaction_origin=None,
+            task_id="task-1",
+            origin_product="support_reply",
         )
         mock_user_configs.assert_called_once_with(
             token="fresh-token",
@@ -238,7 +244,12 @@ class TestRefreshSandboxMcp:
 
         mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full")
         mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="full", interaction_origin=None, task_id="task-1"
+            token="fresh-token",
+            project_id=7,
+            scopes="full",
+            interaction_origin=None,
+            task_id="task-1",
+            origin_product="user_created",
         )
 
     def test_transition_refresh_failure_reports_unsafe(
@@ -688,6 +699,9 @@ class TestSendFollowupActivityRefreshOrdering:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_error_and_complete"
             ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.refresh_store_skills_state"
+            ) as mock_refresh_store_skills,
         ):
             task_run = _make_task_run_mock()
             task_run.task.created_by = MagicMock(id=42, distinct_id="u42")
@@ -701,6 +715,7 @@ class TestSendFollowupActivityRefreshOrdering:
                 "refresh_github": mock_refresh_github,
                 "user_msg": mock_user_msg,
                 "conn_token": mock_conn_token,
+                "refresh_store_skills": mock_refresh_store_skills,
             }
 
     def test_refresh_called_before_user_message(self, _patches):
@@ -753,6 +768,35 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["refresh"].assert_not_called()
         _patches["user_msg"].assert_not_called()
 
+    def test_a_stopping_run_rejects_before_rebinding_credentials(self, _patches):
+        _patches["task_run"].state = {"cancel_requested_at": "2026-01-01T00:00:00+00:00"}
+
+        with pytest.raises(ApplicationError) as excinfo:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert str(excinfo.value) == RUN_STOPPING_MESSAGE
+        assert excinfo.value.non_retryable
+        _patches["conn_token"].assert_not_called()
+        _patches["refresh"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
+        _patches["user_msg"].assert_not_called()
+
+    def test_a_cancelled_status_run_rejects_before_rebinding_credentials(self, _patches):
+        # Loop overlap and lifecycle cancellation set CANCELLED without the cancel marker,
+        # so the status alone must reject the follow-up.
+        _patches["task_run"].state = {}
+        _patches["task_run"].status = _patches["task_run_cls"].Status.CANCELLED
+
+        with pytest.raises(ApplicationError) as excinfo:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert str(excinfo.value) == RUN_STOPPING_MESSAGE
+        assert excinfo.value.non_retryable
+        _patches["conn_token"].assert_not_called()
+        _patches["refresh"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
+        _patches["user_msg"].assert_not_called()
+
     def test_stopped_sandbox_says_so_once_instead_of_retrying(self, _patches):
         _patches["refresh_github"].return_value = SandboxRebindFailure.SANDBOX_NOT_RUNNING
 
@@ -797,10 +841,15 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
         _patches["task_run"].state = {"interaction_origin": "slack", "slack_actor_user_id": 42}
 
+        order: list[str] = []
+        _patches["refresh_store_skills"].side_effect = lambda *args, **kwargs: order.append("store_skills")
+        _patches["refresh"].side_effect = lambda *args, **kwargs: order.append("mcp")
+
         with patch(
             "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user"
         ) as mock_resolve:
-            mock_resolve.return_value = MagicMock(id=99)
+            new_actor = MagicMock(id=99)
+            mock_resolve.return_value = new_actor
             send_followup_to_sandbox(
                 SendFollowupToSandboxInput(
                     run_id="run-1", message="hi", actor_user_id=99, context={"actor_slack_user_id": "U_BOB"}
@@ -811,6 +860,11 @@ class TestSendFollowupActivityRefreshOrdering:
             _patches["task_run"].id,
             updates={"slack_actor_user_id": 99, "slack_actor_slack_user_id": "U_BOB"},
         )
+        # The MCP refresh makes the sandbox re-read the run, so the new actor's skills go in first.
+        _patches["refresh_store_skills"].assert_called_once_with(
+            _patches["task_run"], new_actor, reason="slack_actor_change"
+        )
+        assert order == ["store_skills", "mcp"]
 
     def test_non_slack_delivery_does_not_stamp(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
@@ -818,6 +872,7 @@ class TestSendFollowupActivityRefreshOrdering:
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
 
         _patches["task_run_cls"].update_state_atomic.assert_not_called()
+        _patches["refresh_store_skills"].assert_not_called()
 
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
@@ -960,6 +1015,8 @@ class TestSendFollowupTurnTimeout:
             "run-1",
             "The model response could not be completed. Please retry the task.",
             False,
+            False,
+            "user_created",
         )
         _patches["turn_complete"].assert_not_called()
 
@@ -1034,7 +1091,7 @@ class TestSendFollowupTurnTimeout:
             send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
 
         assert exc_info.value.non_retryable is True
-        _patches["error"].assert_called_once_with("run-1", DENIED_PERMISSION_STOP_MESSAGE, False)
+        _patches["error"].assert_called_once_with("run-1", DENIED_PERMISSION_STOP_MESSAGE, False, False, "user_created")
 
     def test_a_steer_never_claims_the_denial_that_ended_its_turn(self, _patches):
         _patches["denial_state"].update(
@@ -1286,6 +1343,24 @@ class TestPeerDeliveryMode:
         _patches["error"].assert_not_called()
         assert _patches["mark"].call_args.args == (self._PEER_ID, "delivery_failed")
         assert _patches["mark"].call_args.kwargs["failure_phase"] == "credential_identity"
+
+    def test_stopping_run_rejects_before_peer_delivery(self, _patches):
+        _patches["task_run"].state = {"cancel_requested_at": "2026-01-01T00:00:00+00:00"}
+
+        with pytest.raises(ApplicationError) as excinfo:
+            send_followup_to_sandbox(
+                SendFollowupToSandboxInput(
+                    run_id="run-1", message="peer ping", message_id="m-1", context=self._peer_context()
+                )
+            )
+
+        assert excinfo.value.non_retryable is True
+        _patches["conn_token"].assert_not_called()
+        _patches["refresh_mcp"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
+        _patches["user_msg"].assert_not_called()
+        assert _patches["mark"].call_args.args == (self._PEER_ID, "delivery_failed")
+        assert _patches["mark"].call_args.kwargs["failure_phase"] == "run_stopping"
 
     @pytest.mark.parametrize("refresh_key", ["refresh_mcp", "refresh_github"])
     def test_refresh_failure_marks_row_without_stream_sentinels(self, _patches, refresh_key):

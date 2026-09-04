@@ -7,8 +7,9 @@
 # Detect worktree: .git is a file (not a directory) pointing to the main repo
 [ -f .git ] || exit 0
 
-# Borrow node_modules from the main clone when lockfiles match, so a freshly
-# created worktree doesn't need its own pnpm install at all. Resolve the
+# Borrow the main clone's node_modules when lockfiles match, so the commit
+# hooks run without a local install. The borrow is a PATH export that dies
+# with this process, so it does not populate the worktree. Resolve the
 # helper relative to this hook file, not cwd: core.hooksPath may be absolute
 # (hook file lives in the main clone) or relative (worktree's own checkout),
 # and cwd is always the active worktree, which may not contain the helper.
@@ -19,7 +20,11 @@ if [ -f "$HOOK_DIR/../bin/helpers/worktree-borrow.sh" ]; then
 fi
 
 if [ "$POSTHOG_BORROW_NODE" = "1" ]; then
-    echo "husky: worktree detected, borrowing node_modules from main clone"
+    # Being install-free is the point of a light worktree, but "borrowing
+    # node_modules" reads as "deps are here". They are not: the borrow is a PATH
+    # export scoped to one hook process, so say what the worktree can do.
+    echo "husky: light worktree. Commit hooks borrow the main clone's toolchain."
+    echo "husky: it has no node_modules or venv of its own. Run 'flox activate' to typecheck, test or run the app."
 else
     if ! command -v pnpm > /dev/null 2>&1; then
         echo "husky: pnpm not found, skipping worktree bootstrap"

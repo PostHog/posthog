@@ -16,6 +16,7 @@ import type {
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
+import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import type { PiEnrichmentConfig } from "./enrichment-extension";
 import { safePiEnvironment } from "./rpc-environment";
 import type { TaskContext } from "./task-system-prompt";
@@ -59,7 +60,6 @@ export interface PiRpcBootstrap {
   enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
-  projectTrusted?: boolean;
   taskContext: TaskContext;
   extensions?: PiRuntimeExtension[];
   /** Local checkout of the org's context wiki, when one is mounted. */
@@ -114,6 +114,9 @@ export function createRuntimeMcpServers(
         lifecycle: "lazy" as const,
         args: [],
         directTools: false,
+        // Lazy servers hold no tool metadata until first use, so this is what the
+        // model's tool search matches on until then.
+        ...(server.description ? { description: server.description } : {}),
       },
     ]),
   );
@@ -138,6 +141,11 @@ export function createRuntimeMcpStdioServers(
       },
     ]),
   );
+}
+
+export function createLocalRuntimeMcpServers(cwd: string): PiRuntimeMcpServers {
+  const server = buildLocalToolsServer({ cwd }, { environment: "local" });
+  return createRuntimeMcpStdioServers(server ? [server] : []);
 }
 
 interface PiHostRequest {
@@ -441,7 +449,6 @@ export type PiRpcClientOptions = Pick<RpcClientOptions, "cliPath" | "model"> & {
   enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
-  projectTrusted?: boolean;
   taskContext: TaskContext;
   extensions?: PiRuntimeExtension[];
   contextWikiPath?: string;
@@ -454,7 +461,6 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     enrichment,
     runtimeMcpServers,
     mcpToolPolicies,
-    projectTrusted,
     taskContext,
     extensions,
     contextWikiPath,
@@ -477,7 +483,6 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       enrichment,
       runtimeMcpServers,
       mcpToolPolicies,
-      projectTrusted: projectTrusted ?? false,
       taskContext,
       extensions,
       contextWikiPath,

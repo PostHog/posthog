@@ -8,7 +8,9 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
     SandboxEnvironmentWriteSerializer,
+    TaskRunArtifactUploadSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
@@ -58,6 +60,10 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         [
             ("image_builder", True),
             ("signals_scout", True),
+            # These two resolve mintable gateway products, so a forged origin would reach
+            # internally funded inference under a per-run cap.
+            ("signals_chat", True),
+            ("scout_suggestions", True),
             ("user_created", False),
         ]
     )
@@ -112,3 +118,28 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
 
         assert not serializer.is_valid()
         mock_resolve_url_hosts_ips.assert_not_called()
+
+
+class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at the ceiling", TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES, True),
+            ("above the ceiling", TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES + 1, False),
+        ]
+    )
+    def test_inline_content_is_capped_below_the_request_body_limit(
+        self, _name: str, content_length: int, expected_valid: bool
+    ) -> None:
+        serializer = TaskRunArtifactUploadSerializer(
+            data={
+                "name": "output.txt",
+                "type": "output",
+                "content": "a" * content_length,
+                "content_encoding": "utf-8",
+            }
+        )
+
+        assert serializer.is_valid() is expected_valid
+        if not expected_valid:
+            megabytes = TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)
+            assert f"{megabytes}MB attachment limit" in str(serializer.errors["content"])

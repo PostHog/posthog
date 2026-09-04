@@ -764,8 +764,7 @@ class TestRun:
         refresh_loop_mock.assert_awaited_once_with(workflow.context, "sandbox-123")
         silent_workflow_logger.warning.assert_called_once_with(
             "execute_sandbox_sandbox_gone_detected",
-            run_id="run-id",
-            sandbox_id="sandbox-123",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
     async def test_credential_refresh_task_gone_marks_the_run_failed(self, monkeypatch, silent_workflow_logger):
@@ -799,8 +798,7 @@ class TestRun:
         assert workflow._sandbox_gone is False
         silent_workflow_logger.warning.assert_called_once_with(
             "execute_sandbox_credential_refresh_stopped_credentials_unavailable",
-            run_id="run-id",
-            sandbox_id="sandbox-123",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
     @pytest.mark.parametrize(

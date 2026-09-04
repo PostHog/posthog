@@ -104,11 +104,13 @@ class CustomPromptSandboxContext:
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
     runtime_adapter: str | None = None
+    """The agent harness that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
+    Set it alongside a non-default ``model``: the agent server derives the provider from the
+    adapter, so a model handed over with no adapter can't be routed and falls back to the server
+    default. ``None`` keeps the agent server's default harness (only valid when ``model`` is also
+    ``None``)."""
     runtime: str = "acp"
-    """The agent runtime that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
-    Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
-    so a model handed over with no runtime can't be routed and falls back to the server default.
-    ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
+    """The agent protocol driving the task's runs (``Task.Runtime``: ``"acp"`` or ``"pi"``)."""
     reasoning_effort: str | None = None
     """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
     ``model`` + ``runtime_adapter``; ``None`` keeps the model's default effort. The supported tiers
@@ -982,6 +984,41 @@ def _extract_text(update: dict) -> str | None:
     return None
 
 
+class TruncatedAgentOutputError(ValueError):
+    """The end-turn text stops inside a JSON object, so no complete object can be read from it.
+
+    A `ValueError` subclass, because every caller already treats extraction failures as one.
+    """
+
+    def __init__(self, label: str):
+        super().__init__(
+            f"Output truncated in {label}: end-turn text stops inside a JSON object, "
+            "so only a fragment of the reply is present"
+        )
+
+
+def _open_object_depth(text: str) -> int:
+    """Count the `{` in `text` that never close, ignoring braces inside string literals."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth = max(depth - 1, 0)
+    return depth
+
+
 def extract_json_from_text(text: str | None, label: str) -> Any:
     """Extract JSON from text that might contain markdown formatting or surrounding commentary."""
     if text is None:
@@ -1005,21 +1042,26 @@ def extract_json_from_text(text: str | None, label: str) -> Any:
         except json.JSONDecodeError:
             pass
 
-    # 3. Bare JSON object in surrounding text — try each { from the left paired with the last }
-    last_brace = text.rfind("}")
-    if last_brace != -1:
-        start = 0
-        while True:
-            brace_pos = text.find("{", start)
-            if brace_pos == -1 or brace_pos >= last_brace:
-                break
-            try:
-                return json.loads(text[brace_pos : last_brace + 1])
-            except json.JSONDecodeError:
-                start = brace_pos + 1
+    # 3. Bare JSON object in surrounding text — decode from each { from the left, stopping at the
+    # end of that object, so trailing commentary does not have to be balanced.
+    decoder = json.JSONDecoder()
+    start = 0
+    while (brace_pos := text.find("{", start)) != -1:
+        try:
+            value, _ = decoder.raw_decode(text, brace_pos)
+        except json.JSONDecodeError as e:
+            # A decode that ran to the end of the text is a valid object the reply was cut off inside
+            # — a truncation. Returning a nested object from it would hand the caller a fragment, and
+            # the schema error that follows names a missing field instead of the truncation. A decode
+            # that fails well before the end is just a stray brace in prose, so skip past it.
+            if e.pos >= len(text.rstrip()):
+                raise TruncatedAgentOutputError(label) from e
+            start = brace_pos + 1
+            continue
+        return value
 
     # 4. Last resort — try the whole text as-is, then surface a classified error so
-    # callers (and operators reading the failure) can tell empty / fenced / prose apart
+    # callers (and operators reading the failure) can tell empty / truncated / fenced / prose apart
     # instead of seeing a bare "Expecting value: line 1 column 1 (char 0)".
     stripped = text.strip()
     try:
@@ -1027,6 +1069,8 @@ def extract_json_from_text(text: str | None, label: str) -> Any:
     except json.JSONDecodeError as e:
         if not stripped:
             raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only") from e
+        if _open_object_depth(text) > 0:
+            raise TruncatedAgentOutputError(label) from e
         if "```" in text:
             raise ValueError(
                 f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON"

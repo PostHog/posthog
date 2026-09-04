@@ -32,7 +32,7 @@ When a gap closes, new work uses the Go gateway and affected callers should migr
 | Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                                        |
 | Gateway-managed routing       | The caller accepts operator-managed provider plans and health-aware selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or configured Modal, Fireworks, and Baseten hosts. |
 
-Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). The builders forward product attribution and caller-selected metadata while keeping a temporary Python fallback during rollout.
+Existing Django callers should use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). The builders forward product attribution and caller-selected metadata while keeping a temporary Python fallback during rollout.
 
 ### ⛔ Stay on the Python gateway for now
 
@@ -47,6 +47,11 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 | Python product usage status                                                                       | The Python product usage and quota API is different from Go request usage and wallet APIs.                                                                                                                                                                                                                                                                                                                   |
 
 For PostHog Desktop, the Python gateway maps Django credential rejections to generic access denials. Transport, server, and malformed-response failures remain retryable service errors.
+
+Flag-gated open-weight models added to the Python gateway under the freeze stay there for the same reason.
+`zai-org/glm-5.3-flash` is Baseten-exclusive, gated by the `posthog-code-glm-53-flash-model` flag, and reachable only by the `posthog_code` and `review_hog` products.
+Its callers are PostHog Desktop and PostHog Code, so the model depends on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, the billing policy, and the per-model access flags named in the first row above.
+The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
 
 ### 🔎 Verify before switching
 
@@ -73,7 +78,7 @@ These are compatibility checks, not automatic blockers:
 | OpenAI APIs                  | Chat Completions, Responses, bare Responses alias, and normalized router chat.                                                                                                    | Audio transcription and broader LiteLLM translation.                                                                                                                                                                    |
 | Anthropic APIs               | Messages and token counting, including Bedrock-hosted models.                                                                                                                     | OpenAI models exposed through the Anthropic shape and Python-specific Bedrock opt-in behavior.                                                                                                                          |
 | Providers                    | OpenAI, Anthropic, Azure OpenAI, Bedrock, and configured Modal, Fireworks, and Baseten hosts.                                                                                     | OpenRouter and Cloudflare Workers AI.                                                                                                                                                                                   |
-| Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, router categories, and OpenRouter-shaped pricing.                                                            | Broader LiteLLM model acceptance, Python product allowlists, and product-scoped model pricing.                                                                                                                          |
+| Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, router categories, and OpenRouter-shaped pricing.                                                            | Broader LiteLLM model acceptance, Python product allowlists, per-model access flags with caller-filtered listings, and product-scoped model pricing.                                                                    |
 | Routing and failure behavior | Operator-managed provider plans, health-aware ordering, circuit breakers, hosted-provider failover, and strict provider pinning.                                                  | Caller opt-in Bedrock fallback and provider-specific Python routing.                                                                                                                                                    |
 | Event metadata               | One `X-PostHog-Properties` JSON object plus dedicated product, user, obo, distinct ID, trace ID, and provider headers.                                                            | `X-POSTHOG-PROPERTY-*` and `X-POSTHOG-FLAG-*` headers.                                                                                                                                                                  |
 | Session attribution          | `X-PostHog-Session-Id` is recorded as the gateway-owned `$ai_session_id`.                                                                                                         | The per-key property header can also emit `$ai_session_id`.                                                                                                                                                             |
@@ -92,10 +97,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-08-25 against:
+Last verified on 2026-09-03 against:
 
-- `PostHog/posthog` working tree compared with master at `c22b95e0009c54388fd1b199d3248f48aba019e2`
-- `PostHog/ai-gateway` main at `d7545e0979ff38d7df1ce73779253897c99c3c46`
+- `PostHog/posthog` working tree compared with master at `17484bc3a0b01d930fbcf512ca9f1f2489d7aa84`
+- `PostHog/ai-gateway` main at `fb1afc8bebb40ffb43dbd42f2b5a9531cf8f2cb8`
 
 ## References
 

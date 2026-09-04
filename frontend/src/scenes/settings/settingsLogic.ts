@@ -2,6 +2,7 @@ import FuseClass from 'fuse.js'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -19,26 +20,20 @@ import type { IntegrationType, PreflightStatus, TeamPublicType, TeamType } from 
 import type { AvailableFeature, OrganizationType } from '../../types'
 import { matchesFlagDefinition } from './flagGating'
 import { SETTINGS_MAP } from './SettingsMap'
+import {
+    FUSE_THRESHOLD,
+    GlobalSearchFuse,
+    buildSettingsSearchIndex,
+    createSettingsSearchFuse,
+    searchSettingsIndex,
+} from './settingsSearch'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
-
-// Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
-const FUSE_THRESHOLD = 0.2
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface SettingsFuse extends FuseClass<Setting & { searchValue: string }> {}
 export interface SectionsFuse extends FuseClass<
     SettingSection & { searchValue: string; settingsSearchValues: string }
 > {}
-
-export interface SearchIndexEntry {
-    settingId: SettingId
-    settingTitle: string
-    sectionId: SettingSectionId
-    sectionTitle: string
-    level: SettingLevelId
-    keywords: string
-    description: string
-}
 
 export interface SearchResult {
     settingId: SettingId
@@ -54,8 +49,6 @@ export interface SearchResultGroup {
     level: SettingLevelId
     results: SearchResult[]
 }
-
-export interface GlobalSearchFuse extends FuseClass<SearchIndexEntry> {}
 
 const getSettingStringValue = (setting: Setting): string => {
     if (setting.searchTerm) {
@@ -405,6 +398,24 @@ export const settingsLogic = kea<settingsLogicType>([
                 }
             }, 100)
         },
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            // Wait for typing to settle so one search reports once, not once per keystroke.
+            await breakpoint(1000)
+
+            const term = searchTerm.trim()
+            if (!term) {
+                return
+            }
+
+            const resultCount = values.searchResults.reduce((count, group) => count + group.results.length, 0)
+            posthog.capture('settings search', {
+                result_count: resultCount,
+                word_count: term.split(/\s+/).length,
+                // Only a search that found nothing is worth reading back, because that is what
+                // a gap between the words people use and the words the index carries looks like.
+                search_term: resultCount === 0 ? term : null,
+            })
+        },
         navigateToSetting: ({ sectionId, settingId }) => {
             const section = values.sections.find((s) => s.id === sectionId)
             if (section) {
@@ -486,6 +497,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
+                        return false
+                    }
+                    if (section.id === 'organization-access-resolution' && !isAdminOrOwner) {
                         return false
                     }
 
@@ -679,84 +693,27 @@ export const settingsLogic = kea<settingsLogicType>([
                 preflight: null | import('../../types').PreflightStatus,
                 currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType
             ): GlobalSearchFuse => {
-                const entries: SearchIndexEntry[] = []
-
-                for (const section of sections.filter((s) => !s.hideFromNavigation)) {
-                    const sectionTitle =
-                        typeof section.title === 'string' ? section.title : section.id.replace(/[-]/g, ' ')
-
-                    for (const setting of section.settings) {
-                        if (!doesMatchFlags(setting)) {
-                            continue
-                        }
-                        if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
-                            continue
-                        }
-                        if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
-                            continue
-                        }
-
-                        const settingTitle =
-                            typeof setting.title === 'string' ? setting.title : setting.id.replace(/[-]/g, ' ')
-
-                        entries.push({
-                            settingId: setting.id,
-                            settingTitle,
-                            sectionId: section.id,
-                            sectionTitle,
-                            level: section.level,
-                            keywords: (setting.keywords ?? []).join(' '),
-                            description:
-                                setting.searchDescription ??
-                                (typeof setting.description === 'string' ? setting.description : ''),
-                        })
+                const isSettingVisible = (setting: Setting): boolean => {
+                    if (!doesMatchFlags(setting)) {
+                        return false
                     }
+                    if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
+                        return false
+                    }
+                    return !setting.allowForTeam || setting.allowForTeam(currentTeam)
                 }
 
-                // Index sections that are top-level links with no settings (e.g. Billing)
-                for (const section of sections.filter((s) => !s.hideFromNavigation)) {
-                    if (section.settings.length === 0) {
-                        const sectionTitle =
-                            typeof section.title === 'string' ? section.title : section.id.replace(/[-]/g, ' ')
-
-                        entries.push({
-                            settingId: section.id as SettingId,
-                            settingTitle: sectionTitle,
-                            sectionId: section.id,
-                            sectionTitle,
-                            level: section.level,
-                            keywords: '',
-                            description: '',
-                        })
-                    }
-                }
-
-                return createFuse(entries, {
-                    keys: [
-                        { name: 'settingTitle', weight: 2 },
-                        { name: 'keywords', weight: 1.5 },
-                        { name: 'sectionTitle', weight: 1 },
-                        { name: 'description', weight: 0.5 },
-                        { name: 'settingId', weight: 0.5 },
-                    ],
-                    threshold: FUSE_THRESHOLD,
-                    includeScore: true,
-                })
+                return createSettingsSearchFuse(buildSettingsSearchIndex(sections, isSettingVisible))
             },
         ],
 
         searchResults: [
             (s) => [s.searchTerm, s.globalSearchIndex],
             (searchTerm: string, globalSearchIndex: GlobalSearchFuse): SearchResultGroup[] => {
-                if (!searchTerm.trim()) {
-                    return []
-                }
-
-                const results = globalSearchIndex.search(searchTerm, { limit: 30 })
+                const results = searchSettingsIndex(globalSearchIndex, searchTerm)
                 const groupMap = new Map<SettingSectionId, SearchResultGroup>()
 
-                for (const result of results) {
-                    const { sectionId, sectionTitle, level, settingId, settingTitle } = result.item
+                for (const { sectionId, sectionTitle, level, settingId, settingTitle } of results) {
                     let group = groupMap.get(sectionId)
                     if (!group) {
                         group = { sectionId, sectionTitle, level, results: [] }

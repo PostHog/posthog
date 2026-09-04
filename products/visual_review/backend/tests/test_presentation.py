@@ -61,6 +61,37 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_expire_quarantine_takes_only_an_identifier(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+            {"identifier": "Button"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+
+    def test_opening_a_quarantine_still_needs_a_reason(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}",
+            {"identifier": "Button"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
@@ -642,6 +673,26 @@ class TestMalformedUuidReturns400(VisualReviewTeamScopedTestMixin, APIBaseTest):
     def test_malformed_uuid_returns_400_not_500(self, _name: str, path: str) -> None:
         suffix = path.format(bad=self.BAD_UUID)
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/{suffix}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+class TestSnapshotLookupRequiresIdentifier(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    # The guard runs before the run lookup, so these need no seeded run.
+    RUN_ID = "3f1c9f0e-2b7a-4a5f-9c1d-8e6b2a4f7d31"
+
+    @parameterized.expand(
+        [
+            ("snapshot_history", "snapshot-history"),
+            ("tolerated_hashes", "tolerated-hashes"),
+        ]
+    )
+    def test_missing_identifier_returns_400(self, _name: str, action: str) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/runs/{self.RUN_ID}/{action}/",
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 

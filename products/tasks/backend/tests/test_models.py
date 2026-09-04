@@ -21,6 +21,8 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import (
+    MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
+    MAX_PENDING_FOLLOWUP_MESSAGES,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     SandboxEnvironment,
     SandboxSnapshot,
@@ -231,6 +233,82 @@ class TestTask(TestCase):
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertNotIn("ai_stage", task_run.state)
+
+    def test_create_run_stamps_inbox_on_a_report_linked_signal_report_task(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Discuss report",
+            description="From the Inbox",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertEqual(run.state["ai_stage"], "inbox")
+
+    def test_create_run_leaves_a_bare_signal_report_task_unstamped(self):
+        # The origin is client-settable; only the report link proves an Inbox run.
+        task = Task.objects.create(
+            team=self.team,
+            title="Bare signal_report",
+            description="No report link",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertNotIn("ai_stage", run.state)
+
+    def test_create_run_keeps_the_pipeline_stage_over_the_interactive_stamp(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Auto-started implementation",
+            description="Pipeline",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+        run = task.create_run(extra_state={"ai_stage": "implementation"})
+
+        self.assertEqual(run.state["ai_stage"], "implementation")
+
+    def test_create_run_leaves_a_pipeline_created_task_unstamped(self):
+        # Stamping a pipeline-created task would move a rerun of self-driving work onto the
+        # interactive cap.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Auto-started implementation",
+            description="Pipeline",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            internal=True,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertNotIn("ai_stage", run.state)
+
+    def test_create_run_stamps_chat_on_a_signals_chat_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Suggest a scout",
+            description="Chat",
+            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertEqual(run.state["ai_stage"], "chat")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
@@ -1004,6 +1082,102 @@ class TestTaskRun(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state["slack_sent_relay_ids"], ["relay-1", "relay-2"])
 
+    @staticmethod
+    def _recorded_ids(run: TaskRun) -> list[str]:
+        return [entry["id"] for entry in run.state.get("pending_followup_messages", [])]
+
+    @staticmethod
+    def _prompt_entries(prompts: list[list[dict]]) -> list[dict]:
+        entries: list[dict] = [{"notification": {"method": "session/update", "params": {}}}]
+        entries.extend(
+            {
+                "type": "notification",
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "session/prompt",
+                    "params": {"prompt": blocks},
+                },
+            }
+            for blocks in prompts
+        )
+        return entries
+
+    def test_record_pending_followup_message_is_idempotent_per_message_id(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+
+        run.record_pending_followup_message("m1", "retried", accepted_at=django_timezone.now())
+        run.record_pending_followup_message("m1", "retried", accepted_at=django_timezone.now())
+
+        run.refresh_from_db()
+        recorded = run.state["pending_followup_messages"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], "m1")
+        self.assertEqual(recorded[0]["content"], "retried")
+
+    def test_record_pending_followup_message_caps_the_backlog_keeping_the_newest(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+
+        for index in range(MAX_PENDING_FOLLOWUP_MESSAGES + 3):
+            run.record_pending_followup_message(f"m{index}", f"message {index}", accepted_at=django_timezone.now())
+
+        run.refresh_from_db()
+        recorded = self._recorded_ids(run)
+        self.assertEqual(len(recorded), MAX_PENDING_FOLLOWUP_MESSAGES)
+        self.assertEqual(recorded[0], "m3")
+        self.assertEqual(recorded[-1], f"m{MAX_PENDING_FOLLOWUP_MESSAGES + 2}")
+
+    def test_record_pending_followup_message_bounds_the_stored_content(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+
+        run.record_pending_followup_message(
+            "m1", "x" * (MAX_PENDING_FOLLOWUP_CONTENT_CHARS + 500), accepted_at=django_timezone.now()
+        )
+
+        run.refresh_from_db()
+        self.assertEqual(len(run.state["pending_followup_messages"][0]["content"]), MAX_PENDING_FOLLOWUP_CONTENT_CHARS)
+
+    @parameterized.expand(
+        [
+            ("visible prompt for one of them", [[{"type": "text", "text": "delivered one"}]], ["m2"]),
+            (
+                "prompt behind a hidden resume preamble",
+                [
+                    [
+                        {"type": "text", "text": "Resuming. History:...", "_meta": {"ui": {"hidden": True}}},
+                        {"type": "text", "text": "delivered one"},
+                    ]
+                ],
+                ["m2"],
+            ),
+            ("no prompt at all", [], ["m1", "m2"]),
+            (
+                "prompt that merely contains the text",
+                [[{"type": "text", "text": "look at delivered one please"}]],
+                ["m1", "m2"],
+            ),
+        ]
+    )
+    def test_clear_echoed_followup_messages(self, _name, prompts, expected_ids):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        run.record_pending_followup_message("m1", "delivered one", accepted_at=django_timezone.now())
+        run.record_pending_followup_message("m2", "still waiting", accepted_at=django_timezone.now())
+
+        run.clear_echoed_followup_messages(self._prompt_entries(prompts))
+
+        run.refresh_from_db()
+        self.assertEqual(self._recorded_ids(run), expected_ids)
+
+    def test_clear_echoed_followup_messages_retires_one_record_per_prompt(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        run.record_pending_followup_message("m1", "yes", accepted_at=django_timezone.now())
+        run.record_pending_followup_message("m2", "yes", accepted_at=django_timezone.now())
+
+        run.clear_echoed_followup_messages(self._prompt_entries([[{"type": "text", "text": "yes"}]]))
+
+        run.refresh_from_db()
+        self.assertEqual(self._recorded_ids(run), ["m2"])
+
     def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
             task=self.task,
@@ -1408,7 +1582,6 @@ class TestTaskRun(TestCase):
         from django.core.cache import cache
 
         cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
-
         handle = mock_connect.return_value.get_workflow_handle.return_value
         handle.signal = AsyncMock()
 
@@ -1422,6 +1595,22 @@ class TestTaskRun(TestCase):
         self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
 
         cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
+
+    @parameterized.expand(["agent_command_dispatched", "agent_activity_observed"])
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_signal_agent_boot_milestone(self, milestone, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        dispatched = run.signal_agent_boot_milestone(milestone)
+
+        self.assertTrue(dispatched)
+        handle.signal.assert_awaited_once_with(milestone)
 
 
 class TestSandboxSnapshot(TestCase):

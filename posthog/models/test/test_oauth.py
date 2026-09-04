@@ -109,7 +109,6 @@ class TestOAuthModels(TestCase):
             "CIMD Split",
             "cimd_split_client",
             is_cimd_client=True,
-            cimd_metadata_url="https://example.com/oauth-client",
             scopes=["insight:read"],
             optional_scopes=["dashboard:read"],
         )

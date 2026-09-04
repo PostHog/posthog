@@ -294,7 +294,7 @@ Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analyt
 
 ## Anthropic — gaps
 
-Today (10): `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `service_accounts`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (9): `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
@@ -305,7 +305,7 @@ Diffed against: <https://platform.claude.com/llms.txt>
 - [ ] `GET /v1/organizations/rbac_groups and .../rbac_groups/{id}/members` — group definitions plus the membership join for the users already synced (high)
 - [ ] `GET /v1/organizations/rbac_roles and .../rbac_roles/{id}/permissions` — lookup resolving the role identifiers carried on users and workspace_members (medium)
 - [ ] `GET /v1/organizations/analytics/summaries (Get Activity Summaries)` — rolled-up org activity as the vendor reports it (medium)
-- [ ] `GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts` — service-account-to-workspace membership join for the service_accounts already synced (medium)
+- ~~`GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts`~~ — not reachable: Anthropic serves the service-account endpoints only to an `org:admin` OAuth token, which this source never holds
 - [ ] `GET /v1/organizations/analytics/connectors, /plugins, /skills` — adoption breakdown by connector, plugin and skill (medium)
 - [ ] `GET /v1/messages/batches` — batch job history with request counts and status, for batch spend analysis (medium)
 - [ ] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low)
@@ -3193,6 +3193,16 @@ Diffed against: <https://formbricks.com/docs/api-reference/openapi.json>
 
 Note: The v1 management API spec (openapi.json, 23 paths) is fully covered - every GET-listable v1 resource is already synced. The remaining gaps come from the v2 organizations API, enumerated from https://formbricks.com/docs/llms.txt (api-v2-reference/organizations-api--\* and api-v2-reference/roles/get-roles). Displays and storage have no list endpoint.
 
+## Fourthwall — adequate
+
+Today (9): `collections`, `donations`, `mailing_list_entries`, `members`, `membership_tiers`, `orders`, `product_templates`, `products`, `promotions`
+
+Diffed against: <https://docs.fourthwall.com/api-reference/platform>
+
+- [x] `product-templates (GET /product-templates/page/{page})` — the catalog of base product templates a shop builds products from, added as a full-refresh table
+
+Note: The product-templates list pages by a 1-based path segment and returns only `{results, total}` (no `totalPages`), so it walks the path until a page is empty; rows are keyed by `productId` and carry no timestamps, so the table is full-refresh only.
+
 ## Freshcaller — gaps
 
 Today (4): `call_metrics`, `calls`, `teams`, `users`
@@ -4606,6 +4616,16 @@ Diffed against: <https://pub.klausapp.com/public-export-api.swagger.json>
 - [ ] `/api/export/quizzes/leaderboard` — agent ranking dimension across quizzes (medium)
 
 Note: Now branded Zendesk QA. pub.klausapp.com hosts two Swagger 2.0 specs; the relevant one is public-export-api.swagger.json (18 paths) — the sibling public-import-api.swagger.json is write-only ingestion and irrelevant here. PostHog's 10 tables map 1:1 onto the workspace-scoped export endpoints; the only genuine holes are the quiz sub-resources and the POST-based conversation search (which needs a request body, so it is more work than the plain GET exports).
+
+## Klaviyo — adequate
+
+Today (33): `accounts`, `campaign_values_reports`, `catalog_categories`, `catalog_items`, `catalog_variants`, `coupon_codes`, `coupons`, `custom_metrics`, `custom_object_records`, `data_sources`, `email_campaigns`, `events`, `flow_actions`, `flow_messages`, `flow_values_reports`, `flows`, `forms`, `images`, `list_profiles`, `lists`, `metrics`, `object_types`, `profiles`, `push_tokens`, `reviews`, `segment_profiles`, `segments`, `sms_campaigns`, `tag_groups`, `tags`, `templates`, `web_feeds`, `webhooks`
+
+Diffed against: <https://developers.klaviyo.com/en/reference/custom_objects_api_overview>
+
+- [x] `custom-object-records (GET /api/object-types/{id}/object-records)` — the actual records of each custom object type, fanned out over the `object_types` we already sync; the only Custom Objects data table, GA in the 2026-07-15 revision (high)
+
+Note: The Custom Objects API is GA at revision 2026-07-15, which the source already pins. `object-records` has no timestamp filter or sort, so it is full refresh only; its parent `/object-types` exposes no page[size] param, so the fan-out pages it by cursor links alone. The remaining write/admin paths in the Custom Objects API (create object type, source mappings, bulk create/delete jobs, schema relationships) are ingestion and management, not warehouse tables.
 
 ## Knock — gaps
 
@@ -8313,6 +8333,21 @@ Diffed against: <https://api.tailscale.com/api/v2?outputOpenapiSchema=true>
 
 Note: Fetched the live OpenAPI 3.1 schema (58 paths). Static 4-endpoint config in sources/tailscale/settings.py, no dynamic discovery. Coverage of the tailnet-level list endpoints is reasonable; the notable miss is network flow logs, which sit on the same /logging prefix as the audit logs already synced and are by far the largest analytical dataset the API exposes. ACL, DNS, contacts, settings, webhooks and OAuth apps are all config and correctly out of scope.
 
+## Tally — gaps
+
+Today (7): `workspaces`, `forms`, `folders`, `questions`, `submissions`, `form_analytics_metrics`, `webhooks`
+
+Diffed against: <https://developers.tally.so/api-reference/changelog>
+
+- [x] `GET /workspaces/{workspaceId}/folders` — Folders that organize a workspace's forms; fanned out per workspace (added)
+- [x] `GET /forms/{formId}/analytics/metrics` — Aggregate per-form metrics (visits, submissions, completion rate); fanned out per form with `period=all` (added)
+- [ ] `GET /forms/{formId}/analytics/visits` — Form visits over time; a time series, not a table row per resource, so it needs a bucketed shape before it is worth syncing (low)
+- [ ] `GET /forms/{formId}/analytics/submissions` — Completed and partial submissions over time; same time-series shape caveat as visits (low)
+- [ ] `GET /forms/{formId}/analytics/dimensions` — Visitor breakdowns by source, browser, OS, device, and location (low)
+- [ ] `GET /forms/{formId}/analytics/drop-off` — Per-question drop-off statistics (low)
+
+Note: The folders and form-analytics endpoints were announced in the June 2026 releases (v0.8.0, v0.9.0) and are additive, so they are reachable with the source's pinned `tally-version: 2025-02-01`. Folders returns a bare JSON array; the metrics endpoint returns a single aggregate object per form. The remaining analytics endpoints are time series rather than one-row-per-resource tables, so they are deferred until a bucketed table shape is designed for them.
+
 ## Tavus — gaps
 
 Today (4): `conversations`, `personas`, `replicas`, `videos`
@@ -9465,10 +9500,11 @@ Note: api.getzep.com/api/v2/openapi.json returns 401, so I diffed against the do
 
 ## ZonkaFeedback — gaps
 
-Today (3): `contacts`, `responses`, `surveys`
+Today (4): `contacts`, `responses`, `survey_links`, `surveys`
 
 Diffed against: <https://apidocs.zonkafeedback.com/api/collections/2077940/TVCY7Cby>
 
+- [x] `survey-links` — shareable per-survey link objects from the Survey Links API (GET /survey-links); each carries the URL and tracking code used to attribute a collected response (high)
 - [ ] `workspaces` — lookup resolving the workspace ID carried on surveys and responses; required to segment reporting by workspace (high)
 - [ ] `locations` — lookup resolving the location ID on responses - the standard breakdown dimension for multi-site CX programs (high)
 - [ ] `distribution-logs` — survey send log; pairing it with responses gives delivery, open and response rates instead of responses alone (high)
@@ -9522,6 +9558,8 @@ Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compac
 - [ ] `object-query/usages and object-query/processed-usages` — consumption records for usage-based charges - required to explain variable invoice amounts (medium)
 
 Note: The connector already uses Zuora's Object Query API (/object-query/<segment>, filtered on updateddate), so every gap listed is a same-shape, same-pagination addition - the spec exposes ~50 object-query collections and the source wires up 8. Also unsynced but lower value: payment-applications, refund-applications, payment-methods, taxation-items, billing-runs, payment-runs, prepaid-balances/prepaid-balance-transactions, invoice-schedules, ramps, summarystatements. Zuora also serves the spec as zuora-openapi-for-otc.yaml (order-to-cash only); I used the full compact build, version 2026-07-24.
+
+Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/meters endpoints" changelog note, this family exposes no Object Query collection and no plain list-of-meters endpoint. Every path is either an operational action (run/stop/debug a meter, import a definition, truncate or query event stores) or a per-resource fetch (meter summary, run status, audit-trail entries), none of which supports the `updateddate` filter and cursor pagination this source is built on, so there is no incremental table to add.
 
 ## Zylo — gaps
 

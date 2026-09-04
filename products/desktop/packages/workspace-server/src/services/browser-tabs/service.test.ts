@@ -1,7 +1,10 @@
-import type { BrowserTab, TabsSnapshot } from "@posthog/shared";
+import {
+  type BrowserTab,
+  DEFAULT_TAB_HREF,
+  type TabsSnapshot,
+} from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import type { IBrowserTabsRepository } from "../../db/repositories/browser-tabs-repository";
-import { NEW_TAB_HREF } from "./schemas";
 import { BrowserTabsService } from "./service";
 
 const blankTab = (overrides: Partial<BrowserTab> = {}): BrowserTab => ({
@@ -58,11 +61,27 @@ describe("BrowserTabsService boot invariants", () => {
       expect(snapshot.tabs.length).toBeGreaterThanOrEqual(1);
       expect(snapshot.tabs[0]?.windowId).toBe(primary?.id);
       // On the new-tab page, not a location-less tab that would render nothing.
-      expect(snapshot.tabs[0]?.href).toBe(NEW_TAB_HREF);
+      expect(snapshot.tabs[0]?.href).toBe(DEFAULT_TAB_HREF);
       // The healed snapshot is persisted so the invariant survives a restart.
       expect(repo.saved).toEqual(snapshot);
     },
   );
+
+  it("keeps one tab after the last primary tab closes", () => {
+    const repo = new FakeRepository({ windows: [], tabs: [] });
+    const service = new BrowserTabsService(repo);
+    const initialTabId = service.getSnapshot().tabs[0].id;
+
+    const snapshot = service.close(initialTabId, "replacement-tab");
+
+    expect(snapshot.tabs).toEqual([
+      expect.objectContaining({
+        id: "replacement-tab",
+        href: DEFAULT_TAB_HREF,
+      }),
+    ]);
+    expect(snapshot.windows[0].activeTabId).toBe("replacement-tab");
+  });
 
   it("leaves an already-populated snapshot untouched", () => {
     const initial: TabsSnapshot = {
@@ -134,7 +153,7 @@ describe("BrowserTabsService boot invariants", () => {
     expect(reset.tabs).toEqual([
       expect.objectContaining({
         windowId: "win-1",
-        href: NEW_TAB_HREF,
+        href: DEFAULT_TAB_HREF,
         viewState: null,
         taskId: null,
         appView: null,

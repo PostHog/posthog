@@ -1,6 +1,9 @@
 import { useMountedLogic, useValues } from 'kea'
 
 import { IconCheckCircle, IconPullRequest } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
@@ -87,9 +90,14 @@ export function InboxWaitingForWork(): JSX.Element {
                         ) : null}
                     </div>
                     {enabledSources.length > MAX_VISIBLE_ITEMS ? (
-                        <div className="border-t border-primary px-1 pt-3 text-xs text-tertiary">
+                        <Link
+                            to={urls.inbox('settings')}
+                            // pinned: analytics and UI tests can depend on these overflow-link selectors.
+                            data-attr="inbox-waiting-signal-sources-more"
+                            className="border-t border-primary px-1 pt-3 text-xs text-tertiary no-underline hover:text-primary focus-visible:text-primary"
+                        >
                             And {enabledSources.length - MAX_VISIBLE_ITEMS} more
-                        </div>
+                        </Link>
                     ) : null}
                 </section>
 
@@ -124,9 +132,13 @@ export function InboxWaitingForWork(): JSX.Element {
                         ) : null}
                     </div>
                     {enabledScouts.length > MAX_VISIBLE_ITEMS ? (
-                        <div className="border-t border-primary px-1 pt-3 text-xs text-tertiary">
+                        <Link
+                            to={urls.inbox('scouts')}
+                            data-attr="inbox-waiting-scouts-more"
+                            className="border-t border-primary px-1 pt-3 text-xs text-tertiary no-underline hover:text-primary focus-visible:text-primary"
+                        >
                             And {enabledScouts.length - MAX_VISIBLE_ITEMS} more
-                        </div>
+                        </Link>
                     ) : null}
                 </section>
             </div>

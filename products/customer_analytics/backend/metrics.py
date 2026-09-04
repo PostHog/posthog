@@ -138,3 +138,8 @@ def record_account_track_rule_coordinator(
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_ENABLED_TEAMS, enabled_teams)
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_OVERDUE_TEAMS, overdue_teams)
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_OLDEST_SUCCESS_AGE_SECONDS, oldest_success_age_seconds)
+
+
+# Cutover observability for #82564: the CDP worker's account actions move from
+# secret_api_token on the external routes to scoped JWTs on the internal routes.
+# The legacy worker path can be removed once auth_method="secret_api_token" stays at zero.

@@ -79,6 +79,31 @@ describe("PostHogAPIClient", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("does not refresh or retry when the API answers 403", async () => {
+    // A 403 is a permission denial a fresh token cannot fix. Forcing a
+    // refresh on each one rotates the refresh token and rebuilds the whole
+    // desktop session, which unmounts the app into its loading screen.
+    const getApiKey = vi.fn().mockResolvedValue("token");
+    const refreshApiKey = vi.fn().mockResolvedValue("fresh-token");
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey,
+      refreshApiKey,
+      projectId: 1,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      json: vi.fn().mockResolvedValue({ detail: "forbidden" }),
+    });
+
+    await expect(client.getTaskRun("task-1", "run-1")).rejects.toThrow("[403]");
+
+    expect(refreshApiKey).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   // The lookup gates session start, so a stalled socket must degrade to null
   // rather than hang. The bound is what makes the best-effort catch reachable.
   it("bounds the user-node lookup and returns null when it times out", async () => {

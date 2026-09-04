@@ -17,7 +17,9 @@ from products.data_catalog.evals.scorers import (
     DeprecationProposed,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
+    MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
+    MetricsCatalogQueried,
     SemanticMetadataQueried,
 )
 
@@ -233,12 +235,39 @@ def test_metrics_catalog_before_data_discovery(
     assert score.score == expected_score
 
 
+def test_metric_list_counts_as_a_catalog_lookup() -> None:
+    calls: list[tuple[str, dict[str, Any], str]] = [
+        ("metric-list", {"offset": 0, "limit": 100}, "completed"),
+        ("execute-sql", {"query": "SELECT * FROM paid_bills LIMIT 1"}, "completed"),
+    ]
+    output = {"raw_log": _tool_log(calls)}
+
+    queried = MetricsCatalogQueried()._run_eval_sync(output, {"metrics_catalog_queried": {}})
+    before_answer = MetricsCatalogBeforeAnswer()._run_eval_sync(output, {"metrics_catalog_before_answer": {}})
+    before_discovery = MetricsCatalogBeforeDataDiscovery()._run_eval_sync(
+        output, {"metrics_catalog_before_data_discovery": {}}
+    )
+
+    assert queried.score == 1.0
+    assert before_answer.score == 1.0
+    assert before_discovery.score == 1.0
+
+
 @parameterized.expand(
     [
         (
             "succeeded",
             [
                 ("execute-sql", {"query": CATALOG_QUERY}, "completed"),
+                ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
+            ],
+            {"metric_name": METRIC_NAME, "outcome": "succeeded"},
+            1.0,
+        ),
+        (
+            "succeeded_after_metric_list",
+            [
+                ("metric-list", {"offset": 0, "limit": 100}, "completed"),
                 ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
             ],
             {"metric_name": METRIC_NAME, "outcome": "succeeded"},

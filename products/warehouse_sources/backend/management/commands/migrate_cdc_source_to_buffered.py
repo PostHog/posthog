@@ -39,9 +39,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
-    is_pipeline_v3_enabled,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -100,7 +97,9 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Already {target_mode}; nothing to do."))
             return
         if not rollback:
-            self._require_pipeline_v3(source)
+            # No pipeline-version gate: the scheduled sync forces the v3 pipeline for
+            # buffered-consolidated schemas (scheduled_sync_consumes_buffer), so the flip does
+            # not depend on the team's general rollout flag.
             self._require_write_resolution(source, eligible)
             self._require_no_reserved_columns(eligible)
         if dry_run:
@@ -111,21 +110,6 @@ class Command(BaseCommand):
             self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
             self._flip_to_buffered(source, eligible, options["drain_timeout"])
-
-    def _require_pipeline_v3(self, source: ExternalDataSource) -> None:
-        """Refuse to flip a team that still runs the v2 pipeline.
-
-        Position resolution lives only in the v3 loader; on v2 nothing records a load position, so
-        every scheduled sync re-merges the entire buffer and no file is ever deleted — a snowballing
-        re-merge on every tick, observed live before this guard existed.
-        """
-        if is_pipeline_v3_enabled(source.team_id, source.source_type):
-            return
-        raise CommandError(
-            f"Team {source.team_id} runs the v2 pipeline for {source.source_type}. Buffered ingress "
-            "requires v3: v2 has no position resolution, so the buffer re-merges in full on every "
-            "sync and consumed files are never deleted."
-        )
 
     def _require_write_resolution(self, source: ExternalDataSource, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a team whose write resolution is off.
@@ -204,30 +188,42 @@ class Command(BaseCommand):
 
         source_id = str(source.id)
 
-        self.stdout.write("1/6 pausing extraction schedule")
+        self.stdout.write("1/7 pausing extraction schedule")
         pause_cdc_extraction_schedule(source_id)
 
         # Pausing the schedule stops future firings, not a workflow already running. A legacy run
         # with the shadow lane on keeps writing buffer files, and one landing after the purge would
         # be merged by the consumer even though the legacy lane already delivered those rows.
-        self.stdout.write("2/6 waiting for the in-flight extraction run to finish")
+        self.stdout.write("2/7 waiting for the in-flight extraction run to finish")
         self._wait_for_extraction_idle(source_id, drain_timeout)
 
-        self.stdout.write("3/6 draining sourcebatch")
+        # A scheduled sync that started before the mode change resolved its pipeline version while
+        # the source was still legacy. If it reads the source again after the change, it consumes
+        # the buffer on that stale version, which records no load position, so nothing it read is
+        # ever proven consumed. Quiesce the schedules so no run straddles the mode change.
+        self.stdout.write("3/7 pausing per-schema schedules")
+        self._pause_schema_schedules_strict(eligible)
+        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+
+        self.stdout.write("4/7 draining sourcebatch")
         self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         # Pre-flip files were already delivered by the legacy lane, and replaying them would
         # re-apply rows against a position the guard has no watermark for yet.
-        self.stdout.write("4/6 purging pre-flip buffer files")
+        self.stdout.write("5/7 purging pre-flip buffer files")
         for schema in eligible:
             purge_buffer_prefix(source.team_id, str(schema.id), logger)
         self._verify_prefixes_empty(source.team_id, eligible)
 
-        self.stdout.write("5/6 setting cdc_ingest_mode=buffered")
+        # The step-3 wait sees job rows only; a workflow fired just before the pause may not have
+        # created its row yet. By now it has, so one more wait closes the straddle window.
+        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+
+        self.stdout.write("6/7 setting cdc_ingest_mode=buffered")
         source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered"}
         source.save(update_fields=["job_inputs"])
 
-        self.stdout.write("6/6 unpausing schedules")
+        self.stdout.write("7/7 unpausing schedules")
         unpause_cdc_extraction_schedule(source_id)
         self._set_schema_schedules(eligible, paused=False)
 
@@ -346,8 +342,8 @@ class Command(BaseCommand):
                 pause_external_data_schedule(str(schema.id))
             except Exception as exc:
                 raise CommandError(
-                    f"Could not pause the schedule for {schema.name}; a sync starting mid-rollback "
-                    f"could overwrite newer legacy rows. Mode unchanged — fix and re-run. ({exc})"
+                    f"Could not pause the schedule for {schema.name}; a sync straddling the mode "
+                    f"change would consume with stale settings. Mode unchanged — fix and re-run. ({exc})"
                 )
 
     def _verify_prefixes_empty(self, team_id: int, eligible: list[ExternalDataSchema]) -> None:
@@ -406,17 +402,25 @@ class Command(BaseCommand):
 
         deadline = time.monotonic() + timeout
         while True:
-            running = ExternalDataJob.objects.filter(
-                team_id=team_id, schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING
-            ).count()
-            if running == 0:
+            running = list(
+                ExternalDataJob.objects.filter(
+                    team_id=team_id, schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING
+                ).values_list("id", "created_at")
+            )
+            if not running:
                 return
             if time.monotonic() >= deadline:
-                raise CommandError(
-                    f"{running} sync job(s) still running after {timeout}s. Schedules are left "
-                    "paused and the mode unchanged — wait for them to finish, then re-run."
+                now = dt.datetime.now(dt.UTC)
+                # Ages let the operator tell a live sync from a stale stuck-RUNNING row, which
+                # never finishes on its own and needs unsticking before the flip can proceed.
+                detail = ", ".join(
+                    f"{job_id} ({(now - created_at).total_seconds():.0f}s old)" for job_id, created_at in running
                 )
-            self.stdout.write(f"    waiting, {running} sync job(s) running")
+                raise CommandError(
+                    f"{len(running)} sync job(s) still running after {timeout}s: {detail}. Schedules "
+                    "are left paused and the mode unchanged — wait for them to finish, then re-run."
+                )
+            self.stdout.write(f"    waiting, {len(running)} sync job(s) running")
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _set_schema_schedules(self, schemas: list[ExternalDataSchema], *, paused: bool) -> None:

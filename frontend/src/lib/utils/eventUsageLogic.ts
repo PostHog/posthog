@@ -9,7 +9,6 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
-import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -79,6 +78,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
+
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -124,20 +125,30 @@ export enum GraphSeriesAddedSource {
 
 /**
  * How much of the experiment's recordings tab works for this viewer, captured once the session
- * linkability check has resolved. The exposure population is resolved server-side per person,
- * so the list itself always has a source; an empty selectable-metric list is what still makes
- * the tab a weaker page, and these numbers say how often that happens rather than how often
- * the tab is opened.
+ * linkability and in-session availability checks have resolved. The exposure population is
+ * resolved server-side per person, so the list itself always has a source; an empty
+ * selectable-metric list is what still makes the tab a weaker page, and these numbers say how
+ * often that happens rather than how often the tab is opened. The scope and availability fields
+ * live here and not only on the opened-recording context, because a session whose list came back
+ * empty opens nothing, and empty lists are the outcome the in-session scope most affects.
  */
 export interface ExperimentRecordingsTabContext {
     variant_count: number
     metric_count: number
     linkable_metric_count: number
+    /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
+    exposure_scope: string
+    /** Null when the availability check failed, so a transient error never reads as unavailable. */
+    in_session_available: boolean | null
+    in_session_unavailable_reason: string | null
+    in_session_uses_stamped_fallback: boolean | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */
 export interface ExperimentRecordingsFilterContext {
     variant: string | null
+    /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
+    exposure_scope: string
     /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
     metric_filter_mode: string
     selected_metric_count: number
@@ -156,12 +167,33 @@ export interface ExperimentRecordingsFilterContext {
  */
 export interface ExperimentWatchShelfContext {
     too_early: boolean
+    /** Why the shelf carried no cards, null when it carried some. */
+    empty_reason: string | null
     behavior_cards: number
     friction_cards: number
     variant_only_cards: number
     metric_cards: number
     /** Cards removed for restating another card's recordings; what the dedupe threshold is tuned from. */
     dropped_duplicate_cards: number
+    used_exposure_fallback: boolean
+    /** Wall-clock time of the request, which is the heaviest read on the tab. */
+    duration_ms: number
+}
+
+/** The comparison could not be loaded, and how: a request failure or a backend refusal. */
+export interface ExperimentWatchLoadFailedContext {
+    duration_ms: number
+    /** HTTP status of the response, null when there was none. */
+    status: number | null
+    /** True for a 400 the backend raises on purpose (not launched, one variant, unmatchable exposure). */
+    unavailable: boolean
+}
+
+/** A link on an empty state was followed. Which reason showed it says which fix people go looking for. */
+export interface ExperimentWatchEmptyActionContext {
+    empty_reason: string | null
+    /** 'exposure_docs' or 'replay_settings'. */
+    action: string
 }
 
 /**
@@ -175,6 +207,12 @@ export interface ExperimentWatchCardContext {
     metric_backed: boolean
     recording_count: number
     highlight_count: number
+    /** The card's rank in the backend's order (findings strongest first, then metric shortcuts),
+     * 0 first; -1 when the card is not on the loaded response. Not its on-screen position: the UI
+     * splits the cards into shelves by kind. */
+    rank: number
+    /** Every card on the response, across all shelves. */
+    card_count: number
 }
 
 export interface ExperimentWatchHighlightContext {
@@ -389,8 +427,23 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
     }
 }
 
+function countBehavioralFilters(value: unknown): number {
+    if (Array.isArray(value)) {
+        return value.reduce((count, item) => count + countBehavioralFilters(item), 0)
+    }
+    if (!value || typeof value !== 'object') {
+        return 0
+    }
+
+    const record = value as Record<string, unknown>
+    return (
+        Number(record.type === PropertyFilterType.Behavioral) +
+        Object.values(record).reduce<number>((count, item) => count + countBehavioralFilters(item), 0)
+    )
+}
+
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
-function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
+export function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
@@ -418,6 +471,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
         // properties
         payload.has_properties = !!properties
+        payload.behavioral_filter_count = countBehavioralFilters(querySource)
         payload.filter_test_accounts = filterTestAccounts
 
         // breakdown
@@ -1048,6 +1102,13 @@ export interface eventUsageLogicActions {
         experiment: Experiment
         interval: number
     }
+    reportExperimentBehaviorComparisonFailed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentWatchLoadFailedContext
+    ) => {
+        context: ExperimentWatchLoadFailedContext
+        experimentId: ExperimentIdType
+    }
     reportExperimentBehaviorComparisonLoaded: (
         experimentId: ExperimentIdType,
         context: ExperimentWatchShelfContext
@@ -1208,10 +1269,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
         }
     ) => {
@@ -1229,10 +1292,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
                 | undefined
         }
@@ -1318,7 +1383,7 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
     ) => {
         context: {
@@ -1334,7 +1399,7 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
         experimentId: ExperimentIdType
         teamId: number | null | undefined
@@ -1395,6 +1460,13 @@ export interface eventUsageLogicActions {
         context: ExperimentWatchCardContext
     ) => {
         context: ExperimentWatchCardContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentWatchEmptyActionClicked: (
+        experimentId: ExperimentIdType,
+        context: ExperimentWatchEmptyActionContext
+    ) => {
+        context: ExperimentWatchEmptyActionContext
         experimentId: ExperimentIdType
     }
     reportExperimentWatchHighlightOpened: (
@@ -2658,7 +2730,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 successful_count: number
                 errored_count: number
                 cached_count: number
-                triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+                triggered_by:
+                    | 'page_load'
+                    | 'manual'
+                    | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                 force_refresh: boolean
                 refresh_id: string
                 experiment_duration_hours: number | null
@@ -2684,6 +2761,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'cold_run'
                     | 'stale_refresh'
                     | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                     | 'config_change'
                     | 'experiment_launch'
                     | 'experiment_stop'
@@ -2732,6 +2811,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentBehaviorComparisonLoaded: (
             experimentId: ExperimentIdType,
             context: ExperimentWatchShelfContext
+        ) => ({ experimentId, context }),
+        reportExperimentBehaviorComparisonFailed: (
+            experimentId: ExperimentIdType,
+            context: ExperimentWatchLoadFailedContext
+        ) => ({ experimentId, context }),
+        reportExperimentWatchEmptyActionClicked: (
+            experimentId: ExperimentIdType,
+            context: ExperimentWatchEmptyActionContext
         ) => ({ experimentId, context }),
         reportExperimentWatchCardSelected: (experimentId: ExperimentIdType, context: ExperimentWatchCardContext) => ({
             experimentId,
@@ -3962,6 +4049,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentBehaviorComparisonLoaded: ({ experimentId, context }) => {
             posthog.capture('experiment behavior comparison loaded', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentBehaviorComparisonFailed: ({ experimentId, context }) => {
+            posthog.capture('experiment behavior comparison failed', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentWatchEmptyActionClicked: ({ experimentId, context }) => {
+            posthog.capture('experiment watch empty state action clicked', {
                 experiment_id: experimentId,
                 ...context,
             })

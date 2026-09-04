@@ -12,7 +12,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
+import { metricsErrorSpikesRetrieve, metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
@@ -20,9 +20,11 @@ import { metricsViewerLogic } from './metricsViewerLogic'
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsSamplesCreate: jest.fn(),
+    metricsErrorSpikesRetrieve: jest.fn(),
 }))
 
 const mockSamplesCreate = metricsSamplesCreate as jest.MockedFunction<typeof metricsSamplesCreate>
+const mockErrorSpikesRetrieve = metricsErrorSpikesRetrieve as jest.MockedFunction<typeof metricsErrorSpikesRetrieve>
 
 const SAMPLE = {
     timestamp: '2026-07-09T05:46:28.132600+00:00',
@@ -60,6 +62,12 @@ const UNTRACED_SAMPLE = {
     span_id: '',
 }
 
+const ERROR_SPIKE = {
+    detected_at: '2026-07-09T05:46:00.000000+00:00',
+    issue_id: '0198e2b1-0000-7000-8000-000000000001',
+    issue_name: 'NullPointerException',
+}
+
 describe('metricsSamplesLogic', () => {
     let logic: ReturnType<typeof metricsSamplesLogic.build>
 
@@ -69,11 +77,15 @@ describe('metricsSamplesLogic', () => {
             resource_access_control: {
                 ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
                 [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+                // The error-spikes loader also requires Error Tracking view access.
+                [AccessControlResourceType.ErrorTracking]: AccessControlLevel.Viewer,
             },
         } as AppContext
         initKeaTests()
         mockSamplesCreate.mockReset()
         mockSamplesCreate.mockResolvedValue({ results: [SAMPLE] })
+        mockErrorSpikesRetrieve.mockReset()
+        mockErrorSpikesRetrieve.mockResolvedValue({ results: [ERROR_SPIKE] })
         metricsViewerLogic.mount()
         logic = metricsSamplesLogic()
         logic.mount()
@@ -212,5 +224,34 @@ describe('metricsSamplesLogic', () => {
         metricsViewerLogic.actions.fetchQueryResultsSuccess([])
         await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
         expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
+    })
+
+    // Regression: an always-on error-spikes fetch would spam Error Tracking on
+    // every chart redraw for every metrics viewer, whether or not the overlay is
+    // visible — the toggle must gate the request, not just the chart markers.
+    it('does not fetch error spikes until the toggle is enabled', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).delay(10)
+
+        expect(mockErrorSpikesRetrieve).not.toHaveBeenCalled()
+        expect(logic.values.errorSpikes).toEqual([])
+    })
+
+    // Regression: toggling on must actually fetch immediately, and the chart's
+    // ongoing refresh trigger must keep firing it afterwards — the overlay
+    // otherwise silently shows stale (or no) spikes once enabled.
+    it('fetches error spikes once the toggle is enabled', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+
+        logic.actions.toggleShowErrorSpikes()
+        await expectLogic(logic).toDispatchActions(['loadErrorSpikesSuccess'])
+        expect(mockErrorSpikesRetrieve).toHaveBeenCalledTimes(1)
+        expect(logic.values.errorSpikes).toEqual([ERROR_SPIKE])
+
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).toDispatchActions(['loadErrorSpikesSuccess'])
+        expect(mockErrorSpikesRetrieve).toHaveBeenCalledTimes(2)
     })
 })

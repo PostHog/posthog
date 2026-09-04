@@ -21,7 +21,7 @@ export interface GatewayServerMatch {
   url?: string | null;
 }
 
-export type GatewayToolDiscoverySkip =
+type GatewayToolDiscoverySkip =
   | "no-server"
   | "no-connection"
   | "already-populated";

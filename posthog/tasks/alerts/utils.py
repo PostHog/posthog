@@ -64,6 +64,7 @@ WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
     ChartDisplayType.ACTIONS_PIE,
+    ChartDisplayType.ACTIONS_DONUT,
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
@@ -336,6 +337,7 @@ def dispatch_alert_notification(
     alert_check: AlertCheck,
     breaches: list[str] | None,
     extra_properties: dict[str, str] | None = None,
+    idempotency_key: str | None = None,
 ) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -344,10 +346,15 @@ def dispatch_alert_notification(
     receipts to record_alert_delivery so the `targets_notified` sentinel reflects reality,
     never claiming delivery for a state that didn't actually send.
 
+    `idempotency_key` defaults to the check id, which gives at-most-once email delivery per
+    check. A caller that deliberately sends a second message about the same check must pass
+    its own key, or MessagingRecord drops that email as a duplicate of the first.
+
     Raises:
         ValueError: state is FIRING but breaches is None/empty.
         AssertionError: unknown state — surfaces a missing AlertState branch loudly.
     """
+    key = idempotency_key or str(alert_check.id)
     with ExitStack() as stack:
         if alert_check.state == AlertState.FIRING:
             stack.enter_context(
@@ -378,7 +385,7 @@ def dispatch_alert_notification(
                         alert_check_id=alert_check.id,
                     )
                     return None
-                return send_notifications_for_errors(alert, alert_check.error, idempotency_key=str(alert_check.id))
+                return send_notifications_for_errors(alert, alert_check.error, idempotency_key=key)
             case AlertState.FIRING:
                 if not breaches:
                     raise ValueError(
@@ -390,9 +397,9 @@ def dispatch_alert_notification(
                 # keeping the common threshold-alert call unchanged.
                 if extra_properties:
                     return send_notifications_for_breaches(
-                        alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
+                        alert, breaches, idempotency_key=key, extra_properties=extra_properties
                     )
-                return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
+                return send_notifications_for_breaches(alert, breaches, idempotency_key=key)
             case _:
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 

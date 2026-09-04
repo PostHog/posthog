@@ -1,6 +1,9 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { ONBOARDING_TEST_TOOLS_FLAG } from "@posthog/shared";
+import {
+  BACKGROUND_AGENT_LOGS_FLAG,
+  ONBOARDING_TEST_TOOLS_FLAG,
+} from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import {
@@ -23,7 +26,7 @@ import { OnboardingTestTools } from "./OnboardingTestTools";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
-    useFeatureFlag("posthog-code-background-agent-logs") || import.meta.env.DEV;
+    useFeatureFlag(BACKGROUND_AGENT_LOGS_FLAG) || import.meta.env.DEV;
   const debugLogsCloudRuns = useSettingsStore((s) => s.debugLogsCloudRuns);
   const setDebugLogsCloudRuns = useSettingsStore(
     (s) => s.setDebugLogsCloudRuns,

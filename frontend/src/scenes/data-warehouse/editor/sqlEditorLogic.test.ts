@@ -12,8 +12,6 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { defaultNotebookContent } from 'scenes/notebooks/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -178,6 +176,8 @@ function createMockEditor(): any {
         getModel: () => null,
         getSelection: () => null,
         getPosition: () => null,
+        // A live editor has a DOM node; the logic reads this to skip writes to a disposed editor.
+        getDomNode: () => document.createElement('div'),
     }
 }
 
@@ -212,6 +212,16 @@ function createMonacoWithModel(model: any): any {
     monaco.editor.getModel = () => model
     monaco.editor.createModel = () => model
     return monaco
+}
+
+async function runDebouncedAction(action: () => void): Promise<void> {
+    jest.useFakeTimers()
+    try {
+        action()
+        await jest.advanceTimersByTimeAsync(600)
+    } finally {
+        jest.useRealTimers()
+    }
 }
 
 describe('sqlEditorLogic', () => {
@@ -293,11 +303,8 @@ describe('sqlEditorLogic', () => {
         })
 
         initKeaTests()
-        teamLogic.mount()
-        sceneLogic.mount()
         databaseLogic = databaseTableListLogic()
         databaseLogic.mount()
-        await expectLogic(teamLogic).toFinishAllListeners()
     })
 
     afterEach(() => {
@@ -1512,8 +1519,7 @@ describe('sqlEditorLogic', () => {
                 outputActiveTab: OutputTab.Visualization,
             })
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
@@ -2007,8 +2013,7 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.searchParams.source).toBeUndefined()
             expect(router.values.hashParams.q).toEqual('SELECT 2')
@@ -2049,8 +2054,7 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.searchParams.source).toBeUndefined()
             expect(router.values.hashParams.q).toEqual('SELECT 2')
@@ -2115,8 +2119,7 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
             expect(router.values.hashParams.c).toEqual('conn-123')
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.c).toEqual('conn-123')
@@ -2138,8 +2141,7 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(String(router.values.hashParams.raw)).toEqual('1')
 
-            logic.actions.setQueryInput('SELECT 2')
-            await new Promise((resolve) => setTimeout(resolve, 600))
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT 2'))
 
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.c).toEqual('conn-123')
@@ -2183,36 +2185,58 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 
-        it('defaults to raw SQL mode for the managed warehouse connection', async () => {
+        it.each([
+            {
+                label: 'managed warehouse',
+                connection: {
+                    id: 'managed-conn-1',
+                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                    engine: 'duckdb',
+                    source_type: 'Postgres',
+                    access_method: 'direct',
+                    supports_hogql: true,
+                    is_builtin_managed_warehouse: false,
+                },
+                source: {
+                    id: 'managed-conn-1',
+                    source_id: 'src-managed-1',
+                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                    source_type: 'Postgres',
+                    access_method: 'direct',
+                    engine: 'duckdb',
+                } as any,
+                query: 'SELECT * FROM managed_warehouse.events',
+            },
+            {
+                label: 'Trino',
+                connection: {
+                    id: 'trino-conn-1',
+                    prefix: 'trino',
+                    // The serializer reports no engine for Trino connections in production.
+                    engine: null,
+                    source_type: 'Trino',
+                    access_method: 'direct',
+                    supports_hogql: true,
+                    is_builtin_managed_warehouse: false,
+                },
+                source: {
+                    id: 'trino-conn-1',
+                    source_id: 'src-trino-1',
+                    prefix: 'trino',
+                    source_type: 'Trino',
+                    access_method: 'direct',
+                    engine: 'trino',
+                } as any,
+                query: 'SELECT * FROM orders',
+            },
+        ])('defaults to raw SQL mode for $label connections', async ({ connection, source, query }) => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/external_data_sources/connections/': [
-                        200,
-                        [
-                            {
-                                id: 'managed-conn-1',
-                                prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
-                                engine: 'duckdb',
-                                source_type: 'Postgres',
-                                access_method: 'direct',
-                                supports_hogql: true,
-                                is_builtin_managed_warehouse: false,
-                            },
-                        ],
-                    ],
+                    '/api/projects/:team_id/external_data_sources/connections/': [200, [connection]],
                     '/api/environments/:team_id/external_data_sources/': [
                         200,
                         {
-                            results: [
-                                {
-                                    id: 'managed-conn-1',
-                                    source_id: 'src-managed-1',
-                                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
-                                    source_type: 'Postgres',
-                                    access_method: 'direct',
-                                    engine: 'duckdb',
-                                } as any,
-                            ],
+                            results: [source],
                         },
                     ],
                 },
@@ -2224,7 +2248,7 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'managed-conn-1' })
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: connection.id })
 
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
             await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
@@ -2233,12 +2257,10 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
 
-            // The database sidebar opens a query through this URL without a raw hash param.
-            // The connection stays the same, so the query-opening path must reapply the default.
             router.actions.push(
                 urls.sqlEditor({
-                    query: 'SELECT * FROM managed_warehouse.events',
-                    connectionId: 'managed-conn-1',
+                    query,
+                    connectionId: connection.id,
                 })
             )
 
@@ -2918,7 +2940,6 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsViewSubmit(
                 'Incremental view',
                 true,
-                undefined,
                 undefined,
                 undefined,
                 false,

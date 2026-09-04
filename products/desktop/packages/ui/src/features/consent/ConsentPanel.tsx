@@ -1,4 +1,8 @@
-import { CheckCircle } from "@phosphor-icons/react";
+import {
+  ArrowClockwise,
+  CheckCircle,
+  Link as LinkIcon,
+} from "@phosphor-icons/react";
 import {
   Button,
   Collapsible,
@@ -12,10 +16,36 @@ import {
   authKeys,
   useCurrentUser,
 } from "@posthog/ui/features/auth/useCurrentUser";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { desktopBetaTermsKeys, type OrgConsent } from "./useOrgConsent";
+
+const AI_CONSENT_SETTINGS_URL =
+  "https://app.posthog.com/settings/organization-details#organization-ai-consent";
+const BETA_TERMS_SETTINGS_URL =
+  "https://app.posthog.com/settings/organization-details#organization-desktop-beta-terms";
+
+async function copySettingsLink(
+  url: string,
+  consentType: "ai" | "desktop_beta_terms",
+): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(url);
+    track(ANALYTICS_EVENTS.CONSENT_ADMIN_LINK_COPIED, {
+      consent_type: consentType,
+      success: true,
+    });
+    toast.success("Link copied");
+  } catch {
+    track(ANALYTICS_EVENTS.CONSENT_ADMIN_LINK_COPIED, {
+      consent_type: consentType,
+      success: false,
+    });
+    toast.error("Couldn't copy link");
+  }
+}
 
 interface ConsentPanelProps {
   consent: Extract<OrgConsent, { status: "resolved" }>;
@@ -40,6 +70,7 @@ export function ConsentPanel({
     refetchOnWindowFocus: "always",
   });
   const [submitting, setSubmitting] = useState<"ai" | "beta" | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const organization = currentUser?.organization;
   const showAiConsent = requirements?.needsAiConsent ?? consent.needsAiConsent;
@@ -77,17 +108,46 @@ export function ConsentPanel({
     }
   };
 
+  const refresh = async (): Promise<void> => {
+    if (refreshing || submitting) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      await consent.retry();
+    } catch {
+      setError(
+        "Could not refresh organization consent. Try again or contact support.",
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="flex w-full max-w-[560px] flex-col gap-5">
-      <div className="flex flex-col gap-2">
-        <h1 className="font-bold text-2xl text-foreground tracking-[-0.02em]">
-          Before you continue
-        </h1>
-        <Text size="sm" variant="muted">
-          {organization?.name
-            ? `Review the required items for ${organization.name}.`
-            : "Review the required items for your organization."}
-        </Text>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-2">
+          <h1 className="font-bold text-2xl text-foreground tracking-[-0.02em]">
+            Before you continue
+          </h1>
+          <Text size="sm" variant="muted">
+            {organization?.name
+              ? `Review the required items for ${organization.name}.`
+              : "Review the required items for your organization."}
+          </Text>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          loading={refreshing}
+          disabled={submitting !== null}
+          data-attr="consent-refresh"
+          onClick={() => void refresh()}
+        >
+          <ArrowClockwise />
+          Refresh
+        </Button>
       </div>
 
       {showAiConsent && (
@@ -109,6 +169,9 @@ export function ConsentPanel({
           isAdmin={isAdmin}
           isLoading={submitting === "ai"}
           isDisabled={submitting !== null || !organization}
+          settingsUrl={AI_CONSENT_SETTINGS_URL}
+          consentType="ai"
+          copyLinkDataAttr="copy-ai-consent-admin-link"
           onAccept={() => void accept("ai")}
         >
           <div className="flex flex-col gap-3">
@@ -146,6 +209,9 @@ export function ConsentPanel({
           isAdmin={isAdmin}
           isLoading={submitting === "beta"}
           isDisabled={submitting !== null || !organization}
+          settingsUrl={BETA_TERMS_SETTINGS_URL}
+          consentType="desktop_beta_terms"
+          copyLinkDataAttr="copy-desktop-beta-terms-admin-link"
           onAccept={() => void accept("beta")}
         >
           <div className="flex flex-col gap-2">
@@ -193,6 +259,9 @@ interface ConsentDecisionProps {
   isAdmin: boolean;
   isLoading: boolean;
   isDisabled: boolean;
+  settingsUrl: string;
+  consentType: "ai" | "desktop_beta_terms";
+  copyLinkDataAttr: string;
   onAccept: () => void;
   children: ReactNode;
 }
@@ -206,6 +275,9 @@ function ConsentDecision({
   isAdmin,
   isLoading,
   isDisabled,
+  settingsUrl,
+  consentType,
+  copyLinkDataAttr,
   onAccept,
   children,
 }: ConsentDecisionProps) {
@@ -245,9 +317,20 @@ function ConsentDecision({
         ) : null}
       </div>
       {!accepted && !isAdmin && (
-        <Text className="mt-3" size="sm" variant="muted">
-          {adminHelp}
-        </Text>
+        <div className="mt-3 flex flex-col items-start gap-2">
+          <Text size="sm" variant="muted">
+            {adminHelp}
+          </Text>
+          <Button
+            variant="outline"
+            size="sm"
+            data-attr={copyLinkDataAttr}
+            onClick={() => void copySettingsLink(settingsUrl, consentType)}
+          >
+            <LinkIcon />
+            Copy link
+          </Button>
+        </div>
       )}
       <Collapsible className="mt-3 border-border border-t pt-2">
         <CollapsibleTrigger className="-ml-2 h-7 rounded-md px-2 text-muted-foreground hover:bg-fill-hover hover:text-foreground">

@@ -33,6 +33,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -42,6 +43,7 @@ from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import is_task_run_stream_presence_gated, run_stream_presence_gated
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -60,14 +62,21 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
 
 
 LogLevel = Literal["debug", "info", "warn", "error"]
-MCPBuiltInAgentKey = Literal["support", "scout"]
+MCPBuiltInAgentKey = Literal["support", "scout", "workflow"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
+
+# Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
+# gateway product. Keyed by origin value.
+INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
+
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    "scout_suggestions": "scout",
+    "workflow": "workflow",
 }
 
 
@@ -93,6 +102,58 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
     if not refresh and isinstance(existing, str) and existing:
         return
     state["pending_user_message_id"] = str(uuid.uuid4())
+
+
+PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
+MAX_PENDING_FOLLOWUP_MESSAGES = 20
+MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
+MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
+
+
+def _read_pending_followup_messages(state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    entries = (state or {}).get(PENDING_FOLLOWUP_MESSAGES_STATE_KEY)
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("content"), str) and entry["content"].strip()
+    ]
+
+
+def _is_hidden_prompt_block(block: dict[str, Any]) -> bool:
+    meta = block.get("_meta")
+    ui = meta.get("ui") if isinstance(meta, dict) else None
+    return bool(ui.get("hidden")) if isinstance(ui, dict) else False
+
+
+def _session_prompt_texts(entries: list[dict]) -> list[str]:
+    texts: list[str] = []
+    for entry in entries:
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != "session/prompt":
+            continue
+        params = notification.get("params")
+        blocks = params.get("prompt") if isinstance(params, dict) else None
+        if not isinstance(blocks, list):
+            continue
+        visible = "\n".join(
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+            and not _is_hidden_prompt_block(block)
+        ).strip()
+        if visible:
+            texts.append(visible)
+    return texts
+
+
+def _followup_matches_prompt(content: str, prompt_text: str) -> bool:
+    if content == prompt_text:
+        return True
+    return len(content) >= MAX_PENDING_FOLLOWUP_CONTENT_CHARS and prompt_text.startswith(content)
 
 
 class TaskOwnershipChangedError(RuntimeError):
@@ -174,6 +235,11 @@ class Channel(TeamScopedRootMixin):
         blank=True,
         help_text="GitHub repositories inherited by new tasks in this channel",
     )
+    auto_archive_after_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
+    )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -245,6 +311,10 @@ class Task(DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Headless scan that pre-computes the "Suggested for this project" scout batch
+        # (products/signals/backend/scout_harness/suggestions.py). Reserved: the origin is what
+        # routes the run to the Signals OAuth app and its read-only posture.
+        SIGNALS_SCOUT_SUGGESTIONS = "scout_suggestions", "Signals Scout Suggestions"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
         # HogDesk — the internal support desk client. Tasks it creates from a
@@ -414,10 +484,23 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
-            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            # The default task list pins `team`, `deleted`, `internal` and `archived` before it
+            # sorts, so the partial indexes below avoid scanning deleted rows and put both boolean
+            # filters ahead of the sort keys. The broad indexes remain for callers that leave
+            # either boolean unconstrained while still needing the results in timestamp order.
+            models.Index(
+                fields=["team", "internal", "archived", "-created_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_crt_idx",
+            ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
+            models.Index(
+                fields=["team", "internal", "archived", "-last_activity_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_act_idx",
+            ),
             models.Index(fields=["team", "-last_activity_at", "-id"], name="posthog_task_team_activity_idx"),
             models.Index(fields=["channel", "-last_activity_at"], name="posthog_task_chan_activity_idx"),
             models.Index(fields=["loop"], name="posthog_task_loop_idx"),
@@ -557,12 +640,64 @@ class Task(DeletedMetaFields, models.Model):
     def ownership_version(self) -> str | None:
         return _task_ownership_version(self.state)
 
+    def _apply_ai_run_defaults(self, state: dict, acting_user_id: int | None) -> None:
+        """Fill the run state's AI runtime selection from the acting user's / team's
+        default preferences when the caller pinned none.
+
+        A partially pinned selection (either `runtime_adapter` or `model` present) is
+        treated as explicit and left untouched — overwriting half a pin would replace a
+        value the caller chose. Internal tasks (custom-prompt infra agents) and
+        Pi-runtime tasks keep their pinned behavior and never inherit preferences — the
+        defaults describe the claude/codex ACP harness, which a Pi run doesn't use. An
+        explicitly set `reasoning_effort` survives injection; the default triple's effort
+        only fills a gap.
+        """
+        if self.internal or self.runtime == Task.Runtime.PI:
+            return
+
+        from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — breaks the circular import with ai_run_defaults, which imports this module
+            apply_ai_run_defaults,
+        )
+        from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps temporalio off the import path (matches _build_task)
+            RuntimeAdapter,
+            apply_runtime_adapter_run_state,
+            clamp_initial_permission_mode,
+        )
+
+        resolved = apply_ai_run_defaults(state, self.team_id, acting_user_id or self.created_by_id)
+        if resolved is None:
+            # Nothing resolved here, but the mode may still be paired with a runtime the
+            # serializer never saw together: the facade materializes the default into the
+            # state before this runs (warm matching resolves early), and with no adapter
+            # at all the run launches on the sandbox fallback, which reads an unset
+            # adapter as claude. Clamp against that effective adapter so a mode named in
+            # the other runtime's vocabulary can't persist against a run that won't
+            # honor it. For an explicitly pinned adapter the serializer already paired
+            # the two, so this is a no-op.
+            effective_adapter = state.get("runtime_adapter") or RuntimeAdapter.CLAUDE.value
+            permission_mode = clamp_initial_permission_mode(
+                effective_adapter, state.get("initial_permission_mode") or None
+            )
+            if permission_mode:
+                state["initial_permission_mode"] = permission_mode
+            return
+
+        permission_mode = apply_runtime_adapter_run_state(
+            state,
+            resolved.runtime_adapter,
+            initial_permission_mode=state.get("initial_permission_mode") or None,
+        )
+        if permission_mode:
+            state["initial_permission_mode"] = permission_mode
+        state["ai_defaults_source"] = resolved.source
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
         mode: str = "background",
         extra_state: dict | None = None,
         branch: str | None = None,
+        acting_user_id: int | None = None,
     ) -> "TaskRun":
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
@@ -602,8 +737,19 @@ class Task(DeletedMetaFields, models.Model):
                 previous_snapshot = previous.state.get("config_snapshot") if previous else None
                 if previous_snapshot:
                     state["config_snapshot"] = previous_snapshot
+            # Every run creation flows through here, so this is where team/user default AI run
+            # preferences apply when the caller didn't pin a runtime selection.
+            task._apply_ai_run_defaults(state, acting_user_id)
             if task.ownership_version is not None:
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
+
+            # Both conditions withhold the stamp, so a caller can only cost itself the mint.
+            # `internal` marks a pipeline-created task, whose reruns and resumes carry no stage
+            # and would otherwise land on the wider interactive cap.
+            interactive_stage = INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
+            if interactive_stage and not state.get("ai_stage") and not task.internal:
+                if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
+                    state["ai_stage"] = interactive_stage
 
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:
@@ -613,6 +759,7 @@ class Task(DeletedMetaFields, models.Model):
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
+            state.setdefault("stream_presence_gated", is_task_run_stream_presence_gated(task.origin_product))
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
@@ -784,15 +931,22 @@ class Task(DeletedMetaFields, models.Model):
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
-            RuntimeAdapter,
+            apply_runtime_adapter_run_state,
             get_pr_authorship_mode,
-            get_provider_for_runtime_adapter,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
 
+        # A repo-less signals task must carry no GitHub credential at all — team or personal.
+        # Provisioning injects whatever integration is attached, and these runs read text any
+        # member can write, so an attached token turns planted text into repository access.
+        github_resolution_allowed = bool(repository) or origin_product not in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+        )
         github_integration = None
-        if repository or origin_product not in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        if github_resolution_allowed:
             github_integration = (
                 Integration.objects.filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
@@ -815,7 +969,9 @@ class Task(DeletedMetaFields, models.Model):
             if origin_product == Task.OriginProduct.SIGNAL_REPORT
             else None,
         )
-        if authorship_mode == PrAuthorshipMode.USER:
+        if not github_resolution_allowed:
+            pass
+        elif authorship_mode == PrAuthorshipMode.USER:
             user_github_integration = resolve_user_github_integration_for_task(
                 task_stub,
                 repository=repository,
@@ -921,11 +1077,9 @@ class Task(DeletedMetaFields, models.Model):
         # default permission mode to `auto` so a headless run doesn't stall on a prompt.
         if runtime_adapter:
             extra_state["runtime_adapter"] = runtime_adapter
-            provider = get_provider_for_runtime_adapter(runtime_adapter)
-            if provider is not None:
-                extra_state["provider"] = provider.value
-            if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
-                initial_permission_mode = "auto"
+        initial_permission_mode = apply_runtime_adapter_run_state(
+            extra_state, runtime_adapter, initial_permission_mode=initial_permission_mode
+        )
         if reasoning_effort:
             extra_state["reasoning_effort"] = reasoning_effort
 
@@ -1162,7 +1316,9 @@ class Task(DeletedMetaFields, models.Model):
         }
 
         with transaction.atomic():
-            task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
+            task_run = task.create_run(
+                mode=mode, extra_state=run_extra_state or None, branch=branch, acting_user_id=user_id
+            )
 
             if start_workflow:
                 # Defer the fire-and-forget workflow start until the creating transaction commits.
@@ -1924,6 +2080,16 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # Copy of the parent task's origin_product, populated on creation and never changed.
+    # It lets the per-minute monitoring gauges group by origin_product without joining
+    # posthog_task on every run row. See `collect_task_run_state_metrics`.
+    origin_product = models.CharField(
+        max_length=20,
+        choices=task_origin_product_choices,
+        blank=True,
+        default="",
+        db_default="",
+    )
     active_task_session = models.ForeignKey(
         TaskSession,
         on_delete=models.SET_NULL,
@@ -2052,10 +2218,29 @@ class TaskRun(models.Model):
                 name="task_run_team_stage_task_idx",
                 condition=models.Q(stage__isnull=False),
             ),
+            # Open statuses remain selective, so status leads the index for untimed gauges.
+            models.Index(
+                fields=["status", "environment", "origin_product"],
+                name="task_run_status_env_origin_idx",
+            ),
+            # Terminal rows dominate over time, so the recency range must lead this partial index.
+            models.Index(
+                fields=["updated_at"],
+                include=["status", "environment", "origin_product"],
+                name="task_run_terminal_updated_idx",
+                condition=models.Q(status__in=["completed", "failed", "cancelled"]),
+            ),
         ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        # Mirror the parent task's origin_product onto the run once, at creation, so the
+        # monitoring gauges can group by it locally.
+        if self._state.adding and not self.origin_product and self.task_id:
+            self.origin_product = self.task.origin_product
+        super().save(*args, **kwargs)
 
     @property
     def mode(self) -> str:
@@ -2261,6 +2446,27 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_agent_boot_milestone(
+        self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
+    ) -> bool:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(milestone))
+            return True
+        except Exception as e:
+            logger.warning(
+                "task_run.agent_boot_milestone_failed",
+                task_run_id=str(self.id),
+                milestone=milestone,
+                error=str(e),
+            )
+            return False
+
     def signal_client_activity(self) -> None:
         from products.tasks.backend.redis import get_tasks_cache
 
@@ -2395,6 +2601,47 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
+        record = {
+            "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],
+            "content": content[:MAX_PENDING_FOLLOWUP_CONTENT_CHARS],
+            "ts": accepted_at.isoformat(),
+        }
+
+        def _mutator(state: dict[str, Any]) -> None:
+            entries = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != record["id"]]
+            entries.append(record)
+            state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = entries[-MAX_PENDING_FOLLOWUP_MESSAGES:]
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def clear_echoed_followup_messages(self, entries: list[dict]) -> None:
+        if not _read_pending_followup_messages(self.state):
+            return
+        echoed = _session_prompt_texts(entries)
+        if not echoed:
+            return
+
+        def _mutator(state: dict[str, Any]) -> None:
+            unclaimed = list(echoed)
+            remaining = []
+            for entry in _read_pending_followup_messages(state):
+                content = entry["content"].strip()
+                claimed = next(
+                    (index for index, text in enumerate(unclaimed) if _followup_matches_prompt(content, text)),
+                    None,
+                )
+                if claimed is None:
+                    remaining.append(entry)
+                else:
+                    unclaimed.pop(claimed)
+            if remaining:
+                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
+            else:
+                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
 
@@ -2430,12 +2677,18 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def effective_rtk(self) -> bool | None:
-        """rtk posture for analytics: the launch-persisted effective value, falling
+    def _effective_toggle(self, name: str) -> bool | None:
+        """Toggle posture for analytics: the launch-persisted effective value, falling
         back to the user's explicit override for runs that never launched."""
         state = self.state if isinstance(self.state, dict) else {}
-        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
-        return rtk if isinstance(rtk, bool) else None
+        value = state.get(f"{name}_effective", state.get(f"{name}_enabled"))
+        return value if isinstance(value, bool) else None
+
+    def effective_rtk(self) -> bool | None:
+        return self._effective_toggle("rtk")
+
+    def effective_benjamin(self) -> bool | None:
+        return self._effective_toggle("benjamin")
 
     def _analytics_usage_properties(self) -> dict:
         """Token usage and rtk posture for analytics events.
@@ -2462,6 +2715,12 @@ class TaskRun(models.Model):
         rtk = self.effective_rtk()
         if rtk is not None:
             props["rtk_enabled"] = rtk
+        benjamin = self.effective_benjamin()
+        if benjamin is not None:
+            props["benjamin_enabled"] = benjamin
+        benjamin_version = state.get("benjamin_version")
+        if isinstance(benjamin_version, str) and benjamin_version:
+            props["benjamin_version"] = benjamin_version
         return props
 
     def capture_event(
@@ -2597,7 +2856,13 @@ class TaskRun(models.Model):
         }
 
     def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(str(self.id), event, run_uses_dedicated_stream(self.state))
+        publish_task_run_stream_event(
+            str(self.id),
+            event,
+            run_uses_dedicated_stream(self.state),
+            presence_gated=run_stream_presence_gated(self.state),
+            origin_product=self.task.origin_product,
+        )
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())
@@ -3545,6 +3810,54 @@ def bump_task_activity_on_run(sender, instance: TaskRun, created: bool, update_f
     if not created and update_fields is not None and not (RUN_ACTIVITY_FIELDS & set(update_fields)):
         return
     bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=django_timezone.now())
+
+
+class TeamTasksConfig(models.Model):
+    """Team-level tasks settings (Team extension model, singleton per team).
+
+    Read at run creation time to fill in AI run defaults when a run is created
+    without an explicit runtime selection. Rows are keyed on the canonical
+    (project root) team — callers must normalize environment team ids first.
+    """
+
+    # db_constraint=False: adding an FK constraint to the hot posthog_team table takes a
+    # SHARE ROW EXCLUSIVE lock on it; app-level integrity is enough here.
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+", db_constraint=False)
+    # {"runtime_adapter": str, "model": str, "reasoning_effort": str} — keys absent when unset.
+    # Same shape as SlackSettings.ai_preferences; validated as a whole triple on write
+    # (see logic/services/ai_run_defaults.py).
+    ai_run_preferences = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"TeamTasksConfig(team={self.team_id})"
+
+
+register_team_extension_signal(TeamTasksConfig)
+
+
+class UserTasksConfig(TeamScopedRootMixin):
+    """Per-(user, team) tasks settings; overrides `TeamTasksConfig` wholesale where set."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # takes a SHARE ROW EXCLUSIVE lock on them; app-level integrity is enough here.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # Same shape and validation as TeamTasksConfig.ai_run_preferences.
+    ai_run_preferences = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="user_tasks_config_team_user_unique"),
+        ]
+
+    def __str__(self):
+        return f"UserTasksConfig(team={self.team_id}, user={self.user_id})"
 
 
 @receiver(post_save, sender=TaskRun)

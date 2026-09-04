@@ -120,7 +120,6 @@ async def test_assume_role_step_skips_without_role():
 @pytest.mark.parametrize(
     "destination,expected_test,expected_steps",
     [
-        ("S3", S3CompatibleDestinationTest, [S3EnsureBucketTestStep]),
         ("S3Compatible", S3CompatibleDestinationTest, [S3EnsureBucketTestStep]),
         ("AwsS3", AwsS3DestinationTest, [S3AssumeRoleTestStep, S3EnsureBucketTestStep]),
     ],

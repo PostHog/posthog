@@ -39,6 +39,8 @@ Two gates keep that from passing silently.
 
 - `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
+- `deletes_job` counts the same way after its own sweep, but only logs what survived and still marks the requests verified. Its mutations have already run by then, and failing the op would strand the run without undoing anything. Proving zero survivors is a full scan, so the count is time-bounded and reports unknown rather than zero when it runs out.
+- A proxy only reads the cluster its engine names, and `sql.py` builds the `events_json` proxy against `CLICKHOUSE_CLUSTER`. So a target stored on another cluster is counted twice: once through the proxy, and once on its storage table through the handle that holds it. Without the second count, a deployment whose storage moved without the proxy following it would report a clean sweep off an empty table.
 
 Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.

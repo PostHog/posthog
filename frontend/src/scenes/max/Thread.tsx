@@ -150,17 +150,22 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         className
     )
 
+    // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
+    const feedbackTaskId = conversation?.task?.id
+    // Stable identity so the memoized trailer rows don't re-render on every streamed frame.
+    const feedbackRun = useMemo(() => ({ taskId: feedbackTaskId }), [feedbackTaskId])
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
-            sandboxConversationKey ? (
+            feedbackTaskId ? (
                 <TurnFeedbackActions
-                    sessionId={sandboxConversationKey}
+                    sessionId={feedbackTaskId}
                     turnIndex={trailer.turnIndex}
+                    run={feedbackRun}
                     isLastTurn={trailer.isLastTurn}
                     turnText={trailer.turnText}
                 />
             ) : null,
-        [sandboxConversationKey]
+        [feedbackTaskId, feedbackRun]
     )
 
     if (isPiTask) {

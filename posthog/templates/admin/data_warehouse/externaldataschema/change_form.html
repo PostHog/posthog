@@ -1,6 +1,5 @@
 {% extends "admin/change_form.html" %}
 {% load i18n admin_modify %}
-
 {% block extrastyle %}
     {{ block.super }}
     <style>
@@ -72,45 +71,52 @@
         }
     </style>
 {% endblock %}
-
 {% block object-tools %}
     {{ block.super }}
     {# Hidden sibling forms for the partitioning + sync POST actions. They live #}
     {# outside the main admin <form> so they don't nest (HTML5 disallows it — #}
     {# nesting silently submits the outer form). The visible inputs/buttons #}
     {# below target these via the HTML5 `form="..."` attribute. #}
-    <form id="repartition-action-form" method="post" action="{{ repartition_url }}" style="display:none;">
+    <form id="repartition-action-form"
+          method="post"
+          action="{{ repartition_url }}"
+          style="display:none">
         {% csrf_token %}
     </form>
-    <form id="trigger-sync-action-form" method="post" action="{{ trigger_sync_url }}" style="display:none;">
+    <form id="trigger-sync-action-form"
+          method="post"
+          action="{{ trigger_sync_url }}"
+          style="display:none">
         {% csrf_token %}
     </form>
-    <form id="pause-schedule-action-form" method="post" action="{{ pause_schedule_url }}" style="display:none;">
+    <form id="pause-schedule-action-form"
+          method="post"
+          action="{{ pause_schedule_url }}"
+          style="display:none">
         {% csrf_token %}
     </form>
-    <form id="unpause-schedule-action-form" method="post" action="{{ unpause_schedule_url }}" style="display:none;">
+    <form id="unpause-schedule-action-form"
+          method="post"
+          action="{{ unpause_schedule_url }}"
+          style="display:none">
         {% csrf_token %}
     </form>
-    <form id="recreate-schedule-action-form" method="post" action="{{ recreate_schedule_url }}" style="display:none;">
+    <form id="recreate-schedule-action-form"
+          method="post"
+          action="{{ recreate_schedule_url }}"
+          style="display:none">
         {% csrf_token %}
     </form>
 {% endblock %}
-
 {# Suppress the default bottom submit_row — we render it inside `after_field_sets` #}
 {# below, immediately above Partitioning & sync, so save/delete sit close to the #}
 {# field sets instead of below the operator panel. #}
 {% block submit_buttons_bottom %}{% endblock %}
-
 {% block after_field_sets %}
     {{ block.super }}
-
-    <div style="margin: 12px 0;">
-        {% submit_row %}
-    </div>
-
+    <div style="margin: 12px 0;">{% submit_row %}</div>
     <fieldset class="module aligned partitioning-and-sync">
         <h2>Partitioning &amp; sync</h2>
-
         <div class="form-row partitioning-section">
             <h3>Current settings</h3>
             <table class="partitioning-info">
@@ -135,28 +141,28 @@
                     <td>{{ current_partition_count|default:"None" }}</td>
                 </tr>
                 {% if current_partition_count_override is not None %}
-                <tr>
-                    <th>partition_count_override</th>
-                    <td>{{ current_partition_count_override }} (pinned, applies on next reset)</td>
-                </tr>
+                    <tr>
+                        <th>partition_count_override</th>
+                        <td>{{ current_partition_count_override }} (pinned, applies on next reset)</td>
+                    </tr>
                 {% endif %}
                 {% if current_partition_size_override is not None %}
-                <tr>
-                    <th>partition_size_override</th>
-                    <td>{{ current_partition_size_override }} (pinned, applies on next reset)</td>
-                </tr>
+                    <tr>
+                        <th>partition_size_override</th>
+                        <td>{{ current_partition_size_override }} (pinned, applies on next reset)</td>
+                    </tr>
                 {% endif %}
                 {% if current_partition_mode_override is not None %}
-                <tr>
-                    <th>partition_mode_override</th>
-                    <td>{{ current_partition_mode_override }} (pinned, applies on next reset)</td>
-                </tr>
+                    <tr>
+                        <th>partition_mode_override</th>
+                        <td>{{ current_partition_mode_override }} (pinned, applies on next reset)</td>
+                    </tr>
                 {% endif %}
                 {% if current_partitioning_keys_override is not None %}
-                <tr>
-                    <th>partitioning_keys_override</th>
-                    <td>{{ current_partitioning_keys_override }} (pinned, applies on next reset)</td>
-                </tr>
+                    <tr>
+                        <th>partitioning_keys_override</th>
+                        <td>{{ current_partitioning_keys_override }} (pinned, applies on next reset)</td>
+                    </tr>
                 {% endif %}
                 <tr>
                     <th>partitioning_keys</th>
@@ -164,7 +170,6 @@
                 </tr>
             </table>
         </div>
-
         <div class="form-row partitioning-section">
             <h3>Repartition &amp; resync</h3>
             <p class="help">
@@ -183,42 +188,68 @@
             </p>
             <div class="partitioning-controls">
                 <label for="partition_mode_select">Partition mode:</label>
-                <select id="partition_mode_select" name="partition_mode" form="repartition-action-form" required>
+                <select id="partition_mode_select"
+                        name="partition_mode"
+                        form="repartition-action-form"
+                        required>
                     {% for choice in partition_mode_choices %}
-                        <option value="{{ choice }}" {% if choice == effective_partition_mode %}selected{% endif %}>{{ choice }}</option>
+                        <option value="{{ choice }}"
+                                {% if choice == effective_partition_mode %}selected{% endif %}>{{ choice }}</option>
                     {% endfor %}
                 </select>
             </div>
             <div class="partitioning-controls" id="repartition_keys_row">
                 <label for="repartition_keys">Partitioning key(s):</label>
                 {% if available_columns %}
-                    <select id="repartition_keys" name="partitioning_keys" form="repartition-action-form" multiple size="6">
+                    <select id="repartition_keys"
+                            name="partitioning_keys"
+                            form="repartition-action-form"
+                            multiple
+                            size="6">
                         {% for col in available_columns %}
-                            <option value="{{ col }}" {% if current_partition_keys and col in current_partition_keys %}selected{% endif %}>{{ col }}</option>
+                            <option value="{{ col }}"
+                                    {% if current_partition_keys and col in current_partition_keys %}selected{% endif %}>{{ col }}</option>
                         {% endfor %}
                     </select>
                 {% else %}
-                    <input id="repartition_keys" name="partitioning_keys" form="repartition-action-form"
-                           type="text" value="{% if current_partition_keys %}{{ current_partition_keys|join:',' }}{% endif %}"
+                    <input id="repartition_keys"
+                           name="partitioning_keys"
+                           form="repartition-action-form"
+                           type="text"
+                           value="{% if current_partition_keys %}{{ current_partition_keys|join:',' }}{% endif %}"
                            placeholder="comma-separated column names (table not synced yet)">
                 {% endif %}
                 <span class="help" id="repartition_keys_hint">md5 hashes one or more keys together; datetime/numerical use a single column. Leave blank for md5 to use the table's primary keys.</span>
             </div>
-            <div class="partitioning-controls" id="repartition_format_row"{% if effective_partition_mode != "datetime" %} style="display: none"{% endif %}>
+            <div class="partitioning-controls"
+                 id="repartition_format_row"
+                 {% if effective_partition_mode != "datetime" %} style="display: none"{% endif %}>
                 <label for="repartition_format">Partition format:</label>
-                <select id="repartition_format" name="partition_format" form="repartition-action-form">
+                <select id="repartition_format"
+                        name="partition_format"
+                        form="repartition-action-form">
                     {% for choice in partition_format_choices %}
-                        <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
+                        <option value="{{ choice }}"
+                                {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="partitioning-controls" id="repartition_count_row"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
+            <div class="partitioning-controls"
+                 id="repartition_count_row"
+                 {% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
                 <label for="repartition_count">Partition count:</label>
-                <input id="repartition_count" name="partition_count" form="repartition-action-form"
-                       type="number" min="1" step="1" value="{{ current_partition_count|default_if_none:'' }}"
+                <input id="repartition_count"
+                       name="partition_count"
+                       form="repartition-action-form"
+                       type="number"
+                       min="1"
+                       step="1"
+                       value="{{ current_partition_count|default_if_none:'' }}"
                        placeholder="number of buckets">
             </div>
-            <p class="help" id="repartition_md5_help"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
+            <p class="help"
+               id="repartition_md5_help"
+               {% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
                 md5 hashes the primary key into <code>partition_count</code> buckets.
                 <strong>Sizing:</strong> the pipeline targets ~200&nbsp;MB per partition, so a good
                 start is <code>partition_count ≈ ceil(table size / 200&nbsp;MB)</code> (2&nbsp;GB → ~10,
@@ -226,18 +257,29 @@
                 rows across all buckets, so every incremental sync rewrites every changed partition —
                 don't over-partition a small or low-churn table.
             </p>
-            <div class="partitioning-controls" id="repartition_size_row"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
+            <div class="partitioning-controls"
+                 id="repartition_size_row"
+                 {% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
                 <label for="repartition_size">Partition size:</label>
-                <input id="repartition_size" name="partition_size" form="repartition-action-form"
-                       type="number" min="1" step="1" value="{{ current_partition_size|default_if_none:'' }}"
+                <input id="repartition_size"
+                       name="partition_size"
+                       form="repartition-action-form"
+                       type="number"
+                       min="1"
+                       step="1"
+                       value="{{ current_partition_size|default_if_none:'' }}"
                        placeholder="rows per bucket">
             </div>
-            <p class="help" id="repartition_numerical_help"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
+            <p class="help"
+               id="repartition_numerical_help"
+               {% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
                 Numerical mode buckets by an integer id, <code>partition_size</code> rows per bucket
                 (typical 1,000,000–10,000,000).
             </p>
             <div class="partitioning-controls">
-                <button type="submit" form="repartition-action-form" class="default"
+                <button type="submit"
+                        form="repartition-action-form"
+                        class="default"
                         onclick="return confirm('Repartition + reset resync (non-billable) for this schema?');">
                     Repartition &amp; resync
                 </button>
@@ -310,7 +352,6 @@
                 })();
             </script>
         </div>
-
         <div class="form-row partitioning-section">
             <h3>Schedule</h3>
             <p class="help">
@@ -319,11 +360,15 @@
                 before doing repartition or trigger-sync work, then unpause when finished.
             </p>
             <div class="partitioning-controls">
-                <button type="submit" form="pause-schedule-action-form" class="default"
+                <button type="submit"
+                        form="pause-schedule-action-form"
+                        class="default"
                         onclick="return confirm('Pause the Temporal schedule for this schema?');">
                     Pause schedule
                 </button>
-                <button type="submit" form="unpause-schedule-action-form" class="default"
+                <button type="submit"
+                        form="unpause-schedule-action-form"
+                        class="default"
                         onclick="return confirm('Unpause the Temporal schedule for this schema?');">
                     Unpause schedule
                 </button>
@@ -335,13 +380,14 @@
                 off with "Trigger sync" below, which is non-billable by default.
             </p>
             <div class="partitioning-controls">
-                <button type="submit" form="recreate-schedule-action-form" class="default"
+                <button type="submit"
+                        form="recreate-schedule-action-form"
+                        class="default"
                         onclick="return confirm('Recreate the Temporal schedule for this schema? No sync run is triggered.');">
                     Recreate schedule
                 </button>
             </div>
         </div>
-
         <div class="form-row partitioning-section">
             <h3>Trigger ad-hoc sync</h3>
             <p class="help">
@@ -359,14 +405,13 @@
                     <input type="checkbox" name="billable" form="trigger-sync-action-form">
                     Billable
                 </label>
-                <button type="submit" form="trigger-sync-action-form" class="default"
-                        onclick="return confirm('Trigger a sync for this schema?');">
-                    Trigger sync
-                </button>
+                <button type="submit"
+                        form="trigger-sync-action-form"
+                        class="default"
+                        onclick="return confirm('Trigger a sync for this schema?');">Trigger sync</button>
             </div>
         </div>
     </fieldset>
-
     <fieldset class="module aligned">
         <h2>Temporal schedule</h2>
         <div class="form-row" style="padding: 10px;">
@@ -374,106 +419,104 @@
                target="_blank">View schedule in Temporal</a>
         </div>
         {% if cdc_extraction_schedule_id %}
-        <div class="form-row" style="padding: 10px;">
-            <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ cdc_extraction_schedule_id }}"
-               target="_blank">View CDC extraction schedule in Temporal</a>
-            <p class="help">
-                For CDC schemas, the per-schema schedule above is paused once streaming starts.
-                This source-level schedule is what drives the actual change capture.
-            </p>
-        </div>
+            <div class="form-row" style="padding: 10px;">
+                <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ cdc_extraction_schedule_id }}"
+                   target="_blank">View CDC extraction schedule in Temporal</a>
+                <p class="help">
+                    For CDC schemas, the per-schema schedule above is paused once streaming starts.
+                    This source-level schedule is what drives the actual change capture.
+                </p>
+            </div>
         {% endif %}
     </fieldset>
-
     <fieldset class="module aligned">
         <h2>Jobs{% if page_obj %} ({{ page_obj.paginator.count }} total){% endif %}</h2>
         {% if page_obj and page_obj.object_list %}
-        <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr style="background: #f5f5f5;">
-                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Job ID</th>
-                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Status</th>
-                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Created at</th>
-                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Finished at</th>
-                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd;">Rows synced</th>
-                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Temporal workflow</th>
-                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Logs</th>
-                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Error</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for job in page_obj %}
-                <tr style="border-bottom: 1px solid #eee;">
-                    <td style="padding: 8px; font-family: monospace; font-size: 12px;">{{ job.id }}</td>
-                    <td style="padding: 8px;">
-                        {% if job.status == "Running" %}
-                            <span class="status-badge status-running" style="color: blue;">Running</span>
-                        {% elif job.status == "Completed" %}
-                            <span class="status-badge status-completed" style="color: green;">Completed</span>
-                        {% elif job.status == "Failed" %}
-                            <span class="status-badge status-failed" style="color: red;">Failed</span>
-                        {% elif job.status == "BillingLimitReached" %}
-                            <span style="color: orange;">Billing limit reached</span>
-                        {% elif job.status == "BillingLimitTooLow" %}
-                            <span style="color: orange;">Billing limit too low</span>
-                        {% else %}
-                            <span>{{ job.status }}</span>
-                        {% endif %}
-                    </td>
-                    <td style="padding: 8px;">{{ job.created_at|date:"Y-m-d H:i:s" }}</td>
-                    <td style="padding: 8px;">{% if job.finished_at %}{{ job.finished_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
-                    <td style="padding: 8px; text-align: right;">{% if job.rows_synced is not None %}{{ job.rows_synced }}{% else %}&mdash;{% endif %}</td>
-                    <td style="padding: 8px;">
-                        {% if job.workflow_id and job.workflow_run_id %}
-                            <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ job.workflow_id }}/{{ job.workflow_run_id }}"
-                               target="_blank">View workflow</a>
-                        {% else %}
-                            &mdash;
-                        {% endif %}
-                    </td>
-                    <td style="padding: 8px;">
-                        {% if job.workflow_id %}
-                            <a href="{{ site_url }}/project/{{ team_id }}/logs?searchTerm={{ job.workflow_id }}"
-                               target="_blank">View logs</a>
-                        {% else %}
-                            &mdash;
-                        {% endif %}
-                    </td>
-                    <td style="padding: 8px;">
-                        {% if job.latest_error %}
-                            <span style="color: red; font-size: 12px;" title="{{ job.latest_error }}">
-                                {{ job.latest_error|truncatechars:80 }}
-                            </span>
-                            <br>
-                            <a href="{{ site_url }}/project/{{ team_id }}/error_tracking?searchQuery={{ job.latest_error|truncatechars:200|urlencode }}"
-                               target="_blank" style="font-size: 11px;">View in error tracking</a>
-                        {% else %}
-                            &mdash;
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        {% if page_obj.paginator.num_pages > 1 %}
-        <div style="padding: 10px; text-align: center; border-top: 1px solid #ddd;">
-            {% if page_obj.has_previous %}
-                <a href="?page=1">&laquo; First</a>
-                <a href="?page={{ page_obj.previous_page_number }}" style="margin-left: 8px;">&lsaquo; Previous</a>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f5f5f5;">
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd">Job ID</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd">Status</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd">Created at</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd">Finished at</th>
+                        <th style="padding: 8px;
+                                   text-align: right;
+                                   border-bottom: 2px solid #ddd">Rows synced</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd">Temporal workflow</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd">Logs</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd">Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for job in page_obj %}
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 8px; font-family: monospace; font-size: 12px;">{{ job.id }}</td>
+                            <td style="padding: 8px;">
+                                {% if job.status == "Running" %}
+                                    <span class="status-badge status-running" style="color: blue;">Running</span>
+                                {% elif job.status == "Completed" %}
+                                    <span class="status-badge status-completed" style="color: green;">Completed</span>
+                                {% elif job.status == "Failed" %}
+                                    <span class="status-badge status-failed" style="color: red;">Failed</span>
+                                {% elif job.status == "BillingLimitReached" %}
+                                    <span style="color: orange;">Billing limit reached</span>
+                                {% elif job.status == "BillingLimitTooLow" %}
+                                    <span style="color: orange;">Billing limit too low</span>
+                                {% else %}
+                                    <span>{{ job.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td style="padding: 8px;">{{ job.created_at|date:"Y-m-d H:i:s" }}</td>
+                            <td style="padding: 8px;">{% if job.finished_at %}{{ job.finished_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
+                            <td style="padding: 8px; text-align: right;">{% if job.rows_synced is not None %}{{ job.rows_synced }}{% else %}&mdash;{% endif %}</td>
+                            <td style="padding: 8px;">
+                                {% if job.workflow_id and job.workflow_run_id %}
+                                    <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ job.workflow_id }}/{{ job.workflow_run_id }}"
+                                       target="_blank">View workflow</a>
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                            </td>
+                            <td style="padding: 8px;">
+                                {% if job.workflow_id %}
+                                    <a href="{{ site_url }}/project/{{ team_id }}/logs?searchTerm={{ job.workflow_id }}"
+                                       target="_blank">View logs</a>
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                            </td>
+                            <td style="padding: 8px;">
+                                {% if job.latest_error %}
+                                    <span style="color: red; font-size: 12px;" title="{{ job.latest_error }}">
+                                        {{ job.latest_error|truncatechars:80 }}
+                                    </span>
+                                    <br>
+                                    <a href="{{ site_url }}/project/{{ team_id }}/error_tracking?searchQuery={{ job.latest_error|truncatechars:200|urlencode }}"
+                                       target="_blank"
+                                       style="font-size: 11px">View in error tracking</a>
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if page_obj.paginator.num_pages > 1 %}
+                <div style="padding: 10px; text-align: center; border-top: 1px solid #ddd">
+                    {% if page_obj.has_previous %}
+                        <a href="?page=1">&laquo; First</a>
+                        <a href="?page={{ page_obj.previous_page_number }}"
+                           style="margin-left: 8px">&lsaquo; Previous</a>
+                    {% endif %}
+                    <span style="margin: 0 12px;">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+                    {% if page_obj.has_next %}
+                        <a href="?page={{ page_obj.next_page_number }}">Next &rsaquo;</a>
+                        <a href="?page={{ page_obj.paginator.num_pages }}"
+                           style="margin-left: 8px">Last &raquo;</a>
+                    {% endif %}
+                </div>
             {% endif %}
-
-            <span style="margin: 0 12px;">
-                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
-            </span>
-
-            {% if page_obj.has_next %}
-                <a href="?page={{ page_obj.next_page_number }}">Next &rsaquo;</a>
-                <a href="?page={{ page_obj.paginator.num_pages }}" style="margin-left: 8px;">Last &raquo;</a>
-            {% endif %}
-        </div>
-        {% endif %}
-
         {% else %}
             <div class="form-row" style="padding: 10px; color: #666;">No jobs found for this schema.</div>
         {% endif %}

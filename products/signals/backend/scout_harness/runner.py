@@ -34,6 +34,7 @@ from products.signals.backend.scout_harness.limits import (
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
     STALE_RUN_CUTOFF_S,
+    TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
@@ -137,7 +138,7 @@ def run_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
-    triggered_by: str = "schedule",
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -163,13 +164,15 @@ async def arun_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
-    triggered_by: str = "schedule",
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
-    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes)
-    and `"manual"` for on-demand triggers (the `run` endpoint, the management command). Only
-    scheduled failures feed the failure-streak breaker; see the failure path below.
+    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes),
+    `"manual"` for on-demand triggers (the `run` endpoint, the management command) and
+    `"workflow"` for a workflow step that runs a scout. Only scheduled failures feed the
+    failure-streak breaker; see the failure path below. Anything but `"schedule"` is also stamped
+    onto the run row's `metadata`, which is what the workflow path's cooldown reads.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
 
@@ -251,11 +254,11 @@ async def arun_signals_scout(
     # the human who authored or enabled the scout instead of pooling on one team-level default
     # user. Scouts don't clone a repo on the cadence path, so they don't need a GitHub integration
     # — the `resolve_acting_user_id_for_team` fallback prefers the GitHub creator when present but
-    # falls back to any active org member, so a team that never connected GitHub still runs (these
-    # dominated the fleet failure rate when the run instead crashed ~5s into `_spawn_and_run` and
-    # booked a bogus `failed`). The only remaining short-circuit is the genuine "no active user to
-    # act as" case; like the withheld / in-flight skips it leaves no row, no lifecycle event, and
-    # a `skip_reason` the coordinator can surface — not a failure.
+    # falls back to any other member with access to this project, so a team that never connected
+    # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
+    # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
+    # genuine "no member can act" case; like the withheld / in-flight skips it leaves no row, no
+    # lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
     user_id = await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
         team, skill.name, config
     )
@@ -361,6 +364,7 @@ async def arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            triggered_by=triggered_by,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -383,6 +387,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
         )
@@ -431,7 +436,7 @@ async def arun_signals_scout(
         # on a lane whose schedule never failed.
         streak = (
             await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
-            if triggered_by == "schedule"
+            if triggered_by == TRIGGERED_BY_SCHEDULE
             else None
         )
         _capture_run_finished(
@@ -445,6 +450,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
             error_type=type(exc).__name__,
@@ -505,6 +511,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
             runtime_s=runtime_s,
             emitted_count=None,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
         )
@@ -584,6 +591,7 @@ async def _spawn_and_run(
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -705,6 +713,7 @@ async def _spawn_and_run(
             reasoning_effort=reasoning_effort,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            triggered_by=triggered_by,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -719,6 +728,7 @@ async def _spawn_and_run(
             business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
             task_run_id=str(task_run.id),
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
         )
@@ -902,6 +912,7 @@ def _create_run_row(
     reasoning_effort: str | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> SignalScoutRun:
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
@@ -949,6 +960,12 @@ def _create_run_row(
     # section: records land solely as project events, so a dry-run scout has no channel.
     if config.structured_output_schema and config.emit:
         metadata["structured_output_schema"] = config.structured_output_schema
+    # Omitted on the default path like the model triple, so absence reads as "the schedule".
+    # Load-bearing for the workflow path specifically: its 30-minute cooldown counts prior
+    # *workflow*-triggered runs of this (team, skill), and this is the only record of which those
+    # were — a scheduled patrol or a human's "Run now" must not extend it.
+    if triggered_by != TRIGGERED_BY_SCHEDULE:
+        metadata["triggered_by"] = triggered_by
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -1143,6 +1160,7 @@ def _capture_run_started(
     business_knowledge_maintained: bool,
     run_id: Any,
     task_run_id: str,
+    triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
 ) -> None:
@@ -1170,6 +1188,7 @@ def _capture_run_started(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        triggered_by=triggered_by,
     )
     try:
         posthoganalytics.capture(
@@ -1277,6 +1296,7 @@ def _attach_run_shape_props(
     business_knowledge_maintained: bool,
     model: str | None,
     runtime_adapter: str | None,
+    triggered_by: str,
 ) -> None:
     """Attach the dimensions that describe what this run was configured with, to both lifecycle
     events from one place so the started and finished streams can never drift apart.
@@ -1287,8 +1307,11 @@ def _attach_run_shape_props(
     `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
     agent-server default served it. `network_access` follows the same absent-means-default
     convention (attached only for `full`), so an event-based readout never pools runs with
-    different egress capabilities under one model or prompt. All of these make run outcomes
-    (timeout rate, runtime, emit volume) sliceable without joining through $ai_generation.
+    different egress capabilities under one model or prompt. `triggered_by` follows the run row's
+    own absent-means-schedule convention (`_create_run_row`), so the started/finished streams can
+    separate workflow-triggered volume, failure, and latency from scheduled and manual traffic
+    without a database join. All of these make run outcomes (timeout rate, runtime, emit volume)
+    sliceable without joining through $ai_generation.
     """
     properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
@@ -1301,6 +1324,8 @@ def _attach_run_shape_props(
         properties["model"] = model
     if runtime_adapter is not None:
         properties["runtime_adapter"] = runtime_adapter
+    if triggered_by != TRIGGERED_BY_SCHEDULE:
+        properties["triggered_by"] = triggered_by
 
 
 def _capture_run_finished(
@@ -1315,6 +1340,7 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
     error_type: str | None = None,
@@ -1356,6 +1382,7 @@ def _capture_run_finished(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        triggered_by=triggered_by,
     )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.

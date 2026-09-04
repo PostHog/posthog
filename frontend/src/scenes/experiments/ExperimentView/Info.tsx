@@ -7,19 +7,20 @@ import { LemonButton, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/l
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
-import { getExperimentStatus, isExperimentPaused } from 'scenes/experiments/experimentStatus'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
-import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
+import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
 import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
 import { RunningTime } from './RunningTime'
-import { StatusTag } from './StatusTag'
 
 function FlagCleanupField({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
     const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))

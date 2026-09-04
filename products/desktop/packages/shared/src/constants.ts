@@ -1,12 +1,7 @@
-export {
-  BILLING_FLAG,
-  DISCOVERY_RUN_FLAG,
-  EXPERIMENT_SUGGESTIONS_FLAG,
-} from "./flags";
+import featureFlagKeys from "./feature-flag-keys.json" with { type: "json" };
 
 export const SELF_DRIVING_SETUP_TASK_FLAG =
-  "posthog-code-self-driving-setup-task";
-export const BRANCH_PREFIX = "posthog/";
+  featureFlagKeys.SELF_DRIVING_SETUP_TASK_FLAG;
 export const POSTHOG_CODE_INTERNAL_CHILD_ENV = "POSTHOG_CODE_INTERNAL_CHILD";
 
 /**

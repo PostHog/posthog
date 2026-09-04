@@ -73,6 +73,7 @@ export interface PropertyFiltersProps {
      */
     triggerVariant?: 'button' | 'input'
     staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
+    renderOperatorValueSelect?: PropertyFilterInternalProps['renderOperatorValueSelect']
     /** Override inferred property definitions for contexts where one event key is polymorphic. */
     propertyDefinitionsOverride?: PropertyDefinition[]
     /** Keep the selected key fixed while leaving its operator and value editable. */
@@ -124,6 +125,7 @@ export function PropertyFilters({
     hogQLGlobals,
     triggerVariant = 'button',
     staticValueOptions,
+    renderOperatorValueSelect,
     propertyDefinitionsOverride,
     propertyKeyEditable,
     singleLine,
@@ -201,6 +203,7 @@ export function PropertyFilters({
                                                         filter={item}
                                                         onChange={(filter) => setFilter(index, filter)}
                                                         editable={editable}
+                                                        pageKey={`${pageKey}-behavioral-${displayedFilterIds[index]}`}
                                                         size={buttonSize}
                                                     />
                                                 </div>
@@ -236,6 +239,7 @@ export function PropertyFilters({
                                                 hogQLGlobals={hogQLGlobals}
                                                 triggerVariant={triggerVariant}
                                                 staticValueOptions={staticValueOptions}
+                                                renderOperatorValueSelect={renderOperatorValueSelect}
                                                 propertyDefinitionsOverride={propertyDefinitionsOverride}
                                                 propertyKeyEditable={propertyKeyEditable}
                                                 singleLine={singleLine}

@@ -19,6 +19,9 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 # CLI; prints its report (T201).
 "data_catalog/scripts/offline_governance_experiment.py" = ["T201"]
 "logs/backend/pattern_replay.py" = ["T201"]
+# ReviewHog eval experiments keep their analysis CLIs next to the results; the report they
+# write is their stdout.
+"review_hog/eval/experiments/*/scripts/**" = ["T201"]
 
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics

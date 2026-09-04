@@ -17,7 +17,7 @@ import { useMemo } from "react";
  * answers, asked of a task we only have the polled DTO for.
  *
  * Grey is the vocabulary's "nothing owed", so anything else is a dot worth
- * counting: blue is blocked on you, yellow is working, pending, or unread.
+ * counting: blue is blocked on you, yellow is working or unread.
  * Running it through `taskDot` rather than re-deriving the rule is the point —
  * the space's dots have to mean what the session rows' dots mean, and there is
  * one function that decides that.

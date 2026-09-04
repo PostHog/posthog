@@ -497,6 +497,43 @@ export function StartupProgram(): JSX.Element {
 
                                         {isYC && (
                                             <>
+                                                <LemonField
+                                                    name="yc_verification_url"
+                                                    label="Your YC verification link"
+                                                    info={
+                                                        <span>
+                                                            See{' '}
+                                                            <Link
+                                                                target="_blank"
+                                                                to="https://www.ycombinator.com/verify"
+                                                            >
+                                                                YC's verification docs
+                                                            </Link>{' '}
+                                                            for how verification links work. We check your link when you
+                                                            submit the application.
+                                                        </span>
+                                                    }
+                                                    help={
+                                                        <span>
+                                                            Create a verification link at{' '}
+                                                            <Link
+                                                                target="_blank"
+                                                                to="https://www.ycombinator.com/verify/manage"
+                                                            >
+                                                                ycombinator.com/verify/manage
+                                                            </Link>{' '}
+                                                            with your company details and batch visible, so we can
+                                                            verify you automatically. Phone number, personal email, and
+                                                            social profiles can be left off.
+                                                        </span>
+                                                    }
+                                                >
+                                                    <LemonInput
+                                                        placeholder="https://www.ycombinator.com/verify/your-unique-code"
+                                                        className="bg-bg-light"
+                                                    />
+                                                </LemonField>
+
                                                 <LemonField name="yc_batch" label="Which YC batch are you?">
                                                     <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
                                                 </LemonField>

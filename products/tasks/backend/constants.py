@@ -40,6 +40,8 @@ TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+# The skills-store stubs the sandbox agent writes into its skill roots at session start.
+STORE_SKILLS_STATE_KEY = "store_skills"
 SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
 SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
 _LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"
@@ -79,6 +81,9 @@ DEV_STACK_PREVIEW_PORT = 8020
 # entitlement is re-checked server-side. Keys are the model ids callers send.
 MODEL_ACCESS_FLAGS: dict[str, str] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+    "zai-org/glm-5.3": "posthog-code-glm-53-model",
+    "zai-org/glm-5.3-flash": "posthog-code-glm-53-flash-model",
 }
 
 
@@ -210,6 +215,7 @@ TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.
 RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
+BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
 PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
@@ -291,6 +297,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
 # foreground streams.
 POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "dashboard-create",
+    "dashboard-create-tile",
     "dashboard-create-text-tile",
     "dashboard-tile-copy",
     "dashboard-widgets-batch-add",
@@ -521,6 +528,8 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
         "AI_GATEWAY_TOKEN",
+        "AI_GATEWAY_PRODUCT",
+        "AI_GATEWAY_AI_STAGE",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",

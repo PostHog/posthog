@@ -202,109 +202,6 @@ describe("PiSessionController", () => {
     expect(client.getConversation).not.toHaveBeenCalled();
   });
 
-  it("loads repository trust and reconnects after changing it", async () => {
-    let trusted = false;
-    const session = createSession();
-    session.getProjectTrust = vi.fn(async () => ({
-      trusted,
-      hasProjectResources: true,
-    }));
-    session.setProjectTrusted = vi.fn(async (nextTrusted) => {
-      trusted = nextTrusted;
-    });
-    const controller = createController(session);
-
-    await controller.connect("task-1");
-    expect(controller.store.getState().sessions["task-1"].projectTrust).toEqual(
-      {
-        trusted: false,
-        hasProjectResources: true,
-      },
-    );
-    controller.store.setState((state) => ({
-      sessions: {
-        ...state.sessions,
-        "task-1": {
-          ...state.sessions["task-1"],
-          queue: { steering: ["queued"], followUp: [] },
-        },
-      },
-    }));
-
-    await controller.setProjectTrusted("task-1", true);
-
-    expect(session.setProjectTrusted).toHaveBeenCalledWith(true);
-    expect(session.client.prompt).toHaveBeenCalledWith("queued");
-    expect(controller.store.getState().sessions["task-1"].projectTrust).toEqual(
-      {
-        trusted: true,
-        hasProjectResources: true,
-      },
-    );
-  });
-
-  it("shares an in-flight repository trust change and rejects an opposite toggle", async () => {
-    let finishTransition: (() => void) | undefined;
-    const session = createSession();
-    session.setProjectTrusted = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          finishTransition = resolve;
-        }),
-    );
-    const controller = createController(session);
-    await controller.connect("task-1");
-
-    const first = controller.setProjectTrusted("task-1", true);
-    const duplicate = controller.setProjectTrusted("task-1", true);
-    await expect(controller.setProjectTrusted("task-1", false)).rejects.toThrow(
-      "already in progress",
-    );
-    expect(session.setProjectTrusted).toHaveBeenCalledOnce();
-
-    finishTransition?.();
-    await expect(Promise.all([first, duplicate])).resolves.toEqual([
-      undefined,
-      undefined,
-    ]);
-  });
-
-  it.each([
-    { streaming: true, bashRunning: false },
-    { streaming: false, bashRunning: true },
-  ])(
-    "rejects repository trust changes while Pi is busy",
-    async ({ streaming, bashRunning }) => {
-      const session = createSession();
-      session.setProjectTrusted = vi.fn(async () => {});
-      const controller = createController(session);
-      await controller.connect("task-1");
-      const current = controller.store.getState().sessions["task-1"];
-      const status = current.status;
-      if (!status) {
-        throw new Error("Expected connected Pi status");
-      }
-      controller.store.setState((state) => ({
-        sessions: {
-          ...state.sessions,
-          "task-1": {
-            ...state.sessions["task-1"],
-            status: {
-              ...status,
-              isStreaming: streaming,
-            },
-            isBashRunning: bashRunning,
-          },
-        },
-      }));
-
-      await expect(
-        controller.setProjectTrusted("task-1", true),
-      ).rejects.toBeInstanceOf(PiOperationError);
-      expect(session.setProjectTrusted).not.toHaveBeenCalled();
-    },
-  );
-
   it("uploads cloud follow-up attachments before sending the native message", async () => {
     const session = createSession();
     session.sendUserMessage = vi.fn(async () => {});
@@ -1202,45 +1099,51 @@ describe("PiSessionController", () => {
     );
   });
 
-  it("resumes and retries a message when the prior sandbox is gone", async () => {
-    const staleSession = {
-      ...createSession(),
-      taskRunId: "run-1",
-      sendUserMessage: vi.fn(async () => {
-        throw new Error("No active sandbox for this task run");
-      }),
-    };
-    const resumedSession = {
-      ...createSession(),
-      sendUserMessage: vi.fn(async () => {}),
-    };
-    const provider = {
-      get: vi
-        .fn()
-        .mockResolvedValueOnce(staleSession)
-        .mockResolvedValue(resumedSession),
-    } as PiSessionProvider;
-    const resumeCloudPiRun = vi.fn(async () => ({ id: "run-2" }));
-    const taskService = {
-      prepareCloudPiMessage: vi.fn(async () => ({
-        content: "continue",
-        artifactIds: [],
-      })),
-      resumeCloudPiRun,
-    } as unknown as TaskService;
-    const controller = new PiSessionController(provider, taskService);
+  it.each([
+    ["the prior sandbox is gone", "No active sandbox for this task run"],
+    ["the prior workflow has ended", "Task run workflow has ended"],
+  ])(
+    "resumes and retries a message when %s",
+    async (_condition, errorMessage) => {
+      const staleSession = {
+        ...createSession(),
+        taskRunId: "run-1",
+        sendUserMessage: vi.fn(async () => {
+          throw new Error(errorMessage);
+        }),
+      };
+      const resumedSession = {
+        ...createSession(),
+        sendUserMessage: vi.fn(async () => {}),
+      };
+      const provider = {
+        get: vi
+          .fn()
+          .mockResolvedValueOnce(staleSession)
+          .mockResolvedValue(resumedSession),
+      } as PiSessionProvider;
+      const resumeCloudPiRun = vi.fn(async () => ({ id: "run-2" }));
+      const taskService = {
+        prepareCloudPiMessage: vi.fn(async () => ({
+          content: "continue",
+          artifactIds: [],
+        })),
+        resumeCloudPiRun,
+      } as unknown as TaskService;
+      const controller = new PiSessionController(provider, taskService);
 
-    await controller.connect("task-1");
-    await controller.submit("task-1", "continue", false, "steer");
+      await controller.connect("task-1");
+      await controller.submit("task-1", "continue", false, "steer");
 
-    expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
-    expect(resumedSession.sendUserMessage).toHaveBeenCalledWith(
-      "prompt",
-      "continue",
-      [],
-      expect.any(String),
-    );
-  });
+      expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
+      expect(resumedSession.sendUserMessage).toHaveBeenCalledWith(
+        "prompt",
+        "continue",
+        [],
+        expect.any(String),
+      );
+    },
+  );
 
   it("keeps a connected transcript usable when a command fails", async () => {
     const initialEvent: AgentConversationEvent = {
@@ -1268,6 +1171,7 @@ describe("PiSessionController", () => {
         scope: "operation",
         title: "Failed to send message",
         message: "temporary command failure",
+        recoveryPrompt: "retry me",
       },
     });
   });
@@ -1676,6 +1580,25 @@ describe("PiSessionController", () => {
     expect(controller.store.getState().sessions["task-1"].events).toEqual([
       turnCompleted,
     ]);
+  });
+
+  it("falls back to stored turn usage when the live stats RPC is unavailable", async () => {
+    const session = createSession();
+    vi.mocked(session.client.getSessionStats).mockRejectedValue(
+      new Error("Cloud task run run-1 is completed"),
+    );
+    session.usageStats = vi.fn(() => ({
+      contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: 25 },
+    }));
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+
+    await vi.waitFor(() => {
+      expect(controller.store.getState().sessions["task-1"].stats).toEqual({
+        contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: 25 },
+      });
+    });
   });
 
   it("loads session state and appends normalized runtime events", async () => {

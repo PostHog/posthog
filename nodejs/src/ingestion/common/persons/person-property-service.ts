@@ -13,7 +13,7 @@ import { extractEventOps } from './person-update'
 export class PersonPropertyService {
     private personCreateService: PersonCreateService
     constructor(private context: PersonContext) {
-        this.personCreateService = new PersonCreateService(context)
+        this.personCreateService = new PersonCreateService(context.personStore, context.outputs)
     }
 
     async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
@@ -74,7 +74,7 @@ export class PersonPropertyService {
         // The service states the event's intent; what the intent means
         // given current state — diffing, identity OR-merge, last-seen
         // advance, whether anything is worth writing — is the store's
-        // concern, resolved against its own world.
+        // concern, resolved against its own backend.
         const ops = extractEventOps(this.context.event, this.context.updateAllProperties)
         if (this.context.updateIsIdentified) {
             ops.isIdentified = true

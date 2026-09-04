@@ -4,6 +4,12 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Where master's coverage for the Node.js checks comes from. The merge queue's
+        # trunk-merge/** run gates every commit before it lands, so the push lane does
+        # not repeat them.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '13 * * * *'
 
 env:
     OBJECT_STORAGE_ENABLED: true
@@ -17,7 +23,12 @@ env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -32,6 +43,14 @@ jobs:
             pull-requests: read
         outputs:
             nodejs: ${{ steps.nodejs-changes.outputs.nodejs || 'true' }}
+            # Jest selection for the tests job. `mode` is 'selective' only when the diff is
+            # confined to Node source files jest can resolve; anything else is 'full'.
+            test_mode: ${{ steps.select-tests.outputs.mode || 'full' }}
+            test_files: ${{ steps.select-tests.outputs.files }}
+            # Telemetry (see capture-nodejs-selection). Emitted on every path, so a
+            # fallback rate can be read per reason rather than inferred from mode alone.
+            test_reason: ${{ steps.select-tests.outputs.reason }}
+            test_file_count: ${{ steps.select-tests.outputs.file_count }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -45,13 +64,19 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: the decision step below
+              # treats both as "run everything". See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # node_src_files feeds jest --findRelatedTests in the select step below.
+                  list-files: 'escape'
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
@@ -85,21 +110,43 @@ jobs:
                         # so no app image is built here. Dockerfile.node is gated separately in
                         # ci-nodejs-container.yml.
                         - 'docker*.yml'
+                        # The compose stack mounts this ClickHouse config; the Kafka engine settings
+                        # in it set how long every ClickHouse-backed Jest test waits for a row.
+                        - 'docker/clickhouse/**'
                       rust:
                         - 'rust/**'
                         - 'proto/**'
                         - '.github/rust-images.yml'
                         - '.github/actions/rust-compute-affected/**'
+                      # Node sources jest can resolve. Their paths feed --findRelatedTests.
+                      node_src:
+                        - 'nodejs/**/*.ts'
+                        - 'nodejs/**/*.js'
+                        - '!nodejs/**/*.d.ts'
+                      # Anything here invalidates jest's view of the module graph, or changes
+                      # the native addons every suite links, so no narrowed run can be trusted.
+                      node_full:
+                        - 'nodejs/jest*.config.js'
+                        - 'nodejs/package.json'
+                        - 'nodejs/tsconfig*.json'
+                        - 'pnpm-lock.yaml'
+                        - 'rust/**'
+                        - 'proto/**'
+                        - '.github/workflows/ci-nodejs.yml'
 
             - name: Install rust for affected-crate detection
-              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              # Not needed on schedule either: the decision step below already returns
+              # nodejs=true there without consulting the affected-crate set.
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
             - name: Compute affected Rust crates
               id: rust-affected
-              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              # Not needed on schedule either: the decision step below already returns
+              # nodejs=true there without consulting the affected-crate set.
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
@@ -115,7 +162,10 @@ jobs:
                   RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
                   RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
               run: |
-                  if [ "${{ github.event_name }}" = "push" ]; then
+                  # `schedule` alongside `push`: the paths filter is skipped on both, so
+                  # NODEJS_CHANGED is empty there. Without this the hourly run would decide
+                  # nodejs=false and report green having run no tests at all.
+                  if [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "schedule" ]; then
                     echo "nodejs=true" >> "$GITHUB_OUTPUT"
                     exit 0
                   fi
@@ -139,8 +189,66 @@ jobs:
 
                   echo "nodejs=false" >> "$GITHUB_OUTPUT"
 
+            # Narrow the jest run to the tests reachable from the changed Node sources.
+            # Verified locally that jest applies --findRelatedTests before --shard, so the
+            # shards still partition the selected set exactly rather than a subset of it.
+            # Fail-open is always FULL, never skip: this workflow has no draft/ready split
+            # and no later run on the PR would cover a miss.
+            - name: Select jest tests
+              id: select-tests
+              env:
+                  NODE_FULL: ${{ steps.filter.outputs.node_full }}
+                  NODE_SRC: ${{ steps.filter.outputs.node_src }}
+                  NODE_SRC_FILES: ${{ steps.filter.outputs.node_src_files }}
+                  # Through env, not inline: a branch name is author-controlled.
+                  HEAD_REF: ${{ github.head_ref }}
+              run: |
+                  set -uo pipefail
+
+                  # $1 is a closed category, so the telemetry can be grouped by reason.
+                  full() {
+                      echo "::notice::$1; running the full jest suite"
+                      {
+                          echo "mode=full"
+                          echo "files="
+                          echo "reason=$1"
+                          echo "file_count=${count:-}"
+                      } >> "$GITHUB_OUTPUT"
+                      exit 0
+                  }
+
+                  # Master push and the cron skip the paths filter, so every output is empty.
+                  [ "${{ github.event_name }}" = "pull_request" ] || full not_a_pull_request
+                  # Trunk's merge-queue branches raise a pull_request event like any other, so
+                  # they need excluding by name. That run is the gate for master and must never
+                  # be narrowed.
+                  case "$HEAD_REF" in
+                      trunk-merge/*) full merge_queue ;;
+                  esac
+                  [ "$NODE_FULL" != "true" ] || full config_change
+                  [ "$NODE_SRC" = "true" ] || full no_node_sources
+
+                  # Paths arrive repo-relative; jest runs from nodejs/, so strip the prefix.
+                  # `list-files: escape` returns one shell-escaped, space-separated list, so
+                  # the splitting shellcheck warns about is exactly what turns it into paths.
+                  # shellcheck disable=SC2086
+                  files=$(printf '%s\n' $NODE_SRC_FILES | sed 's|^nodejs/||' | tr '\n' ' ')
+                  # shellcheck disable=SC2086
+                  count=$(printf '%s\n' $NODE_SRC_FILES | grep -c . || true)
+                  [ "$count" -le 200 ] || full over_ceiling
+                  [ -n "${files// /}" ] || full empty_file_list
+
+                  echo "::notice::selective jest over $count changed Node source file(s)"
+                  {
+                      echo "mode=selective"
+                      echo "files=$files"
+                      echo "reason="
+                      echo "file_count=$count"
+                  } >> "$GITHUB_OUTPUT"
+
     lint:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Code quality (depot-ubuntu-24.04)
         needs: changes
         runs-on: depot-ubuntu-24.04
@@ -156,7 +264,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -205,7 +313,8 @@ jobs:
                         fi
 
     build:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Build (depot-ubuntu-24.04)
         needs: changes
         runs-on: depot-ubuntu-24.04
@@ -221,7 +330,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -267,7 +376,8 @@ jobs:
                   fi
 
     tests:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
@@ -310,6 +420,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -340,7 +451,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -505,9 +616,27 @@ jobs:
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
                   # New compileHog callers must generate and commit their source-addressed fixture.
                   HOG_BYTECODE_CACHE_REQUIRED: 'true'
+                  TEST_MODE: ${{ needs.changes.outputs.test_mode }}
+                  TEST_FILES: ${{ needs.changes.outputs.test_files }}
               run: |
                   if [ -f nodejs/jest.serial.config.js ]; then
-                    cd nodejs && pnpm run test:${{ matrix.lane }}
+                    # In selective mode append --findRelatedTests to the package script, which
+                    # already carries --shard and --testPathIgnorePatterns. jest resolves the
+                    # related set first and shards that, so the shards stay disjoint.
+                    # --passWithNoTests because a shard can legitimately receive nothing once
+                    # the set is narrowed; the serial script does not set it itself.
+                    #
+                    # No `--` before the appended flags. pnpm forwards the separator itself into
+                    # the script's argv, and jest reads everything after a `--` as a test path
+                    # pattern, so the flags arrive as patterns that match nothing. The serial lane
+                    # then exits 1 on "No tests found", and the parallel lane exits 0 because its
+                    # script already carries --passWithNoTests, reporting green over an empty run.
+                    if [ "$TEST_MODE" = "selective" ]; then
+                      # shellcheck disable=SC2086
+                      cd nodejs && pnpm run test:${{ matrix.lane }} --passWithNoTests --findRelatedTests $TEST_FILES
+                    else
+                      cd nodejs && pnpm run test:${{ matrix.lane }}
+                    fi
                   elif [ "${{ matrix.lane }}" = 'serial' ]; then
                     bin/turbo run test --filter=@posthog/nodejs
                   else
@@ -542,7 +671,9 @@ jobs:
                   # jest-junit's outputDir resolves against the jest process cwd, which is the
                   # workspace root for the turbo invocation but `nodejs/` if a shard ever runs
                   # jest directly; cover both.
-                  name: junit-results-nodejs-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  # Lane-qualified: serial 1/3 and parallel 1/1 are both shard 1, and the
+                  # artifact list returns one entry per name, so a lane-less name hides one.
+                  name: junit-results-nodejs-${{ matrix.lane }}-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: |
                       junit-results/junit-nodejs-*.xml
                       junit-results/posthog-jest-quarantine-*.jsonl
@@ -586,7 +717,8 @@ jobs:
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     rust_ingestion_e2e:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
@@ -611,6 +743,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -641,7 +774,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -853,6 +986,52 @@ jobs:
               uses: ./.github/actions/report-jest-timings
               with:
                   artifacts: ./junit-artifacts
+
+    # Jest-selection telemetry -> DevEx project (347861), alongside the equivalent
+    # events for the backend (posthog-ci-test-selection), the frontend
+    # (posthog-ci-jest-selection) and Playwright (posthog-ci-e2e-spec-selection).
+    # Without it the fallback rate of this selector is only readable by opening runs
+    # one at a time, and this workflow has no other telemetry.
+    # Emitted on full runs too — the merge queue's trunk-merge/** run raises a
+    # pull_request event, so `mode=full` there is the baseline selective runs are
+    # measured against. This workflow captures no job durations, so a saving is read
+    # off the tests job's own conclusion and the run in the Actions API, not from here.
+    # Telemetry never reds CI (continue-on-error).
+    # hogli-lint: not-a-required-gate — reads results to describe the run, gates nothing
+    capture-nodejs-selection:
+        name: Capture Node.js jest selection
+        needs: [changes, tests]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # Nothing to report on a PR that never ran the suite. Forks and Dependabot never
+        # have the secret.
+        if: >-
+            !cancelled() && github.run_attempt == '1'
+            && github.event_name == 'pull_request'
+            && github.actor != 'dependabot[bot]'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && (needs.tests.result == 'success' || needs.tests.result == 'failure')
+        steps:
+            - name: Capture Node.js jest selection to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-nodejs-selection'
+                  properties: |
+                      {
+                        "mode": ${{ toJSON(needs.changes.outputs.test_mode) }},
+                        "selected_file_count": ${{ needs.changes.outputs.test_file_count || 'null' }},
+                        "full_run_reason_category": ${{ toJSON(needs.changes.outputs.test_reason || '') }},
+                        "tests_result": ${{ toJSON(needs.tests.result) }},
+                        "pr_draft": ${{ toJSON(github.event.pull_request.draft) }},
+                        "merge_queue": ${{ startsWith(github.head_ref, 'trunk-merge/') }},
+                        "event_type": ${{ toJSON(github.event.action) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
 
     node_tests:
         # report-test-speed is deliberately not in needs: it is visible but non-gating.

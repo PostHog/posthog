@@ -266,6 +266,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
     signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
     signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
+    signal_scratchpad_internal: 'Internal: sandbox-only writes for the Signals scratchpad.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',

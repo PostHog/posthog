@@ -8,30 +8,30 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::Json as AxumJson;
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
 use futures::StreamExt;
 use lifecycle::{ComponentOptions, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{BaseConsumer, Consumer, StreamConsumer};
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
+use rdkafka::TopicPartitionList;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::config::LedgerMode;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::order_sentinel::SentinelContext;
-use ingestion_consumer::transport::HttpTransport;
-use ingestion_consumer::transports::Transport;
-use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
+use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_consumer::worker_registry::{
     WorkerId, WorkerRegistry, WorkerRegistryConfig, WorkerState,
 };
@@ -80,7 +80,7 @@ async fn produce(
     seq: usize,
 ) {
     let value = format!(r#"{{"seq":{seq}}}"#);
-    let key = format!("{token}:{distinct_id}:{seq}");
+    let key = format!("{token}:{distinct_id}");
     let headers = OwnedHeaders::new()
         .insert(Header {
             key: "token",
@@ -105,7 +105,7 @@ async fn produce(
 }
 
 /// Produce a record with full control over payload bytes and optional headers —
-/// for malformed-input scenarios (missing routing headers, non-UTF-8 bytes).
+/// for malformed-input scenarios (missing headers, non-UTF-8 bytes).
 async fn produce_raw(
     producer: &FutureProducer,
     topic: &str,
@@ -133,30 +133,30 @@ struct FakeWorker {
     pub url: String,
     /// (distinct_id, seq) pairs in arrival order.
     pub received: Arc<Mutex<Vec<(String, usize)>>>,
-    /// Message count of each accepted /ingest request, in arrival order. With a
+    /// Message count of each accepted sub-batch, in arrival order. With a
     /// single worker and partition a sub-batch is the whole Kafka batch, which
     /// is what lets the batching-bound tests read batch sizes from here.
     pub batch_sizes: Arc<Mutex<Vec<usize>>>,
     /// Gates /_ready (pool membership). When false the worker leaves the pool.
     pub healthy: Arc<AtomicBool>,
-    /// Gates /ingest only. When false the worker stays ready (in the pool) but
+    /// Gates ingest only. When false the worker stays ready (in the pool) but
     /// fails every send — a "flapping" worker, used to exercise the flush loop's
     /// re-defer path and its timeout bound.
     pub ingest_ok: Arc<AtomicBool>,
-    /// When set, the next /ingest request is processed and recorded but answered
-    /// with an error — a "lost ACK". Models the ambiguous outcome where the
+    /// When set, the next sub-batch is processed and recorded but answered
+    /// with a nack — a "lost ACK". Models the ambiguous outcome where the
     /// worker did the work but the consumer never learns it, so it replays.
     pub ack_lost_once: Arc<AtomicBool>,
-    /// When true, every /ingest request is rejected with HTTP 400 without
+    /// When true, every sub-batch is nacked without
     /// ingesting anything — a poison batch this worker will never accept.
     pub reject_4xx: Arc<AtomicBool>,
-    /// When set, the next /ingest request is ingested in full but reports one
+    /// When set, the next sub-batch is ingested in full but reports one
     /// message fewer than sent — a partial-acceptance contract violation.
     pub underreport_once: Arc<AtomicBool>,
-    /// Number of /ingest requests that have reached the handler. Counted before
+    /// Number of sub-batches that have reached the handler. Counted before
     /// the gate, so a test can observe a batch is in-flight even while held.
     arrived: Arc<AtomicUsize>,
-    /// Held by the handler for the duration of each /ingest request. A test can
+    /// Held by the handler for the duration of each sub-batch. A test can
     /// acquire it via `block()` to freeze a request in flight (simulating a slow
     /// worker), then drop the guard to let it complete.
     gate: Arc<tokio::sync::Mutex<()>>,
@@ -191,140 +191,22 @@ impl FakeWorker {
         let arrived = Arc::new(AtomicUsize::new(0));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
-        let app = Router::new()
-            .route(
-                "/_ready",
-                get({
-                    let h = Arc::clone(&healthy);
-                    move || {
-                        let h = h.clone();
-                        async move {
-                            if h.load(Ordering::Relaxed) {
-                                axum::http::StatusCode::OK
-                            } else {
-                                axum::http::StatusCode::SERVICE_UNAVAILABLE
-                            }
+        let app = Router::new().route(
+            "/_ready",
+            get({
+                let h = Arc::clone(&healthy);
+                move || {
+                    let h = h.clone();
+                    async move {
+                        if h.load(Ordering::Relaxed) {
+                            axum::http::StatusCode::OK
+                        } else {
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE
                         }
                     }
-                }),
-            )
-            .route(
-                "/ingest",
-                post({
-                    let recv = Arc::clone(&received);
-                    let sizes = Arc::clone(&batch_sizes);
-                    let h = Arc::clone(&healthy);
-                    let ingest_ok = Arc::clone(&ingest_ok);
-                    let ack_lost_once = Arc::clone(&ack_lost_once);
-                    let reject_4xx = Arc::clone(&reject_4xx);
-                    let underreport_once = Arc::clone(&underreport_once);
-                    let arrived = Arc::clone(&arrived);
-                    let gate = Arc::clone(&gate);
-                    let delivery_log = delivery_log.clone();
-                    move |AxumJson(req): AxumJson<IngestBatchRequest>| {
-                        let recv = recv.clone();
-                        let sizes = sizes.clone();
-                        let h = h.clone();
-                        let ingest_ok = ingest_ok.clone();
-                        let ack_lost_once = ack_lost_once.clone();
-                        let reject_4xx = reject_4xx.clone();
-                        let underreport_once = underreport_once.clone();
-                        let arrived = arrived.clone();
-                        let gate = gate.clone();
-                        let delivery_log = delivery_log.clone();
-                        async move {
-                            arrived.fetch_add(1, Ordering::SeqCst);
-                            // Block here while a test holds the gate (slow worker).
-                            let _hold = gate.lock().await;
-                            // Health is checked after the gate so a test can flip a
-                            // held request to a failure before releasing it. A
-                            // worker that is ready but has ingest_ok=false fails
-                            // sends while staying in the pool (a flapping worker).
-                            if !h.load(Ordering::Relaxed) || !ingest_ok.load(Ordering::Relaxed) {
-                                return (
-                                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                                    AxumJson(IngestBatchResponse {
-                                        batch_id: req.batch_id,
-                                        status: "error".to_string(),
-                                        accepted: 0,
-                                        error: Some("worker unhealthy".to_string()),
-                                    }),
-                                );
-                            }
-                            // A poison batch: permanently rejected with a client
-                            // error, nothing ingested.
-                            if reject_4xx.load(Ordering::SeqCst) {
-                                return (
-                                    axum::http::StatusCode::BAD_REQUEST,
-                                    AxumJson(IngestBatchResponse {
-                                        batch_id: req.batch_id,
-                                        status: "error".to_string(),
-                                        accepted: 0,
-                                        error: Some("poison batch".to_string()),
-                                    }),
-                                );
-                            }
-                            let accepted = req.messages.len() as u32;
-                            let entries: Vec<(String, usize)> = req
-                                .messages
-                                .iter()
-                                .map(|msg| {
-                                    let did =
-                                        msg.headers.get("distinct_id").cloned().unwrap_or_default();
-                                    let seq = msg
-                                        .value
-                                        .as_deref()
-                                        .and_then(|v| {
-                                            serde_json::from_str::<serde_json::Value>(v).ok()
-                                        })
-                                        .and_then(|v| v["seq"].as_u64())
-                                        .unwrap_or(0)
-                                        as usize;
-                                    (did, seq)
-                                })
-                                .collect();
-                            recv.lock().unwrap().extend(entries.iter().cloned());
-                            sizes.lock().unwrap().push(req.messages.len());
-                            // Record the whole batch as one contiguous slot in the
-                            // shared total order (it was accepted as a unit).
-                            if let Some(log) = &delivery_log {
-                                log.lock().unwrap().extend(entries);
-                            }
-                            // The work is done and recorded, but the ACK is lost:
-                            // answer with an error so the consumer must replay.
-                            if ack_lost_once.swap(false, Ordering::SeqCst) {
-                                return (
-                                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                                    AxumJson(IngestBatchResponse {
-                                        batch_id: req.batch_id,
-                                        status: "error".to_string(),
-                                        accepted: 0,
-                                        error: Some("ack lost".to_string()),
-                                    }),
-                                );
-                            }
-                            // Partial acceptance: everything was ingested, but the
-                            // response claims one message fewer than sent.
-                            let reported = if underreport_once.swap(false, Ordering::SeqCst) {
-                                accepted.saturating_sub(1)
-                            } else {
-                                accepted
-                            };
-                            (
-                                axum::http::StatusCode::OK,
-                                AxumJson(IngestBatchResponse {
-                                    batch_id: req.batch_id,
-                                    status: "ok".to_string(),
-                                    accepted: reported,
-                                    error: None,
-                                }),
-                            )
-                        }
-                    }
-                }),
-            )
-            // Like the real Express worker, inflate gzipped request bodies.
-            .layer(tower_http::decompression::RequestDecompressionLayer::new());
+                }
+            }),
+        );
 
         // Bind HTTP on an ephemeral port and gRPC on that port + 1, so the
         // gRPC transport's OffsetFromHttp mode can address each worker.
@@ -345,6 +227,7 @@ impl FakeWorker {
 
         let grpc_service = FakeWorkerGrpc {
             received: Arc::clone(&received),
+            batch_sizes: Arc::clone(&batch_sizes),
             healthy: Arc::clone(&healthy),
             ingest_ok: Arc::clone(&ingest_ok),
             ack_lost_once: Arc::clone(&ack_lost_once),
@@ -387,17 +270,17 @@ impl FakeWorker {
         self.received.lock().unwrap().len()
     }
 
-    /// Message count of each accepted /ingest request, in arrival order.
+    /// Message count of each accepted sub-batch, in arrival order.
     fn batch_sizes(&self) -> Vec<usize> {
         self.batch_sizes.lock().unwrap().clone()
     }
 
-    /// /ingest requests that have reached this worker (including any held by the gate).
+    /// Sub-batches that have reached this worker (including any held by the gate).
     fn arrived_count(&self) -> usize {
         self.arrived.load(Ordering::SeqCst)
     }
 
-    /// Freeze this worker's /ingest handling: requests arrive but block until the
+    /// Freeze this worker's ingest handling: sub-batches arrive but block until the
     /// returned guard is dropped. Acquire before producing so the batch is caught.
     async fn block(&self) -> tokio::sync::OwnedMutexGuard<()> {
         Arc::clone(&self.gate).lock_owned().await
@@ -414,11 +297,11 @@ impl FakeWorker {
     }
 }
 
-/// The FakeWorker's WorkerIngest implementation, sharing the HTTP handler's
-/// state and knobs so gRPC scenarios drive the same failure modes. Per the
-/// protocol, any failure ends the stream (a nack means the worker stream is dead).
+/// The FakeWorker's WorkerIngest implementation. Per the protocol, any
+/// failure ends the stream (a nack means the worker stream is dead).
 struct FakeWorkerGrpc {
     received: Arc<Mutex<Vec<(String, usize)>>>,
+    batch_sizes: Arc<Mutex<Vec<usize>>>,
     healthy: Arc<AtomicBool>,
     ingest_ok: Arc<AtomicBool>,
     ack_lost_once: Arc<AtomicBool>,
@@ -442,6 +325,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let mut inbound = request.into_inner();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let received = Arc::clone(&self.received);
+        let batch_sizes = Arc::clone(&self.batch_sizes);
         let healthy = Arc::clone(&self.healthy);
         let ingest_ok = Arc::clone(&self.ingest_ok);
         let ack_lost_once = Arc::clone(&self.ack_lost_once);
@@ -501,6 +385,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     })
                     .collect();
                 received.lock().unwrap().extend(entries.iter().cloned());
+                batch_sizes.lock().unwrap().push(sub_batch.messages.len());
                 if let Some(log) = &delivery_log {
                     log.lock().unwrap().extend(entries);
                 }
@@ -547,18 +432,32 @@ struct Harness {
     topic: String,
     /// Consumer group id, kept so `restart_consumer` rejoins the same group.
     group_id: String,
+    /// The running consumer's offset ledger, for observing its generations.
+    pub ledger: Arc<TopicOffsetLedger>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
+    ledger_mode: LedgerMode,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
 /// the production batch consumer (no auto commit/store, earliest reset). The
-/// short session timeout makes group handovers observable quickly in tests.
-/// `instance_id` opts into static membership (`group.instance.id`).
+/// short session timeout and heartbeat make group handovers observable
+/// quickly in tests. `instance_id` opts into static membership
+/// (`group.instance.id`).
 fn make_kafka_consumer(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
+) -> StreamConsumer<SentinelContext> {
+    make_kafka_consumer_with_context(topic, group_id, instance_id, SentinelContext::detached())
+}
+
+/// Like `make_kafka_consumer`, under a context the test keeps a hand on.
+fn make_kafka_consumer_with_context(
+    topic: &str,
+    group_id: &str,
+    instance_id: Option<&str>,
+    context: SentinelContext,
 ) -> StreamConsumer<SentinelContext> {
     let mut config = ClientConfig::new();
     config
@@ -568,15 +467,23 @@ fn make_kafka_consumer(
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
         .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "1000")
         .set("socket.timeout.ms", "5000");
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer<SentinelContext> = config
-        .create_with_context(SentinelContext::detached())
-        .expect("kafka consumer");
+    let kafka_consumer: StreamConsumer<SentinelContext> =
+        config.create_with_context(context).expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
+}
+
+/// The consumer's worker transport, addressed at each FakeWorker's gRPC port
+/// (`GrpcPort::OffsetFromHttp(1)` — HTTP port + 1). One un-acked sub-batch per
+/// worker, and a short ack timeout so a stalled scenario fences within a
+/// test's patience rather than production's 60s.
+fn test_transport() -> GrpcTransport {
+    GrpcTransport::new(GrpcPort::OffsetFromHttp(1), 1, Duration::from_secs(10))
 }
 
 /// Reap drained workers exactly as `main.rs` does in production: complete the
@@ -585,7 +492,7 @@ fn make_kafka_consumer(
 /// 1s keeps test scenarios responsive.)
 fn spawn_reaper(
     registry: Arc<WorkerRegistry>,
-    transport: Arc<Transport>,
+    transport: Arc<GrpcTransport>,
     dispatcher: Arc<Dispatcher>,
     token: CancellationToken,
 ) {
@@ -625,8 +532,8 @@ impl Harness {
             deferred_flush_timeout,
             registry_config,
             0,
-            false,
             ComponentOptions::new(),
+            LedgerMode::Shadow,
         )
         .await
     }
@@ -646,17 +553,17 @@ impl Harness {
             deferred_flush_timeout,
             fast_registry_config(),
             0,
-            false,
             ComponentOptions::new()
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
+            LedgerMode::Shadow,
         )
         .await
     }
 
     /// Like `start`, but bounds batch collection by payload bytes as well as
     /// count (`CONSUMER_BATCH_SIZE_KB`). Single worker and partition, so each
-    /// /ingest request is one whole Kafka batch.
+    /// sub-batch is one whole Kafka batch.
     async fn start_byte_capped(topic: &str, batch_size_bytes: usize) -> Self {
         Self::start_inner(
             topic,
@@ -666,33 +573,25 @@ impl Harness {
             Duration::from_secs(60),
             fast_registry_config(),
             batch_size_bytes,
-            false,
             ComponentOptions::new(),
+            LedgerMode::Shadow,
         )
         .await
     }
 
-    /// Like `start`, but the consumer sends over WorkerIngest gRPC worker streams
-    /// (`GrpcPort::OffsetFromHttp(1)` — each FakeWorker serves gRPC on its
-    /// HTTP port + 1).
-    async fn start_grpc(
-        topic: &str,
-        partitions: i32,
-        worker_count: usize,
-        max_in_flight: usize,
-        deferred_flush_timeout: Duration,
-        registry_config: WorkerRegistryConfig,
-    ) -> Self {
+    /// Single worker and partition, ledger commit mode: the Kafka commit
+    /// comes from the ledger frontier instead of the batch spans.
+    async fn start_commit_mode(topic: &str) -> Self {
         Self::start_inner(
             topic,
-            partitions,
-            worker_count,
-            max_in_flight,
-            deferred_flush_timeout,
-            registry_config,
+            1,
+            1,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
             0,
-            true,
             ComponentOptions::new(),
+            LedgerMode::Commit,
         )
         .await
     }
@@ -706,8 +605,8 @@ impl Harness {
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
-        grpc: bool,
         component_options: ComponentOptions,
+        ledger_mode: LedgerMode,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -725,24 +624,7 @@ impl Harness {
         let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
         let registry_for_test = Arc::clone(&registry);
         let dispatcher_for_test = Arc::clone(&dispatcher);
-        let transport = Arc::new(if grpc {
-            // Short ack timeout so a stalled scenario fences within a test's
-            // patience rather than production's 60s.
-            Transport::Grpc(Arc::new(GrpcTransport::new(
-                GrpcPort::OffsetFromHttp(1),
-                1,
-                Duration::from_secs(10),
-            )))
-        } else {
-            Transport::Http(Arc::new(HttpTransport::new(
-                Duration::from_secs(5),
-                0, // no retries — errors surface immediately for health tracking
-                None,
-                &worker_urls,
-                1,
-                true,
-            )))
-        });
+        let transport = Arc::new(test_transport());
         spawn_reaper(
             Arc::clone(&registry),
             Arc::clone(&transport),
@@ -759,7 +641,11 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let kafka_consumer = make_kafka_consumer(topic, &group_id, None);
+        let context = SentinelContext::detached();
+        let ledger = context
+            .topic_offset_ledger()
+            .expect("a detached context carries a ledger");
+        let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -774,7 +660,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
-                eager_deferred_flush: false,
+                ledger_mode,
             },
             handle,
         );
@@ -794,8 +680,10 @@ impl Harness {
             _probe_token: probe_token,
             topic: topic.to_string(),
             group_id,
+            ledger,
             max_in_flight,
             deferred_flush_timeout,
+            ledger_mode,
         }
     }
 
@@ -817,14 +705,7 @@ impl Harness {
         let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
         Arc::clone(&registry).start_probing(self._probe_token.clone());
         let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
-        let transport = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
-            Duration::from_secs(5),
-            0,
-            None,
-            &worker_urls,
-            1,
-            true,
-        ))));
+        let transport = Arc::new(test_transport());
         spawn_reaper(
             Arc::clone(&registry),
             Arc::clone(&transport),
@@ -838,7 +719,12 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let kafka_consumer = make_kafka_consumer(&self.topic, &self.group_id, None);
+        let context = SentinelContext::detached();
+        self.ledger = context
+            .topic_offset_ledger()
+            .expect("a detached context carries a ledger");
+        let kafka_consumer =
+            make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
             Arc::clone(&dispatcher),
@@ -852,7 +738,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
                 debug_recorder: None,
-                eager_deferred_flush: false,
+                ledger_mode: self.ledger_mode,
             },
             handle,
         );
@@ -872,6 +758,25 @@ impl Harness {
             return true;
         };
         tokio::time::timeout(timeout, task).await.is_ok()
+    }
+
+    /// The group's committed offset for one partition of the harness topic;
+    /// `None` while nothing is committed.
+    fn committed_offset(&self, partition: i32) -> Option<i64> {
+        let probe: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", KAFKA_BROKERS)
+            .set("group.id", &self.group_id)
+            .create()
+            .expect("committed-offset probe");
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition(&self.topic, partition);
+        let committed = probe
+            .committed_offsets(tpl, Duration::from_secs(2))
+            .expect("fetch committed offsets");
+        match committed.elements()[0].offset() {
+            rdkafka::Offset::Offset(offset) => Some(offset),
+            _ => None,
+        }
     }
 
     async fn wait_for(&self, total: usize, timeout: Duration) {
@@ -923,7 +828,7 @@ async fn wait_until(timeout: Duration, msg: &str, mut cond: impl FnMut() -> bool
     }
 }
 
-/// Index of the single worker that has received an /ingest request so far.
+/// Index of the single worker that has received a sub-batch so far.
 /// Panics if zero or more than one have — callers rely on a unique pin.
 fn sole_arrived_worker(harness: &Harness) -> usize {
     let arrived: Vec<usize> = harness
@@ -1074,7 +979,7 @@ async fn message_larger_than_byte_bound_is_still_delivered() {
 }
 
 /// When a worker becomes unhealthy, its sticky pins are dropped and subsequent
-/// messages for the same distinct_id are rerouted to a healthy worker.
+/// messages for the same key are rerouted to a healthy worker.
 #[tokio::test]
 async fn failing_worker_triggers_rerouting() {
     let topic = format!("e2e-failover-{}", Uuid::new_v4());
@@ -1290,7 +1195,7 @@ fn worker_msg(distinct_id: &str, seq: usize) -> SerializedKafkaMessage {
         partition: 0,
         offset: seq as i64,
         timestamp: 0,
-        key: None,
+        key: Some(format!("tok:{distinct_id}")),
         value: Some(format!(r#"{{"seq":{seq}}}"#)),
         headers,
     }
@@ -1817,10 +1722,15 @@ async fn flush_target_failure_re_defers_then_replays_in_order() {
         },
     )
     .await;
-    assert!(
-        harness.dispatcher.stashed_messages() > 0,
-        "re-deferred work must be held after the replay target also fails"
-    );
+    // The failed replay may still be parked on its worker stream (reconnect
+    // backoff) when the pool empties; it lands in the stash once that send
+    // fails too, and stays there with nowhere to route.
+    wait_until(
+        Duration::from_secs(10),
+        "re-deferred work to be held after the replay target also fails",
+        || harness.dispatcher.stashed_messages() > 0,
+    )
+    .await;
 
     // Recover the second worker → the replay finally lands, in order.
     harness.workers[second]
@@ -1842,15 +1752,15 @@ async fn flush_target_failure_re_defers_then_replays_in_order() {
     harness.stop().await;
 }
 
-/// Drain-triggered defer through the dispatcher + real HTTP transport — the path
-/// the consumer drives. The Kafka poll loop can't inject a drain between two
+/// Drain-triggered defer through the dispatcher + real worker stream transport
+/// — the path the consumer drives. The Kafka poll loop can't inject a drain between two
 /// overlapping batch assigns deterministically (it assigns available batches
 /// back-to-back and parks in `complete_oldest_batch` the moment data dries up),
 /// so this models the consumer's exact sequence — assign, drain, assign (defer),
-/// resolve, flush — and delivers over real HTTP, asserting the deferred key lands
-/// on the survivor in order.
+/// resolve, flush — and delivers over a real stream, asserting the deferred key
+/// lands on the survivor in order.
 #[tokio::test]
-async fn drain_defer_flush_delivers_to_survivor_over_http() {
+async fn drain_defer_flush_delivers_to_survivor_over_stream() {
     let w0 = FakeWorker::start().await;
     let w1 = FakeWorker::start().await;
     let urls = vec![w0.url.clone(), w1.url.clone()];
@@ -1860,7 +1770,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
     let dispatcher = Dispatcher::new(Arc::clone(&registry));
-    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1, true);
+    let transport = test_transport();
 
     // batch-1: user-1 pins to a worker. Send it for real but DON'T resolve, so it
     // is genuinely in flight on that worker.
@@ -1870,7 +1780,8 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let pinned_idx = workers.iter().position(|w| w.url == pinned_url).unwrap();
     let survivor_idx = 1 - pinned_idx;
     transport
-        .send_batch(&pinned_url, "batch-1", b1[0].messages.clone(), false)
+        .begin_send(&pinned_url, "batch-1", b1[0].messages.clone(), false)
+        .wait()
         .await
         .expect("batch-1 send");
 
@@ -1898,17 +1809,18 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
         "deferred group flushes to the survivor, not the drainer"
     );
     transport
-        .send_batch(
+        .begin_send(
             f2[0].worker.as_ref(),
             "batch-2",
             f2[0].messages.clone(),
             false,
         )
+        .wait()
         .await
         .expect("batch-2 flush send");
 
     // The drainer kept its in-flight seq 0; the deferred seq 1 landed on the
-    // survivor — delivered over real HTTP, in order, with nothing lost.
+    // survivor — delivered over a real stream, in order, with nothing lost.
     assert_eq!(workers[pinned_idx].seqs_for("user-1"), vec![0]);
     assert_eq!(workers[survivor_idx].seqs_for("user-1"), vec![1]);
     assert!(
@@ -2106,6 +2018,50 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
     harness.stop().await;
 }
 
+/// Commit mode: the broker-committed offset is the ledger frontier — one past
+/// everything the workers accepted — and a restart resumes from it with no
+/// loss and no redelivery.
+#[tokio::test]
+async fn commit_mode_commits_the_ledger_frontier() {
+    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
+    let mut harness = Harness::start_commit_mode(&topic).await;
+    let producer = make_producer();
+
+    for seq in 0..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(10, Duration::from_secs(15)).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the committed offset to reach the frontier",
+        || harness.committed_offset(0) == Some(10),
+    )
+    .await;
+
+    // A clean frontier is a usable resume point: after a crash, only the new
+    // messages arrive.
+    harness.crash_consumer();
+    harness.restart_consumer(fast_registry_config()).await;
+    for seq in 10..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(15, Duration::from_secs(15)).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the committed offset to reach the new frontier",
+        || harness.committed_offset(0) == Some(15),
+    )
+    .await;
+
+    let total: usize = harness.workers.iter().map(|w| w.count()).sum();
+    assert_eq!(
+        total, 15,
+        "a committed frontier behind the accepted work would redeliver here"
+    );
+
+    harness.stop().await;
+}
+
 /// A worker that processes a batch but whose ACK is lost is indistinguishable
 /// from a failed send, so the consumer replays the batch: duplicates are the
 /// accepted cost of at-least-once, loss never is, and the replay lands behind
@@ -2124,7 +2080,7 @@ async fn lost_ack_after_processing_replays_without_loss() {
     .await;
     let producer = make_producer();
 
-    // Arm both workers (the batch could land on either): the first /ingest each
+    // Arm both workers (the batch could land on either): the first sub-batch each
     // receives is processed and recorded, but answered with an error.
     for w in &harness.workers {
         w.ack_lost_once.store(true, Ordering::SeqCst);
@@ -2609,14 +2565,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     let probe2 = CancellationToken::new();
     Arc::clone(&registry2).start_probing(probe2.clone());
     let dispatcher2 = Arc::new(Dispatcher::new(Arc::clone(&registry2)));
-    let transport2 = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
-        Duration::from_secs(5),
-        0,
-        None,
-        &worker_urls,
-        1,
-        true,
-    ))));
+    let transport2 = Arc::new(test_transport());
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
@@ -2633,7 +2582,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            eager_deferred_flush: false,
+            ledger_mode: LedgerMode::Shadow,
         },
         handle2,
     );
@@ -2670,6 +2619,157 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     harness.stop().await;
 }
 
+/// A partition leaves for a second consumer while a batch is in flight, and
+/// returns when that consumer shuts down. The first consumer keeps polling
+/// under the held batch, so the rebalance lands before the batch settles:
+/// its offsets are stamped under generations the revoke replaced, and they
+/// drop as stale instead of landing on the new assignment. The returned
+/// partition then starts another generation. A ledger bug here would
+/// surface as ledger errors or a wedged loop, so continued delivery after
+/// both handovers is the health signal.
+#[tokio::test]
+async fn partition_lost_and_regained_keeps_the_consumer_alive() {
+    let topic = format!("e2e-regain-{}", Uuid::new_v4());
+    // Room for many in-flight batches, so the first consumer keeps polling
+    // while its batches are held and the rebalance can land underneath them.
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        128,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+    let partitions = [
+        TopicPartition::new(topic.clone(), 0),
+        TopicPartition::new(topic.clone(), 1),
+    ];
+
+    // Hold the first batch in flight while the group changes underneath it.
+    let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
+    for w in &harness.workers {
+        guards.push(Some(w.block().await));
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "work to reach a worker", || {
+        harness.workers.iter().any(|w| w.arrived_count() > 0)
+    })
+    .await;
+    let generations_before: Vec<u64> = partitions
+        .iter()
+        .map(|partition| harness.ledger.generation(partition))
+        .collect();
+
+    // A second consumer joins and takes a partition away.
+    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
+    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
+    let probe2 = CancellationToken::new();
+    Arc::clone(&registry2).start_probing(probe2.clone());
+    let dispatcher2 = Arc::new(Dispatcher::new(Arc::clone(&registry2)));
+    let transport2 = Arc::new(test_transport());
+    let mut manager2 = Manager::builder("e2e-regain-c2")
+        .with_trap_signals(false)
+        .build();
+    let handle2 = manager2.register("consumer", ComponentOptions::new());
+    let shutdown2 = handle2.shutdown_token();
+    let consumer2 = IngestionConsumer::from_parts(
+        make_kafka_consumer(&topic, &harness.group_id, None),
+        dispatcher2,
+        transport2,
+        worker_urls,
+        IngestionConsumerOptions {
+            batch_size: 50,
+            batch_size_bytes: 0,
+            batch_timeout: Duration::from_millis(100),
+            max_in_flight_batches: 1,
+            group_id: "e2e-test".to_string(),
+            deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
+            ledger_mode: LedgerMode::Shadow,
+        },
+        handle2,
+    );
+    let task2 = tokio::spawn(async move { consumer2.process().await });
+
+    // The first consumer polls only while its polls return messages, and
+    // only a polling consumer takes part in a rebalance: a trickle holds it
+    // in the poll loop until the rebalance has reached its ledger. Every
+    // trickle batch is held like the first one.
+    let rebalanced = || {
+        partitions
+            .iter()
+            .zip(&generations_before)
+            .any(|(partition, before)| harness.ledger.generation(partition) > *before)
+    };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut trickle_seq = 1000usize;
+    while !rebalanced() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for the rebalance to reach the first consumer's ledger"
+        );
+        produce(&producer, &topic, 0, "tok", "user-1", trickle_seq).await;
+        trickle_seq += 1;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // Release the held batch: its offsets are stamped under generations the
+    // rebalance replaced, so they settle as stale.
+    guards.clear();
+    for seq in 5..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered across the join",
+        || {
+            ["user-1", "user-2"].iter().all(|user| {
+                let delivered: HashSet<usize> = harness
+                    .workers
+                    .iter()
+                    .flat_map(|w| w.seqs_for(user))
+                    .collect();
+                (0..10).all(|s| delivered.contains(&s))
+            })
+        },
+    )
+    .await;
+
+    // The second consumer leaves; its partition returns to the first under a
+    // new generation and must consume as a fresh assignment.
+    shutdown2.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(5), task2).await;
+    probe2.cancel();
+
+    for seq in 10..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(30),
+        "the returned partition to consume under its new assignment",
+        || {
+            ["user-1", "user-2"].iter().all(|user| {
+                let delivered: HashSet<usize> = harness
+                    .workers
+                    .iter()
+                    .flat_map(|w| w.seqs_for(user))
+                    .collect();
+                (10..15).all(|s| delivered.contains(&s))
+            })
+        },
+    )
+    .await;
+
+    harness.stop().await;
+}
+
 /// A same-name pod restart racing its old instance: a second member joins with
 /// the same `group.instance.id`, so the broker fences the first. The fenced
 /// instance's client is permanently dead — the consumer must exit (so the pod
@@ -2685,14 +2785,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
     let probe = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe.clone());
     let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
-    let transport = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
-        Duration::from_secs(5),
-        0,
-        None,
-        &urls,
-        1,
-        true,
-    ))));
+    let transport = Arc::new(test_transport());
     let mut manager = Manager::builder("e2e-fenced")
         .with_trap_signals(false)
         .build();
@@ -2711,7 +2804,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            eager_deferred_flush: false,
+            ledger_mode: LedgerMode::Shadow,
         },
         handle,
     );
@@ -2995,57 +3088,15 @@ async fn flapping_worker_does_not_pin_batch_past_flush_timeout() {
     );
 }
 
-// ── gRPC transport (WorkerIngest worker streams) ────────────────────────────────────
-
-/// The full Kafka → assign → worker stream → stream → ack → commit loop over the gRPC
-/// transport: every message arrives exactly once, and each distinct_id's
-/// messages arrive in order on whichever worker its worker stream delivered them to.
-#[tokio::test]
-async fn grpc_messages_per_distinct_id_arrive_in_order() {
-    let topic = format!("e2e-grpc-ordering-{}", Uuid::new_v4());
-    let harness = Harness::start_grpc(
-        &topic,
-        3,
-        2,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
-
-    let producer = make_producer();
-    for seq in 0..8usize {
-        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
-        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
-        produce(&producer, &topic, 2, "tok", "user-3", seq).await;
-    }
-
-    harness.wait_for(24, Duration::from_secs(15)).await;
-
-    let total: usize = harness.workers.iter().map(|w| w.count()).sum();
-    assert_eq!(total, 24, "expected 24 messages total, got {total}");
-
-    for worker in &harness.workers {
-        for user in ["user-1", "user-2", "user-3"] {
-            let seqs = worker.seqs_for(user);
-            assert!(
-                seqs.windows(2).all(|w| w[0] < w[1]),
-                "{user} arrived out of order on a worker: {seqs:?}"
-            );
-        }
-    }
-
-    harness.stop().await;
-}
+// ── Worker stream fencing ──────────────────────────────────────────────────
 
 /// A worker that nacks fences its worker stream: the fenced messages fail back into
 /// the deferral path with nothing lost, and once the worker leaves the pool
-/// the keys re-route to the survivor in order — the same recovery contract
-/// the HTTP transport gets from its request errors.
+/// the keys re-route to the survivor in order.
 #[tokio::test]
-async fn grpc_nacking_worker_fences_worker_stream_and_reroutes_in_order() {
-    let topic = format!("e2e-grpc-fence-{}", Uuid::new_v4());
-    let harness = Harness::start_grpc(
+async fn nacking_worker_fences_worker_stream_and_reroutes_in_order() {
+    let topic = format!("e2e-fence-{}", Uuid::new_v4());
+    let harness = Harness::start(
         &topic,
         2,
         2,
@@ -3087,6 +3138,78 @@ async fn grpc_nacking_worker_fences_worker_stream_and_reroutes_in_order() {
         batch2_seqs,
         vec![4, 5, 6, 7],
         "post-fence messages for user-1 missing or out-of-order on the live worker: {live_seqs:?}"
+    );
+
+    harness.stop().await;
+}
+
+/// One routing key arriving on two partitions: a partition-count change
+/// leaves a key's backlog on its old partition while new messages land on the
+/// new one. The dispatcher merges such a key into one sub-batch (the pin
+/// table is partition-blind), so the batcher must split the completion back
+/// per partition — mis-attributed coverage would leave the poll uncommitted
+/// and wedge the consumer. Two waves prove commits keep flowing: with
+/// max_in_flight = 1, the second wave can only deliver after the first wave's
+/// polls completed.
+#[tokio::test]
+async fn same_key_across_partitions_completes_and_commits() {
+    let topic = format!("e2e-cross-partition-key-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        2,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    for seq in 0..3usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 3..6usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(6, Duration::from_secs(15)).await;
+
+    for seq in 6..9usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 9..12usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(12, Duration::from_secs(15)).await;
+
+    // Everything delivered exactly once; cross-partition interleaving is
+    // free, but each partition's own sequence must arrive in order.
+    let seqs = harness.workers[0].seqs_for("user-1");
+    let mut sorted = seqs.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        (0..12).collect::<Vec<_>>(),
+        "every message must land exactly once; got {seqs:?}"
+    );
+    let partition_0: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| *s < 3 || (6..9).contains(s))
+        .collect();
+    let partition_1: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| (3..6).contains(s) || *s >= 9)
+        .collect();
+    assert_eq!(
+        partition_0,
+        vec![0, 1, 2, 6, 7, 8],
+        "partition 0 must keep offset order"
+    );
+    assert_eq!(
+        partition_1,
+        vec![3, 4, 5, 9, 10, 11],
+        "partition 1 must keep offset order"
     );
 
     harness.stop().await;

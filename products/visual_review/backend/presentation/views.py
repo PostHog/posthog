@@ -27,6 +27,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from ..facade import api, contracts
@@ -41,6 +42,7 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ActorType
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -62,8 +64,19 @@ from .serializers import (
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
+    UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
 )
+
+
+def _actor(request: Request) -> ActorType:
+    """Who is making this write, for attribution on the row it creates.
+
+    `is_mcp_request` needs both a scoped token and the MCP server's user agent, so a
+    browser session is never recorded as an agent. The marker is client-supplied, so
+    this attributes a write and must never gate one.
+    """
+    return ActorType.AGENT if is_mcp_request(request) else ActorType.HUMAN
 
 
 def _parse_uuid(value: str, field: str = "id") -> UUID:
@@ -76,6 +89,38 @@ def _parse_uuid(value: str, field: str = "id") -> UUID:
         return UUID(value)
     except ValueError:
         raise ValidationError({field: "Must be a valid UUID."})
+
+
+# Both run-scoped snapshot lookups need a run id AND a snapshot identifier. Clients that
+# read only the prose kept sending one of the two, so the pair is described in one place
+# and each side names the other as required.
+_RUN_ID_PATH_PARAMETER = OpenApiParameter(
+    "id",
+    OpenApiTypes.UUID,
+    OpenApiParameter.PATH,
+    required=True,
+    description=(
+        "UUID of the visual review run to look the snapshot up from. This is a run id, not the "
+        "`id` of a snapshot inside that run. The run supplies the repo and run type to search, so "
+        "the `identifier` query parameter is required alongside it."
+    ),
+)
+
+_SNAPSHOT_IDENTIFIER_PARAMETER = OpenApiParameter(
+    "identifier",
+    str,
+    required=True,
+    description=(
+        "Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read "
+        "it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, "
+        "and it is required in addition to the run id in the path."
+    ),
+)
+
+_MISSING_IDENTIFIER_DETAIL = (
+    "The identifier query parameter is required. Pass the `identifier` of the snapshot you want, "
+    "which you can read from the run's snapshot list."
+)
 
 
 class SnapshotsPagination(LimitOffsetPagination):
@@ -271,22 +316,23 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 input=request.validated_data,
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                source=_actor(request),
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
-        request_serializer=QuarantineInputSerializer,
+        request_serializer=UnquarantineQuerySerializer,
         responses={204: None},
     )
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
-    def unquarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+    def unquarantine(self, request: TypedRequest, pk: str, run_type: str, **kwargs) -> Response:
         """Expire all active quarantine entries for an identifier."""
         try:
             api.unquarantine_identifier(
                 repo_id=_parse_uuid(pk),
-                identifier=request.validated_data.identifier,
+                identifier=request.validated_data["identifier"],
                 run_type=run_type,
                 team_id=self.team_id,
             )
@@ -571,6 +617,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 snapshot_id=request.validated_data["snapshot_id"],
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                actor=_actor(request),
             )
         except api.RunNotFoundError:
             return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -579,7 +626,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(SnapshotSerializer(instance=snapshot).data)
 
     @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        parameters=[
+            _RUN_ID_PATH_PARAMETER,
+            _SNAPSHOT_IDENTIFIER_PARAMETER,
+        ],
         responses={200: ToleratedHashEntrySerializer(many=True)},
     )
     @action(detail=True, methods=["get"], url_path="tolerated-hashes")
@@ -587,7 +637,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """List known tolerated hashes for a snapshot identifier."""
         identifier = request.query_params.get("identifier")
         if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
         try:
             run = api.get_run(_parse_uuid(pk), team_id=self.team_id)
         except api.RunNotFoundError:
@@ -616,7 +666,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(AddSnapshotsResultSerializer(instance=result).data)
 
     @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        parameters=[
+            _RUN_ID_PATH_PARAMETER,
+            _SNAPSHOT_IDENTIFIER_PARAMETER,
+        ],
         responses={200: SnapshotHistoryEntrySerializer(many=True)},
     )
     @action(detail=True, methods=["get"], url_path="snapshot-history")
@@ -624,7 +677,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Recent change history for a snapshot identifier across runs."""
         identifier = request.query_params.get("identifier")
         if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             run = api.get_run(_parse_uuid(pk), team_id=self.team_id)

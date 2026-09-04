@@ -1,0 +1,49 @@
+name: activity_samples
+description: >
+  ASH-style sample of pg_stat_activity every 10s: backend counts grouped by
+  state / wait event / query. Wait-event charts, connection counts and
+  "how often is query X seen running for >N seconds" all come from here.
+interval: 10s
+scope: cluster
+kind: gauge
+query: |
+  SELECT datname, usename, backend_type, state, wait_event_type, wait_event,
+         NULL::bigint AS query_id,
+         count(*)::bigint AS backends,
+         count(*) FILTER (WHERE state = 'active' AND now() - query_start > interval '1 second')::bigint  AS active_over_1s,
+         count(*) FILTER (WHERE state = 'active' AND now() - query_start > interval '10 seconds')::bigint AS active_over_10s,
+         max(extract(epoch FROM now() - query_start))::float8 AS max_query_age_s,
+         max(extract(epoch FROM now() - xact_start))::float8  AS max_xact_age_s
+  FROM pg_stat_activity
+  WHERE backend_type IN ('client backend', 'autovacuum worker', 'parallel worker')
+    AND pid <> pg_backend_pid()
+  GROUP BY 1,2,3,4,5,6,7
+variants:
+  - aurora: true
+    min_pg_version: 140000
+    query: |
+      SELECT datname, usename, backend_type, state, wait_event_type, wait_event,
+             CASE WHEN state = 'active' THEN query_id END AS query_id,
+             CASE WHEN state = 'active' THEN plan_id END AS plan_id,
+             count(*)::bigint AS backends,
+             count(*) FILTER (WHERE state = 'active' AND now() - query_start > interval '1 second')::bigint  AS active_over_1s,
+             count(*) FILTER (WHERE state = 'active' AND now() - query_start > interval '10 seconds')::bigint AS active_over_10s,
+             max(extract(epoch FROM now() - query_start))::float8 AS max_query_age_s,
+             max(extract(epoch FROM now() - xact_start))::float8  AS max_xact_age_s
+      FROM aurora_stat_activity()
+      WHERE backend_type IN ('client backend', 'autovacuum worker', 'parallel worker')
+        AND pid <> pg_backend_pid()
+      GROUP BY 1,2,3,4,5,6,7,8
+  - min_pg_version: 140000
+    query: |
+      SELECT datname, usename, backend_type, state, wait_event_type, wait_event,
+             CASE WHEN state = 'active' THEN query_id END AS query_id,
+             count(*)::bigint AS backends,
+             count(*) FILTER (WHERE state = 'active' AND now() - query_start > interval '1 second')::bigint  AS active_over_1s,
+             count(*) FILTER (WHERE state = 'active' AND now() - query_start > interval '10 seconds')::bigint AS active_over_10s,
+             max(extract(epoch FROM now() - query_start))::float8 AS max_query_age_s,
+             max(extract(epoch FROM now() - xact_start))::float8  AS max_xact_age_s
+      FROM pg_stat_activity
+      WHERE backend_type IN ('client backend', 'autovacuum worker', 'parallel worker')
+        AND pid <> pg_backend_pid()
+      GROUP BY 1,2,3,4,5,6,7

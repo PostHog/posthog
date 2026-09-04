@@ -26,10 +26,10 @@ from products.signals.backend.emission.fetchers.data_warehouse import data_wareh
 from products.signals.backend.emission.pipeline import (
     LLM_MAX_ATTEMPTS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
-    _check_actionability,
     _emit_signals,
     _summarize_description,
     build_emitter_outputs,
+    check_actionability,
     filter_actionable,
     run_signal_pipeline,
     summarize_long_descriptions,
@@ -273,7 +273,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response(llm_response))
 
         output = _make_output(description="test ticket")
-        is_actionable = await _check_actionability(mock_client, 1, output, "Is this actionable? {description}")
+        is_actionable = await check_actionability(mock_client, 1, output, "Is this actionable? {description}")
 
         assert is_actionable is expected
 
@@ -286,7 +286,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"author_login": "dependabot[bot]", "state": "open"})
 
-        await _check_actionability(mock_client, 1, output, "prompt {description}", context_fields=("author_login",))
+        await check_actionability(mock_client, 1, output, "prompt {description}", context_fields=("author_login",))
 
         prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert '"author_login": "dependabot[bot]"' in prompt
@@ -301,7 +301,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"author_login": None, "author_association": None})
 
-        await _check_actionability(
+        await check_actionability(
             mock_client, 1, output, "prompt {description}", context_fields=("author_login", "author_association")
         )
 
@@ -316,7 +316,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"labels": ["x" * 100] * 40, "author_login": "octocat"})
 
-        await _check_actionability(
+        await check_actionability(
             mock_client,
             1,
             output,
@@ -334,7 +334,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
 
         with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+            is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
         assert is_actionable is True
         assert mock_client.messages.create.call_count == LLM_MAX_ATTEMPTS
@@ -344,7 +344,7 @@ class TestCheckActionability:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response(None))
 
-        is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+        is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
         assert is_actionable is True
 
@@ -354,7 +354,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
-        await _check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+        await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-7"
@@ -367,13 +367,28 @@ class TestCheckActionability:
         assert "x-posthog-property-$ai_billable" not in headers
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "model,expected_output_config",
+        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+    )
+    async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+
+        with patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model):
+            await check_actionability(mock_client, 7, _make_output(), "Is this actionable? {description}")
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs.get("output_config") == expected_output_config
+
+    @pytest.mark.asyncio
     @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
     async def test_gateway_mode_labels_ride_on_properties_blob(self):
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
-        await _check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+        await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
         # The Go gateway reads labels only from X-PostHog-Properties; the per-key headers are gone.

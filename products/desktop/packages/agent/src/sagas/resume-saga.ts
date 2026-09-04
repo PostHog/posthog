@@ -6,11 +6,7 @@ import {
   POSTHOG_NOTIFICATIONS,
 } from "../acp-extensions";
 import type { PostHogAPIClient } from "../posthog-api";
-import type {
-  DeviceInfo,
-  GitCheckpointEvent,
-  StoredNotification,
-} from "../types";
+import type { StoredNotification } from "../types";
 import type { Logger } from "../utils/logger";
 
 export interface ConversationTurn {
@@ -36,10 +32,7 @@ export interface ResumeInput {
 
 export interface ResumeOutput {
   conversation: ConversationTurn[];
-  latestGitCheckpoint: GitCheckpointEvent | null;
-  latestGitCheckpoints: GitCheckpointEvent[];
   interrupted: boolean;
-  lastDevice?: DeviceInfo;
   logEntryCount: number;
   sessionId: string | null;
   nativeGoal?: NativeGoalState | null;
@@ -73,26 +66,8 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
 
     this.log.info("Fetched log entries", { count: entries.length });
 
-    const latestGitCheckpoints = await this.readOnlyStep(
-      "find_git_checkpoint",
-      () => Promise.resolve(this.findLatestGitCheckpoints(entries)),
-    );
-    const latestGitCheckpoint = latestGitCheckpoints.at(-1) ?? null;
-
-    if (latestGitCheckpoint) {
-      this.log.info("Found git checkpoint", {
-        checkpointId: latestGitCheckpoint.checkpointId,
-        branch: latestGitCheckpoint.branch,
-      });
-    }
-
     const conversation = await this.readOnlyStep("rebuild_conversation", () =>
       Promise.resolve(this.rebuildConversation(entries)),
-    );
-
-    // Step 6: Find device info (read-only, pure computation)
-    const lastDevice = await this.readOnlyStep("find_device", () =>
-      Promise.resolve(this.findLastDeviceInfo(entries)),
     );
 
     const sessionId = await this.readOnlyStep("find_session_id", () =>
@@ -104,17 +79,13 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
 
     this.log.info("Resume state rebuilt", {
       turns: conversation.length,
-      hasGitCheckpoint: !!latestGitCheckpoint,
       hasSessionId: !!sessionId,
       interrupted: false,
     });
 
     return {
       conversation,
-      latestGitCheckpoint,
-      latestGitCheckpoints,
       interrupted: false,
-      lastDevice,
       logEntryCount: entries.length,
       sessionId,
       nativeGoal,
@@ -124,8 +95,6 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
   private emptyResult(): ResumeOutput {
     return {
       conversation: [],
-      latestGitCheckpoint: null,
-      latestGitCheckpoints: [],
       interrupted: false,
       logEntryCount: 0,
       sessionId: null,
@@ -193,46 +162,6 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
       }
     }
     return null;
-  }
-
-  private findLatestGitCheckpoints(
-    entries: StoredNotification[],
-  ): GitCheckpointEvent[] {
-    const sdkPrefixedMethod = `_${POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT}`;
-    const checkpoints = new Map<string, GitCheckpointEvent>();
-
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const entry = entries[i];
-      const method = entry.notification?.method;
-      if (
-        method === sdkPrefixedMethod ||
-        method === POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT
-      ) {
-        const params = entry.notification?.params as
-          | GitCheckpointEvent
-          | undefined;
-        if (params?.checkpointId && params?.checkpointRef) {
-          const key = params.repository?.toLowerCase() ?? "legacy";
-          if (!checkpoints.has(key)) checkpoints.set(key, params);
-        }
-      }
-    }
-    return [...checkpoints.values()].reverse();
-  }
-
-  private findLastDeviceInfo(
-    entries: StoredNotification[],
-  ): DeviceInfo | undefined {
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const entry = entries[i];
-      const params = entry.notification?.params as
-        | { device?: DeviceInfo }
-        | undefined;
-      if (params?.device) {
-        return params.device;
-      }
-    }
-    return undefined;
   }
 
   private rebuildConversation(

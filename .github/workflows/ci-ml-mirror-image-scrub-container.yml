@@ -33,7 +33,7 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -157,6 +157,7 @@ jobs:
                   file: Dockerfile.ml-mirror-image-scrub
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
                   # Both arches: the charts-side Karpenter NodePool defaults to arm64 (Graviton), and an
                   # amd64-only manifest fails there with "no match for platform in manifest".
                   platforms: linux/amd64,linux/arm64

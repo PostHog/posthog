@@ -52,7 +52,6 @@ import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { logger } from "@posthog/ui/shell/logger";
-import { Box, Flex } from "@radix-ui/themes";
 import {
   type ReactElement,
   useCallback,
@@ -63,7 +62,6 @@ import {
 import { useStore } from "zustand";
 import { PiExtensionDialog } from "./PiExtensionDialog";
 import { PiExtensionStatuses, PiExtensionWidgets } from "./PiExtensionSurfaces";
-import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
@@ -116,17 +114,16 @@ function usePiSessionConnection(
 function usePiExtensionConnection(
   taskId: string,
   taskRunId: string | undefined,
-  isCloud: boolean,
   connectionState: PiControllerSessionState["connectionState"] | undefined,
 ): void {
   const controller = useService<PiExtensionController>(PI_EXTENSION_CONTROLLER);
   useEffect(() => {
-    if (isCloud || connectionState !== "connected") {
+    if (connectionState !== "connected") {
       return;
     }
     void controller.connect(taskId, taskRunId).catch(() => {});
     return () => controller.disconnect(taskId);
-  }, [connectionState, controller, isCloud, taskId, taskRunId]);
+  }, [connectionState, controller, taskId, taskRunId]);
 }
 
 function usePiDraftContext(
@@ -417,32 +414,6 @@ function usePiRestart(
   }, [controller, taskId]);
 }
 
-function usePiProjectTrustChange(
-  controller: PiSessionController,
-  taskId: string,
-) {
-  const [pending, setPending] = useState(false);
-  const change = useCallback(
-    async (trusted: boolean) => {
-      setPending(true);
-      try {
-        await controller.setProjectTrusted(taskId, trusted);
-        toast.success(
-          trusted
-            ? "Repository trusted and Pi restarted"
-            : "Repository trust revoked and Pi restarted",
-        );
-      } catch (error) {
-        handleControllerError(error, "Failed to change repository trust");
-      } finally {
-        setPending(false);
-      }
-    },
-    [controller, taskId],
-  );
-  return { change, pending };
-}
-
 function usePiEditQueue(
   controller: PiSessionController,
   taskId: string,
@@ -518,12 +489,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   );
 
   usePiSessionConnection(task, isTaskAuthor);
-  usePiExtensionConnection(
-    taskId,
-    taskRunId,
-    isCloud,
-    session?.connectionState,
-  );
+  usePiExtensionConnection(taskId, taskRunId, session?.connectionState);
 
   const status = session?.status;
   const isStreaming = status?.isStreaming ?? false;
@@ -561,8 +527,6 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   const cancelPrompt = usePiCancel(piSessionController, taskId, isBashRunning);
   const retry = usePiRetry(piSessionController, taskId);
   const restart = usePiRestart(piSessionController, taskId);
-  const { change: changeProjectTrust, pending: projectTrustPending } =
-    usePiProjectTrustChange(piSessionController, taskId);
   const handleQueueForEditing = useCallback(
     (queue: PiQueueSnapshot) => applyQueueToDraft(queue, draftActions, taskId),
     [draftActions, taskId],
@@ -642,7 +606,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
     );
   }
 
-  if (!status && !hasTranscript && !isConnecting) {
+  if (!status && !hasTranscript && (!isConnecting || !isCloud)) {
     return <TaskDetailSkeleton />;
   }
 
@@ -669,7 +633,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   const extensionDialog = currentExtensionState.dialogs[0];
 
   return (
-    <Flex direction="column" height="100%">
+    <div className="flex h-full flex-col">
       {extensionDialog && (
         <PiExtensionDialog
           key={extensionDialog.id}
@@ -690,7 +654,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onRestart={restart}
         />
       )}
-      <Box className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
           isPromptPending={isStreaming}
@@ -699,8 +663,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           promptRecallRef={promptRecallRef}
           hasPendingPermission={Boolean(mcpPermission)}
         />
-      </Box>
-      <Box
+      </div>
+      <div
         className="mx-auto w-full px-2 pb-3"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
       >
@@ -709,26 +673,11 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onEdit={editQueuedMessage}
           onRemove={removeQueuedMessage}
         />
-        {!isCloud && (
-          <>
-            <PiExtensionStatuses statuses={currentExtensionState.statuses} />
-            <PiExtensionWidgets
-              widgets={currentExtensionState.widgets}
-              placement="aboveEditor"
-            />
-            {session.projectTrust?.hasProjectResources && (
-              <PiProjectTrustBanner
-                trusted={session.projectTrust.trusted}
-                disabled={
-                  controlsPending || session.connectionState !== "connected"
-                }
-                pending={projectTrustPending}
-                onTrust={() => changeProjectTrust(true)}
-                onRevoke={() => changeProjectTrust(false)}
-              />
-            )}
-          </>
-        )}
+        <PiExtensionStatuses statuses={currentExtensionState.statuses} />
+        <PiExtensionWidgets
+          widgets={currentExtensionState.widgets}
+          placement="aboveEditor"
+        />
         {mcpPermission ? (
           isMcpPermissionResponding ? (
             <Skeleton className="h-24 w-full" />
@@ -748,7 +697,11 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           <PromptInput
             sessionId={taskId}
             toolbarEndSlot={
-              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+              <ContextUsageIndicator
+                usage={contextUsage}
+                taskId={taskId}
+                originProduct={task.origin_product}
+              />
             }
             taskId={taskId}
             repoPath={repoPath}
@@ -795,13 +748,11 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
             onCancel={cancelPrompt}
           />
         )}
-        {!isCloud && (
-          <PiExtensionWidgets
-            widgets={currentExtensionState.widgets}
-            placement="belowEditor"
-          />
-        )}
-      </Box>
-    </Flex>
+        <PiExtensionWidgets
+          widgets={currentExtensionState.widgets}
+          placement="belowEditor"
+        />
+      </div>
+    </div>
   );
 }

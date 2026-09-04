@@ -6,13 +6,25 @@ on:
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
         # the full PostHog backend and trigger on any non-pytest Python change) run
-        # when the PR is marked ready for review; that full run is the merge gate.
+        # when the PR is marked ready for review. The merge queue's trunk-merge/**
+        # run is the gate.
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
+    schedule:
+        # Where master's coverage for the build, unit and integration tests comes from.
+        # The merge queue's trunk-merge/** run gates every commit before it lands, so
+        # the push lane does not repeat them.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '53 * * * *'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -30,7 +42,8 @@ jobs:
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
-        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        # The merge queue's trunk-merge/** run is the gate, so skipping a draft
+        # never weakens what protects master.
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
@@ -39,6 +52,7 @@ jobs:
         name: Determine need to run MCP checks
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
+            mcp-typescript: ${{ steps.filter.outputs.mcp-typescript || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -52,11 +66,15 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -73,6 +91,8 @@ jobs:
                         - 'products/*/backend/**/*.py'
                         # Query schemas used by MCP analytics tools
                         - 'frontend/src/queries/schema.json'
+                        # Widget catalog the notebook cell tools validate against
+                        - 'products/notebooks/notebook-widget-catalog.json'
                         # Shared UI component library (used by MCP UI apps)
                         - 'common/mosaic/**'
                         # Code generation tooling
@@ -137,12 +157,31 @@ jobs:
                         - '!products/*/backend/**/test_*.py'
                         - '!products/*/backend/**/*_test.py'
                         - '!products/*/backend/**/conftest.py'
+                      # Source outside services/mcp/ that the MCP build compiles: the quill
+                      # packages the UI apps render with, the chart transforms and generated
+                      # API types those UI apps import, and the insight fixtures the tests
+                      # load. Directory-wide on purpose, so a relative import inside the
+                      # tree comes along.
+                      #
+                      # Its own filter because it reaches a different set of jobs: `build`
+                      # (whose tsgo pass is stricter than the frontend tsconfig, so the
+                      # frontend lane can be green while this one is red) and `unit-tests`
+                      # (UI app snapshots), but never the integration tests, which drive the
+                      # Python backend. WF009 keeps the list in step with what MCP imports.
+                      mcp-typescript:
+                        - 'packages/quill/**'
+                        - 'products/product_analytics/frontend/insights/**'
+                        - 'products/*/frontend/generated/**'
+                        - 'frontend/src/mocks/fixtures/**'
     build:
         name: Build Package
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.mcp == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: >-
+            (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true')
+            && github.event_name != 'push'
 
         steps:
             - name: Checkout code
@@ -154,7 +193,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -223,7 +262,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.mcp == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: >-
+            (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true')
+            && github.event_name != 'push'
         steps:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -234,7 +276,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -306,8 +348,11 @@ jobs:
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
         # non-pytest Python change, so they're the expensive half of this workflow.
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
-        # treats skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
+        # treats skipped as success, and the merge queue's trunk-merge/** run is the gate.
+        # Not on master push either — see the hourly `schedule` trigger.
+        if: >-
+            needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
+            && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -370,7 +415,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -450,6 +495,7 @@ jobs:
               run: ./bin/download-mmdb
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -748,7 +794,7 @@ jobs:
         # A status function is required to commit regenerated snapshots even when unit-tests
         # failed (a snapshot mismatch fails that job). !cancelled() rather than always() so a
         # superseded run does not push a stale snapshot commit to the branch.
-        if: ${{ !cancelled() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        if: ${{ !cancelled() && (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
             contents: write
             pull-requests: write
@@ -826,7 +872,7 @@ jobs:
                   fi
 
                   # Pass if no MCP changes detected (jobs were skipped)
-                  if [[ "${{ needs.changes.outputs.mcp }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.outputs.mcp }}" != "true" && "${{ needs.changes.outputs.mcp-typescript }}" != "true" ]]; then
                     echo "MCP checks were skipped (no relevant changes)."
                     exit 0
                   fi

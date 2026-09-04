@@ -75,6 +75,7 @@ from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
+from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 
 
@@ -263,6 +264,13 @@ organizations_router = routers.add(
     "organizations", router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 )
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
+
+organizations_router.register(
+    r"notification_locks",
+    OrganizationNotificationLockViewSet,
+    "organization_notification_locks",
+    ["organization_id"],
+)
 organizations_router.register(
     r"integrations",
     organization_integration.OrganizationIntegrationViewSet,

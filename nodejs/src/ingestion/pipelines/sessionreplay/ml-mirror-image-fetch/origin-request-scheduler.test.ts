@@ -1,6 +1,9 @@
+import { createRecordingTopHog } from '~/tests/helpers/tophog'
+
 import { HostBudget, HostBudgetOptions } from './host-budget'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const OPTIONS: HostBudgetOptions = {
     requestsPerSecond: 1,
@@ -26,16 +29,22 @@ describe('OriginRequestScheduler', () => {
     it('keeps concurrent request start times at least one second apart', async () => {
         const budget = new HostBudget(OPTIONS)
         budget.setCrawlDelay(ORIGIN.origin, 1_000, Date.now())
-        const scheduler = new OriginRequestScheduler(budget, 300)
+        const recordingTopHog = createRecordingTopHog()
+        const scheduler = new OriginRequestScheduler(budget, 300, new ImageFetchTopHogMetrics(recordingTopHog.registry))
         const observeSchedulerWait = jest.spyOn(ImageFetchRequestMetrics, 'observeSchedulerWait')
         const startedAtMs: number[] = []
         const deadlineMs = Date.now() + 10_000
 
         const requests = [0, 1, 2].map(() =>
-            scheduler.runImage(ORIGIN, deadlineMs, () => {
-                startedAtMs.push(Date.now())
-                return Promise.resolve()
-            })
+            scheduler.runImage(
+                ORIGIN,
+                deadlineMs,
+                () => {
+                    startedAtMs.push(Date.now())
+                    return Promise.resolve()
+                },
+                [7, 42]
+            )
         )
         await jest.runAllTimersAsync()
 
@@ -45,8 +54,37 @@ describe('OriginRequestScheduler', () => {
             { ran: true, value: undefined },
         ])
         expect(startedAtMs).toEqual([1_700_000_000_000, 1_700_000_001_000, 1_700_000_002_000])
-        expect(observeSchedulerWait).toHaveBeenCalledWith('origin_crawl_delay', 1)
-        expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0)
+        expect(observeSchedulerWait).toHaveBeenCalledWith('origin_crawl_delay', 1, [7, 42])
+        expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0, [7, 42])
+        expect(recordingTopHog.records.get('ml_image_fetch_block_events_by_registrable_domain')).toEqual(
+            expect.arrayContaining([
+                {
+                    key: {
+                        registrable_domain: REGISTRABLE_DOMAIN,
+                        reason: 'origin_crawl_delay',
+                        partition: '7',
+                    },
+                    value: 1,
+                },
+            ])
+        )
+        expect(recordingTopHog.records.get('ml_image_fetch_blocked_ms_by_registrable_domain')).toEqual(
+            expect.arrayContaining([
+                {
+                    key: {
+                        registrable_domain: REGISTRABLE_DOMAIN,
+                        reason: 'origin_crawl_delay',
+                        partition: '7',
+                    },
+                    value: 1_000,
+                },
+            ])
+        )
+        expect(
+            recordingTopHog.records
+                .get('ml_image_fetch_block_events_by_registrable_domain')
+                ?.some(({ key }) => key.reason === 'request_capacity')
+        ).toBe(false)
     })
 
     it('allows six concurrent same-origin requests when the request rate and crawl delay are disabled', async () => {
@@ -66,7 +104,12 @@ describe('OriginRequestScheduler', () => {
             )
         )
 
-        await expect(requests[6]).resolves.toEqual({ ran: false, reason: 'connection_limit', waitMs: 0 })
+        await expect(requests[6]).resolves.toEqual({
+            ran: false,
+            reason: 'connection_limit',
+            blockingReason: 'connection_limit',
+            waitMs: 0,
+        })
         expect(releases).toHaveLength(6)
         releases.forEach((release) => release())
         await expect(Promise.all(requests.slice(0, 6))).resolves.toEqual(
@@ -94,11 +137,25 @@ describe('OriginRequestScheduler', () => {
         await expect(scheduler.runImage(ORIGIN, Date.now() + 10_000, () => Promise.resolve())).resolves.toEqual({
             ran: false,
             reason: 'breaker_open',
+            blockingReason: 'breaker_open',
             waitMs: OPTIONS.breakerCooldownMs,
         })
         expect(finishProbe).toBeDefined()
         finishProbe?.()
         await expect(probe).resolves.toEqual({ ran: true, value: undefined })
+    })
+
+    it('preserves the response backoff reason', async () => {
+        const budget = new HostBudget(OPTIONS)
+        budget.recordTransientFailure(REGISTRABLE_DOMAIN, Date.now(), 120_000)
+        const scheduler = new OriginRequestScheduler(budget, 300)
+
+        await expect(scheduler.runImage(ORIGIN, Date.now() + 10_000, () => Promise.resolve())).resolves.toEqual({
+            ran: false,
+            reason: 'backoff',
+            blockingReason: 'retry_after',
+            waitMs: 120_000,
+        })
     })
 
     it('returns a queued request to the caller when its pass deadline expires', async () => {
@@ -119,7 +176,12 @@ describe('OriginRequestScheduler', () => {
         releaseFirst?.()
 
         await expect(first).resolves.toEqual({ ran: true, value: undefined })
-        await expect(second).resolves.toEqual({ ran: false, reason: 'deadline', waitMs: 0 })
+        await expect(second).resolves.toEqual({
+            ran: false,
+            reason: 'deadline',
+            blockingReason: 'request_deadline',
+            waitMs: 0,
+        })
     })
 
     it('checks the registrable-domain token bucket after a pod-capacity wait', async () => {
@@ -163,6 +225,7 @@ describe('OriginRequestScheduler', () => {
         await expect(scheduler.runImage(ORIGIN, Date.now() + 20_000, () => Promise.resolve())).resolves.toEqual({
             ran: false,
             reason: 'deadline',
+            blockingReason: 'origin_crawl_delay',
             waitMs: 600_000,
         })
     })
@@ -182,7 +245,12 @@ describe('OriginRequestScheduler', () => {
         await Promise.resolve()
         await expect(
             scheduler.runImage(new URL('https://b.example.com/image.png'), Date.now() + 10_000, () => Promise.resolve())
-        ).resolves.toEqual({ ran: false, reason: 'connection_limit', waitMs: 0 })
+        ).resolves.toEqual({
+            ran: false,
+            reason: 'connection_limit',
+            blockingReason: 'connection_limit',
+            waitMs: 0,
+        })
 
         releaseFirst?.()
         await expect(first).resolves.toEqual({ ran: true, value: undefined })
@@ -203,7 +271,12 @@ describe('OriginRequestScheduler', () => {
         await Promise.resolve()
         await expect(
             scheduler.runImage(new URL('https://b.example.com/image.png'), Date.now() + 10_000, () => Promise.resolve())
-        ).resolves.toEqual({ ran: false, reason: 'connection_limit', waitMs: 0 })
+        ).resolves.toEqual({
+            ran: false,
+            reason: 'connection_limit',
+            blockingReason: 'connection_limit',
+            waitMs: 0,
+        })
 
         expect(releaseConfiguration).toBeDefined()
         releaseConfiguration?.()

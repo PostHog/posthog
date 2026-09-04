@@ -37,7 +37,14 @@ from posthog.renderers import SafeJSONRenderer
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_skill_bundle, load_skill_export
+from ..marketplace.adapters import (
+    MARKETPLACE_NAME,
+    PLUGIN_NAME,
+    SANDBOX_SKILLS_FEATURE_FLAG,
+    build_skill_bundle,
+    load_skill_export,
+    sandbox_skills_flag_distinct_id,
+)
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -87,6 +94,7 @@ from .skill_serializers import (
     validate_skill_name_value,
 )
 from .skill_services import (
+    LLMSkillDescriptionTooLongError,
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
@@ -119,9 +127,6 @@ logger = structlog.get_logger(__name__)
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
-
-
-SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
 
 
 def _file_extension(path: str) -> str:
@@ -427,6 +432,15 @@ class LLMSkillViewSet(
                 {"detail": f"Skill has reached the maximum of {err.max_count} files."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(err, LLMSkillDescriptionTooLongError):
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the skill description to {err.max_length} characters before creating a new version."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return None
 
     def _is_scout_sandbox_caller(self) -> bool:
@@ -680,6 +694,15 @@ class LLMSkillViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except LLMSkillDescriptionTooLongError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the skill description to {err.max_length} characters before creating a new version."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except LLMSkillEditError as err:
             error_body: dict[str, Any] = {"detail": err.message}
             if err.edit_index is not None:
@@ -809,7 +832,7 @@ class LLMSkillViewSet(
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
-            user.distinct_id or str(user.uuid),
+            sandbox_skills_flag_distinct_id(user),
             organization_id=self.organization.id,
             team_id=self.team.id,
         )
@@ -1120,6 +1143,15 @@ class LLMSkillViewSet(
                 {"attr": "new_name", "detail": "A skill with this name already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except LLMSkillDescriptionTooLongError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the source skill description to {err.max_length} characters before duplicating it."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         props = {
             **_skill_analytics_props(new_skill),
@@ -1186,6 +1218,7 @@ class LLMSkillViewSet(
                 license=skill.license or "",
                 compatibility=skill.compatibility or "",
                 author_handle=payload.validated_data.get("author_handle", ""),
+                metadata=skill.metadata,
             )
         except CommunitySkillPublishNotConfiguredError:
             # The fail-safe is otherwise silent, so an instance that meant to have publishing on
@@ -1303,6 +1336,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:
@@ -1368,6 +1402,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:
@@ -1430,6 +1465,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:

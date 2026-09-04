@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ..db import WRITER_DB
-from ..facade.enums import ReviewState, RunPurpose, SnapshotResult, ToleratedReason
+from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ReviewState, RunPurpose, SnapshotResult
 from ..models import QuarantinedIdentifier, Run, RunSnapshot
 from . import baselines, ci_status, comment_markdown, comments
 
@@ -71,7 +71,7 @@ def _recount(run: Run) -> list[RunSnapshot]:
     run.tolerated_match_count = sum(
         1
         for s in snapshots
-        if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
+        if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason in INTENTIONAL_TOLERATE_REASONS
     )
     return snapshots
 

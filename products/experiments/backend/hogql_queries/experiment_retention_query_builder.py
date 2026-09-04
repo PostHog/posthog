@@ -14,7 +14,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
+from posthog.hogql_queries.utils.utils import get_start_of_interval_hogql
 
 from products.experiments.backend.hogql_queries.base_query_utils import (
     conversion_window_to_seconds,

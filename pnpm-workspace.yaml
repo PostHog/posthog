@@ -143,9 +143,9 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.10.0
+    '@posthog/brand': 0.11.0
     '@posthog/react': ^1.10.5
-    posthog-js: ^1.420.0
+    posthog-js: ^1.425.1
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4

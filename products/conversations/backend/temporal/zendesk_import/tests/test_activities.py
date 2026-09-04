@@ -598,6 +598,23 @@ class TestZendeskImportBatchActivity(BaseTest):
         stored = Comment.objects.get(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
         self.assertEqual(stored.content, "body survives")
 
+    def test_build_error_drops_the_whole_ticket(self) -> None:
+        # A raise during Phase 2 build must leave nothing persisted: no partial ticket row. Here a
+        # malformed collaborator id forces the raise after the Ticket object is built but before it
+        # is collected. All-or-nothing keeps the zendesk_ticket_id free so a rerun re-imports it,
+        # and counts the ticket once as failed instead of both imported and failed.
+        ticket = _zd_ticket(404, 10)
+        ticket["collaborator_ids"] = ["not-a-number"]
+        result, _ = self._run_batch(
+            [404],
+            tickets=[ticket],
+            users={10: _zd_user(10, "requester@x.com")},
+            comments_by_ticket={404: [_zd_comment(1, 10, body="hi")]},
+        )
+
+        self.assertEqual((result.imported, result.skipped, result.failed), (0, 0, 1))
+        self.assertFalse(Ticket.objects.filter(team=self.team, zendesk_ticket_id=404).exists())
+
 
 class TestZendeskImportJobUpdates(BaseTest):
     def _make_job(self, **kwargs: Any) -> ZendeskImportJob:

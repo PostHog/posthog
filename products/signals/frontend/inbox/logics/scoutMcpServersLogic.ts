@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { teamSharedAgentServers } from 'products/mcp_store/frontend/gateway/agentServerUtils'
 import { mcpGatewayServiceAccountsList } from 'products/mcp_store/frontend/generated/api'
 import type {
     MCPServiceAccountApi,
@@ -88,27 +89,12 @@ export const scoutMcpServersLogic = kea<scoutMcpServersLogicType>([
                 ...(scoutAccount?.servers ?? []),
             ],
         ],
-        // Scout runs mount only team-scoped grants, so the picker offers exactly those. Several
-        // members can team-share the same server; the picker selects servers, not shares, so
-        // collapse to one row per server. Prefer a ready share for the row so the health tag
-        // reflects the best backing credential, since the run mounts every healthy team share.
+        // Scout runs mount only team-scoped grants, so the picker offers exactly those, one row
+        // per server (the picker selects servers, not shares).
         teamScoutServers: [
             (s) => [s.scoutServers],
-            (scoutServers: MCPServiceAccountServerApi[]): MCPServiceAccountServerApi[] => {
-                const byServer = new Map<string, MCPServiceAccountServerApi>()
-                for (const server of scoutServers) {
-                    if (server.scope !== 'team') {
-                        continue
-                    }
-                    const existing = byServer.get(server.id)
-                    if (!existing || (existing.connection_state !== 'ready' && server.connection_state === 'ready')) {
-                        byServer.set(server.id, server)
-                    }
-                }
-                return [...byServer.values()].sort((a, b) =>
-                    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-                )
-            },
+            (scoutServers: MCPServiceAccountServerApi[]): MCPServiceAccountServerApi[] =>
+                teamSharedAgentServers(scoutServers),
         ],
         scoutServersLoading: [
             (s) => [s.serviceAccountsLoading],

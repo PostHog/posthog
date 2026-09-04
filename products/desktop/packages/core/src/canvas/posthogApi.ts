@@ -62,26 +62,6 @@ export async function runQuery(
   };
 }
 
-/**
- * Run an inline HogQL string. A thin wrapper over {@link runQuery} that boxes the
- * SQL into a HogQLQuery node — the escape hatch for shapes a typed node can't
- * express. Prefer a typed node (TrendsQuery/etc.) for standard metrics.
- */
-export async function runHogQLQuery(
-  authService: AuthService,
-  hogql: string,
-  opts?: { refresh?: string },
-): Promise<HogQLResult> {
-  // `tags.productKey` attributes the query to a product so PostHog's
-  // query-tagging guard is satisfied (it hard-fails untagged ClickHouse queries
-  // in local dev). The desktop canvas/dashboard surfaces are the "max" product.
-  return runQuery(
-    authService,
-    { kind: "HogQLQuery", query: hogql, tags: { productKey: "max" } },
-    opts,
-  );
-}
-
 /** A saved insight's stored result, fetched by short id. */
 export interface InsightFetchResult {
   shortId: string;

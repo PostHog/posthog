@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "outDir": "dist",
     "lib": ["ESNext"],
     "target": "ES2022",
     "module": "ESNext",
@@ -7,6 +8,7 @@
     "allowJs": true,
     "types": ["node"],
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,

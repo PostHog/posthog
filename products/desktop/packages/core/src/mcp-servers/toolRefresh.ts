@@ -22,7 +22,7 @@ export function shouldAutoRefreshTools(state: AutoRefreshState): boolean {
  * up for the mount, so a flaky or rate-limited upstream gets a few spaced
  * attempts and a broken one gets a bounded number of requests.
  */
-export const AUTO_REFRESH_MAX_RETRIES = 2;
+const AUTO_REFRESH_MAX_RETRIES = 2;
 
 /** Exponential backoff between silent auto-refresh retries: 1s, then 2s. */
 export function autoRefreshRetryDelayMs(failureCount: number): number {

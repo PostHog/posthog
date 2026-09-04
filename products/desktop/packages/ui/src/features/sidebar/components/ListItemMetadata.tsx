@@ -18,7 +18,7 @@ import { Fragment, type ReactNode } from "react";
  * rather than a tooltip component: a list draws dozens of these, and the
  * browser's own costs nothing.
  */
-export function listItemMetadata(
+function listItemMetadata(
   segments: readonly ListItemMetadataSegment[],
 ): ReactNode | undefined {
   if (segments.length === 0) return undefined;

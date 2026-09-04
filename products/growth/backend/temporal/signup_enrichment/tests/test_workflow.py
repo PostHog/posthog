@@ -57,7 +57,9 @@ async def _run(enrich_side_effect) -> tuple[dict, MagicMock, AsyncMock, MagicMoc
 async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
     fields = EnrichmentFields(company_type="STARTUP", headcount=130, industry="Fintech")
     miss = EnrichmentOutcome(provider_fields=None, fit=IcpFitResult(status="not_found"))
-    match = EnrichmentOutcome(provider_fields=fields, fit=IcpFitResult(status="scored", score=61))
+    match = EnrichmentOutcome(
+        provider_fields=fields, fit=IcpFitResult(status="scored", score=61), enrichment_status="COMPLETE"
+    )
     result, pha_client, enrich, snapshot = await _run([miss, match])
 
     assert result == {"matched": True, "fields_filled": 3}
@@ -75,6 +77,7 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
         "fields_filled": 3,
         "organization_id": "org-1",
         "icp_fit_status": "scored",
+        "harmonic_enrichment_status": "COMPLETE",
     }
     # The launch signal fires exactly once — on the first attempt, unchanged.
     completed = _events(pha_client, "signup_enrichment_completed")

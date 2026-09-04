@@ -1,5 +1,6 @@
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
-from typing import Literal
+from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -98,7 +99,14 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
-McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
+McpScopePreset = Literal[
+    "read_only",
+    "full",
+    "signals_scout",
+    "signals_scout_reports",
+    "signals_research",
+    "signals_implementation",
+]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
 # Granted only to sandbox runs a person started by hand (see `interactive_run` in
@@ -118,6 +126,14 @@ INTERNAL_SCOPES: list[str] = [
     "internal_run:read",
 ]
 
+# Write access to the shared scratchpad (`remember` / `forget`) and nothing else. Held apart
+# from `SCOUT_INTERNAL_SCOPES` so the report pipeline's research and implementation runs can
+# persist what they learn without also getting `emit_signal` and `record_output`, which the
+# scout object unlocks. Scouts still carry it — it is folded into their posture below.
+SCRATCHPAD_INTERNAL_SCOPES: list[str] = [
+    "signal_scratchpad_internal:write",
+]
+
 # Writes for the Signals scout harness — sandbox-only because the scope object is in
 # `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal API key UI or
 # granted through the OAuth consent flow. Reads use the public `signal_scout:read` scope.
@@ -125,6 +141,7 @@ INTERNAL_SCOPES: list[str] = [
 # preset — unrelated `full`/`read_only` task tokens must never carry scout write access.
 SCOUT_INTERNAL_SCOPES: list[str] = [
     "signal_scout_internal:write",
+    *SCRATCHPAD_INTERNAL_SCOPES,
 ]
 
 
@@ -159,6 +176,49 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 ]
 
 
+# The user-facing WRITE scopes a person may grant to ONE scout from its settings, on top of
+# the fixed posture above. `SCOUT_USER_WRITE_SCOPES` is the fleet-wide floor every scout
+# carries; this set is the ceiling of what a per-scout grant can add to it. Nothing here is
+# granted by default, and a scope outside this set can never be granted at all: a grant is
+# validated against this set where it is stored, and `resolve_scopes` intersects against it
+# again at mint time, so a stale or hand-edited grant cannot widen a token.
+#
+# Every entry is an artifact-shaped write, which is what makes an unattended agent holding one
+# acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
+# destination is arbitrary egress; `feature_flag:write`, `experiment:write` and `survey:write`,
+# because they change what end users see in production; `cohort:write` and `action:write` until
+# a scout needs them; and anything organization, user, member, or role shaped.
+#
+# These scopes are object-level rather than tool-level, so each one carries update and delete of
+# every matching object the token can reach, not only the objects the scout created. The reach
+# is not the same for all four, and any surface that offers a grant has to say so plainly:
+#
+#   dashboard:write   Every dashboard in the scout's project. Delete is a recoverable
+#                     soft-delete.
+#   insight:write     Every saved insight in the scout's project. Delete is a recoverable
+#                     soft-delete.
+#   annotation:write  Every annotation in the scout's project, AND every organization-scoped
+#                     annotation in the organization, including ones a sibling project owns
+#                     (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
+#                     An update can also move an organization annotation to the scout's team.
+#   alert:write       Every insight alert in the scout's project. Delete is PERMANENT: the
+#                     viewset has no soft-delete, so it removes the alert and its check
+#                     history for good.
+#
+# The last two exceed the "recoverable, project-scoped" bar the other two meet. They stay in
+# the v1 set that #94263 puts to the team, because narrowing the set is that decision to make,
+# not a default to assume. Whoever confirms the set has to accept those two reaches, or drop
+# the scopes.
+SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
+    {
+        "dashboard:write",
+        "insight:write",
+        "annotation:write",
+        "alert:write",
+    }
+)
+
+
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
 # drift out of subset of what the MCP server advertises in
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
@@ -180,9 +240,93 @@ MCP_WRITE_SCOPES: list[str] = _build_mcp_scopes("write")
 
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
-PosthogMcpScopes = McpScopePreset | list[str]
+# The two presets a scout run can hold. Named apart from `McpScopePreset` so a posture that
+# carries extra write scopes cannot be built on a non-scout preset: the extras exist for the
+# scout sandbox, and letting them ride on `read_only` would break the invariant that a
+# read-only task token carries no user-facing write scope.
+ScoutScopePreset = Literal["signals_scout", "signals_scout_reports"]
+SCOUT_SCOPE_PRESETS: tuple[ScoutScopePreset, ...] = ("signals_scout", "signals_scout_reports")
 
-MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports")
+
+class ScoutScopePosture(TypedDict):
+    """A scout preset plus the write scopes one scout was granted from its settings.
+
+    A plain dict rather than a dataclass because this value is stored on a task's
+    `pending_dispatch` JSON column and travels through Temporal payloads. It has to survive
+    `json.dumps` / `json.loads` unchanged, and be readable by a worker that was deployed
+    before the shape existed.
+    """
+
+    preset: ScoutScopePreset
+    extra_write_scopes: list[str]
+
+
+PosthogMcpScopes = McpScopePreset | list[str] | ScoutScopePosture
+
+MCP_SCOPE_PRESETS = (
+    "read_only",
+    "full",
+    "signals_scout",
+    "signals_scout_reports",
+    "signals_research",
+    "signals_implementation",
+)
+
+# Withheld from `signals_research`, which is otherwise the `read_only` resolution.
+# `task:write` reaches every posture through `INTERNAL_SCOPES`, but it is inert wherever the
+# MCP server runs in read-only mode, which strips every tool not annotated read-only.
+# `signals_research` turns that mode off so its two scratchpad tools survive, and that alone
+# would hand the research stage the whole task-write toolset — including setting a report's
+# state. The stage reads data and returns findings; the pipeline persists them afterwards.
+RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
+
+
+def scout_scope_posture(
+    preset: ScoutScopePreset,
+    extra_write_scopes: Iterable[str] = (),
+) -> ScoutScopePosture:
+    """Build the scope posture one scout run is dispatched with.
+
+    Callers pass whatever the scout's stored grant holds. Anything outside
+    `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected, because a person is
+    told their input was invalid where they entered it, not at dispatch. A scope removed from
+    the allowlist after it was granted therefore stops reaching new runs with no data migration.
+    """
+    return {
+        "preset": preset,
+        "extra_write_scopes": _grantable_write_scopes(list(extra_write_scopes)),
+    }
+
+
+def _grantable_write_scopes(raw: object) -> list[str]:
+    """Intersect a stored grant with the allowlist, tolerating any shape JSON can hold.
+
+    A grant reaches this function straight from a JSON column, so it can be any JSON type and
+    its entries can be objects or lists. Non-string entries are dropped before the set is
+    built, because an unhashable entry makes `set(raw)` raise and aborts the run that a
+    malformed grant is supposed to degrade safely.
+    """
+    if not isinstance(raw, list):
+        return []
+    return sorted({scope for scope in raw if isinstance(scope, str)} & SCOUT_GRANTABLE_WRITE_SCOPES)
+
+
+def _read_scout_posture(posture: Mapping[str, Any]) -> tuple[McpScopePreset, list[str]]:
+    """Read a posture that has been through JSON, and intersect its extras with the allowlist.
+
+    This is the second of the two gates on a per-scout grant, and the one that binds. The
+    first gate validates what a person may store. This one runs at mint time, so a grant
+    written by an older deploy, edited by hand, or holding a scope the allowlist has since
+    dropped still cannot widen the token.
+
+    An unrecognized preset resolves to `read_only` with no extras, matching what
+    `resolve_scopes` already does with an unrecognized preset string. A malformed posture
+    then costs the run its tools instead of granting it something nobody chose.
+    """
+    preset = posture.get("preset")
+    if preset not in SCOUT_SCOPE_PRESETS:
+        return "read_only", []
+    return cast(McpScopePreset, preset), _grantable_write_scopes(posture.get("extra_write_scopes"))
 
 
 def resolve_scopes(
@@ -190,11 +334,29 @@ def resolve_scopes(
     *,
     include_internal_scopes: bool = True,
 ) -> list[str]:
+    if isinstance(scopes, dict):
+        # The per-scout posture: the fixed scout preset exactly as it resolves below, plus the
+        # write scopes this one scout was granted. Additive by design, so reads and the
+        # internal scopes stay identical across the fleet and only the grant differs.
+        preset, extra_write_scopes = _read_scout_posture(scopes)
+        preset_scopes = resolve_scopes(preset, include_internal_scopes=include_internal_scopes)
+        return list(dict.fromkeys([*preset_scopes, *extra_write_scopes]))
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
+    scratchpad = list(SCRATCHPAD_INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
-        elif scopes in ("signals_scout", "signals_scout_reports"):
+        elif scopes == "signals_implementation":
+            # The self-driving implementation run: `full`, plus durable memory. It already
+            # writes code and logs its work on the report, so the scratchpad adds reach into
+            # one more surface rather than a new class of capability.
+            resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, *scratchpad]
+        elif scopes == "signals_research":
+            # The report research run: reads, plus durable memory, and nothing else. See
+            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
+            reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            resolved = [*reads, *scratchpad]
+        elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
             # artifacts a finding can produce (e.g. a notebook). Both extra sets are added
@@ -220,14 +382,39 @@ def resolve_scopes(
 
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
+    if isinstance(scopes, dict):
+        # Answer for the posture's preset, not a flat True. A malformed posture resolves to
+        # `read_only`, and reporting True there would turn read-only mode off for a token that
+        # carries no write scope: the MCP server would advertise write tools the token is then
+        # refused for.
+        preset, _ = _read_scout_posture(scopes)
+        return has_write_scopes(preset)
     if isinstance(scopes, str):
         # `signals_scout` reports True so the MCP server doesn't enable read-only mode for the
         # scout sandbox — the agent IS allowed to call the write tools its preset exists for
         # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
         # is a tool-annotation filter, not a scope filter, and would strip those tools
-        # categorically without this opt-out.
-        return scopes in ("full", "signals_scout", "signals_scout_reports")
+        # categorically without this opt-out. The two pipeline postures need the same opt-out
+        # for their scratchpad tools; `signals_research` pays for it by withholding `task:write`
+        # (see `RESEARCH_WITHHELD_SCOPES`), so turning read-only mode off widens nothing else.
+        return scopes in (
+            "full",
+            "signals_scout",
+            "signals_scout_reports",
+            "signals_research",
+            "signals_implementation",
+        )
     return any(s in MCP_WRITE_SCOPES for s in scopes)
+
+
+def grants_scratchpad_write(scopes: PosthogMcpScopes) -> bool:
+    """Whether a posture's resolved scopes carry `scout-scratchpad-remember` / `-forget`.
+
+    Asked by the prompt side before it renders a memory protocol. A run told to record what it
+    learned, holding a token that strips the write tools, spends prompt tokens on an instruction
+    it cannot follow, so the instruction has to track the posture rather than be assumed.
+    """
+    return set(SCRATCHPAD_INTERNAL_SCOPES).issubset(resolve_scopes(scopes))
 
 
 def _get_client_id_for_region(*, region: str | None, us: str, eu: str, dev: str) -> str:

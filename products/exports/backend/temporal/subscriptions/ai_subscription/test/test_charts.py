@@ -122,6 +122,7 @@ def _chart(spec=_LINE, hogql="SELECT 1", step_index=0) -> ValidatedChart:
 
 def test_the_export_context_pins_the_render_to_the_step_row_limits():
     assert build_export_context(_chart())["limit_context"] == "posthog_ai"
+    assert build_export_context(_chart())["title"] == "signups"
 
 
 def test_the_export_context_wraps_the_executed_sql_for_the_renderer():

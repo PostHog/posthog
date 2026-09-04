@@ -8,6 +8,19 @@ import { describe, expect, it, vi } from "vitest";
 import { DesktopPiRpcClientFactory } from "./desktop-pi-rpc-client-factory";
 
 const createPiRpcClient = vi.hoisted(() => vi.fn());
+const createLocalRuntimeMcpServers = vi.hoisted(() =>
+  vi.fn(() => ({
+    "posthog-code-tools": {
+      args: ["local-tools-mcp-server.js"],
+      command: process.execPath,
+      directTools: true,
+      env: { POSTHOG_LOCAL_TOOLS_ENABLED: "show_actions" },
+      lifecycle: "eager",
+      requestTimeoutMs: 300_000,
+      transport: "stdio",
+    },
+  })),
+);
 const createRuntimeMcpServers = vi.hoisted(() =>
   vi.fn(() => ({
     posthog: {
@@ -22,6 +35,7 @@ const createRuntimeMcpServers = vi.hoisted(() =>
 );
 
 vi.mock("@posthog/agent/pi/rpc-client", () => ({
+  createLocalRuntimeMcpServers,
   createPiRpcClient,
   createRuntimeMcpServers,
 }));
@@ -95,7 +109,6 @@ describe("DesktopPiRpcClientFactory", () => {
           additionalDirectories: ["/tmp/shared"],
           channelMode: true,
         },
-        projectTrusted: true,
       }),
     ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
@@ -107,6 +120,7 @@ describe("DesktopPiRpcClientFactory", () => {
       },
     );
     expect(authProxy.start).toHaveBeenCalledWith("https://eu.posthog.com");
+    expect(createLocalRuntimeMcpServers).toHaveBeenCalledWith("/workspace");
     expect(createPiRpcClient).toHaveBeenCalledWith({
       enrichment: {
         apiUrl: "http://127.0.0.1:5678",
@@ -116,6 +130,15 @@ describe("DesktopPiRpcClientFactory", () => {
       },
       mcpToolPolicies: policies,
       runtimeMcpServers: {
+        "posthog-code-tools": {
+          args: ["local-tools-mcp-server.js"],
+          command: process.execPath,
+          directTools: true,
+          env: { POSTHOG_LOCAL_TOOLS_ENABLED: "show_actions" },
+          lifecycle: "eager",
+          requestTimeoutMs: 300_000,
+          transport: "stdio",
+        },
         posthog: {
           args: [],
           directTools: false,
@@ -125,7 +148,6 @@ describe("DesktopPiRpcClientFactory", () => {
           url: "http://127.0.0.1:4321/posthog",
         },
       },
-      projectTrusted: true,
       taskContext: {
         projectId: 1,
         apiHost: "https://eu.posthog.com",

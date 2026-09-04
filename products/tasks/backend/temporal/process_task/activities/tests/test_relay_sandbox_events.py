@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import httpx
 import httpx_sse
@@ -285,7 +285,14 @@ class TestRelaySandboxEventsCancellation:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -335,6 +342,80 @@ class TestRelaySandboxEventsCancellation:
         redis_stream.mark_error.assert_not_awaited()
 
 
+class TestRelaySandboxEventsPresenceGating:
+    @pytest.mark.parametrize(
+        "run_state,expected_presence_gated",
+        [
+            pytest.param({"stream_presence_gated": True}, True, id="run_pinned_gated"),
+            pytest.param({"stream_presence_gated": False}, False, id="run_pinned_ungated"),
+            pytest.param({}, False, id="legacy_run_without_pin"),
+        ],
+    )
+    async def test_stream_presence_gating_follows_pinned_run_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        run_state: dict,
+        expected_presence_gated: bool,
+    ) -> None:
+        constructed: list[bool] = []
+
+        class StubTaskRunRedisStream:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
+                constructed.append(presence_gated)
+
+            async def initialize(self) -> None:
+                return None
+
+            async def mark_complete(self) -> None:
+                return None
+
+            async def mark_error(self, error: str) -> None:
+                return None
+
+        class StubTaskRunQuerySet:
+            def select_related(self, *_args: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product="slack"),
+                    state=run_state,
+                )
+
+        async def fake_relay_loop(**_kwargs: object) -> bool:
+            return False
+
+        monkeypatch.setattr(relay_sandbox_events_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(objects=StubTaskRunQuerySet()),
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "create_sandbox_connection_token", lambda **_kwargs: "token")
+        monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
+        monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", fake_relay_loop)
+
+        await relay_sandbox_events(
+            RelaySandboxEventsInput(
+                run_id="run-id",
+                task_id="task-id",
+                sandbox_url="https://sandbox.example",
+                sandbox_connect_token=None,
+                team_id=1,
+                distinct_id="distinct-id",
+            )
+        )
+
+        assert constructed == [expected_presence_gated]
+
+
 class TestRelaySandboxEventsMissingActor:
     @pytest.mark.django_db
     async def test_missing_slack_actor_fails_non_retryable_with_stream_error(
@@ -347,7 +428,14 @@ class TestRelaySandboxEventsMissingActor:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -535,6 +623,100 @@ class TestRelaySandboxEventsErrorHandling:
         assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
+
+    async def test_relay_signals_command_and_generated_activity_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(side_effect=[True, False]),
+            release_first_agent_command=AsyncMock(),
+            claim_first_agent_activity=AsyncMock(side_effect=[True, False]),
+            release_first_agent_activity=AsyncMock(),
+        )
+        events = [
+            {
+                "type": "notification",
+                "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+            },
+            {
+                "type": "notification",
+                "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "user_message_chunk"}},
+                },
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "plan"}},
+                },
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                },
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "tool_call"}},
+                },
+            },
+            {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+        ]
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *_args, **_kwargs: SuccessfulEventSource()
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", AsyncMock())
+        monkeypatch.setattr(
+            relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+        )
+        monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+        )
+
+        assert handle.signal.await_args_list == [
+            call("agent_command_dispatched"),
+            call("agent_state_changed", arg=True),
+            call("heartbeat", arg=True),
+            call("agent_activity_observed"),
+        ]
+        redis_stream.release_first_agent_command.assert_not_awaited()
+        redis_stream.release_first_agent_activity.assert_not_awaited()
+        assert redis_stream.claim_first_agent_activity.await_count == 2
 
     async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
@@ -853,7 +1035,14 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -1104,20 +1293,22 @@ class TestShouldSignalWorkflowHeartbeat:
             # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
             ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, True),
-            # The floor is the background default, not unbounded: a turn that hung
-            # without an end_of_turn stops pinning the sandbox past that window.
+            # Leave the workflow's short inactivity timer enough time to expire at
+            # the background default instead of after another full short window.
             (
-                "mid_turn_quiet_past_default_window",
+                "mid_turn_quiet_past_heartbeat_budget",
                 True,
-                float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) + 60.0,
+                float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) - 60.0,
                 120.0,
                 False,
             ),
             # Idle after end_of_turn: the short loop window applies and the run winds down.
             ("idle_agent_stale_events", False, 300.0, 120.0, False),
             ("mid_turn_fresh_events", True, 30.0, 120.0, True),
-            # Runs with a window above the default keep their longer window mid-turn.
-            ("mid_turn_long_window_still_fresh", True, float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) + 60.0, 3600.0, True),
+            # Default and longer windows rely on the event-driven heartbeat, then
+            # let their own inactivity timer measure the full silence window.
+            ("mid_turn_default_window_uses_event_heartbeat", True, 30.0, 1800.0, False),
+            ("mid_turn_long_window_uses_event_heartbeat", True, 30.0, 3600.0, False),
         ]
     )
     def test_freshness_gating(

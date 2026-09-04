@@ -12,7 +12,14 @@ import {
 
 import { PropValue } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition, PropertyGroupFilter } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyFilterValue,
+    PropertyGroupFilter,
+    PropertyOperator,
+} from '~/types'
 
 export interface PropertyFilterBaseProps {
     pageKey: string
@@ -81,6 +88,11 @@ export interface PropertyFilterInternalProps {
      * to the default behavior. See `PropertyValueProps.staticValues`.
      */
     staticValueOptions?: (propertyKey: string) => PropValue[] | null
+    /** Renders an alternate operator and value control for one filter type. */
+    renderOperatorValueSelect?: (
+        filter: AnyPropertyFilter,
+        onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
+    ) => JSX.Element | null
     /** Override the model's inferred definitions, e.g. for a polymorphic event property. */
     propertyDefinitionsOverride?: PropertyDefinition[]
     /** Keep the selected property key fixed while allowing operator/value edits. */

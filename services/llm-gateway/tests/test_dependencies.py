@@ -11,7 +11,11 @@ from llm_gateway.auth.authenticators import OAuthAccessTokenAuthenticator
 from llm_gateway.auth.cache import AuthCache, reset_auth_cache
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, InvalidProjectScopeError, UnauthorizedProjectScopeError
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL,
+    BASETEN_GLM53_PUBLIC_MODEL,
+)
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
@@ -439,6 +443,7 @@ class TestPreviewModelGateWiring:
         assert error["code"] == "model_gate"
         assert "moonshotai/kimi-k3" in error["message"]
         assert error["message"].endswith("(rate_limit)")
+        assert error["reason"] == "model_not_available"
 
     @pytest.mark.asyncio
     async def test_preview_model_allowed_when_flag_enabled(self) -> None:
@@ -476,6 +481,7 @@ class TestBasetenExclusiveModelGateWiring:
         [
             (BASETEN_DEEPSEEK_PUBLIC_MODEL, "posthog-code-deepseek-model", "/posthog_code/v1/messages"),
             (BASETEN_GLM53_PUBLIC_MODEL, "posthog-code-glm-53-model", "/posthog_code/v1/messages"),
+            (BASETEN_GLM53_FLASH_PUBLIC_MODEL, "posthog-code-glm-53-flash-model", "/posthog_code/v1/messages"),
         ],
     )
     @pytest.mark.parametrize("flag_result", [False, None])
@@ -501,7 +507,9 @@ class TestBasetenExclusiveModelGateWiring:
         assert flag.await_args.args[0] == access_flag
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL])
+    @pytest.mark.parametrize(
+        "model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL, BASETEN_GLM53_FLASH_PUBLIC_MODEL]
+    )
     async def test_baseten_exclusive_model_allowed_when_flag_enabled(self, model: str) -> None:
         request = _make_request({"model": model, "messages": []}, path="/posthog_code/v1/messages")
         user = _make_user(auth_method="oauth_access_token", user_id=7)
@@ -514,6 +522,34 @@ class TestBasetenExclusiveModelGateWiring:
             patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),
         ):
             await enforce_throttles(request=request, user=user, runner=runner)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("flag_result", [False, None])
+    async def test_unbilled_glm_gets_rollout_denial_before_billing_denial(self, flag_result: bool | None) -> None:
+        request = _make_request({"model": BASETEN_GLM53_PUBLIC_MODEL, "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch(
+                "llm_gateway.dependencies.resolve_plan_and_quota",
+                AsyncMock(
+                    return_value=(
+                        MagicMock(),
+                        QuotaResourceStatus(limited=False, code_usage_billing_active=False),
+                    )
+                ),
+            ),
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_throttles(request=request, user=user, runner=runner)
+
+        error = exc_info.value.detail["error"]
+        assert error["reason"] == "model_not_available"
+        assert "payment method" not in error["message"].lower()
 
 
 class TestServerCredentialRequirementWiring:

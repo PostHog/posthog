@@ -23,6 +23,7 @@ export function resolveGatewayProduct({
     loop: "posthog_code",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
+    scout_suggestions: "signals",
     signal_report: "signals",
     signals_chat: "signals",
     signals_scout: "signals",
@@ -92,7 +93,8 @@ function parseAiGatewayProducts(raw: string | undefined): Set<string> {
 /**
  * Sandbox-run signals stages, which are billed per stage rather than under one
  * `signals` product. The stage names come from `TaskRun.state.ai_stage`, set in
- * `Task._build_task` in posthog/posthog.
+ * `Task._build_task` (pipeline stages) and `Task.create_run` (interactive
+ * `inbox` / `chat`) in posthog/posthog.
  */
 const SIGNALS_STAGE_PRODUCTS = new Set([
   "scout",
@@ -100,6 +102,9 @@ const SIGNALS_STAGE_PRODUCTS = new Set([
   "implementation",
   "repo_selection",
   "custom_agent",
+  "inbox",
+  "chat",
+  "scout_suggestions",
 ]);
 
 /**
@@ -151,6 +156,8 @@ export interface GatewayTarget {
   isAiGateway: boolean;
   /** Product tag; only the Go gateway needs it sent explicitly. */
   aiProduct: string;
+  /** Stage the product was resolved from: the worker's, else the caller's, else none. */
+  aiStage: string | null;
 }
 
 /**
@@ -168,6 +175,9 @@ export interface GatewayTarget {
  * Scout entries may qualify by skill (`signals_scout:web-analytics`), matching
  * only runs of that skill, so the scout fleet can migrate in batches. A plain
  * `signals_scout` entry matches every skill.
+ *
+ * `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE` name the product the worker pinned the token
+ * to. They win over the local derivation, whose task-run fetch can fail and leave no stage.
  */
 export function resolveGatewayTarget({
   product,
@@ -180,11 +190,15 @@ export function resolveGatewayTarget({
   posthogHost: string;
   env?: Record<string, string | undefined>;
 }): GatewayTarget {
-  const aiProduct = resolveAiProduct({ product, aiStage });
+  const workerStage = (env.AI_GATEWAY_AI_STAGE ?? "").trim() || null;
+  const workerProduct = (env.AI_GATEWAY_PRODUCT ?? "").trim() || null;
+  const effectiveStage = workerStage ?? aiStage ?? null;
+  const aiProduct =
+    workerProduct ?? resolveAiProduct({ product, aiStage: effectiveStage });
   const aiGatewayUrl = (env.AI_GATEWAY_URL ?? "").trim();
   const routedProducts = parseAiGatewayProducts(env.AI_GATEWAY_PRODUCTS);
-  const skillQualified = aiStage?.startsWith(SCOUT_STAGE_PREFIX)
-    ? `${aiProduct}:${aiStage.slice(SCOUT_STAGE_PREFIX.length)}`
+  const skillQualified = effectiveStage?.startsWith(SCOUT_STAGE_PREFIX)
+    ? `${aiProduct}:${effectiveStage.slice(SCOUT_STAGE_PREFIX.length)}`
     : null;
   const routed =
     aiGatewayUrl !== "" &&
@@ -198,11 +212,13 @@ export function resolveGatewayTarget({
       }),
       isAiGateway: true,
       aiProduct,
+      aiStage: effectiveStage,
     };
   }
   return {
     baseUrl: resolveLlmGatewayUrl(env.LLM_GATEWAY_URL, posthogHost, product),
     isAiGateway: false,
     aiProduct,
+    aiStage: effectiveStage,
   };
 }

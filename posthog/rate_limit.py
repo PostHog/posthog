@@ -9,10 +9,12 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.cache import cache
 from django.urls import resolve
 from django.utils import timezone
 
 from prometheus_client import Counter
+from rest_framework import exceptions
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
 
@@ -22,15 +24,16 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
     from rest_framework.views import APIView
 
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.wizard_gateway_token import wizard_product_node
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
 from posthog.models.utils import hash_key_value
 from posthog.settings.utils import get_list
-from posthog.utils import patchable
+from posthog.utils import get_trusted_client_ip, patchable
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -140,6 +143,28 @@ def get_route_from_path(path: str | None) -> str:
     return path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
 
 
+def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
+    """
+    Return a hash of the personal API key that authenticated this request, or None.
+
+    The authenticator comes first because it holds the key that actually passed validation.
+    Scraping the request instead would trust whichever candidate `find_key_with_source` reaches
+    first, and that is not always the one that authenticated: the search stops at the header, then
+    the body, then the query string, so a request carrying a real key in its body never validates
+    the query string. Bucketing on an unvalidated value lets a caller pick its own bucket.
+
+    The scrape stays as a fallback for requests no personal-key authenticator handled. It gets an
+    empty body on purpose, because reading `request.data` here consumes the stream and leaves
+    `request.body` unreadable for downstream signature verification.
+    """
+    key_hash = getattr(getattr(request, "successful_authenticator", None), "personal_api_key_hash", None)
+    if isinstance(key_hash, str):
+        return key_hash
+
+    key_with_source = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+    return hash_key_value(key_with_source[0]) if key_with_source is not None else None
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
@@ -188,8 +213,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-        if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
+        hashed_personal_api_key = hashed_personal_api_key_for_throttling(request)
+        if personal_api_key_only and request.user.is_authenticated and hashed_personal_api_key is None:
             return True
 
         try:
@@ -226,7 +251,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                         "scope": scope,
                         "rate": rate,
                         "route": route,
-                        "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
+                        "hashed_personal_api_key": hashed_personal_api_key,
                     },
                 )
                 RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=route, route=route).inc()
@@ -253,10 +278,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         """
         ident = None
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-            if api_key is not None:
-                ident = hash_key_value(api_key[0])
-            else:
+            ident = hashed_personal_api_key_for_throttling(request)
+            if ident is None:
                 try:
                     team_id = self.safely_get_team_id_from_view(view)
                     if team_id:
@@ -547,8 +570,7 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-            ident = hash_key_value(api_key[0]) if api_key is not None else request.user.pk
+            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -1131,6 +1153,128 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
+class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
+    """Derives the per-user, per-program mint bucket. `reserve_wizard_mint` counts it.
+
+    Its own namespace, so a mint never spends the wizard query allowance.
+    """
+
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate.
+    num_requests: int
+    duration: int
+
+    scope = "wizard_gateway_token"
+
+    def get_rate(self):
+        if settings.DEBUG:
+            return "1000/day"
+        return "5/day"
+
+    def allow_request(self, request, view):
+        """Always admit; the ceiling is the view's atomic reservation.
+
+        A read here and a charge after the mint would sit a whole mint round trip
+        apart, so parallel requests would all see the same free slot. This class
+        now only derives the identity, and `reserve_wizard_mint` owns the count.
+        Errors are swallowed: this is a load-shedding gate, and it must fail open.
+        """
+        return True
+
+    def get_cache_key(self, request, view):
+        """The per-user, per-program bucket identity. Read by the view's reservation."""
+        # request.user is anonymous here: the viewset authenticates sessions only and
+        # the bearer is checked in the action body, after throttling. get_ident would
+        # then key on the caller-chosen X-Forwarded-For, so resolve the token and fall
+        # back to the trusted proxy chain's client IP.
+        ident = None
+        try:
+            result = OAuthAccessTokenAuthentication().authenticate(request)
+        except Exception:
+            # A bad bearer must not become a 500; the action rejects it a moment later.
+            result = None
+        if result is not None:
+            user, _ = result
+            if user is not None:
+                ident = f"user:{user.pk}"
+        if ident is None:
+            ident = f"ip:{get_trusted_client_ip(request) or 'unknown'}"
+        # Bucket per program, on the resolved node rather than the raw field: keying
+        # on what the caller sent would hand out a fresh quota per invented name.
+        try:
+            program = request.data.get("program") if isinstance(request.data, dict) else None
+        except Exception:
+            program = None
+        # One shared bucket for anything unrecognized: a per-name bucket would hand
+        # out a fresh quota for every invented program, even though each is refused.
+        ident = f"{ident}|{wizard_product_node(program) or 'unknown-program'}"
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+        return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
+
+
+def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
+    """Atomically consume one of this user's daily mints for this program, or raise.
+
+    `limit` replaces the throttle's daily count; None keeps the configured rate.
+
+    Called immediately before the mint, after every gate, so a request refused by a
+    gate spends nothing, while parallel requests cannot all slip under the ceiling
+    the way a read-then-charge throttle lets them. A mint that then fails keeps its
+    slot unless the failure proves no token was issued; see refund_wizard_mint.
+
+    Returns the counter it charged so the refund targets that exact key. Recomputing
+    the window at refund time would decrement the next day's counter for a request
+    spanning 00:00 UTC, handing out a free slot.
+
+    Fails open on a cache error: this bounds spend that the per-token cap and the
+    wallet also bound, and a Redis blip must not turn a minted token into a 500.
+    """
+    throttle = SetupWizardGatewayTokenRateThrottle()
+    if throttle.rate is None:
+        return None
+    try:
+        key = throttle.get_cache_key(request, view)
+        if key is None:
+            return None
+        window = int(time.time()) // throttle.duration
+        counter = f"{key}:{window}"
+        cache.add(counter, 0, timeout=throttle.duration)
+        try:
+            count = cache.incr(counter)
+        except ValueError:
+            # The key vanished between add and incr, so the incr wrote nothing.
+            # Persist the charge as the window's first rather than leaving it
+            # implicit: the counter this returns is refundable, and a handle for a
+            # charge that was never stored would debit a concurrent request's slot.
+            cache.set(counter, 1, timeout=throttle.duration)
+            count = 1
+    except Exception as e:
+        capture_exception(e)
+        return None
+    if count > (throttle.num_requests if limit is None else limit):
+        raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
+    return counter
+
+
+def refund_wizard_mint(counter: str | None) -> None:
+    """Return a reserved mint slot after a failure that issued no token.
+
+    Only for failures that prove the gateway holds nothing: refunding one it did
+    mint would let a user exceed the daily ceiling. Swallows cache errors so a
+    refund can never turn the 503 the caller is already answering into a 500.
+    """
+    if counter is None:
+        return
+    try:
+        cache.decr(counter)
+    except ValueError:
+        # The window that owned the charge is gone, so there is nothing to return.
+        pass
+    except Exception as e:
+        # A lost refund costs the user a slot until the window rolls, and looks
+        # identical to a moot one; the sibling reserve reports its errors the same way.
+        capture_exception(e)
+
+
 class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
     """Counts a user's recent wizard cloud RUNS (not requests), excluding failed and cancelled ones.
 
@@ -1217,20 +1361,35 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class WidgetTeamThrottle(SimpleRateThrottle):
-    """Rate limit per team token."""
-
-    scope = "widget_team"
+class _WidgetTeamTokenThrottle(SimpleRateThrottle):
     rate = "3600/hour"
 
-    def get_cache_key(self, request, view):
-        # Throttle by team token if available, otherwise by IP
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        if not self.scope:
+            raise NotImplementedError("Set scope on WidgetTeamPollThrottle or WidgetTeamWriteThrottle")
         token = request.headers.get("X-Conversations-Token", "")
         if token:
             ident = hashlib.sha256(token.encode()).hexdigest()
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
+    """Do not assign this to POST views. A shared bucket lets background list
+    polling 429 ticket creates."""
+
+    scope = "widget_team_poll"
+
+
+class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
+    """Keep this off GET poll views so list and message polling cannot exhaust it."""
+
+    scope = "widget_team_write"
+
+
+WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)
+WIDGET_WRITE_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamWriteThrottle)
 
 
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
@@ -1675,3 +1834,13 @@ class SupportSlackOAuthCallbackThrottle(IPThrottle):
 
     scope = "support_slack_oauth_callback"
     rate = "30/minute"
+
+
+class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_sustained"
+    rate = "120/hour"
+
+
+class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_burst"
+    rate = "20/minute"

@@ -21,6 +21,10 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_harness.note_targets import (
+    PIPELINE_AUDIENCE_IMPLEMENTATION,
+    PIPELINE_AUDIENCE_REPORT_RESEARCH,
+)
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools import (
     MAX_EVIDENCE_ENTRIES,
@@ -489,6 +493,33 @@ class TestRemember(BaseTest):
         row = SignalScratchpad.objects.get(team_id=self.team.id, key="k")
         assert row.content == "v2"
         assert str(row.created_by_run_id) == str(run.id)
+
+    def test_pipeline_identity_attributes_the_entry_and_survives_a_later_upsert(self) -> None:
+        # A report-pipeline stage has no `SignalScoutRun`, so without the identity column its
+        # entries come back unattributed and a reader can't tell research from a scout. The
+        # create-only rule matters because `remember` is an upsert: whoever rewrites an entry
+        # last must not become its author.
+        remember(
+            team_id=self.team.id,
+            key="k",
+            content="v1",
+            identity=PIPELINE_AUDIENCE_REPORT_RESEARCH,
+        )
+        remember(team_id=self.team.id, key="k", content="v2", identity=PIPELINE_AUDIENCE_IMPLEMENTATION)
+
+        found = search_scratchpad(team_id=self.team.id, key="k")
+        assert [(e.content, e.created_by_skill, e.created_by_run_id) for e in found] == [
+            ("v2", PIPELINE_AUDIENCE_REPORT_RESEARCH, None)
+        ]
+
+    def test_run_lineage_still_names_the_scout_skill(self) -> None:
+        # The identity column is a fallback, not a replacement: an entry with a run must keep
+        # reporting that run's skill name.
+        run = _create_run(self.team)
+
+        remember(team_id=self.team.id, key="k", content="v1", run_id=str(run.id))
+
+        assert search_scratchpad(team_id=self.team.id, key="k")[0].created_by_skill == run.skill_name
 
     def test_stores_expires_at(self) -> None:
         expiry = timezone.now() + timedelta(days=3)
@@ -1509,6 +1540,10 @@ class TestSuggestedPromptSafetyJudgeInput:
 
         assert signal is not None
         assert "ignore previous instructions" in signal.content
+        # The label is what stops the judge from reading a benign action prompt ("create the alert,
+        # then resolve this report") as an anonymous agent-directed instruction and suppressing the
+        # report — the judge's rendering drops `source_id`, so the content must say what it is.
+        assert signal.content.startswith("Suggested prompts")
 
     def test_no_prompts_adds_nothing_to_the_judge_input(self) -> None:
         # A report without suggestions must produce the judge prompt it produced before they existed.

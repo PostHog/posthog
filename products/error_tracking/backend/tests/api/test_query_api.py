@@ -9,10 +9,13 @@ from unittest.mock import patch
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -705,3 +708,25 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert "$exception_issue_id" not in variables_properties
         assert "$lib" not in variables_properties
         assert "$current_url" not in variables_properties
+
+    # The runner's access check reads the token owner's RBAC, not the token's granted scopes, so a
+    # kind registered on the generic query endpoint without a _QUERY_KIND_SCOPES entry is reachable
+    # by any token holding only query:read.
+    @parameterized.expand(
+        [
+            (["query:read"], 403),
+            (["error_tracking:read"], 403),
+            (["query:read", "error_tracking:read"], 200),
+        ]
+    )
+    def test_releases_query_needs_both_scopes(self, scopes: list[str], expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": {"kind": "ErrorTrackingReleasesQuery", "issueId": self.issue_id}},
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()

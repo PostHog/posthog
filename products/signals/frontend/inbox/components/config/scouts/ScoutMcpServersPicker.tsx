@@ -2,13 +2,14 @@ import { useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight, IconServer } from '@posthog/icons'
-import { LemonSwitch, LemonTag, LemonTagType, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { agentServerConnectionIssue } from 'products/mcp_store/frontend/gateway/agentServerUtils'
 import type { MCPServiceAccountServerApi } from 'products/mcp_store/frontend/generated/api.schemas'
 
 import { scoutMcpServersLogic } from '../../../logics/scoutMcpServersLogic'
@@ -37,21 +38,6 @@ export function ScoutMcpServersPicker(props: ScoutMcpServersPickerProps): JSX.El
         return null
     }
     return props.compact ? <CompactPicker {...props} /> : <FullPicker {...props} />
-}
-
-function connectionIssue(server: MCPServiceAccountServerApi): { label: string; tagType: LemonTagType } | null {
-    switch (server.connection_state) {
-        case 'needs_reauth':
-            return { label: 'Reconnect', tagType: 'danger' }
-        case 'pending_oauth':
-            return { label: 'Pending OAuth', tagType: 'warning' }
-        case 'disabled':
-            return { label: 'Disabled', tagType: 'muted' }
-        case 'missing_credential':
-            return { label: 'Needs connection', tagType: 'warning' }
-        default:
-            return null
-    }
 }
 
 interface PickerState {
@@ -127,8 +113,10 @@ function FullPicker(props: ScoutMcpServersPickerProps): JSX.Element {
                 <div className="min-w-0">
                     <div className="font-medium text-sm text-default">No MCP servers shared with the team yet</div>
                     <p className="text-xs text-secondary mt-0.5 mb-0">
-                        <Link to={urls.mcpGateway()}>Share an MCP server with the team</Link> to give scouts external
-                        tools.
+                        <Link to={urls.mcpGateway()} target="_blank">
+                            Share an MCP server with the team
+                        </Link>{' '}
+                        to give scouts external tools.
                     </p>
                 </div>
             </div>
@@ -138,7 +126,7 @@ function FullPicker(props: ScoutMcpServersPickerProps): JSX.Element {
             <div className="rounded border bg-bg-light overflow-hidden">
                 <div className="divide-y">
                     {state.visibleServers.map((server) => {
-                        const issue = connectionIssue(server)
+                        const issue = agentServerConnectionIssue(server)
                         return (
                             <div key={server.id} className="flex items-center gap-3 px-3 py-2.5">
                                 <ServerIcon iconDomain={server.icon_domain} size={28} />
@@ -178,6 +166,7 @@ function FullPicker(props: ScoutMcpServersPickerProps): JSX.Element {
                 )}
                 <Link
                     to={urls.mcpGateway()}
+                    target="_blank"
                     className="group flex items-center justify-between gap-3 border-t border-primary px-3 py-2 text-xs no-underline transition-colors hover:bg-bg-3000"
                 >
                     <span className="text-secondary group-hover:text-default">Share more MCP servers</span>
@@ -210,7 +199,9 @@ function CompactPicker(props: ScoutMcpServersPickerProps): JSX.Element {
                 <span className="text-xs text-default">MCP servers</span>
                 <span className="text-[11.5px] text-muted">
                     Choose which of the team's shared MCP servers this scout can use.{' '}
-                    <Link to={urls.mcpGateway()}>Manage MCP servers</Link>
+                    <Link to={urls.mcpGateway()} target="_blank">
+                        Manage MCP servers
+                    </Link>
                 </span>
             </div>
             {state.initialLoading ? (
@@ -219,7 +210,10 @@ function CompactPicker(props: ScoutMcpServersPickerProps): JSX.Element {
                 </span>
             ) : state.visibleServers.length === 0 ? (
                 <span className="text-[11.5px] text-muted">
-                    <Link to={urls.mcpGateway()}>Share an MCP server with the team</Link> to give scouts external tools.
+                    <Link to={urls.mcpGateway()} target="_blank">
+                        Share an MCP server with the team
+                    </Link>{' '}
+                    to give scouts external tools.
                 </span>
             ) : (
                 <div className="flex flex-col gap-1.5">
