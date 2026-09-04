@@ -50,30 +50,41 @@ export function getTitleText(title: ReactNode): string {
     return collectText(title).replace(/\s+/g, ' ').trim()
 }
 
-const fallbackTitle = (id: string): string => id.replace(/[-]/g, ' ')
+/** The title a search matches on, falling back to the id for a title with no readable text. */
+const indexedTitle = (title: ReactNode, id: string): string => getTitleText(title) || id.replace(/[-]/g, ' ')
+
+const keywordText = (keywords: string[] | undefined): string => (keywords ?? []).join(' ')
+
+const settingDescription = (setting: Setting): string =>
+    setting.searchDescription ?? (typeof setting.description === 'string' ? setting.description : '')
 
 export function buildSettingsSearchIndex(
     sections: SettingSection[],
     isSettingVisible: (setting: Setting) => boolean
 ): SearchIndexEntry[] {
     const entries: SearchIndexEntry[] = []
-    const visibleSections = sections.filter((section) => !section.hideFromNavigation)
 
-    for (const section of visibleSections) {
-        const sectionTitle = getTitleText(section.title) || fallbackTitle(section.id)
-        const sectionKeywords = (section.keywords ?? []).join(' ')
+    for (const section of sections) {
+        if (section.hideFromNavigation) {
+            continue
+        }
+
+        const sectionTitle = indexedTitle(section.title, section.id)
+        const shared = {
+            sectionId: section.id,
+            sectionTitle,
+            level: section.level,
+            sectionKeywords: keywordText(section.keywords),
+        }
 
         // A section that is a top-level link (e.g. Billing) has no settings of its own, so the
         // section itself is the only thing a search can land on.
         if (section.settings.length === 0) {
             entries.push({
+                ...shared,
                 settingId: section.id as SettingId,
                 settingTitle: sectionTitle,
-                sectionId: section.id,
-                sectionTitle,
-                level: section.level,
                 keywords: '',
-                sectionKeywords,
                 description: '',
             })
             continue
@@ -85,15 +96,11 @@ export function buildSettingsSearchIndex(
             }
 
             entries.push({
+                ...shared,
                 settingId: setting.id,
-                settingTitle: getTitleText(setting.title) || fallbackTitle(setting.id),
-                sectionId: section.id,
-                sectionTitle,
-                level: section.level,
-                keywords: (setting.keywords ?? []).join(' '),
-                sectionKeywords,
-                description:
-                    setting.searchDescription ?? (typeof setting.description === 'string' ? setting.description : ''),
+                settingTitle: indexedTitle(setting.title, setting.id),
+                keywords: keywordText(setting.keywords),
+                description: settingDescription(setting),
             })
         }
     }
