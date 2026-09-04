@@ -632,6 +632,19 @@ impl SentinelContext {
     }
 }
 
+fn partition_names(tpl: &TopicPartitionList) -> Vec<String> {
+    let elements = tpl.elements();
+    let mut partitions: Vec<(&str, i32)> = elements
+        .iter()
+        .map(|element| (element.topic(), element.partition()))
+        .collect();
+    partitions.sort_unstable();
+    partitions
+        .into_iter()
+        .map(|(topic, partition)| format!("{topic}:{partition}"))
+        .collect()
+}
+
 impl ClientContext for SentinelContext {
     /// Fired on a librdkafka thread every `statistics.interval.ms`; disabled
     /// when that is 0.
@@ -645,7 +658,11 @@ impl ConsumerContext for SentinelContext {
         match rebalance {
             Rebalance::Revoke(tpl) => {
                 counter!("ingestion_consumer_rebalances_total", "event" => "revoke").increment(1);
-                info!(partitions = tpl.count(), "Rebalance: partitions revoked");
+                info!(
+                    partitions = tpl.count(),
+                    topic_partitions = ?partition_names(tpl),
+                    "Rebalance: partitions revoked"
+                );
                 self.commit_sentinel
                     .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
                 self.forget_ledger_partitions(tpl);
@@ -665,7 +682,11 @@ impl ConsumerContext for SentinelContext {
     fn post_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         if let Rebalance::Assign(tpl) = rebalance {
             counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
-            info!(partitions = tpl.count(), "Rebalance: partitions assigned");
+            info!(
+                partitions = tpl.count(),
+                topic_partitions = ?partition_names(tpl),
+                "Rebalance: partitions assigned"
+            );
             // An assign list names partitions that start a new assignment, so
             // any surviving ledger for them is stale. The revoke callback
             // normally dropped it already; this covers losses with no revoke
@@ -1012,5 +1033,18 @@ mod tests {
         assert!(sentinel
             .note_sent("t:a", &[msg_at(0, 101)], SendKind::Fresh)
             .is_empty());
+    }
+
+    #[test]
+    fn partition_names_sort_by_topic_then_partition_number() {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition("overflow", 2);
+        tpl.add_partition("events", 10);
+        tpl.add_partition("events", 9);
+
+        assert_eq!(
+            partition_names(&tpl),
+            vec!["events:9", "events:10", "overflow:2"]
+        );
     }
 }

@@ -29,8 +29,8 @@ class TestProductPushCadence(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_prior_campaign", None, True),
-            ("day_6_still_cooling", datetime(2026, 6, 25, 13, 0, tzinfo=UTC), False),
-            ("day_7_exactly_over", datetime(2026, 6, 24, 12, 0, tzinfo=UTC), True),
+            ("day_4_still_cooling", datetime(2026, 6, 27, 13, 0, tzinfo=UTC), False),
+            ("day_5_exactly_over", datetime(2026, 6, 26, 12, 0, tzinfo=UTC), True),
         ]
     )
     def test_cooldown_boundary(self, _name: str, last_ended_at: datetime | None, expected: bool) -> None:
@@ -55,5 +55,5 @@ class TestProductPushCadence(SimpleTestCase):
     def test_retry_boundary(self, _name: str, ended_at: datetime, expected: bool) -> None:
         assert is_retry_eligible(ended_at, NOW) is expected
 
-    def test_campaign_runs_14_days_from_its_own_start(self) -> None:
-        assert campaign_ends_at(NOW) == datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
+    def test_campaign_runs_10_days_from_its_own_start(self) -> None:
+        assert campaign_ends_at(NOW) == datetime(2026, 7, 11, 12, 0, tzinfo=UTC)

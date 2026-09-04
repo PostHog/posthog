@@ -9,6 +9,70 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+ * resolves alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysItemMax = 200
+
+export const organizationsProjectsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysMax = 10
+
+export const organizationsProjectsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysItemMax = 200
+
+export const organizationsProjectsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysMax = 10
+
+export const OrganizationsProjectsTracingConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tracing_distinct_id_attribute_keys: zod
+        .array(
+            zod.string().max(organizationsProjectsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysItemMax)
+        )
+        .max(organizationsProjectsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysMax)
+        .optional()
+        .describe(
+            "Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js \/ posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes."
+        ),
+    tracing_session_id_attribute_keys: zod
+        .array(
+            zod.string().max(organizationsProjectsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysItemMax)
+        )
+        .max(organizationsProjectsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysMax)
+        .optional()
+        .describe(
+            "Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js \/ posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes."
+        ),
+})
+
+/**
+ * Manage tracing product configuration for this environment. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
+ */
+export const environmentsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysItemMax = 200
+
+export const environmentsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysMax = 10
+
+export const environmentsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysItemMax = 200
+
+export const environmentsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysMax = 10
+
+export const EnvironmentsTracingConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tracing_distinct_id_attribute_keys: zod
+        .array(zod.string().max(environmentsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysItemMax))
+        .max(environmentsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeysMax)
+        .optional()
+        .describe(
+            "Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js \/ posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes."
+        ),
+    tracing_session_id_attribute_keys: zod
+        .array(zod.string().max(environmentsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysItemMax))
+        .max(environmentsTracingConfigPartialUpdateBodyTracingSessionIdAttributeKeysMax)
+        .optional()
+        .describe(
+            "Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js \/ posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes."
+        ),
+})
+
 export const tracingSpansAggregateCreateBodyQueryOneCompareFilterOneCompareDefault = false
 export const tracingSpansAggregateCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansAggregateCreateBodyQueryOneLimitMax = 5000

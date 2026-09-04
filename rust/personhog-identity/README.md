@@ -35,3 +35,11 @@ Tests need the persons database (`posthog_persons`) with `rust/persons_migration
 ```bash
 cargo test -p personhog-identity
 ```
+
+## Parked lifecycle ops
+
+A lifecycle op parks when the leader answers a semantic refusal after the point of no return: retrying a definitive refusal cannot succeed, so the op holds its fences and only an explicit retry under the same op id resumes it (the sweeper is barred). Refusals before the point of no return abort instead, recording `skipped_refused` for their sources and releasing fences in the same settlement. The sweeper re-drives interrupted sagas to a terminal state and defaults on; a fleet that disables it converts every orphaned saga into fences an operator must clear. The surface is the `personhog_lifecycle_ops_parked` gauge and the park's ERROR log carrying the op id and reason; resolution is a retry with the recorded op id.
+
+## Delete retries must present a byte-stable request
+
+A same-op-id delete retry is compared byte-for-byte against the frozen request, so the caller must present the identical `person_ids` list (same order, same duplicates) on every retry; a mismatch is refused `op_id_reused` and the deletion must be reissued under a fresh op id.
