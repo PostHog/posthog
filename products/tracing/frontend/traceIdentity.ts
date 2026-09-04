@@ -3,7 +3,7 @@
 
 // The per-span precedence and the convention key lists are shared with Logs, because both
 // products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
-import { type AttributeIdentityMatch, getDistinctIdWithKey, getSessionIdWithKey } from 'products/logs/frontend/utils'
+import { getDistinctIdWithKey, getSessionIdWithKey, type LogIdentityMatch } from 'products/logs/frontend/utils'
 
 import type { Span } from './types'
 
@@ -16,7 +16,7 @@ export interface TraceIdentity {
 // Shared by every caller that resolves nothing, so it must stay immutable.
 export const EMPTY_TRACE_IDENTITY: TraceIdentity = Object.freeze({ distinctId: null, sessionId: null })
 
-function singleValueAcrossSpans(spans: Span[], resolve: (span: Span) => AttributeIdentityMatch | null): string | null {
+function singleValueAcrossSpans(spans: Span[], resolve: (span: Span) => LogIdentityMatch | null): string | null {
     let resolved: string | null = null
 
     for (const span of spans) {
