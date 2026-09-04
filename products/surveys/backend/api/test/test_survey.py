@@ -7404,6 +7404,58 @@ class TestSurveyLifecycleActions(APIBaseTest):
         self.survey.refresh_from_db()
         self.assertEqual(self.survey.end_date, original_end)
 
+    def _create_targeted_popover(self) -> dict:
+        # A targeted popover gets a targeting flag and an internal targeting flag, both
+        # auto-created inactive so the SDK does not deliver the survey before launch.
+        return self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Targeted popover",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Q?"}],
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+            },
+            format="json",
+        ).json()
+
+    def test_launch_activates_auto_created_flags(self):
+        survey = self._create_targeted_popover()
+        targeting_flag_id = survey["targeting_flag"]["id"]
+        internal_flag_id = survey["internal_targeting_flag"]["id"]
+        self.assertFalse(FeatureFlag.objects.get(id=targeting_flag_id).active)
+        self.assertFalse(FeatureFlag.objects.get(id=internal_flag_id).active)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{survey['id']}/launch/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # The browser SDK evaluates these flags before displaying the survey. Launch
+        # must activate them, or the survey is served but never shown.
+        self.assertTrue(FeatureFlag.objects.get(id=targeting_flag_id).active)
+        self.assertTrue(FeatureFlag.objects.get(id=internal_flag_id).active)
+        self.assertTrue(response.json()["targeting_flag"]["active"])
+        self.assertTrue(response.json()["internal_targeting_flag"]["active"])
+
+    def test_stop_deactivates_auto_created_flags(self):
+        survey = self._create_targeted_popover()
+        self.client.post(f"/api/projects/{self.team.id}/surveys/{survey['id']}/launch/")
+        targeting_flag_id = survey["targeting_flag"]["id"]
+        internal_flag_id = survey["internal_targeting_flag"]["id"]
+
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{survey['id']}/stop/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(FeatureFlag.objects.get(id=targeting_flag_id).active)
+        self.assertFalse(FeatureFlag.objects.get(id=internal_flag_id).active)
+
 
 class TestSurveyListTypeFilter(APIBaseTest):
     def test_filter_by_type(self):

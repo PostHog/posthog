@@ -1962,7 +1962,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance.save()
 
     def _should_survey_flags_be_active(self, instance: Survey) -> bool:
-        return bool(instance.start_date) and not instance.end_date and not instance.archived
+        return survey_flags_should_be_active(instance)
 
     def _add_user_survey_interacted_filters(self, instance: Survey):
         should_flag_be_active = self._should_survey_flags_be_active(instance)
@@ -2227,6 +2227,26 @@ class SurveyFilterSet(FilterSet):
         fields = ["archived", "type"]
 
 
+def survey_flags_should_be_active(survey: Survey) -> bool:
+    """A survey delivers only while it is started, not stopped, and not archived."""
+    return bool(survey.start_date) and not survey.end_date and not survey.archived
+
+
+def sync_survey_flags_active_state(survey: Survey) -> None:
+    """Mirror the survey's running state onto its auto-created flags.
+
+    The serializer `update()` path already does this. The `launch` and `stop`
+    lifecycle endpoints save the date fields directly and bypass it. Without this
+    sync a launched survey keeps inactive flags, so the browser SDK evaluates them
+    as off and never displays the survey.
+    """
+    active = survey_flags_should_be_active(survey)
+    for flag in (survey.targeting_flag, survey.internal_targeting_flag, survey.internal_response_sampling_flag):
+        if flag is not None and flag.active != active:
+            flag.active = active
+            flag.save(update_fields=["active"])
+
+
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
@@ -2355,6 +2375,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         previous_start = survey.start_date
         survey.start_date = now
         survey.save(update_fields=["start_date"])
+        sync_survey_flags_active_state(survey)
 
         log_activity(
             organization_id=self.organization.id,
@@ -2401,6 +2422,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         previous_end = survey.end_date
         survey.end_date = now
         survey.save(update_fields=["end_date"])
+        sync_survey_flags_active_state(survey)
 
         log_activity(
             organization_id=self.organization.id,
