@@ -24,8 +24,8 @@ export const datasetsEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogResearch,
         text: {
             'needs-setup': {
-                headline: 'Build test sets to check changes before they reach production',
-                lead: 'Datasets are the inputs and outputs you expect from your AI. Add items by hand or save them from production traces. Then pull them into wherever you test changes to catch regressions before they go live.',
+                headline: 'Check changes before they reach production',
+                lead: 'Datasets are the input and output pairs you expect from your AI. Add items manually or save them from production traces. Then pull them in wherever you test changes to catch regressions before they go live.',
             },
         },
         primaryAction: {
