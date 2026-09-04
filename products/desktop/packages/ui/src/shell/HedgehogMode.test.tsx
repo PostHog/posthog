@@ -18,8 +18,10 @@ vi.mock("@posthog/di/react", () => ({
   useService: () => ({ mount: mocks.mount }),
 }));
 
+const meState = vi.hoisted(() => ({ data: undefined as unknown }));
+
 vi.mock("../features/auth/useMeQuery", () => ({
-  useMeQuery: () => ({ data: undefined }),
+  useMeQuery: () => meState,
 }));
 
 vi.mock("../features/settings/settingsStore", () => ({
@@ -84,6 +86,7 @@ beforeEach(() => {
   mocks.mount.mockImplementation(mountGameInto);
   mocks.contextLost = false;
   settingsState.hedgehogMode = true;
+  meState.data = undefined;
 });
 
 afterEach(() => {
@@ -169,6 +172,29 @@ describe("HedgehogMode", () => {
       vi.advanceTimersByTime(10_000);
     });
     expect(mocks.mount).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps the remount cap across mount-effect re-runs", async () => {
+    const { view, overlay } = await renderHedgehogMode();
+
+    for (let loss = 0; loss < 3; loss += 1) {
+      await loseContext();
+      await remountAfterDelay();
+    }
+    expect(mocks.mount).toHaveBeenCalledTimes(4);
+
+    // The user's hedgehog config settling re-runs the mount effect. That must
+    // not reset the loss count and re-arm more remount attempts.
+    meState.data = { hedgehog_config: { actor_options: {} } };
+    view.rerender(<HedgehogMode />);
+    await act(async () => {});
+    expect(mocks.mount).toHaveBeenCalledTimes(5);
+
+    await loseContext();
+    await remountAfterDelay();
+
+    expect(mocks.mount).toHaveBeenCalledTimes(5);
+    expect(overlay.style.visibility).toBe("hidden");
   });
 
   it("destroys the game on toggle off and remounts armed on re-enable", async () => {
