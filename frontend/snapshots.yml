@@ -1437,9 +1437,9 @@ snapshots:
     components-mcp-use-case-card--surveys-create--light:
         hash: v1.k794b7964.693a3cba67de29bb7ecea8b07f3ae05b0201c2785fa2f2d4975e481b6fdc349e.ROQjP-mA4zsLzJifJv9uIKLgwuM0h84NwoFZJ90rSyc
     components-navpanelproductpush--all-products--dark:
-        hash: v1.k794b7964.9ca67b789c62aceb0bbfdbec3f3f89d764359c5669de63e5987e1d5e9afb9733.v9gXYiH3-wMeduwyBCs1XeaYm9aOsbuscn-lgLMfG1o
+        hash: v1.k794b7964.8b460276d45041350cc96fb98ec1d5025e48560fd8ff6ab328421b4851b1bd41.GGe6E02b9LwL1ZxHajhFXlzABp2sgjlX7RqShO92yQI
     components-navpanelproductpush--all-products--light:
-        hash: v1.k794b7964.53d9b8a8fafe9c92f4f8562c4d31e992a9155313cf4f3bd426f64cc463446fd9.DdrGrHXga433cyEFNePUtgoEz8s4HZBG9lDrmmNeZlg
+        hash: v1.k794b7964.de58f637861157c0e4a3281d5f56da9447019265aea1c897d73d367e22edc690.ES4hg06YNGISifFv2dvUL8uQKXix83i31w8fuEjGhgo
     components-navpanelproductpush--default-fallback--dark:
         hash: v1.k794b7964.020f807f2d17fdf515b84c8800c37e0b6d8b0bda09421fbe1f0d3bcf9aeb23d4.C0OD2Gur0abSVWhBC5aarFDYTYRrudc-F6CjqvjhJ5o
     components-navpanelproductpush--default-fallback--light:
@@ -8405,9 +8405,9 @@ snapshots:
     scenes-app-replay-vision--scanner-observations--light:
         hash: v1.k794b7964.f0551bd49f4f37ff94a346960a244b02dbdbe6798826c7c53c4d5541ebe99e74.7zBopcC7VvU8XUZehEBxzdUHTxfM1m64uoZcBXkMlXo
     scenes-app-replay-vision--scanner-on-demand--dark:
-        hash: v1.k794b7964.2a0ea0198da6166d9fb3daf278d4de9b3ec80a0e8b9234cf8a831c12424fb7d0.awEhTQe1f-gzSwOsUJz_uv7FaRwajBLmO-pgng3Gs9U
+        hash: v1.k794b7964.e3c55f635fcc957d786bf810c6be7f7ba8da1287a4390314893282062f43e108._oT0AUvPgnwHst_b6VX6Op2av3k5NsOyjnquUcgTB4c
     scenes-app-replay-vision--scanner-on-demand--light:
-        hash: v1.k794b7964.d6b1a876ab50b940e9bcbe27164922f5c564a01c25c56bbc8955255a2d47173f.DOdeCbLwHWJmW1H1uAYkxdvHS2rpSR6froY4FXuOW7s
+        hash: v1.k794b7964.ee354fdd1202a3489ea67393713b268bbfe711e771102c975aeab4921a61f9f7.MP0HrALcb5hmcbxbIRroM0f93rHw-v6_egWPGV-CL9Y
     scenes-app-replay-vision--scanner-scan-drought--dark:
         hash: v1.k794b7964.47963d3ee2fc2934b80cfd51b0db411baf326710d528c8995ed7eecbae4d6faa.zV2CxUwodEqwEiQT5_Tr3XAFLhkhAGTY3z8LUm97USo
     scenes-app-replay-vision--scanner-scan-drought--light:
