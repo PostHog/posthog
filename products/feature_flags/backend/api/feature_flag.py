@@ -3828,6 +3828,10 @@ class FeatureFlagViewSet(
         query_serializer=MyFlagsQuerySerializer,
         responses={
             200: OpenApiResponse(response=MyFlagsResponseListSerializer),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer, description="Flag evaluation service temporarily unavailable"
+            ),
         },
     )
     @action(methods=["GET"], detail=False, pagination_class=None, required_scopes=["feature_flag:read"])
@@ -3884,14 +3888,36 @@ class FeatureFlagViewSet(
         # Ask for "all" runtimes (as evaluation_reasons does): the internal request has a
         # python-requests User-Agent, which the flags service reads as a server runtime and
         # would otherwise use to drop client-only flags, reporting them here as false.
-        result = get_flags_from_service(
-            token=self.team.api_token,
-            distinct_id=distinct_id,
-            groups=groups,
-            flag_keys=flag_keys,
-            evaluation_runtime="all",
-            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
-        )
+        # Retry the transient connection blips and turn a persistent failure into a clean
+        # error instead of an unhandled 500, as evaluation_reasons does.
+        try:
+            result = get_flags_from_service(
+                token=self.team.api_token,
+                distinct_id=distinct_id,
+                groups=groups,
+                flag_keys=flag_keys,
+                evaluation_runtime="all",
+                internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
+                max_retries=2,
+            )
+        except (requests.exceptions.HTTPError, requests.exceptions.JSONDecodeError) as e:
+            # A non-2xx response or an unparseable body — a real upstream failure, not the
+            # "will probably clear on retry" case below, so it gets its own status.
+            logger.warning("my_flags flags service returned an invalid response: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service returned an unexpected response."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.RequestException as e:
+            # Connection errors, timeouts, and the rarer transport failures (SSLError,
+            # ProxyError, ...) are all availability problems, not a "no flags" state.
+            logger.warning("my_flags flags service call failed: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         # Result from Rust service is always a dictionary. Parse it to get the flags data.
         flags_data = result.get("flags", {})
@@ -4632,7 +4658,9 @@ class FeatureFlagViewSet(
             404: OpenApiResponse(response=ErrorResponseSerializer, description="Person not found"),
             500: OpenApiResponse(response=ErrorResponseSerializer, description="Server error"),
             502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
-            503: OpenApiResponse(response=ErrorResponseSerializer, description="Person lookup service unavailable"),
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer, description="Person lookup or flag evaluation service unavailable"
+            ),
         },
     )
     @action(
@@ -4843,6 +4871,7 @@ class FeatureFlagViewSet(
                 flag_keys=[feature_flag.key],
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
+                max_retries=2,
             )
 
             # Extract the flag result from the Rust response
@@ -4940,6 +4969,15 @@ class FeatureFlagViewSet(
             response_serializer.is_valid(raise_exception=True)
             return Response(response_serializer.data)
 
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
+            # The retries above did not clear it, so the service is unavailable rather than
+            # the flag being unevaluatable. Say so, so the UI can offer a retry.
+            logger.warning("test_evaluation flags service call failed for flag '%s': %s", feature_flag.key, e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
             logger.exception(
                 "Error evaluating flag '%s' for distinct_id='%s' person_id='%s' timestamp='%s': %s",

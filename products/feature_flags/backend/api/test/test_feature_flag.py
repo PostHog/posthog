@@ -13942,6 +13942,33 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
 
+    @parameterized.expand(
+        [
+            ("connection_error", requests.exceptions.ConnectionError("connection refused")),
+            ("timeout", requests.exceptions.Timeout("timed out")),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_retries_and_returns_503_when_flags_service_unreachable(
+        self, _name, exception, mock_get_flags
+    ):
+        # A transient connect blip is an availability problem, not an unevaluatable flag:
+        # retry it, then report a 503 instead of the generic "Failed to evaluate flag" 500.
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        create_person(team=self.team, distinct_ids=["test-user"])
+        mock_get_flags.side_effect = exception
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("error", response.json())
+        self.assertEqual(mock_get_flags.call_args.kwargs["max_retries"], 2)
+
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_historical_missing_conditions_502(self, mock_get_flags):
@@ -14433,6 +14460,46 @@ class TestFeatureFlagMyFlags(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
         returned_keys = {item["feature_flag"]["key"] for item in response.json()}
         self.assertEqual(returned_keys, {"wanted"})
+
+    @parameterized.expand(
+        [
+            ("connection_error", requests.exceptions.ConnectionError("connection refused")),
+            ("timeout", requests.exceptions.Timeout("timed out")),
+            # Not in the retryable tuple, but still a requests failure rather than an
+            # actual HTTP response — must fall into the catch-all 503, not an unhandled 500.
+            ("ssl_error", requests.exceptions.SSLError("certificate verify failed")),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_my_flags_retries_and_returns_503_when_flags_service_unreachable(self, _name, exception, mock_get_flags):
+        # One transient connect blip must not turn the app's flag list into an unhandled 500:
+        # ask the helper to retry, then report a clean 503 the UI can offer a retry on.
+        FeatureFlag.objects.create(team=self.team, key="some-flag")
+        mock_get_flags.side_effect = exception
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/my_flags/")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("error", response.json())
+        self.assertEqual(mock_get_flags.call_args.kwargs["max_retries"], 2)
+
+    @parameterized.expand(
+        [
+            ("http_error", requests.exceptions.HTTPError("500 Server Error", response=MagicMock(status_code=500))),
+            ("malformed_json", requests.exceptions.JSONDecodeError("Expecting value", "", 0)),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_my_flags_returns_502_for_non_retryable_failures(self, _name, exception, mock_get_flags):
+        # A real HTTP error or an unparseable body is not a transient connection blip, so it
+        # must not be folded into the 503, and must not fall through to an unhandled 500.
+        FeatureFlag.objects.create(team=self.team, key="some-flag")
+        mock_get_flags.side_effect = exception
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/my_flags/")
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("error", response.json())
 
 
 class TestFeatureFlagFiltersMetrics(APIBaseTest):
