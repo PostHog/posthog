@@ -113,12 +113,17 @@ const workflowEmailPausedTotal = new Counter({
  * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
  * choke point instead of only newly started runs.
  */
-function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string } | null {
+function parseWorkflowEmailPause(
+    metadata: HogFunctionType['metadata']
+): { reason: string; byStaff: boolean } | null {
     if (!metadata?.email_sending_paused_at) {
         return null
     }
     const reason = metadata.email_sending_paused_reason
-    return { reason: typeof reason === 'string' ? reason : '' }
+    return {
+        reason: typeof reason === 'string' ? reason : '',
+        byStaff: metadata.email_sending_paused_by === 'staff',
+    }
 }
 
 function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
@@ -379,9 +384,14 @@ export class EmailService {
             if (workflowPause) {
                 workflowEmailPausedTotal.inc()
                 const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
+                // Error rather than warn: the email did not go out, and warn-level lines get skimmed
+                // past in the run logs. The run itself still continues; a pause is policy, not a
+                // fault, so it must not enter retry or abort handling.
                 addLog(
-                    'warn',
-                    `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
+                    'error',
+                    workflowPause.byStaff
+                        ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
+                        : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
                 )
                 if (!isTest) {
                     result.metrics.push({
