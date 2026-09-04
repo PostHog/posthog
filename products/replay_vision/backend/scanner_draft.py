@@ -40,6 +40,7 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerModel, ScannerType
+from products.replay_vision.backend.queries.action_volume import recent_action_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
@@ -288,6 +289,9 @@ class _MatchedAction:
 
     name: str
     action_id: int
+    # Sessions the action fired in over the volume query's window. Shown in the briefing so the model
+    # can prefer a busy action when several match the goal.
+    recent_sessions: int = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -837,7 +841,9 @@ Pick the single type that best fits the goal, then draft the scanner:
 - filter_actions: the briefing may list the team's saved actions matching the goal. An action is the
   team's own curated definition of a behavior, so when one covers the goal, prefer it over hand-picking
   events or pages. Copy the name exactly; anything not in the list is discarded. Actions AND with every
-  other filter, so the one strongest action usually stands alone.
+  other filter, so the one strongest action usually stands alone. Each action shows the sessions it
+  fired in recently: when several fit the goal, pick the busier one, and prefer an event or a page over
+  an action that barely fires.
 - filter_cohorts: the briefing may list the team's cohorts matching the goal. A cohort is a saved
   audience, so use one when the goal is about WHO the user is ('what do power users struggle with')
   rather than what they did. Copy the name exactly; anything not in the list is discarded. Usually
@@ -949,10 +955,11 @@ def _build_user_content_v2(
             "\n"
             + as_untrusted_data(
                 "matching-actions",
-                [f'"{a.name}"' for a in actions],
+                [f'"{a.name}" ({a.recent_sessions} sessions last 7 days)' for a in actions],
                 source=(
-                    "the team's saved actions whose names match the goal. Each is a curated definition "
-                    "of a behavior; copy a name into filter_actions to scan only sessions containing it"
+                    "the team's saved actions whose names match the goal, each with the sessions it "
+                    "fired in recently. Each is a curated definition of a behavior; copy a name into "
+                    "filter_actions to scan only sessions containing it"
                 ),
             )
         )
@@ -1116,6 +1123,34 @@ def _goal_entity_matches(
     return _GoalEntityMatches(
         surveys=list(surveys.values()), actions=list(actions.values()), cohorts=list(cohorts.values())
     )
+
+
+def _live_actions(team: Team, actions: list[_MatchedAction]) -> list[_MatchedAction]:
+    """The matched actions that still fire, each carrying its recent session count.
+
+    A name match cannot tell a current action from one whose definition stopped matching years ago.
+    An autocapture action keyed to a button's text dies when the copy changes, while its name keeps
+    matching a goal about that feature. Offering a dead action costs the whole scanner, because an
+    action ANDs with every other filter and takes the session count to zero.
+
+    Fails open, because name matches without their counts still beat no matches at all.
+    """
+    if not actions:
+        return []
+    try:
+        sessions = recent_action_sessions(team=team, action_ids=[action.action_id for action in actions])
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.action_volume_failed", team_id=team.id, exc_info=True)
+        return actions
+    live = [replace(a, recent_sessions=count) for a in actions if (count := sessions.get(a.action_id, 0)) > 0]
+    if len(live) < len(actions):
+        logger.info(
+            "replay_vision.scanner_draft.dead_actions_dropped",
+            team_id=team.id,
+            matched=len(actions),
+            dropped=len(actions) - len(live),
+        )
+    return live
 
 
 def _page_filter_regex(pathname: str) -> str | None:
@@ -1411,6 +1446,9 @@ def draft_scanner_from_goal_v2(
         else ""
     )
     matches = _goal_entity_matches(team, goal, user_access_control, allowed_scopes)
+    # Measured here rather than inside the match, so the access-control helper stays free of a
+    # ClickHouse query its other callers do not need.
+    matches = replace(matches, actions=_live_actions(team, matches.actions))
     if matches.surveys:
         # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
         # the survey events may not have matched on their own. A property filter is useless without
