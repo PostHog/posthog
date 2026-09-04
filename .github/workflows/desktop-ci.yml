@@ -98,8 +98,19 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
+            # A superseded run (cancel-in-progress) cancels its jobs. That is not a
+            # test failure, so note it and let the check below pass instead of
+            # posting a red required check. cancelled() is true only for a whole-run
+            # cancel, so a job-level cancel or timeout still reaches the guards.
+            - name: Note run cancellation
+              if: ${{ cancelled() }}
+              run: echo "RUN_CANCELLED=true" >> "$GITHUB_ENV"
             - name: Check results
               run: |
+                  if [[ "${RUN_CANCELLED:-}" == "true" ]]; then
+                    echo "Run was cancelled (superseded); not treating it as a failure."
+                    exit 0
+                  fi
                   if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
                     echo "Desktop build did not succeed (result: ${{ needs.build.result }})."
                     exit 1

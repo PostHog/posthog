@@ -111,6 +111,12 @@ Adding another predicate can skip the required check, so `always() && <condition
 `!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
 Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
 
+The cost of that `always()` gate is a red required check on every superseded run: the gate runs during the cancel, reads its cancelled dependencies, and fails.
+That red sits on a dead SHA — the newer commit that superseded it runs its own gate — but it still reads as a hard failure and trains people to reflex-rerun.
+To drop it without opening a false-green hole, add a `Note run cancellation` step guarded by `if: ${{ cancelled() }}` that writes `RUN_CANCELLED=true` to `$GITHUB_ENV`, then short-circuit the `Check results` step to `exit 0` when that flag is set (the desktop suite gates do this).
+`cancelled()` is true only for a whole-run cancel, so a job-level cancel or timeout leaves the run uncancelled and still reaches the per-dependency guards.
+The `Check results` step keeps no `if:` and keeps every guard, so `WF007` still sees each dependency reach a fail-closed guard.
+
 Four rules for the gate body:
 
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.

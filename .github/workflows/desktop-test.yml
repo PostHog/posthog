@@ -343,8 +343,19 @@ jobs:
         timeout-minutes: 5
         if: always()
         steps:
+            # A superseded run (cancel-in-progress) cancels its jobs. That is not a
+            # test failure, so note it and let the check below pass instead of
+            # posting a red required check. cancelled() is true only for a whole-run
+            # cancel, so a job-level cancel or timeout still reaches the guards.
+            - name: Note run cancellation
+              if: ${{ cancelled() }}
+              run: echo "RUN_CANCELLED=true" >> "$GITHUB_ENV"
             - name: Check results
               run: |
+                  if [[ "${RUN_CANCELLED:-}" == "true" ]]; then
+                    echo "Run was cancelled (superseded); not treating it as a failure."
+                    exit 0
+                  fi
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
