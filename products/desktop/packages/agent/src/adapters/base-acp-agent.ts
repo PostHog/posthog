@@ -33,6 +33,7 @@ import {
   pickAllowedModel,
 } from "../gateway-models";
 import { Logger } from "../utils/logger";
+import type { UsageCommandConfig } from "./usage-command";
 /**
  * Shared settings manager interface that Claude's SettingsManager
  * implements. BaseAcpAgent only calls dispose() on this; each adapter's
@@ -63,9 +64,14 @@ export abstract class BaseAcpAgent implements Agent {
   logger: Logger;
   fileContentCache: { [key: string]: string } = {};
   protected gatewayModels: GatewayModel[] = [];
+  protected usageCommandConfig?: UsageCommandConfig;
 
-  constructor(client: AgentSideConnection) {
+  constructor(
+    client: AgentSideConnection,
+    usageCommandConfig?: UsageCommandConfig,
+  ) {
     this.client = client;
+    this.usageCommandConfig = usageCommandConfig;
     this.logger = new Logger({ debug: true, prefix: "[BaseAcpAgent]" });
   }
 

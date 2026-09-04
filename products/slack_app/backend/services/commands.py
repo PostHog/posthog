@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.temporal.ai.slack_app.usage import format_ai_credit_usage
 
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
 
@@ -38,6 +39,7 @@ def _handle_help(
         f"`{command_prefix} rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
         f"`{command_prefix} project` — Show which PostHog project your mentions route to in this workspace",
         f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
+        f"`{command_prefix} usage` — Show AI credit usage for the current billing period",
     ]
 
     # The workspace-wide default is admins/owners-only, so only surface it to them.
@@ -526,6 +528,14 @@ def dispatch_rules_command(
             thread_ts,
             slack_user_id=slack_user_id,
             command_prefix=command_prefix,
+        )
+    elif command.action == "usage":
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=format_ai_credit_usage(integration.team),
         )
     elif command.action == "add":
         if not command.repository:

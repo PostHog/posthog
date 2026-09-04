@@ -100,6 +100,7 @@ class TestParseProjectCommand:
                 "project workspace *8*",
                 RulesCommand(action="project_set_workspace", project_team_id=8),
             ),
+            ("usage", "usage", RulesCommand(action="usage")),
         ]
     )
     def test_recognized(self, _name: str, text: str, expected: RulesCommand) -> None:
