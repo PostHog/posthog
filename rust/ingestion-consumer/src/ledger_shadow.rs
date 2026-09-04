@@ -14,8 +14,8 @@ use tracing::{info, warn};
 use crate::order_sentinel::OffsetSpan;
 
 /// Runs the offset ledger next to the current commit path without taking
-/// part in commit choice. Without a ledger every call is a no-op: the kill
-/// switch leaves the consumer with no ledger at all, so nothing is charged,
+/// part in commit choice. Without a ledger every call is a no-op: the off
+/// mode leaves the consumer with no ledger at all, so nothing is charged,
 /// settled, or forgotten anywhere.
 pub(crate) struct LedgerShadow {
     ledger: Option<Arc<TopicOffsetLedger>>,
@@ -67,27 +67,37 @@ impl LedgerShadow {
         }
     }
 
-    /// Settle one batch's slice of a partition: complete its offsets, compare
-    /// the frontier with the commit the batch submits, and drain the
-    /// completed prefix.
+    /// Settle one batch's slice of a partition: complete its offsets and
+    /// compare the frontier with the commit the batch submits. Returns the
+    /// settlement, or `None` when the ledger rejected the slice. The window
+    /// holds the offsets until `drain`.
     pub(crate) fn settle(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
         offsets: impl IntoIterator<Item = Offset>,
         span: &OffsetSpan,
-    ) {
+    ) -> Option<Settlement> {
         let Some(ledger) = &self.ledger else {
-            return;
+            return None;
         };
         let settlement = match ledger.settle(topic_partition, stamp, offsets) {
             Ok(settlement) => settlement,
             Err(rejection) => {
                 count_rejection("settle", topic_partition, rejection);
-                return;
+                return None;
             }
         };
         self.observe(topic_partition, &settlement, span, stamp);
+        Some(settlement)
+    }
+
+    /// Drain a settled partition's completed prefix and publish what its
+    /// window still holds.
+    pub(crate) fn drain(&self, topic_partition: &TopicPartition) {
+        let Some(ledger) = &self.ledger else {
+            return;
+        };
         ledger.take_frontier(topic_partition);
         set_held_gauges(
             &topic_partition.topic,
@@ -268,19 +278,20 @@ mod tests {
         ledger.forget_partitions([("events", 0)]);
         shadow.charge(&reassigned, 1, &charges(&[10]));
 
-        shadow.settle(&reassigned, 0, [Offset(10)], &span(10, 10));
-        shadow.settle(&live, 0, [Offset(20)], &span(20, 20));
-
-        assert_eq!(
-            ledger.held(&reassigned).offsets,
-            1,
+        assert!(
+            shadow
+                .settle(&reassigned, 0, [Offset(10)], &span(10, 10))
+                .is_none(),
             "the stale batch settles nothing against the new ledger"
         );
-        assert_eq!(
-            ledger.held(&live).offsets,
-            0,
-            "the live batch settles and drains"
-        );
+        let settlement = shadow
+            .settle(&live, 0, [Offset(20)], &span(20, 20))
+            .expect("the live batch settles");
+        assert_eq!(settlement.frontier, Some(Offset(21)));
+        shadow.drain(&live);
+
+        assert_eq!(ledger.held(&reassigned).offsets, 1);
+        assert_eq!(ledger.held(&live).offsets, 0, "the live batch drains");
     }
 
     #[test]
@@ -289,7 +300,11 @@ mod tests {
         let held = tp("events", 0);
         shadow.charge(&held, 0, &charges(&[10, 11]));
 
-        shadow.settle(&held, 0, [Offset(11)], &span(11, 11));
+        let settlement = shadow
+            .settle(&held, 0, [Offset(11)], &span(11, 11))
+            .expect("the batch settles");
+        assert_eq!(settlement.frontier, None);
+        shadow.drain(&held);
 
         assert_eq!(ledger.held(&held).offsets, 2);
     }
@@ -299,7 +314,8 @@ mod tests {
         let shadow = LedgerShadow::new(None);
         let p0 = tp("events", 0);
         shadow.charge(&p0, 0, &charges(&[10]));
-        shadow.settle(&p0, 0, [Offset(10)], &span(10, 10));
+        assert!(shadow.settle(&p0, 0, [Offset(10)], &span(10, 10)).is_none());
+        shadow.drain(&p0);
 
         assert_eq!(shadow.generations_version(), 0);
         assert_eq!(shadow.generation(&p0), 0);
@@ -362,6 +378,7 @@ mod tests {
         shadow.charge(&p0, 1, &charges(&[11]));
         assert_eq!(ledger.held(&p0).offsets, 1);
         shadow.settle(&p0, 1, [Offset(11)], &span(11, 11));
+        shadow.drain(&p0);
         assert_eq!(
             ledger.held(&p0).offsets,
             0,
@@ -382,6 +399,7 @@ mod tests {
 
         shadow.charge(&p0, 1, &charges(&[11]));
         shadow.settle(&p0, 1, [Offset(11)], &span(11, 11));
+        shadow.drain(&p0);
         assert_eq!(
             ledger.held(&p0).offsets,
             0,
