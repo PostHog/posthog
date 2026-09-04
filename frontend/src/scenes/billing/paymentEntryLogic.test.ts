@@ -131,5 +131,22 @@ describe('paymentEntryLogic', () => {
             await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
             expect(logic.values.intentProduct).toBe(null)
         })
+
+        // An addon purchase opens the modal straight from billingProductLogic, with no product to
+        // name. A product left over from an earlier flow would sell the wrong thing on that card form.
+        it('drops the product when the modal opens for something else or closes', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const surveys = { type: 'surveys', name: 'Surveys' } as BillingProductV2Type
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow(surveys)).toFinishAllListeners()
+            logic.actions.showPaymentEntryModal()
+            expect(logic.values.intentProduct).toBe(null)
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow(surveys)).toFinishAllListeners()
+            logic.actions.hidePaymentEntryModal()
+            expect(logic.values.intentProduct).toBe(null)
+        })
     })
 })

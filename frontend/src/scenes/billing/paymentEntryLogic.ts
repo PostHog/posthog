@@ -52,9 +52,6 @@ export interface paymentEntryLogicActions {
     setClientSecret: (clientSecret: any) => {
         clientSecret: any
     }
-    setIntentProduct: (product: BillingProductV2Type | null) => {
-        product: BillingProductV2Type | null
-    }
     setLoading: (loading: any) => {
         loading: any
     }
@@ -64,8 +61,8 @@ export interface paymentEntryLogicActions {
     setStripeError: (error: any) => {
         error: any
     }
-    showPaymentEntryModal: () => {
-        value: true
+    showPaymentEntryModal: (product?: BillingProductV2Type | null) => {
+        product: BillingProductV2Type | null | undefined
     }
     startPaymentEntryFlow: (
         product?: BillingProductV2Type | null,
@@ -96,10 +93,9 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
             product,
             redirectPath,
         }),
-        showPaymentEntryModal: true,
+        showPaymentEntryModal: (product?: BillingProductV2Type | null) => ({ product }),
         hidePaymentEntryModal: true,
         setRedirectPath: (redirectPath: string | null) => ({ redirectPath }),
-        setIntentProduct: (product: BillingProductV2Type | null) => ({ product }),
     }),
     reducers({
         clientSecret: [
@@ -147,17 +143,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 setRedirectPath: (_, { redirectPath }) => redirectPath,
             },
         ],
+        // The product only names what this modal is selling, so it lives and dies with the modal.
         intentProduct: [
             null as BillingProductV2Type | null,
             {
-                setIntentProduct: (_, { product }) => product,
+                showPaymentEntryModal: (_, { product }) => product ?? null,
+                hidePaymentEntryModal: () => null,
             },
         ],
     }),
     listeners(({ actions, values }) => ({
         startPaymentEntryFlow: async ({ product, redirectPath }) => {
             const { billing } = billingLogic.values
-            actions.setIntentProduct(product || null)
 
             if (billing?.customer_id) {
                 // Returning customer — call POST API to activate subscription
@@ -191,7 +188,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     } else if (response.must_setup_payment) {
                         // Card invalid or missing — show modal (same as new customer flow)
                         actions.setRedirectPath(redirectPath || null)
-                        actions.showPaymentEntryModal()
+                        actions.showPaymentEntryModal(product)
                     } else {
                         lemonToast.error(response.error || 'Failed to activate subscription')
                     }
@@ -212,7 +209,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
 
             // New customer — show the payment modal
             actions.setRedirectPath(redirectPath || null)
-            actions.showPaymentEntryModal()
+            actions.showPaymentEntryModal(product)
         },
         initiateAuthorization: async () => {
             actions.setLoading(true)
