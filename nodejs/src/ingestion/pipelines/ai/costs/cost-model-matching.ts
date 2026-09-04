@@ -3,7 +3,7 @@ import { Properties } from '~/plugin-scaffold'
 
 import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
-import type { ModelCostByProvider, ModelCostRow, ResolvedModelCost } from './providers/types'
+import type { ModelCostRow, ResolvedModelCost } from './providers/types'
 
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
@@ -77,47 +77,14 @@ const getAiProvider = (properties: Properties): string | undefined => {
     return provider ? String(provider).toLowerCase() : undefined
 }
 
-// The tier the provider served, recorded by the SDK from the response. A requested tier can be
-// refused, so pricing never reads request-side properties.
+// From the provider's response via the SDK; a requested tier can be refused, so request-side
+// properties never price.
 const getServedServiceTier = (properties: Properties): unknown => {
     const modelParameters: unknown = properties['$ai_model_parameters']
 
     return modelParameters && typeof modelParameters === 'object'
         ? (modelParameters as Record<string, unknown>)['service_tier']
         : undefined
-}
-
-// Service tiers that the cost book carries as per-model provider-key variants
-// (openai-flex at 0.5x, openai-fast at 2x today), synced from OpenRouter.
-const SERVICE_TIER_KEY_SUFFIX: Record<string, string> = {
-    flex: '-flex',
-    priority: '-fast',
-}
-
-/**
- * Resolve a cost row honoring the served service tier. Both eligibility and price come from the
- * synced book: a model whose row lacks the tier key prices at its standard row. The tier lookup
- * is a direct key check because resolveModelCostForProvider falls back to the `default` key,
- * which can carry promotional pricing.
- */
-const resolveTieredModelCost = (
-    providerCosts: ModelCostByProvider,
-    provider: string | undefined,
-    serviceTier: unknown,
-    model: string
-): ResolvedModelCost | undefined => {
-    const suffix = typeof serviceTier === 'string' ? SERVICE_TIER_KEY_SUFFIX[serviceTier] : undefined
-
-    if (suffix && provider) {
-        const tierKey = `${resolveProviderAliases(provider)}${suffix}`
-        const tierCost = providerCosts[tierKey]
-
-        if (tierCost) {
-            return { model, provider: tierKey, cost: tierCost }
-        }
-    }
-
-    return resolveModelCostForProvider(providerCosts, provider, model)
 }
 
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
@@ -127,11 +94,11 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
     const resolvedManualMatch: ResolvedModelCost | undefined = manualMatch
-        ? resolveTieredModelCost(
+        ? resolveModelCostForProvider(
               manualMatch.cost,
               resolveBedrockInferenceProfileProvider(model, manualMatch.cost, provider),
-              serviceTier,
-              manualMatch.model
+              manualMatch.model,
+              serviceTier
           )
         : undefined
 
@@ -142,11 +109,11 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const openRouterMatch: ModelCostRow | undefined = searchModelInCosts(model, openRouterCostsByModel)
 
     const resolvedOpenRouterMatch: ResolvedModelCost | undefined = openRouterMatch
-        ? resolveTieredModelCost(
+        ? resolveModelCostForProvider(
               openRouterMatch.cost,
               resolveBedrockInferenceProfileProvider(model, openRouterMatch.cost, provider),
-              serviceTier,
-              openRouterMatch.model
+              openRouterMatch.model,
+              serviceTier
           )
         : undefined
 

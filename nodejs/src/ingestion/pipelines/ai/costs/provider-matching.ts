@@ -111,13 +111,32 @@ export const resolveProviderAliases = (provider: string): string => {
  * @param model - The model name for the resolved cost
  * @returns The resolved model cost, or undefined if no valid cost is found
  */
+// OpenRouter names OpenAI's priority-tier endpoints "fast".
+const SERVICE_TIER_KEY_SUFFIX: Record<string, string> = {
+    flex: '-flex',
+    priority: '-fast',
+}
+
 export const resolveModelCostForProvider = (
     providerCosts: ModelCostByProvider,
     provider: string | undefined,
-    model: string
+    model: string,
+    serviceTier?: unknown
 ): ResolvedModelCost | undefined => {
     if (!providerCosts || Object.keys(providerCosts).length === 0) {
         return undefined
+    }
+
+    // A served tier resolves by its own provider key, as a direct check: the cascade below
+    // falls back to the `default` key, which can carry promotional pricing.
+    const suffix = typeof serviceTier === 'string' ? SERVICE_TIER_KEY_SUFFIX[serviceTier] : undefined
+    if (suffix && provider) {
+        const tierKey = `${resolveProviderAliases(provider)}${suffix}`
+        const tierCost = providerCosts[tierKey]
+
+        if (tierCost) {
+            return { model, provider: tierKey, cost: tierCost }
+        }
     }
 
     const findProviderMatch = (providerKey: string): ResolvedModelCost | undefined => {
