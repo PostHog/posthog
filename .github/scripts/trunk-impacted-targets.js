@@ -676,7 +676,7 @@ const TRIPWIRE_RULES = [
     // backs E2E, hobby, and production, which is the app-image radius. The
     // exact-name rows precede the wildcard rows that would otherwise claim
     // them for the dev stack.
-    ['bin/docker-server', APP_IMAGE],
+    ['bin/docker-server*', APP_IMAGE],
     ['bin/docker-worker*', APP_IMAGE],
     ['bin/docker-migrate', APP_IMAGE],
     ['bin/migrate', APP_IMAGE],

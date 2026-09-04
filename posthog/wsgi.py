@@ -30,8 +30,7 @@ initialize_otel()
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
-# collections skip them, which also maximizes copy-on-write sharing when a parent
-# process forks workers. See docs/internal/django-startup-time.md.
+# collections skip them. See docs/internal/django-startup-time.md.
 gc.disable()
 try:
     _django_application = get_wsgi_application()
