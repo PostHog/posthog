@@ -104,6 +104,55 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
+export type SignalReportAssignmentPrStateEnumApi =
+    (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
+
+export const SignalReportAssignmentPrStateEnumApi = {
+    Unknown: 'unknown',
+    Draft: 'draft',
+    Open: 'open',
+    Closed: 'closed',
+    Merged: 'merged',
+} as const
+
+export type SignalReportWorkStateEnumApi =
+    (typeof SignalReportWorkStateEnumApi)[keyof typeof SignalReportWorkStateEnumApi]
+
+export const SignalReportWorkStateEnumApi = {
+    Unclaimed: 'unclaimed',
+    Working: 'working',
+    InReview: 'in_review',
+    Done: 'done',
+} as const
+
+export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
+
+export const SignalActorKindEnumApi = {
+    User: 'user',
+    Task: 'task',
+    Agent: 'agent',
+    System: 'system',
+} as const
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+export interface SignalReportAssigneeApi {
+    kind: SignalActorKindEnumApi
+    user: _UserApi | null
+    /** @nullable */
+    task_id: string | null
+    /** @nullable */
+    agent: string | null
+    /** @nullable */
+    claimed_at: string | null
+}
+
 /**
  * * `pr_incorrect` - PR incorrect
  * * `pr_not_useful` - PR not useful
@@ -124,9 +173,10 @@ export const SignalReportRefundReasonEnumApi = {
  * * `excluded` - Excluded
  * * `credited` - Credited
  */
-export type BillingPathEnumApi = (typeof BillingPathEnumApi)[keyof typeof BillingPathEnumApi]
+export type SignalReportRefundBillingPathEnumApi =
+    (typeof SignalReportRefundBillingPathEnumApi)[keyof typeof SignalReportRefundBillingPathEnumApi]
 
-export const BillingPathEnumApi = {
+export const SignalReportRefundBillingPathEnumApi = {
     Excluded: 'excluded',
     Credited: 'credited',
 } as const
@@ -146,7 +196,7 @@ export interface SignalReportRefundApi {
      *
      * * `excluded` - Excluded
      * * `credited` - Credited */
-    readonly billing_path: BillingPathEnumApi
+    readonly billing_path: SignalReportRefundBillingPathEnumApi
     /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
     readonly credits: number
     /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
@@ -180,9 +230,10 @@ export const RefundIneligibilityReasonEnumApi = {
  * * `posthog_onboarding` - PostHog onboarding
  * * `posthog_system` - PostHog system
  */
-export type BillingExemptReasonEnumApi = (typeof BillingExemptReasonEnumApi)[keyof typeof BillingExemptReasonEnumApi]
+export type SignalReportBillingExemptReasonEnumApi =
+    (typeof SignalReportBillingExemptReasonEnumApi)[keyof typeof SignalReportBillingExemptReasonEnumApi]
 
-export const BillingExemptReasonEnumApi = {
+export const SignalReportBillingExemptReasonEnumApi = {
     PosthogHealthCheck: 'posthog_health_check',
     PosthogOnboarding: 'posthog_onboarding',
     PosthogSystem: 'posthog_system',
@@ -203,7 +254,7 @@ export interface SignalReportApi {
     readonly artefact_count: number
     /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
     readonly charts: readonly ReportChartApi[]
-    /** Follow-up questions the report's author suggests asking about it, in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+    /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
     readonly suggested_prompts: readonly string[]
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
@@ -239,12 +290,18 @@ export interface SignalReportApi {
      */
     readonly scout_name: string | null
     /**
-     * PR URL from the latest implementation task run, if available.
+     * Pull request attached to this report's claim, if available.
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** Latest known pull request state: unknown, draft, open, closed, or merged. */
+    readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
     readonly implementation_pr_merged: boolean
+    /** Derived remediation state: unclaimed, working, in_review, or done. */
+    readonly work_state: SignalReportWorkStateEnumApi
+    /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
+    readonly assignee: SignalReportAssigneeApi | null
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -254,7 +311,7 @@ export interface SignalReportApi {
      * * `posthog_health_check` - PostHog health check
      * * `posthog_onboarding` - PostHog onboarding
      * * `posthog_system` - PostHog system */
-    readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
+    readonly billing_exempt_reason: SignalReportBillingExemptReasonEnumApi | null
     /**
      * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
      * @nullable
@@ -291,6 +348,13 @@ export interface PatchedSignalReportContentUpdateApi {
      * @maxLength 10000
      */
     summary?: string
+}
+
+export interface SignalReportClaimApi {
+    /** Optional GitHub pull request to attach to the claim. The report may be claimed without one. */
+    pr_url?: string
+    /** Release ownership while preserving any attached pull request. */
+    release?: boolean
 }
 
 /**
@@ -600,7 +664,7 @@ export interface SignalReportRefundResponseApi {
      *
      * * `excluded` - Excluded
      * * `credited` - Credited */
-    readonly billing_path: BillingPathEnumApi
+    readonly billing_path: SignalReportRefundBillingPathEnumApi
     /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
     readonly credits: number
     /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
@@ -1561,6 +1625,7 @@ export const SignalReportStateEnumApi = {
  * * `already_fixed` - Already fixed
  * * `report_unclear` - Report is unclear to me
  * * `analysis_wrong` - Agent's analysis is wrong
+ * * `wrong_repo` - Agent picked the wrong repository
  * * `wontfix_intentional` - Won't fix - intentional behavior
  * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
  * * `fixed_outside_posthog` - Fixed outside PostHog
@@ -1573,6 +1638,7 @@ export const DismissalReasonEnumApi = {
     AlreadyFixed: 'already_fixed',
     ReportUnclear: 'report_unclear',
     AnalysisWrong: 'analysis_wrong',
+    WrongRepo: 'wrong_repo',
     WontfixIntentional: 'wontfix_intentional',
     WontfixIrrelevant: 'wontfix_irrelevant',
     FixedOutsidePosthog: 'fixed_outside_posthog',
@@ -1587,11 +1653,12 @@ export interface SignalReportStateRequestApi {
      * * `potential` - potential
      * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
      * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wrong_repo` - Agent picked the wrong repository
      * * `wontfix_intentional` - Won't fix - intentional behavior
      * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
      * * `fixed_outside_posthog` - Fixed outside PostHog
@@ -1603,6 +1670,12 @@ export interface SignalReportStateRequestApi {
      * @maxLength 4000
      */
     dismissal_note?: string
+    /**
+     * Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.
+     * @minLength 1
+     * @maxLength 140
+     */
+    corrected_repository?: string
     /**
      * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
      * @minimum 1
@@ -1630,10 +1703,10 @@ export interface SignalReportStateRequestApi {
  * * `code_review` - Code Review
  * * `related_to` - Related To
  */
-export type SignalReportArtefactTypeEnumApi =
-    (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
+export type SignalReportArtefactArtefactTypeEnumApi =
+    (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
 
-export const SignalReportArtefactTypeEnumApi = {
+export const SignalReportArtefactArtefactTypeEnumApi = {
     VideoSegment: 'video_segment',
     SafetyJudgment: 'safety_judgment',
     ActionabilityJudgment: 'actionability_judgment',
@@ -1653,27 +1726,26 @@ export const SignalReportArtefactTypeEnumApi = {
     RelatedTo: 'related_to',
 } as const
 
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
-
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
 
 export interface SignalReportArtefactApi {
     readonly id: string
-    readonly type: SignalReportArtefactTypeEnumApi
+    readonly type: SignalReportArtefactArtefactTypeEnumApi
     readonly content: SignalReportArtefactApiContent
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-    /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+    /** Actor kind. Legacy rows without attribution are returned as system. */
+    readonly actor_kind: SignalActorKindEnumApi
+    /**
+     * MCP client name when an external agent produced the artefact.
+     * @nullable
+     */
+    readonly actor_agent: string | null
+    /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
     readonly created_by: _UserApi | null
     /**
-     * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+     * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
      * @nullable
      */
     readonly task_id: string | null
@@ -1756,11 +1828,12 @@ export interface SignalReportBulkStateRequestApi {
      * * `potential` - potential
      * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
      * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wrong_repo` - Agent picked the wrong repository
      * * `wontfix_intentional` - Won't fix - intentional behavior
      * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
      * * `fixed_outside_posthog` - Fixed outside PostHog
@@ -1773,13 +1846,19 @@ export interface SignalReportBulkStateRequestApi {
      */
     dismissal_note?: string
     /**
+     * Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.
+     * @minLength 1
+     * @maxLength 140
+     */
+    corrected_repository?: string
+    /**
      * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
      * @minimum 1
      * @maximum 100000
      */
     snooze_for?: number
     /**
-     * Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.
+     * Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.
      * @maxItems 100
      */
     ids: string[]
@@ -1813,6 +1892,44 @@ export interface SignalReportBulkStateResponseApi {
     failed_count: number
     /** Number of requested ids not visible to the caller. */
     not_found_count: number
+}
+
+/**
+ * * `passing` - Passing
+ * * `failing` - Failing
+ * * `pending` - Pending
+ * * `none` - No checks
+ */
+export type PullRequestCiStatusEnumApi = (typeof PullRequestCiStatusEnumApi)[keyof typeof PullRequestCiStatusEnumApi]
+
+export const PullRequestCiStatusEnumApi = {
+    Passing: 'passing',
+    Failing: 'failing',
+    Pending: 'pending',
+    None: 'none',
+} as const
+
+/**
+ * The CI rollup of one report's implementation pull request.
+ */
+export interface PullRequestCiStatusApi {
+    /** Report whose implementation pull request this status describes. */
+    readonly report_id: string
+    /** Rollup of the pull request's checks on its head commit: 'passing' (nothing failed), 'failing', 'pending' (checks are still running), or 'none' (the head commit has no checks).
+     *
+     * * `passing` - Passing
+     * * `failing` - Failing
+     * * `pending` - Pending
+     * * `none` - No checks */
+    readonly ci_status: PullRequestCiStatusEnumApi
+}
+
+/**
+ * Response for the batch PR CI status endpoint, for painting CI state onto a list of reports.
+ */
+export interface PullRequestCiStatusesResponseApi {
+    /** One entry per requested report whose CI state resolved. Reports without an open implementation pull request, and reports GitHub could not answer for, are left out. */
+    readonly statuses: readonly PullRequestCiStatusApi[]
 }
 
 export interface SignalReportRefundSummaryResponseApi {
@@ -1862,7 +1979,7 @@ export interface SignalScoutSlackDestinationApi {
      * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
      */
     users?: string[] | null
-    /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
     thread_reports?: boolean
 }
 
@@ -1882,10 +1999,10 @@ export interface SignalScoutOutputDestinationsApi {
  * * `trusted` - Trusted domains only
  * * `full` - Full
  */
-export type ScoutConfigNetworkAccessEnumApi =
-    (typeof ScoutConfigNetworkAccessEnumApi)[keyof typeof ScoutConfigNetworkAccessEnumApi]
+export type SignalScoutConfigNetworkAccessEnumApi =
+    (typeof SignalScoutConfigNetworkAccessEnumApi)[keyof typeof SignalScoutConfigNetworkAccessEnumApi]
 
-export const ScoutConfigNetworkAccessEnumApi = {
+export const SignalScoutConfigNetworkAccessEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
 } as const
@@ -1916,7 +2033,7 @@ export interface SignalScoutConfigOptionsApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -2053,9 +2170,10 @@ export interface UserBasicApi {
  * * `paused_by_system` - Paused by system
  * * `paused_by_user` - Paused by user
  */
-export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+export type SignalScoutConfigStatusEnumApi =
+    (typeof SignalScoutConfigStatusEnumApi)[keyof typeof SignalScoutConfigStatusEnumApi]
 
-export const ScoutConfigStatusEnumApi = {
+export const SignalScoutConfigStatusEnumApi = {
     Active: 'active',
     PendingPause: 'pending_pause',
     PausedBySystem: 'paused_by_system',
@@ -2067,10 +2185,10 @@ export const ScoutConfigStatusEnumApi = {
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
  */
-export type ScoutConfigPauseReasonEnumApi =
-    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+export type SignalScoutConfigPauseReasonEnumApi =
+    (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
 
-export const ScoutConfigPauseReasonEnumApi = {
+export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
@@ -2106,13 +2224,13 @@ export interface SignalScoutConfigApi {
      * * `pending_pause` - Pending pause
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
-    readonly status: ScoutConfigStatusEnumApi
+    readonly status: SignalScoutConfigStatusEnumApi
     /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures */
-    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
+    readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -2137,7 +2255,7 @@ export interface SignalScoutConfigApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    readonly network_access: ScoutConfigNetworkAccessEnumApi
+    readonly network_access: SignalScoutConfigNetworkAccessEnumApi
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable
@@ -2240,7 +2358,7 @@ export interface SignalScoutConfigCreateApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -2314,7 +2432,7 @@ export interface PatchedSignalScoutConfigUpdateApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @maxLength 200
@@ -2436,7 +2554,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
     origin: string
 }
 
@@ -3374,12 +3492,14 @@ export interface EditReportRequestApi {
      */
     title?: string | null
     /**
-     * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.
+     * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. The pipeline may later re-research and overwrite it.
+     * @maxLength 20000
      * @nullable
      */
     summary?: string | null
     /**
      * Optional free-form note to append to the report's work log (attributed to this scout).
+     * @maxLength 10000
      * @nullable
      */
     append_note?: string | null
@@ -3395,7 +3515,7 @@ export interface EditReportRequestApi {
      */
     charts?: ReportChartApi[] | null
     /**
-     * The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report.
+     * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
      * @maxItems 3
      * @nullable
      * @items.maxLength 200
@@ -3418,7 +3538,7 @@ export interface EditReportResponseApi {
      */
     charts_set: number | null
     /**
-     * How many questions the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
+     * How many prompts the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
      * @nullable
      */
     suggested_prompts_set: number | null
@@ -3552,7 +3672,7 @@ export interface EmitReportRequestApi {
      * @maxLength 300
      */
     title: string
-    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. */
+    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. */
     summary: string
     /**
      * The observations backing the report — each becomes a bound signal. At least one.
@@ -3570,7 +3690,7 @@ export interface EmitReportRequestApi {
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
-     * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
+     * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
      * @nullable
      */
     repository?: string | null
@@ -3598,7 +3718,7 @@ export interface EmitReportRequestApi {
      */
     charts?: ReportChartApi[]
     /**
-     * Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them.
+     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
      * @maxItems 3
      * @items.maxLength 200
      */
@@ -3808,6 +3928,29 @@ export interface FleetFindingsSummaryApi {
 }
 
 /**
+ * What one scout run spent on model calls.
+ */
+export interface ScoutRunTokenCostApi {
+    /** UUID of the `SignalScoutRun` this cost belongs to. */
+    run_id: string
+    /**
+     * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
+     * @nullable
+     */
+    token_cost_usd: number | null
+}
+
+/**
+ * Model spend for a batch of scout runs.
+ */
+export interface ScoutRunTokenCostsApi {
+    /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
+    costs: ScoutRunTokenCostApi[]
+    /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
+    available: boolean
+}
+
+/**
  * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
 export interface ScratchpadEntryApi {
@@ -3862,7 +4005,7 @@ export interface RememberRequestApi {
      */
     content: string
     /**
-     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost.
+     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run.
      * @nullable
      */
     run_id?: string | null
@@ -3895,10 +4038,10 @@ export interface ForgetResponseApi {
  * * `failed` - Failed
  * * `empty` - Empty
  */
-export type ScoutSuggestionSetStatusEnumApi =
-    (typeof ScoutSuggestionSetStatusEnumApi)[keyof typeof ScoutSuggestionSetStatusEnumApi]
+export type SignalScoutSuggestionSetStatusEnumApi =
+    (typeof SignalScoutSuggestionSetStatusEnumApi)[keyof typeof SignalScoutSuggestionSetStatusEnumApi]
 
-export const ScoutSuggestionSetStatusEnumApi = {
+export const SignalScoutSuggestionSetStatusEnumApi = {
     Fresh: 'fresh',
     Stale: 'stale',
     Failed: 'failed',
@@ -3970,7 +4113,7 @@ export interface ScoutSuggestionSetApi {
      * * `stale` - Stale
      * * `failed` - Failed
      * * `empty` - Empty */
-    status: ScoutSuggestionSetStatusEnumApi
+    status: SignalScoutSuggestionSetStatusEnumApi
     /**
      * When the current batch was generated; null before the first run.
      * @nullable
@@ -4227,6 +4370,18 @@ export type SignalsProcessingListParams = {
 
 export type SignalsReportsListParams = {
     /**
+     * Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.
+     */
+    actionability?: string
+    /**
+     * Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.
+     */
+    already_addressed?: boolean
+    /**
+     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     */
+    assignee?: SignalsReportsListAssignee
+    /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string
@@ -4235,7 +4390,7 @@ export type SignalsReportsListParams = {
      */
     count_only?: boolean
     /**
-     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
+     * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean
     /**
@@ -4259,6 +4414,10 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     */
+    scope?: string
+    /**
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string
@@ -4270,6 +4429,10 @@ export type SignalsReportsListParams = {
      * Case-insensitive substring match against report title and summary.
      */
     search?: string
+    /**
+     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     */
+    sort?: string
     /**
      * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
      */
@@ -4290,7 +4453,29 @@ export type SignalsReportsListParams = {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string
+    /**
+     * PostHog user UUID used when scope=teammate.
+     */
+    teammate_uuid?: string
+    /**
+     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     */
+    unclaimed?: boolean
+    /**
+     * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
+     */
+    use_priority_preference?: boolean
+    /**
+     * Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.
+     */
+    view?: string
 }
+
+export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[keyof typeof SignalsReportsListAssignee]
+
+export const SignalsReportsListAssignee = {
+    Me: 'me',
+} as const
 
 export type SignalsReportArtefactsListParams = {
     /**
@@ -4301,6 +4486,13 @@ export type SignalsReportArtefactsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SignalsReportsPrCiStatusesParams = {
+    /**
+     * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
+     */
+    report_ids: string
 }
 
 export type SignalsScoutConfigListParams = {

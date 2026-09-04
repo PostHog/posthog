@@ -88,4 +88,21 @@ describe("Pi task system prompt", () => {
       systemPrompt: `Pi instructions\n\n${buildTaskSystemPrompt(taskContext)}`,
     });
   });
+
+  it("renders the prompt with the capabilities the harness reports", () => {
+    const channelContext: TaskContext = { ...taskContext, channelMode: true };
+    const handlers = new Map<string, unknown>();
+    createPiTaskSystemPromptExtension(channelContext, {
+      repositoryTools: true,
+    }).factory({
+      on: (event: string, handler: unknown) => handlers.set(event, handler),
+    } as unknown as ExtensionAPI);
+    const beforeAgentStart = handlers.get("before_agent_start") as (event: {
+      systemPrompt: string;
+    }) => { systemPrompt: string };
+
+    expect(
+      beforeAgentStart({ systemPrompt: "Pi instructions" }).systemPrompt,
+    ).toContain("call `list_repos` to find it");
+  });
 });

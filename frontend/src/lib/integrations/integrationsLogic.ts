@@ -57,6 +57,7 @@ export interface integrationsLogicValues {
     getIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -112,6 +113,7 @@ export interface integrationsLogicValues {
     integrationsLoading: boolean
     linkedGithubInstallation: IntegrationType | null
     linkedGithubInstallationLoading: boolean
+    newIntegrationModalId: string | null
     newIntegrationModalKind: IntegrationKind | null
     pollingSubscribers: number
     requestedAccessKinds: IntegrationKind[]
@@ -142,6 +144,7 @@ export interface integrationsLogicActions {
     ) => {
         kind:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -261,6 +264,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -318,6 +322,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -392,6 +397,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -453,6 +459,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -501,9 +508,14 @@ export interface integrationsLogicActions {
             kind: string
         }
     }
-    openNewIntegrationModal: (kind: IntegrationKind) => {
+    openNewIntegrationModal: (
+        kind: IntegrationKind,
+        id: string
+    ) => {
+        id: string
         kind:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -566,6 +578,7 @@ export interface integrationsLogicActions {
     requestIntegrationAccessSuccess: (
         accessRequest:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -613,6 +626,7 @@ export interface integrationsLogicActions {
     ) => {
         accessRequest:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -685,6 +699,7 @@ export interface integrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -764,7 +779,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
-        openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
+        openNewIntegrationModal: (kind: IntegrationKind, id: string) => ({ kind, id }),
         closeNewIntegrationModal: true,
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
         closeSetupModal: true,
@@ -787,6 +802,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
         stopPolling: true,
     }),
     reducers({
+        newIntegrationModalId: [
+            null as string | null,
+            {
+                openNewIntegrationModal: (_, { id }: { id: string }) => id,
+                closeNewIntegrationModal: () => null,
+            },
+        ],
         newIntegrationModalKind: [
             null as IntegrationKind | null,
             {

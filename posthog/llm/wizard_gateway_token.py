@@ -10,6 +10,7 @@ products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
 attempt fast instead of retrying into the CLI's timeout.
 """
 
+import json
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -17,7 +18,10 @@ from django.conf import settings
 
 import requests
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
+
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -31,13 +35,91 @@ _MINT_TIMEOUT_SECONDS = 10
 _MIN_TTL_SECONDS = 3600
 _MAX_TTL_SECONDS = 86400
 
-# The gateway 400s a cap that is non-positive, over 6dp, or above its top-up
-# ceiling, so a bad knob falls back locally instead of 503ing every mint.
+# A bad knob or payload falls back locally instead of 503ing every mint. The
+# cap ceiling is a wizard-run backstop, well under the gateway's own.
 _DEFAULT_CAP_USD = Decimal("20")
-_MAX_CAP_USD = Decimal("10000")
+_MAX_CAP_USD = Decimal("30")
 _CAP_QUANTUM = Decimal("0.000001")
 
 WIZARD_PRODUCT = "wizard"
+
+# Payload: {"cap_usd": "30", "mints_per_day": 100}. A person flag: email,
+# organization_id, and team_id ride as person properties so one flag can target
+# engineers by email and candidates by org id.
+WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG = "wizard-gateway-limit-override"
+
+# Above this a value only widens a fat-finger; the gateway's mint rate bounds the fleet.
+_MAX_MINTS_PER_DAY = 150
+
+
+@frozen
+class WizardLimitOverride:
+    """Limits the override flag grants a user; None keeps the configured default."""
+
+    cap_usd: Decimal | None = None
+    mints_per_day: int | None = None
+
+
+NO_OVERRIDE = WizardLimitOverride()
+
+
+def wizard_limit_override(
+    *, distinct_id: str, email: str | None, organization_id: str, team_id: int
+) -> WizardLimitOverride:
+    """Read the override flag for this mint; a flag outage fails closed to the defaults."""
+    try:
+        raw = posthoganalytics.get_feature_flag_payload(
+            WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG,
+            distinct_id,
+            person_properties={"email": email or "", "organization_id": organization_id, "team_id": str(team_id)},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception as e:
+        logger.warning("wizard_gateway_token: limit override flag unavailable", error=str(e))
+        return NO_OVERRIDE
+    override = parse_limit_override(raw)
+    if override != NO_OVERRIDE:
+        logger.info(
+            "wizard_gateway_token: limit override applied",
+            team_id=team_id,
+            cap_usd=str(override.cap_usd),
+            mints_per_day=override.mints_per_day,
+        )
+    return override
+
+
+def parse_limit_override(raw: object) -> WizardLimitOverride:
+    """Validate field by field so a typo in one value cannot zero the other."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            logger.warning("wizard_gateway_token: limit override payload is not JSON")
+            return NO_OVERRIDE
+    if not isinstance(raw, dict):
+        return NO_OVERRIDE
+    cap = _parse_cap(raw["cap_usd"]) if "cap_usd" in raw else None
+    if "cap_usd" in raw and cap is None:
+        logger.warning("wizard_gateway_token: limit override cap_usd out of contract, ignored", cap=str(raw["cap_usd"]))
+    mints = _parse_mints_per_day(raw["mints_per_day"]) if "mints_per_day" in raw else None
+    if "mints_per_day" in raw and mints is None:
+        logger.warning(
+            "wizard_gateway_token: limit override mints_per_day out of contract, ignored",
+            mints_per_day=str(raw["mints_per_day"]),
+        )
+    return WizardLimitOverride(cap_usd=cap, mints_per_day=mints)
+
+
+def _parse_mints_per_day(raw: object) -> int | None:
+    # bool is an int subclass: True would read as one mint a day.
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, str) and raw.strip().isdigit():
+        raw = int(raw)
+    if not isinstance(raw, int) or raw < 1 or raw > _MAX_MINTS_PER_DAY:
+        return None
+    return raw
 
 
 def wizard_product_node(program: str | None) -> str | None:
@@ -102,14 +184,17 @@ def wizard_gateway_base_url() -> str:
     return settings.WIZARD_GATEWAY_URL.rstrip("/").removesuffix("/v1")
 
 
-def mint_wizard_gateway_token(*, obo: str, user: str, product: str = WIZARD_PRODUCT) -> dict[str, Any]:
+def mint_wizard_gateway_token(
+    *, obo: str, user: str, product: str = WIZARD_PRODUCT, cap_usd: Decimal | None = None
+) -> dict[str, Any]:
     """Mint one run's token; returns {token, expires_at, cap_usd}. Raises
     WizardGatewayMintError on any refusal or transport failure; the bearer never
-    appears in logs or exception text.
+    appears in logs or exception text. `cap_usd`, when set, replaces the
+    configured cap and must already be validated.
     """
     base_url = wizard_gateway_base_url()
     body = {
-        "cap_usd": _cap_usd(),
+        "cap_usd": _cap_usd(cap_usd),
         "ttl_seconds": _ttl_seconds(),
         "product": product,
         "obo": obo,
@@ -172,28 +257,37 @@ def _ttl_seconds() -> int:
     return max(_MIN_TTL_SECONDS, min(int(settings.WIZARD_GATEWAY_TOKEN_TTL_SECONDS), _MAX_TTL_SECONDS))
 
 
-def _cap_usd() -> str:
-    """The per-token cap as a fixed-point string the gateway accepts. An
-    unparseable, non-positive, or over-ceiling setting falls back to the default
-    rather than making every mint a 503.
+def _cap_usd(override: Decimal | None) -> str:
+    """The cap as a fixed-point string: the override when set, else the setting,
+    which falls back to the default rather than 503ing every mint.
     """
+    if override is not None:
+        return f"{override.quantize(_CAP_QUANTUM):f}"
     raw = str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD)
-    try:
-        cap = Decimal(raw)
-    except (InvalidOperation, ValueError):
-        logger.warning("wizard_gateway_token: cap_usd is not a decimal, using the default", cap=raw)
-        cap = _DEFAULT_CAP_USD
-    # Quantize before the range check: a positive value below a microdollar
-    # rounds to 0.000000, which the gateway rejects as non-positive. Guarded
-    # because quantize raises once the result needs more digits than the decimal
-    # context allows, and this function's contract is to fall back, never raise.
-    if cap.is_finite():
-        try:
-            cap = cap.quantize(_CAP_QUANTUM)
-        except InvalidOperation:
-            logger.warning("wizard_gateway_token: cap_usd is out of representable range, using the default", cap=raw)
-            cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)
-    if not cap.is_finite() or cap <= 0 or cap > _MAX_CAP_USD:
-        logger.warning("wizard_gateway_token: cap_usd out of range, using the default", cap=raw)
+    cap = _parse_cap(raw)
+    if cap is None:
+        logger.warning("wizard_gateway_token: cap_usd out of contract, using the default", cap=raw)
         cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)
     return f"{cap:f}"
+
+
+def _parse_cap(raw: object) -> Decimal | None:
+    """A cap inside the gateway's contract, quantized to 6dp, or None. Quantize
+    before the range check (a sub-microdollar value rounds to 0, which the gateway
+    rejects) and guard it: quantize raises past the decimal context's precision.
+    """
+    if isinstance(raw, bool):
+        return None
+    try:
+        cap = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
+    if not cap.is_finite():
+        return None
+    try:
+        cap = cap.quantize(_CAP_QUANTUM)
+    except InvalidOperation:
+        return None
+    if cap <= 0 or cap > _MAX_CAP_USD:
+        return None
+    return cap

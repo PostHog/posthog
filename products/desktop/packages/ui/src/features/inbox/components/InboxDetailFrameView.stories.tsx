@@ -1,11 +1,15 @@
 import {
-  ArchiveIcon,
+  ChatCircleIcon,
+  CheckCircleIcon,
   ClockCounterClockwiseIcon,
+  EyeSlashIcon,
   FileTextIcon,
   GitPullRequestIcon,
   MagnifyingGlassIcon,
+  PlusIcon,
   TerminalIcon,
   UsersThreeIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
@@ -46,48 +50,80 @@ const meta: Meta<typeof InboxDetailFrameView> = {
     backLabel: "Back to reports",
     fallbackTitle: "Untitled report",
     primaryAction: (
-      <Button type="button" variant="outline" size="sm">
-        Ask about it
-      </Button>
+      <>
+        <Button type="button" variant="outline" size="sm">
+          <ChatCircleIcon />
+          Chat
+        </Button>
+        <Button type="button" variant="outline" size="sm">
+          <CheckCircleIcon />
+          Resolve
+        </Button>
+        <Button type="button" variant="outline" size="sm">
+          <EyeSlashIcon />
+          Dismiss
+        </Button>
+      </>
     ),
-    reviewerHeader: (
-      <span className="rounded bg-(--gray-3) px-1.5 py-0.5 text-[12px] text-gray-11">
-        2 reviewers
-      </span>
-    ),
-    summarySection: { Icon: FileTextIcon, title: "Summary" },
+    showMetadata: false,
+    summarySection: { Icon: FileTextIcon, title: "Report summary" },
     evidenceSection: { Icon: MagnifyingGlassIcon, title: "Evidence" },
     evidenceCount: signals.length,
     evidenceContent: <SignalsList signals={signals} />,
     runRepository: "PostHog/posthog",
     belowSummary: (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) p-4">
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="font-semibold text-[14px] text-gray-12">
-            Ready for a decision
+      <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
+        <div className="flex flex-col gap-1">
+          <span className="font-semibold text-[15px] text-gray-12">
+            Needs your decision
           </span>
-          <span className="text-[13px] text-gray-11">
-            Start a pull request or archive this report.
+          <span className="text-[14px] text-gray-11">
+            The agent can fix this with code and open a pull request. The report
+            reopens if the problem comes back.
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline">
-            <ArchiveIcon />
-            Archive…
-          </Button>
+        <div className="flex flex-wrap items-center gap-2.5">
           <Button type="button" variant="primary">
             <GitPullRequestIcon />
-            Create PR
+            Implement
+          </Button>
+          <Button type="button" variant="outline">
+            <ChatCircleIcon />
+            Ask about it
+          </Button>
+          <Button type="button" variant="outline">
+            <EyeSlashIcon />
+            Dismiss…
           </Button>
         </div>
       </div>
     ),
     children: (
       <>
-        <DetailSection Icon={UsersThreeIcon} title="Reviewers" collapsible>
-          <p className="text-[13px] text-gray-11">
-            Example reviewer · recent ownership in cohort calculations
-          </p>
+        <DetailSection
+          Icon={UsersThreeIcon}
+          title="Reviewers"
+          collapsible
+          rightSlot={
+            <Button type="button" variant="link-muted" size="xs">
+              <PlusIcon />
+              Add
+            </Button>
+          }
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="m-0 text-[13px] text-gray-11">
+              Example reviewer · recent ownership in cohort calculations
+            </p>
+            <Button
+              type="button"
+              variant="link-muted"
+              size="icon-xs"
+              aria-label="Remove example reviewer"
+            >
+              <XIcon />
+            </Button>
+          </div>
         </DetailSection>
         <DetailSection
           Icon={TerminalIcon}
@@ -118,6 +154,42 @@ export default meta;
 type Story = StoryObj<typeof InboxDetailFrameView>;
 
 export const EvidenceFirst: Story = {};
+
+export const WaitingForInput: Story = {
+  args: {
+    report: inboxStoryReport({
+      status: "pending_input",
+      actionability: "requires_human_input",
+    }),
+    belowSummary: (
+      <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
+        <div className="flex flex-col gap-1">
+          <span className="font-semibold text-[15px] text-gray-12">
+            Waiting on you
+          </span>
+          <span className="text-[14px] text-gray-11">
+            Review the recommendation. Start an implementation task to add
+            direction and choose a model, or ask for more context.
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button type="button" variant="primary">
+            <GitPullRequestIcon />
+            Implement
+          </Button>
+          <Button type="button" variant="outline">
+            <ChatCircleIcon />
+            Ask about it
+          </Button>
+          <Button type="button" variant="outline">
+            <EyeSlashIcon />
+            Dismiss…
+          </Button>
+        </div>
+      </div>
+    ),
+  },
+};
 
 export const NoEvidence: Story = {
   args: {

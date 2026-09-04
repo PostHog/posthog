@@ -11,11 +11,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type {
+  CloudRegion,
   McpServerConnection,
   McpToolPermissionDecision,
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
+import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import type { PiEnrichmentConfig } from "./enrichment-extension";
 import { safePiEnvironment } from "./rpc-environment";
 import type { TaskContext } from "./task-system-prompt";
@@ -48,7 +50,7 @@ export type PiRpcClient = RpcClient & {
 };
 
 export interface PiRpcProviderOptions {
-  region?: "us" | "eu" | "dev";
+  region?: CloudRegion;
   apiKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;
@@ -140,6 +142,11 @@ export function createRuntimeMcpStdioServers(
       },
     ]),
   );
+}
+
+export function createLocalRuntimeMcpServers(cwd: string): PiRuntimeMcpServers {
+  const server = buildLocalToolsServer({ cwd }, { environment: "local" });
+  return createRuntimeMcpStdioServers(server ? [server] : []);
 }
 
 interface PiHostRequest {

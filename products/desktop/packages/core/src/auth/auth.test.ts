@@ -1,6 +1,10 @@
 import type { RootLogger } from "@posthog/di/logger";
 import type { IPowerManager } from "@posthog/platform/power-manager";
-import { NotAuthenticatedError, OAUTH_SCOPE_VERSION } from "@posthog/shared";
+import {
+  type CloudRegion,
+  NotAuthenticatedError,
+  OAUTH_SCOPE_VERSION,
+} from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth";
 import type {
@@ -130,13 +134,14 @@ describe("AuthService", () => {
   function seedStoredSession(
     overrides: {
       refreshToken?: string;
+      cloudRegion?: CloudRegion;
       selectedProjectId?: number | null;
       scopeVersion?: number;
     } = {},
   ) {
     sessionPort.saveCurrent({
       refreshTokenEncrypted: overrides.refreshToken ?? "stored-refresh-token",
-      cloudRegion: "us",
+      cloudRegion: overrides.cloudRegion ?? "us",
       selectedProjectId: overrides.selectedProjectId ?? null,
       scopeVersion: overrides.scopeVersion ?? OAUTH_SCOPE_VERSION,
     });
@@ -471,51 +476,59 @@ describe("AuthService", () => {
     });
   });
 
-  it("restores an authenticated session by refreshing the stored refresh token", async () => {
-    seedStoredSession({ selectedProjectId: 42 });
-    oauthFlow.refreshToken.mockResolvedValue(
-      mockTokenResponse({
-        accessToken: "new-access-token",
-        refreshToken: "rotated-refresh-token",
-      }),
-    );
-    stubAuthFetch({
-      orgs: {
-        "org-1": {
-          name: "Org 1",
-          projects: [
-            { id: 42, name: "Project 42" },
-            { id: 84, name: "Project 84" },
-          ],
+  it.each(["us", "dev", "dev-cloud"] as const)(
+    "restores an authenticated stored %s session",
+    async (cloudRegion) => {
+      seedStoredSession({ cloudRegion, selectedProjectId: 42 });
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "new-access-token",
+          refreshToken: "rotated-refresh-token",
+        }),
+      );
+      stubAuthFetch({
+        orgs: {
+          "org-1": {
+            name: "Org 1",
+            projects: [
+              { id: 42, name: "Project 42" },
+              { id: 84, name: "Project 84" },
+            ],
+          },
         },
-      },
-    });
+      });
 
-    await service.initialize();
+      await service.initialize();
 
-    expect(service.getState()).toMatchObject({
-      status: "authenticated",
-      bootstrapComplete: true,
-      cloudRegion: "us",
-      orgProjectsMap: {
-        "org-1": {
-          orgName: "Org 1",
-          projects: [
-            { id: 42, name: "Project 42" },
-            { id: 84, name: "Project 84" },
-          ],
+      expect(service.getState()).toMatchObject({
+        status: "authenticated",
+        bootstrapComplete: true,
+        cloudRegion,
+        orgProjectsMap: {
+          "org-1": {
+            orgName: "Org 1",
+            projects: [
+              { id: 42, name: "Project 42" },
+              { id: 84, name: "Project 84" },
+            ],
+          },
         },
-      },
-      currentOrgId: "org-1",
-      currentProjectId: 42,
-      desktopAccess: { projectId: 42, status: "allowed", reason: null },
-      needsScopeReauth: false,
-    });
+        currentOrgId: "org-1",
+        currentProjectId: 42,
+        desktopAccess: { projectId: 42, status: "allowed", reason: null },
+        needsScopeReauth: false,
+      });
 
-    expect(sessionPort.getCurrent()?.refreshTokenEncrypted).toBe(
-      "rotated-refresh-token",
-    );
-  });
+      expect(oauthFlow.refreshToken).toHaveBeenCalledWith(
+        "stored-refresh-token",
+        cloudRegion,
+      );
+      expect(sessionPort.getCurrent()).toMatchObject({
+        refreshTokenEncrypted: "rotated-refresh-token",
+        cloudRegion,
+      });
+    },
+  );
 
   it("keeps the existing refresh token when the server does not rotate it", async () => {
     seedStoredSession({ refreshToken: "existing-refresh-token" });

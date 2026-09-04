@@ -28,8 +28,9 @@ Both stacks start from this plan branch ([#91468](https://github.com/PostHog/pos
 | --- | --- | --- |
 | Cycle 1 | `c1-delete-eager-flush` | Change 1. |
 | Cycle 2 | `c2-common-ledger` -> `c2-ledger-shadow` -> `c2-ledger-active` -> `c2-ledger-cleanup` | Changes 2 through 5, one PR per plan step. |
+| Cycle 3 | `c3-demux-groups` -> `c3-batcher` -> `c3-scheduler-seam` -> `c3-key-table` -> `c3-scheduler-switch` | Changes 6 through 10, one PR per plan step. |
 
-The stacks are independent: cycle 2 can begin without cycle 1. The merge gates remain part of the plan: change 4 cannot merge until change 3 has soaked with a zero mismatch counter, and change 5 cannot merge until change 4 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
+The stacks are independent: cycle 2 can begin without cycle 1, and cycle 3 needs only cycle 1 and the crate from change 2. The merge gates remain part of the plan: change 4 cannot merge until change 3 has soaked with a zero mismatch counter, and change 5 cannot merge until change 4 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
 
 ## The cycle model
 
@@ -239,12 +240,13 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Group messages per partition first, then per routing key. Keep offset order inside each group.
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
 - Change 7 submits them to the batcher as the accumulator.
+- The group is the seam vocabulary between the consumer loop and the batcher, so it lives in `common-kafka-consumer`, generic over the key and the message body. The crate's demux knows no routing key of its own: a keyless message is one group on its own, and the dispatcher keeps naming such a group with its synthetic per-message key.
 
 **Interfaces:**
 
-- Add `Group` in `types.rs`: partition, routing key, messages in offset order.
+- Add `Partition` to the crate's `types.rs`, and `Group` and `Accumulator` in `accumulator.rs`: a group is a partition, an optional key, and its offsets and messages in offset order; the accumulator is the demux that builds one poll's groups.
 - Modify `CollectedBatch`: carries `Vec<Group>` instead of a flat message list.
-- Modify `Dispatcher::assign_and_send`: takes groups and flattens them. `group_messages_by_routing_key` moves to the collect path.
+- Modify `Dispatcher::assign_and_send`: takes groups and flattens them. The demux moves to the collect path; the dispatcher keeps only the routing-key naming.
 
 ### 7. Encapsulate the worker batcher (prepare)
 
@@ -261,22 +263,24 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - `GrpcTransport`, `Router`, and `WorkerRegistry` keep their construction and ownership in `main.rs`. The batcher takes shared handles. Readiness gating, discovery reconciliation, the reaper, and the debug endpoints do not change.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion — moving code without changing it — not redesign.
 - The consumer loop keeps: poll collection, commits, the sentinels, and the admission cap. It tracks each poll's offset spans and completes the poll when completions cover them, so completion and commit behavior do not change.
-- The no-progress watchdog survives the move: a poll that gains no completions for the stall window fails the process and replays, exactly as the deferred-flush timeout does today. Every later cycle keeps this bail until cycle 10 adds the per-partition stall deadline.
-- The consumer discards a completion whose epoch is not the partition's current epoch, and counts it. The epoch already exists on master. Carrying it on the completion from this change closes the window a partition-ownership check leaves open: a partition revoked and reassigned while a group is out gets a new ledger, and the old incarnation's completion must not land in it.
+- The no-progress watchdog moves with the flush: the stall deadline lives in the batcher's flush driver, and only there. The clock suspends while a send is in flight and resets when messages land, exactly as today — a consumer-side completions-only timer cannot see the difference between a wedged flush and a slow send, and would fail drains that today survive. The batcher reports a stall (and the other fatal orchestration failures: shutdown while deferred work is unroutable, a batch with no usable workers) on an error channel beside the completions; the consumer fails the process on the first message, keeping the failure decision in the loop. Every later cycle keeps this bail until cycle 10 adds the per-partition stall deadline.
+- Each completion carries the assignment epoch read once at submit, and `submit` returns it. The consumer correlates a completion to a poll by epoch plus partition and offset — within one epoch, poll spans are disjoint per partition — and discards and counts a completion that matches no in-flight poll. The epoch already exists on master. Carrying it on the completion from this change closes the window a partition-ownership check leaves open: a partition revoked, reassigned, and replayed while a group is out has two polls holding the same offsets, and the old incarnation's completion must not land in the new poll (nor, later, in its new ledger).
 - Changes 8 and 9 extract the scheduler seam inside this boundary.
 
 **Interfaces:**
 
-- Add `Accumulator`: one poll's groups, in poll order.
-- Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in, a channel of `GroupCompletion` out. It owns `Dispatcher` and the send tasks, and holds shared handles to `GrpcTransport`, `Router`, and `WorkerRegistry`. It creates batch ids internally.
-- Add `GroupCompletion`: partition, assignment epoch, offsets, accepted count. No batch id and no messages: the batcher keeps the bodies for retry, and the ledger needs only the offsets.
-- Modify `IngestionConsumer`: drop `scatter` and `flush_deferred` — they move into the batcher. Keep collect, commit, and the admission cap. Correlate completions to polls by partition and offset.
+- Submit the `Accumulator` from change 6 as one poll's groups, in poll order.
+- Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in (returning the stamped assignment epoch), a channel of `GroupCompletion` plus an error channel out. It owns `Dispatcher` and the send tasks, and holds shared handles to `GrpcTransport`, `Router`, and `WorkerRegistry`, plus a lifecycle handle and the deferred-flush timeout for its flush driver. It creates batch ids internally.
+- Add `GroupCompletion` in the crate's `types.rs`: partition, assignment epoch, offsets, accepted count. No batch id and no messages: the batcher keeps the bodies for retry, and the ledger needs only the offsets.
+- Add `AssignmentEpoch` to the crate: the named home of the assignment generation. `main.rs` creates it, the rebalance context bumps it, and the transport and the batcher read it — one counter, one bump site, two readers.
+- Modify `IngestionConsumer`: drop `scatter` and `flush_deferred` — they move into the batcher. Keep collect, commit, and the admission cap. Correlate completions to polls by epoch, partition, and offset.
 - Modify `main.rs`: construct one `Batcher` from the existing transport, registry, and router. The consumer no longer sees the dispatcher.
-- Internalize `Dispatcher`'s resolve methods (`on_sub_batch_*`, `defer_failed`): only the batcher calls them.
+- Internalize `Dispatcher`'s resolve methods (`on_sub_batch_*`, `defer_failed`): only the batcher calls them in production code. The methods stay public because the e2e suite drives them directly, and that suite must pass unedited.
 
 **Metrics:**
 
-- Add `ingestion_consumer_group_completions_total` (counter) and its accepted-message sum. Cross-check: the sum tracks `ingestion_consumer_messages_processed_total`.
+- Add `ingestion_consumer_group_completions_total` (counter) and its accepted-message sum, `ingestion_consumer_group_completion_accepted_messages_total`. Cross-check: the sum tracks `ingestion_consumer_messages_processed_total`.
+- Add `ingestion_consumer_stale_group_completions_total` (counter): completions discarded because no in-flight poll matched.
 
 ### 8. Extract the scheduler seam (prepare)
 
@@ -289,15 +293,18 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: dispatches. One dispatch is one run of one key on one worker.
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, and the flush pacing. This is code motion from `assign`, `flush_deferred`, and `on_sub_batch_resolved`.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
-- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches, the deferral counts, the evicted keys). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The no-locks rule needs the worker world as data: the dispatcher captures a `WorkerSnapshot` (healthy pool, aperture-narrowed candidates, per-worker health, the load table) before each seam call, and the scheduler decides over it. Change 19 already names this shape: the worker-health snapshot stays the only shared read.
+- A failed send settles in one call: the settlement's failure arm carries the failed runs, and the scheduler requeues them before it releases the keys. This is the invariant change 9's key-table needs (requeue before release); the pin-stash implementation preserves today's stash-then-decrement order inside the one call. The two-step resolve methods stay public for the e2e suite, which must pass unedited.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
 
 **Interfaces:**
 
-- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; `Vec<Dispatch>` out.
-- Add `Dispatch`: one run of one key, with the chosen worker.
-- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns `PinTable` and `Stash` unchanged.
-- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, and seam calls.
+- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; a `SchedulerEffects` out — the dispatches plus the deferral counts and evicted keys, so metrics and debug events stay in the plumbing. `on_deadline` names the batch to retry while the pacing is per batch; the key-table scheduler generalizes it to a parked-retry deadline.
+- Add `Dispatch`: one run of one key, with the chosen worker and the send kind for the key-order sentinel.
+- Add `WorkerSnapshot` and `Settlement` (with its delivered and failed arms) as the seam's input vocabulary.
+- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns the pins, the `Stash`, and the `Router` unchanged — placement is a scheduling decision.
+- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, sentinel calls, view capture, sub-batch assembly, and seam calls. `settle` is the one production resolve entry point.
 
 ### 9. Build the key-table scheduler (implement)
 

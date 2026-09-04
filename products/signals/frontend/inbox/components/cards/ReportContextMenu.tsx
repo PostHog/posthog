@@ -34,6 +34,7 @@ import { reportListLogic, sectionListLogicProps } from '../../logics/reportListL
 import { InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
 import {
     DISMISSAL_REASON_OPTIONS,
+    DismissalFeedback,
     DismissalReasonValue,
     RESOLVE_REASON_OPTIONS,
     ResolveReasonValue,
@@ -51,7 +52,8 @@ import { openResolveReportDialog } from '../shell/ResolveReportDialog'
  * as the detail pane (`utils/reportActions.ts`); a dismissed row offers Restore instead. Resolve
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
  * section's list logic, except "Something else…", which opens the existing dialog to collect the
- * note that reason needs. Rows with no action (resolved, refunded) render without a menu, so the
+ * note that reason needs, and "wrong repository", whose dialog asks which repository it should have
+ * been. Rows with no action (resolved, refunded) render without a menu, so the
  * browser's own menu still works there. On rows with a menu the trigger suppresses that native
  * menu over the row's link, so the standard link actions return as an explicit section at the
  * bottom (open, open in new tab, copy link).
@@ -142,19 +144,25 @@ function ReportContextMenuItems({
         resolveReport(report.id, reason, note)
     }
 
-    const dismissWithReason = (reason: DismissalReasonValue, note: string): void => {
+    const dismissWith = (dismissal: DismissalFeedback): void => {
+        const { reason, note, correctedRepository } = dismissal
         captureInboxReportAction({
             report,
             actionType: 'dismiss',
             surface: 'context_menu',
-            extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
+            extra: {
+                dismissal_reason: reason,
+                ...(note ? { dismissal_note: note } : {}),
+                ...(correctedRepository ? { dismissal_corrected_repository: correctedRepository } : {}),
+            },
         })
-        dismissReport(report.id, reason, note)
+        dismissReport(report.id, dismissal)
     }
 
     // "Something else…" needs the note the other reasons don't, so it goes through the dialog. So does
     // any reason while the report still has an open implementation PR: resolving or dismissing closes
-    // that PR, so the dialog's warning and its confirm step stand in for the instant apply.
+    // that PR, so the dialog's warning and its confirm step stand in for the instant apply. A wrong-repo
+    // dismissal goes through it too, so the person can name the repository it should have been.
     const pickResolveReason = (reason: ResolveReasonValue): void => {
         if (reason === 'other' || hasOpenImplementationPr(report)) {
             onOpenDialog()
@@ -170,17 +178,17 @@ function ReportContextMenuItems({
     }
 
     const pickDismissReason = (reason: DismissalReasonValue): void => {
-        if (reason === 'other' || hasOpenImplementationPr(report)) {
+        if (reason === 'other' || reason === 'wrong_repo' || hasOpenImplementationPr(report)) {
             onOpenDialog()
             openDismissReportDialog({
                 reportTitle,
                 hasOpenPr: hasOpenImplementationPr(report),
                 initialReason: reason,
-                onConfirm: ({ reason, note }) => dismissWithReason(reason, note),
+                onConfirm: dismissWith,
             })
             return
         }
-        dismissWithReason(reason, '')
+        dismissWith({ reason, note: '', correctedRepository: null })
     }
 
     // The menu only mounts in the redesign flat list, whose rows link to the reports tab with no
@@ -191,7 +199,9 @@ function ReportContextMenuItems({
     // behavior), so the link actions a person expects there come back as menu items.
     const browserLinkItems = (
         <>
-            <ContextMenuSeparator />
+            {/* This separator sits outside a padded menu group. Its default negative margin sets
+                horizontal overflow on ScrollableShadows and adds a shadow to the menu's right edge. */}
+            <ContextMenuSeparator className="mx-0" />
             <ContextMenuGroup>
                 <ContextMenuItem asChild>
                     <ButtonPrimitive

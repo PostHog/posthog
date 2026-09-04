@@ -119,9 +119,10 @@ export interface BillingTimeSeriesResponseApi {
  * * `spend` - Spend
  * * `projected_spend` - Projected spend
  */
-export type BillingAlertMetricEnumApi = (typeof BillingAlertMetricEnumApi)[keyof typeof BillingAlertMetricEnumApi]
+export type BillingAlertConfigurationMetricEnumApi =
+    (typeof BillingAlertConfigurationMetricEnumApi)[keyof typeof BillingAlertConfigurationMetricEnumApi]
 
-export const BillingAlertMetricEnumApi = {
+export const BillingAlertConfigurationMetricEnumApi = {
     Spend: 'spend',
     ProjectedSpend: 'projected_spend',
 } as const
@@ -140,9 +141,10 @@ export const CurrencyEnumApi = {
  * * `absolute_value` - Absolute value
  * * `absolute_increase` - Absolute increase
  */
-export type ThresholdTypeEnumApi = (typeof ThresholdTypeEnumApi)[keyof typeof ThresholdTypeEnumApi]
+export type BillingAlertConfigurationThresholdTypeEnumApi =
+    (typeof BillingAlertConfigurationThresholdTypeEnumApi)[keyof typeof BillingAlertConfigurationThresholdTypeEnumApi]
 
-export const ThresholdTypeEnumApi = {
+export const BillingAlertConfigurationThresholdTypeEnumApi = {
     RelativeIncrease: 'relative_increase',
     AbsoluteValue: 'absolute_value',
     AbsoluteIncrease: 'absolute_increase',
@@ -155,9 +157,10 @@ export const ThresholdTypeEnumApi = {
  * * `snoozed` - Snoozed
  * * `broken` - Broken
  */
-export type BillingAlertStateEnumApi = (typeof BillingAlertStateEnumApi)[keyof typeof BillingAlertStateEnumApi]
+export type BillingAlertConfigurationStateEnumApi =
+    (typeof BillingAlertConfigurationStateEnumApi)[keyof typeof BillingAlertConfigurationStateEnumApi]
 
-export const BillingAlertStateEnumApi = {
+export const BillingAlertConfigurationStateEnumApi = {
     NotFiring: 'not_firing',
     Firing: 'firing',
     Errored: 'errored',
@@ -243,7 +246,7 @@ export interface BillingAlertConfigurationApi {
      *
      * * `spend` - Spend
      * * `projected_spend` - Projected spend */
-    metric?: BillingAlertMetricEnumApi
+    metric?: BillingAlertConfigurationMetricEnumApi
     /** Server-controlled currency for spend values.
      *
      * * `USD` - USD */
@@ -255,7 +258,7 @@ export interface BillingAlertConfigurationApi {
      * * `relative_increase` - Relative increase
      * * `absolute_value` - Absolute value
      * * `absolute_increase` - Absolute increase */
-    threshold_type?: ThresholdTypeEnumApi
+    threshold_type?: BillingAlertConfigurationThresholdTypeEnumApi
     /**
      * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @nullable
@@ -292,7 +295,7 @@ export interface BillingAlertConfigurationApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state: BillingAlertStateEnumApi
+    readonly state: BillingAlertConfigurationStateEnumApi
     /**
      * Minimum hours between repeated firing notifications.
      * @minimum 0
@@ -376,7 +379,7 @@ export interface PatchedBillingAlertConfigurationApi {
      *
      * * `spend` - Spend
      * * `projected_spend` - Projected spend */
-    metric?: BillingAlertMetricEnumApi
+    metric?: BillingAlertConfigurationMetricEnumApi
     /** Server-controlled currency for spend values.
      *
      * * `USD` - USD */
@@ -388,7 +391,7 @@ export interface PatchedBillingAlertConfigurationApi {
      * * `relative_increase` - Relative increase
      * * `absolute_value` - Absolute value
      * * `absolute_increase` - Absolute increase */
-    threshold_type?: ThresholdTypeEnumApi
+    threshold_type?: BillingAlertConfigurationThresholdTypeEnumApi
     /**
      * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @nullable
@@ -425,7 +428,7 @@ export interface PatchedBillingAlertConfigurationApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state?: BillingAlertStateEnumApi
+    readonly state?: BillingAlertConfigurationStateEnumApi
     /**
      * Minimum hours between repeated firing notifications.
      * @minimum 0
@@ -538,7 +541,7 @@ export interface BillingAlertEventApi {
      *
      * * `spend` - Spend
      * * `projected_spend` - Projected spend */
-    readonly metric: BillingAlertMetricEnumApi
+    readonly metric: BillingAlertConfigurationMetricEnumApi
     /**
      * Metric value for the evaluated billing date.
      * @nullable
@@ -572,7 +575,7 @@ export interface BillingAlertEventApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state_before: BillingAlertStateEnumApi | null
+    readonly state_before: BillingAlertConfigurationStateEnumApi | null
     /** Alert state after this event was applied.
      *
      * * `not_firing` - Not firing
@@ -580,7 +583,7 @@ export interface BillingAlertEventApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state_after: BillingAlertStateEnumApi | null
+    readonly state_after: BillingAlertConfigurationStateEnumApi | null
     /**
      * When notifications for this event were delivered.
      * @nullable

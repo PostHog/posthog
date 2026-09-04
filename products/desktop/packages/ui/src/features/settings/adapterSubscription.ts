@@ -18,6 +18,9 @@ import { useQuery } from "@tanstack/react-query";
 
 export interface SubscriptionStatus {
   loginState: "logged-in" | "logged-out" | "unknown";
+  email?: string;
+  organization?: string;
+  subscriptionType?: string;
 }
 
 export type WorkspaceModeForAccess = "local" | "worktree" | "cloud";
@@ -110,16 +113,18 @@ export async function registerSubscriptionAtBoot(
   flagEnabled: boolean,
 ): Promise<void> {
   await settingsHydrated();
-  const access: ModelAccess = flagEnabled
-    ? SPECS[adapter].readAccess(useSettingsStore.getState())
-    : "posthog-gateway";
+  if (!flagEnabled) {
+    registerAdapterSubscription(adapter, {
+      access: "posthog-gateway",
+      connected: false,
+    });
+    return;
+  }
+  const access = SPECS[adapter].readAccess(useSettingsStore.getState());
   registerAdapterSubscription(adapter, { access, connected: false });
   const status = await fetchStatus();
-  const freshAccess = flagEnabled
-    ? SPECS[adapter].readAccess(useSettingsStore.getState())
-    : "posthog-gateway";
   registerAdapterSubscription(adapter, {
-    access: freshAccess,
+    access: SPECS[adapter].readAccess(useSettingsStore.getState()),
     connected: status.loginState === "logged-in",
   });
 }
@@ -152,8 +157,14 @@ export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
   const modelAccess = useSettingsStore(spec.readAccess);
   const { localWorkspaces } = useHostCapabilities();
   const hostTRPC = useHostTRPC();
-  const { data: status } = useQuery({
-    ...hostTRPC.agent[spec.statusProcedure].queryOptions(),
+  // Both procedures share the same output shape (SubscriptionStatus), but
+  // indexing the tRPC router by a union of procedure names produces a union
+  // of `queryOptions` functions TS won't call — the two procedures never
+  // actually differ at runtime, so `any` here is safe.
+  // biome-ignore lint/suspicious/noExplicitAny: dynamic procedure lookup, see comment above
+  const statusProcedure = hostTRPC.agent[spec.statusProcedure] as any;
+  const { data: status } = useQuery<SubscriptionStatus>({
+    ...statusProcedure.queryOptions(),
     enabled: flagEnabled && localWorkspaces,
     staleTime: 30_000,
   });

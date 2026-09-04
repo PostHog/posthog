@@ -155,4 +155,16 @@ describe('ReportContextMenu', () => {
             ])
         })
     })
+
+    // An instant wrong-repo dismissal would record the mistake without the corrected repository,
+    // which is the half of the feedback the next repo selection learns from.
+    it('routes the wrong repository reason through the dialog instead of applying it', async () => {
+        openMenu(makeReport())
+
+        fireEvent.click(screen.getByText('Dismiss'))
+        fireEvent.click(await screen.findByText('Agent picked the wrong repository'))
+
+        expect(await screen.findByText('Dismiss report "Report one"?')).toBeInTheDocument()
+        expect(stateRequests).toEqual([])
+    })
 })

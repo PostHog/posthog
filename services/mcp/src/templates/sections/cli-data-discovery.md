@@ -5,6 +5,7 @@ per team. If the event isn't in the schema, tell the user instead of querying a 
 
 Always run `info read-data-schema` first — the recipes below are common cases, not the full schema.
 
-- Events/Actions: `call read-data-schema {"query": {"kind": "events"/"actions"}}` (paginate with `limit`/`offset` if needed)
-- Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
+- Events: `call read-data-schema {"query": {"kind": "events"}}` (paginate with `limit`/`offset` if needed). Actions come from `actions-get-all` instead.
+- Event properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
+- Person, session, and group properties: `call read-data-schema {"query": {"kind": "entity_properties", "entity": "<entity>"}}` (`entity` is `person`, `session`, or a group type name)
 - Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`

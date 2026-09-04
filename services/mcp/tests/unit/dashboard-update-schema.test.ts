@@ -20,7 +20,7 @@ describe('dashboard-update schema', () => {
 
     it('includes every OpenAPI PATCH body field from DashboardsPartialUpdateBody', () => {
         const toolShape = getSchemaShape(tool.schema)
-        const openapiBodyKeys = Object.keys(DashboardsPartialUpdateBody.shape)
+        const openapiBodyKeys = Object.keys(DashboardsPartialUpdateBody().shape)
 
         for (const param of openapiBodyKeys) {
             expect(toolShape[param], `dashboard-update schema missing OpenAPI field: ${param}`).not.toBeUndefined()
