@@ -222,6 +222,28 @@ class TestInboxAddress(APIBaseTest):
         assert email_intake.get_inbox_address(self.team) is None
         assert TeamTasksConfig.objects.get(team=self.team).email_inbound_token is None
 
+    # Config rows are keyed on the project root team, so an environment team must read and
+    # write the same row as the root — a path skipping the normalization would give one
+    # project two live addresses, and a rotation in one environment would leave the other valid.
+    @patch(INBOUND_DOMAIN, return_value="inbound.example.com")
+    def test_environment_team_shares_the_project_root_inbox(self, _setting):
+        env_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="env"
+        )
+
+        address = email_intake.ensure_inbox_address(env_team)
+        assert address is not None
+        assert email_intake.get_inbox_address(self.team) == address
+        assert email_intake.get_inbox_address(env_team) == address
+
+        token = email_intake.extract_inbox_token(address)
+        assert token is not None
+        assert email_intake.find_team_by_inbox_token(token) == self.team
+        assert not TeamTasksConfig.objects.filter(team=env_team, email_inbound_token__isnull=False).exists()
+
+        email_intake.clear_inbox_address(env_team)
+        assert email_intake.get_inbox_address(self.team) is None
+
     @patch(INBOUND_DOMAIN, return_value="")
     def test_no_inbound_domain_means_no_address(self, _setting):
         assert email_intake.ensure_inbox_address(self.team) is None

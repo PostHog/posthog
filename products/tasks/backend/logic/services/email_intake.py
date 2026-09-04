@@ -81,8 +81,23 @@ def _address_for_token(token: str | None) -> str | None:
     return f"code-{token}@{domain}"
 
 
+def _canonical_team_id(team: Team) -> int:
+    """`team`'s project root id. ``TeamTasksConfig`` rows are keyed on the project root, so
+    every environment of a project shares one inbox address."""
+    return team.parent_team_id or team.id
+
+
+def _canonical_team(team: Team) -> Team:
+    canonical_id = _canonical_team_id(team)
+    return team if canonical_id == team.id else Team.objects.get(id=canonical_id)
+
+
 def get_inbox_address(team: Team) -> str | None:
-    token = TeamTasksConfig.objects.filter(team_id=team.id).values_list("email_inbound_token", flat=True).first()
+    token = (
+        TeamTasksConfig.objects.filter(team_id=_canonical_team_id(team))
+        .values_list("email_inbound_token", flat=True)
+        .first()
+    )
     return _address_for_token(token)
 
 
@@ -97,7 +112,7 @@ def ensure_inbox_address(team: Team, *, rotate: bool = False) -> str | None:
     """
     if not is_inbound_email_configured():
         return None
-    config = get_or_create_team_extension(team, TeamTasksConfig)
+    config = get_or_create_team_extension(_canonical_team(team), TeamTasksConfig)
     if rotate or not config.email_inbound_token:
         config.email_inbound_token = secrets.token_hex(16)
         config.save(update_fields=["email_inbound_token", "updated_at"])
@@ -105,7 +120,7 @@ def ensure_inbox_address(team: Team, *, rotate: bool = False) -> str | None:
 
 
 def clear_inbox_address(team: Team) -> None:
-    TeamTasksConfig.objects.filter(team_id=team.id).update(email_inbound_token=None)
+    TeamTasksConfig.objects.filter(team_id=_canonical_team_id(team)).update(email_inbound_token=None)
 
 
 def find_team_by_inbox_token(token: str) -> Team | None:
