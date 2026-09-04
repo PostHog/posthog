@@ -6,6 +6,9 @@ from products.wizard.backend.logic.runs.mappers import workspace_to_record
 
 
 def create_run_request_fingerprint(params: CreateWizardRunInput) -> str:
+    """
+    Request fingerprint helps identify duplicate run requests even if they have different idempotency key.
+    """
     workspace_type, workspace = workspace_to_record(params.workspace)
 
     value = {
