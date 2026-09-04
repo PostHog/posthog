@@ -351,6 +351,23 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
         self.assertEqual(len(candidate_reads), 1, candidate_reads)
 
+    def test_metadata_reads_suggestion_candidates_within_one_project(self) -> None:
+        # Only `name` carries a trigram index, so the pg_trgm `%` operator makes Postgres match and
+        # rank the names of every project, and apply the project scope last. Ranking the project's
+        # own rows instead keeps the read on the project-scoped index.
+        other_project = Team.objects.create(organization=self.organization, name="unrelated project")
+        PropertyDefinition.objects.create(team=self.team, name="paid_bill")
+        PropertyDefinition.objects.create(team=other_project, project_id=other_project.project_id, name="country_code")
+
+        with CaptureQueriesContext(connection) as captured:
+            metadata = self._select("SELECT properties.country_cade FROM events")
+
+        taxonomy_warnings = [w.message for w in metadata.warnings if "project taxonomy" in w.message]
+        self.assertEqual(taxonomy_warnings, ["Property 'country_cade' was not found in this project taxonomy."])
+        candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
+        self.assertEqual(len(candidate_reads), 1, candidate_reads)
+        self.assertNotIn('" % ', candidate_reads[0])
+
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 

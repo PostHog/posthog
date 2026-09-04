@@ -29,6 +29,11 @@ FixContext = Literal["string", "property"]
 # trigram similarity, so the best match is in the first rows and difflib does not need every name.
 SUGGESTION_CANDIDATE_LIMIT = 20
 
+# The trigram similarity a name must reach to become a candidate. pg_trgm's `%` operator applies the
+# same 0.3 default from the `pg_trgm.similarity_threshold` server setting; the lookup states the
+# value instead, so it does not depend on that setting.
+SUGGESTION_SIMILARITY_THRESHOLD = 0.3
+
 # The `name` column of both definition models is `CharField(max_length=400)`.
 MAX_SUGGESTION_INPUT_LENGTH = 400
 
@@ -271,10 +276,12 @@ def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
 def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
     """Read the names most similar to any of `names`, ranked and capped by Postgres.
 
-    `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
-    `index_event_definition_name` and `index_property_definition_name` answer directly. Postgres
-    still intersects that match with the project scope, so this call is bounded by what it returns,
-    not by what it reads.
+    Similarity is computed over the project's own rows only. `event_definition_proj_uniq` and
+    `posthog_propdef_proj_uniq` lead with the project expression this queryset filters on, so the
+    cost grows with one project's taxonomy — a few hundred definitions — and not with the table.
+    The pg_trgm `%` operator would undo that: the only trigram indexes on these tables,
+    `index_event_definition_name` and `index_property_definition_name`, cover `name` alone, so `%`
+    lets Postgres rank the names of every project and apply the project scope last.
 
     The `$`-prefixed form of each name is matched exactly as well, and sorts ahead of the ranked
     candidates. A caller who typed a name without its `$` therefore keeps that suggestion however
@@ -289,15 +296,16 @@ def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
 
     dollar_prefixed = [f"${name}" for name in comparable if not name.startswith("$")]
 
-    matches = Q(name__in=dollar_prefixed) if dollar_prefixed else Q()
-    for name in comparable:
-        matches |= Q(name__trigram_similar=name)
-
     similarities = [TrigramSimilarity("name", name) for name in comparable]
-    ranked = taxonomy.filter(matches).annotate(
+    ranked = taxonomy.annotate(
         # `Greatest` needs two expressions, and one unknown name is the common case.
         name_similarity=Greatest(*similarities) if len(similarities) > 1 else similarities[0]
     )
+
+    matches = Q(name_similarity__gt=SUGGESTION_SIMILARITY_THRESHOLD)
+    if dollar_prefixed:
+        matches |= Q(name__in=dollar_prefixed)
+    ranked = ranked.filter(matches)
 
     ordering = ["-name_similarity", "name"]
     if dollar_prefixed:
@@ -314,8 +322,8 @@ def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
 
 
 def _closest_name(name: str, candidates: list[str]) -> str | None:
-    # pg_trgm selects candidates at the server's `pg_trgm.similarity_threshold` (0.3 by default),
-    # which is loose enough to return names a reader would not accept as a typo. difflib makes the
-    # final call at a stricter cutoff, so a suggestion needs both measures to agree.
+    # `SUGGESTION_SIMILARITY_THRESHOLD` is loose enough to return names a reader would not accept as
+    # a typo. difflib makes the final call at a stricter cutoff, so a suggestion needs both measures
+    # to agree.
     matches = get_close_matches(name, candidates, n=1, cutoff=0.6)
     return matches[0] if matches else None
