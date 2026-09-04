@@ -385,10 +385,12 @@ describe('experimentMetricsLogic', () => {
             // A metric added after the last run finished is absent from that run's results. The run's own
             // counts look complete, so only a uuid comparison catches the gap; without the heal the new metric
             // stays stuck loading on every page load.
-            const experimentWithExtraMetric = {
+            // Derive the extra metric from a real fixture metric so it stays fully typed; only the uuid differs.
+            const addedMetric = { ...EXPERIMENT.metrics[0], uuid: 'added-after-run-uuid' }
+            const experimentWithExtraMetric: Experiment = {
                 ...EXPERIMENT,
-                metrics: [...(EXPERIMENT.metrics ?? []), { uuid: 'added-after-run-uuid' }],
-            } as unknown as Experiment
+                metrics: [...EXPERIMENT.metrics, addedMetric],
+            }
             let capturedBody: any
             useMocks({
                 get: {
