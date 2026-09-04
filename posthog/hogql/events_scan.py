@@ -300,7 +300,10 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
         rows = list(
             EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
             .filter(effective_project_id=team.project_id, property__in=names)
-            .order_by("property", "event")
+            # `event, property` is the order of the unique (project, event, property) index, so the
+            # row cap below stops the index scan early. An order that starts with `property` needs a
+            # sort of the project's whole slice of the table, and it spends the cap on one property.
+            .order_by("event", "property")
             .values_list("property", "event")[: _MAX_HINT_PROPERTIES * _MAX_HINT_EVENTS]
         )
     except DatabaseError:
