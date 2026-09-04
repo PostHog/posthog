@@ -25,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::config::CompletionGranularity;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -435,6 +436,7 @@ struct Harness {
     pub ledger: Arc<TopicOffsetLedger>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
+    completion_granularity: CompletionGranularity,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -531,6 +533,7 @@ impl Harness {
             registry_config,
             0,
             ComponentOptions::new(),
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -553,6 +556,7 @@ impl Harness {
             ComponentOptions::new()
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -570,6 +574,30 @@ impl Harness {
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
+            CompletionGranularity::Poll,
+        )
+        .await
+    }
+
+    /// Group granularity: each send completes on its own and commits its
+    /// partitions' frontiers, so a stalled send holds only the partitions it
+    /// sits on.
+    async fn start_group_granularity(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            CompletionGranularity::Group,
         )
         .await
     }
@@ -584,6 +612,7 @@ impl Harness {
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
         component_options: ComponentOptions,
+        completion_granularity: CompletionGranularity,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -635,6 +664,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
+                completion_granularity,
             },
             handle,
         );
@@ -657,6 +687,7 @@ impl Harness {
             ledger,
             max_in_flight,
             deferred_flush_timeout,
+            completion_granularity,
         }
     }
 
@@ -709,6 +740,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
                 debug_recorder: None,
+                completion_granularity: self.completion_granularity,
             },
             handle,
         );
@@ -1988,21 +2020,12 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
     harness.stop().await;
 }
 
-/// The broker-committed offset is the ledger frontier — one past everything
-/// the workers accepted — and a restart resumes from it with no loss and no
-/// redelivery.
-#[tokio::test]
-async fn the_committed_offset_is_the_ledger_frontier() {
-    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
-    let mut harness = Harness::start(
-        &topic,
-        1,
-        1,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+/// The broker-committed offset is the ledger frontier — one past everything the
+/// workers accepted — and a restart resumes from it with no loss and no
+/// redelivery. Shared by both granularities: which unit completes must not
+/// change where the frontier lands.
+async fn assert_commits_track_the_ledger_frontier(mut harness: Harness) {
+    let topic = harness.topic.clone();
     let producer = make_producer();
 
     for seq in 0..10usize {
@@ -2036,6 +2059,172 @@ async fn the_committed_offset_is_the_ledger_frontier() {
         total, 15,
         "a committed frontier behind the accepted work would redeliver here"
     );
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn the_committed_offset_is_the_ledger_frontier() {
+    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
+    assert_commits_track_the_ledger_frontier(
+        Harness::start(
+            &topic,
+            1,
+            1,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+        )
+        .await,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn group_granularity_commits_the_ledger_frontier() {
+    let topic = format!("e2e-group-commit-{}", Uuid::new_v4());
+    assert_commits_track_the_ledger_frontier(
+        Harness::start_group_granularity(&topic, 1, 1, 1).await,
+    )
+    .await;
+}
+
+/// The two keys of the stalled-partition scenario, one per partition.
+const STALL_KEYS: [(i32, &str); 2] = [(0, "user-a"), (1, "user-b")];
+
+/// Land one poll that carries two partitions and splits across two blocked
+/// workers: 5 messages keyed `user-a` on partition 0 and 5 keyed `user-b` on
+/// partition 1. Placement is deterministic — the dispatcher's default bin-pack
+/// routing puts each key on the least-loaded worker, and the first key's five
+/// messages already count as in-flight load on the worker that took them, so
+/// the second key goes to the other one. Returns the per-worker gate guards;
+/// dropping one releases that worker's send.
+async fn stall_two_partitions_on_two_workers(
+    harness: &Harness,
+    topic: &str,
+) -> Vec<Option<tokio::sync::OwnedMutexGuard<()>>> {
+    let mut guards = Vec::new();
+    for worker in &harness.workers {
+        guards.push(Some(worker.block().await));
+    }
+
+    let producer = make_producer();
+    let mut sends = Vec::new();
+    for seq in 0..5usize {
+        for (partition, key) in STALL_KEYS {
+            sends.push(produce(&producer, topic, partition, "tok", key, seq));
+        }
+    }
+    // Produce concurrently so all ten messages fall inside one collection window.
+    futures::future::join_all(sends).await;
+
+    wait_until(
+        Duration::from_secs(10),
+        "both workers to hold a sub-batch",
+        || harness.workers.iter().all(|w| w.arrived_count() > 0),
+    )
+    .await;
+
+    guards
+}
+
+/// The partition whose key worker `idx` accepted, once its send resolved.
+/// Asserts the split: one worker holds exactly one key's five messages.
+fn accepted_partition(harness: &Harness, idx: usize) -> i32 {
+    let worker = &harness.workers[idx];
+    assert_eq!(
+        worker.count(),
+        5,
+        "each worker must hold exactly one key's messages"
+    );
+    STALL_KEYS
+        .iter()
+        .find(|(_, key)| !worker.seqs_for(key).is_empty())
+        .map(|(partition, _)| *partition)
+        .expect("the released worker accepted neither key")
+}
+
+/// Group granularity: a stalled send holds only its own partition. Both keys
+/// ride one poll on separate workers; releasing one worker commits that key's
+/// partition while the other worker still holds its send.
+#[tokio::test]
+async fn group_granularity_commits_a_partition_while_another_stalls() {
+    let topic = format!("e2e-group-stall-{}", Uuid::new_v4());
+    let harness = Harness::start_group_granularity(&topic, 2, 2, 2).await;
+    let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
+
+    guards[0] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the released worker to accept its key",
+        || harness.workers[0].count() == 5,
+    )
+    .await;
+    let released = accepted_partition(&harness, 0);
+    let stalled = 1 - released;
+
+    wait_until(
+        Duration::from_secs(10),
+        "the released partition to commit",
+        || harness.committed_offset(released) == Some(5),
+    )
+    .await;
+    assert_eq!(
+        harness.committed_offset(stalled),
+        None,
+        "the stalled send must hold its own partition back"
+    );
+
+    guards[1] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the stalled partition to commit once released",
+        || harness.committed_offset(stalled) == Some(5),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+/// Poll granularity holds both partitions while one send stalls: the poll
+/// commits as a whole, so the released partition waits for the stalled one.
+/// This is what group granularity replaces.
+#[tokio::test]
+async fn poll_granularity_holds_both_partitions_while_one_stalls() {
+    let topic = format!("e2e-poll-stall-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        2,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
+
+    guards[0] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the released worker to accept its key",
+        || harness.workers[0].count() == 5,
+    )
+    .await;
+    let released = accepted_partition(&harness, 0);
+
+    assert_eq!(
+        harness.committed_offset(released),
+        None,
+        "an accepted send commits nothing until its whole poll completes"
+    );
+
+    guards[1] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "both partitions to commit once the poll completes",
+        || harness.committed_offset(0) == Some(5) && harness.committed_offset(1) == Some(5),
+    )
+    .await;
 
     harness.stop().await;
 }
@@ -2560,6 +2749,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
         },
         handle2,
     );
@@ -2667,6 +2857,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
         },
         handle2,
     );
@@ -2780,6 +2971,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
         },
         handle,
     );
