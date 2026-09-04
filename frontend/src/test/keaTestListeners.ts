@@ -33,23 +33,21 @@ export function testListeners(listenersBuilder: ListenersBuilder): ListenersBuil
     return function listenersWithoutDelays<L extends Logic = Logic>(
         input: LogicInput<L>['listeners']
     ): LogicBuilder<L> {
-        return listenersBuilder<L>(
-            ((logic: L) => {
-                const listeners = (typeof input === 'function' ? input(logic) : input) as Record<
-                    string,
-                    ListenerFunction | ListenerFunction[]
-                >
-                const keepDelay = REAL_BREAKPOINT_PATH_PREFIXES.some((prefix) => logic.pathString.startsWith(prefix))
+        return listenersBuilder<L>(((logic: L) => {
+            const listeners = (typeof input === 'function' ? input(logic) : input) as Record<
+                string,
+                ListenerFunction | ListenerFunction[]
+            >
+            const keepDelay = REAL_BREAKPOINT_PATH_PREFIXES.some((prefix) => logic.pathString.startsWith(prefix))
 
-                return Object.fromEntries(
-                    Object.entries(listeners).map(([action, listener]) => [
-                        action,
-                        Array.isArray(listener)
-                            ? listener.map((item) => wrapListener(item, keepDelay))
-                            : wrapListener(listener, keepDelay),
-                    ])
-                )
-            }) as LogicInput<L>['listeners']
-        )
+            return Object.fromEntries(
+                Object.entries(listeners).map(([action, listener]) => [
+                    action,
+                    Array.isArray(listener)
+                        ? listener.map((item) => wrapListener(item, keepDelay))
+                        : wrapListener(listener, keepDelay),
+                ])
+            )
+        }) as LogicInput<L>['listeners'])
     }
 }
