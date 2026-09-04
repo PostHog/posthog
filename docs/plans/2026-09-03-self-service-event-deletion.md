@@ -28,6 +28,7 @@ This plan extends that workflow. It does not introduce a second deletion system.
 8. Queue rows identify the deletion request that created them.
 9. Queueing is retry-safe after a timeout or partial distributed failure.
 10. The existing weekend `deletes_job` remains the only process that deletes query-selected events.
+11. Customers can query their product-created deletion requests through a team-scoped, read-only HogQL table.
 
 ## Proposed customer flow
 
@@ -64,7 +65,9 @@ hogql_variables = models.JSONField(blank=True, default=dict)
 
 The exact query representation should match the SQL editor's existing `HogQLQuery` shape. If variable values contain typed query nodes, store the complete serialized variables rather than a flattened value map.
 
-`created_by_staff` already records whether an instance operator created many existing requests. Keep it during rollout for compatibility, but make `origin` the explicit product distinction. Existing rows should migrate to `django_admin` unless another known creation path requires a separate origin.
+Keep `created_by_staff` as a permanent, independent audit field. It records whether the actor was PostHog staff, while `origin` records which surface created the request. A PostHog employee acting as a customer through the product therefore creates a request with `origin = self_service` and `created_by_staff = true`.
+
+The product creation path derives `created_by_staff` from the authenticated actor and never accepts it from the request body. Existing rows should migrate to `origin = django_admin` only after confirming that Django Admin was their only creation path.
 
 Changing the query or variables must reset the request to draft, clear approval and cached preview data, and invalidate any compiled-query cache. Approved and later requests remain immutable.
 
@@ -198,11 +201,28 @@ GET  data_deletion_requests
 GET  data_deletion_requests/:id
 ```
 
-The server derives the team through `self.context["get_team"]()` and derives the actor from the authenticated request. The create serializer must not accept operational fields such as `team_id`, `origin`, `created_by`, approval state, status, or execution mode.
+The server derives the team through `self.context["get_team"]()` and derives the actor and `created_by_staff` from the authenticated request. The create serializer must not accept operational fields such as `team_id`, `origin`, `created_by`, `created_by_staff`, approval state, status, or execution mode.
 
 The API requires a dedicated destructive permission rather than general SQL-editor access. List and detail queries must filter by the current team. The product API may expose only requests appropriate for customer visibility, while Django Admin continues to expose every origin.
 
 Preview must be rate-limited and use the normal query-cost controls. Creation must guard against replay and double submission. A client-generated idempotency key or a uniqueness constraint over an immutable submission identifier should prevent accidental duplicate requests.
+
+## HogQL table for deletion requests
+
+Expose product-created deletion requests as a team-scoped HogQL table named `data_deletion_requests`. This lets customers inspect and report on their requests without adding a separate product-only reporting API.
+
+The table must:
+
+- Apply the current HogQL team scope before returning rows.
+- Expose only `origin = self_service` requests.
+- Use the normal HogQL resource access controls.
+- Exclude internal notes, approval comments, Dagster identifiers, and other operator-only metadata.
+- Expose stable customer-facing fields such as request ID, status, query, selected count, creator, creation time, approval time, queue time, completion time, and failure state.
+- Preserve `created_by_staff` so an employee acting through the product remains identifiable without changing the creation origin.
+
+The initial schema should prefer explicit columns over a serialized model payload. Field names and status values become a customer-facing query contract once released.
+
+The HogQL table is read-only. Creating, approving, canceling, or retrying a deletion request continues through authenticated API actions with explicit permissions.
 
 ## Approval policy
 
@@ -239,7 +259,7 @@ After submission, navigate to a deletion-request detail surface showing status, 
 
 Deletion requests should appear in PostHog's activity log with events for creation, submission, approval, queueing, failure, retry, and completion. Activity payloads should record identifiers and state transitions, not the full query or UUID set.
 
-Django Admin should display and filter by `origin`, `source_id`, actor, project, approval mode, and latest Dagster run. Existing `created_by_staff` information remains visible during migration.
+Django Admin should display and filter by `origin`, `created_by_staff`, `source_id`, actor, project, approval mode, and latest Dagster run. The two provenance dimensions remain separate throughout the request lifecycle.
 
 ## Delivery sequence
 
@@ -255,6 +275,7 @@ Django Admin should display and filter by `origin`, `source_id`, actor, project,
 - Add request origin and immutable HogQL snapshot fields.
 - Define criteria-reset and immutability rules.
 - Add model-level validation for query-backed event removals.
+- Keep `created_by_staff` and populate it independently from the creation origin.
 - Preserve compatibility with existing admin-created requests.
 
 ### 3. ClickHouse executor and infrastructure PRs
@@ -270,6 +291,7 @@ Infrastructure grants should land before application code uses them. Application
 ### 4. API PR
 
 - Add preview, create, list, and detail endpoints.
+- Register the team-scoped, read-only `data_deletion_requests` HogQL table.
 - Add permission and tenant-scoping checks.
 - Add idempotent submission.
 - Regenerate OpenAPI clients.
@@ -294,8 +316,10 @@ Infrastructure grants should land before application code uses them. Application
 ### Model and API
 
 - A request stores an immutable query and variable snapshot.
-- Product creation assigns the authenticated team, actor, origin, and deferred mode.
+- Product creation assigns the authenticated team, actor, staff status, origin, and deferred mode.
+- A staff user acting through the product produces `origin = self_service` and `created_by_staff = true`.
 - Cross-team list and detail access fails closed.
+- The HogQL table returns only self-service requests for the current team and omits operator-only fields.
 - Customers cannot assign status, approval, origin, execution mode, or team.
 - Criteria edits clear approval and preview state.
 - Duplicate submissions return the existing request.
@@ -345,17 +369,18 @@ Operational documentation must cover credential provisioning, resource limits, r
 ## Open questions
 
 1. Which product should own the backend and frontend implementation?
-2. Which project role receives the deletion permission?
-3. Do all self-service requests require manual approval for the first release?
-4. What preview count or query-cost thresholds permit automatic approval?
-5. Should the API accept only `HogQLQuery`, or every query node that eventually compiles to one UUID column?
-6. Does the current compiler expose a safe typed representation for wrapping a compiled query in `INSERT ... SELECT`?
-7. Which regular HogQL resources should the dedicated executor principal be able to read?
-8. How should self-hosted deployments provision or fall back when the dedicated principal is unavailable?
-9. Does the queue dictionary need an explicit `GROUP BY team_id, uuid` for retry duplicates?
-10. How long should completed provenance rows remain available before the existing TTL removes them?
-11. Does event deletion also need to remove or rebuild derived data outside the legacy and native-JSON event tables?
-12. What customer-visible cancellation behavior is safe before UUID queueing begins and after it completes?
+2. Should the HogQL table expose all self-service requests for the team or only requests visible to the querying user?
+3. Which project role receives the deletion permission?
+4. Do all self-service requests require manual approval for the first release?
+5. What preview count or query-cost thresholds permit automatic approval?
+6. Should the API accept only `HogQLQuery`, or every query node that eventually compiles to one UUID column?
+7. Does the current compiler expose a safe typed representation for wrapping a compiled query in `INSERT ... SELECT`?
+8. Which regular HogQL resources should the dedicated executor principal be able to read?
+9. How should self-hosted deployments provision or fall back when the dedicated principal is unavailable?
+10. Does the queue dictionary need an explicit `GROUP BY team_id, uuid` for retry duplicates?
+11. How long should completed provenance rows remain available before the existing TTL removes them?
+12. Does event deletion also need to remove or rebuild derived data outside the legacy and native-JSON event tables?
+13. What customer-visible cancellation behavior is safe before UUID queueing begins and after it completes?
 
 ## Definition of done
 
@@ -368,4 +393,5 @@ Operational documentation must cover credential provisioning, resource limits, r
 - Retries cannot expand deletion beyond the immutable query and request team.
 - `deletes_job` removes queued events from every active physical event table.
 - The product shows the request's approval, queueing, deletion, and verification state.
+- Customers can inspect their self-service requests through the team-scoped `data_deletion_requests` HogQL table.
 - Documentation and operational controls are ready before the feature flag expands.
