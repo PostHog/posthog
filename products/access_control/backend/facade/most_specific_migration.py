@@ -1,10 +1,10 @@
-"""Sweep of organizations still on the legacy access resolution, and the switch for the
-ones the change cannot affect.
+"""Finds the organizations still on the legacy access resolution that the most-specific
+resolution does not affect, and switches them over.
 
-An organization is unaffected when every rule subject resolves the same under both
-resolutions on every team (see `resolution_preview`), or when it has no access rules at all.
-Organizations that resolve differently, and organizations with rules but no active member
-to evaluate as, are reported and left on the legacy resolution.
+An organization is not affected when it has no access rules, or when every rule resolves
+the same under both resolutions on every team (see `resolution_preview`). Organizations
+that resolve differently, and organizations with rules but no active member to evaluate
+as, are reported and stay on the legacy resolution.
 """
 
 from collections.abc import Iterable
@@ -39,8 +39,8 @@ class OrganizationRef:
 
 
 @frozen
-class ResolutionSweep:
-    """Every organization not yet on the most-specific resolution, sorted into buckets."""
+class MigrationCandidates:
+    """Every organization still on the legacy resolution, sorted by what the switch would do."""
 
     divergent: list[OrganizationReadiness]
     unchanged: list[OrganizationReadiness]
@@ -56,7 +56,7 @@ def _pending_organizations() -> QuerySet[Organization]:
     return Organization.objects.exclude(uses_most_specific_access_resolution=True)
 
 
-def sweep_pending_organizations() -> ResolutionSweep:
+def find_organizations_to_migrate() -> MigrationCandidates:
     totals: dict[UUID, dict[str, int]] = {}
     names: dict[UUID, str] = {}
 
@@ -87,14 +87,14 @@ def sweep_pending_organizations() -> ResolutionSweep:
     without_rules = list(
         _pending_organizations().exclude(id__in=organizations_with_rules).order_by("id").values_list("id", flat=True)
     )
-    return ResolutionSweep(
+    return MigrationCandidates(
         divergent=divergent, unchanged=unchanged, unevaluated=unevaluated, without_rules=without_rules
     )
 
 
 def enable_most_specific_resolution(organization_ids: Iterable[UUID]) -> int:
     """Switch the given organizations to the most-specific resolution. Returns the number of
-    rows updated. Batched so one sweep never holds a long lock on the organization table."""
+    rows updated. Batched so one run never holds a long lock on the organization table."""
     ids = list(organization_ids)
     updated = 0
     for start in range(0, len(ids), _UPDATE_BATCH_SIZE):
