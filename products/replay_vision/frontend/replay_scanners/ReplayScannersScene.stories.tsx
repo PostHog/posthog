@@ -722,6 +722,19 @@ export const ScannerAlertsEmpty: StoryObj = {
     },
 }
 
+export const ScannerAlertsLoadFailed: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=alerts`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/alerts/': () => [500, { detail: 'Server error' }],
+            },
+        }),
+    ],
+}
+
 export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
 }
