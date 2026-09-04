@@ -460,7 +460,6 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
-    # Product push reads each surface's public facade to tell whether an org has adopted it.
     "products.signals", "products.tasks",
 ]
 layer = "modules"
