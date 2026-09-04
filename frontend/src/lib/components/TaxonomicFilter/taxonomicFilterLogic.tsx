@@ -247,6 +247,17 @@ export function redistributeTopMatches(
     return result
 }
 
+// The shortcut groups match on the *value* someone typed, so their rows are whole URLs,
+// screen names or email addresses. In the cross-category list that put long URLs above the
+// property names people usually search for, so they rank last there. The tab order keeps them
+// up front.
+export function demoteValueShortcutGroups(groupTypes: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] {
+    return [
+        ...groupTypes.filter((groupType) => !SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(groupType)),
+        ...groupTypes.filter((groupType) => SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(groupType)),
+    ]
+}
+
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventDefinition.name]) {
@@ -408,6 +419,7 @@ export interface taxonomicFilterLogicValues {
     selectedItemMeta: any
     selectedProperties: TaxonomicFilterGroupValueMap
     showNumericalPropsOnly: any
+    suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
     suggestedFiltersLabel: any
     taxonomicFilterLogicKey: string
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -583,12 +595,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -619,20 +631,22 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[]
         ) => string
+        suggestedFilterGroupOrder: (
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            metaGroupTypes: Set<string>
+        ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
             topMatchItems: (TaxonomicDefinitionTypes & {
                 group: TaxonomicFilterGroupType
             })[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
         ) => TopMatchItem[]
         topMatchItemsWithSkeletons: (
             redistributedTopMatchItems: TopMatchItem[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            suggestedFilterGroupOrder: TaxonomicFilterGroupType[],
             loadingGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
             searchQuery: string,
-            metaGroupTypes: Set<string>,
             revealBarrierOpen: boolean
         ) => (SkeletonItem | TopMatchItem)[]
     }
@@ -2324,41 +2338,41 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     .join('')
             },
         ],
-        redistributedTopMatchItems: [
-            (s) => [s.topMatchItems, s.taxonomicGroupTypes, s.metaGroupTypes],
+        suggestedFilterGroupOrder: [
+            // The order the cross-category "All" list renders its groups in. Every consumer of that
+            // list must read this, so the skeleton rows and the revealed rows land in the same place.
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
             (
-                topMatchItems: TopMatchItem[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 metaGroupTypes: Set<string>
-            ): TopMatchItem[] => {
-                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
-                return redistributeTopMatches(topMatchItems, nonMetaGroups.length, nonMetaGroups)
-            },
+            ): TaxonomicFilterGroupType[] =>
+                demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))),
+        ],
+        redistributedTopMatchItems: [
+            (s) => [s.topMatchItems, s.suggestedFilterGroupOrder],
+            (topMatchItems: TopMatchItem[], groupOrder: TaxonomicFilterGroupType[]): TopMatchItem[] =>
+                redistributeTopMatches(topMatchItems, groupOrder.length, groupOrder),
         ],
         topMatchItemsWithSkeletons: [
             (s) => [
                 s.redistributedTopMatchItems,
-                s.taxonomicGroupTypes,
+                s.suggestedFilterGroupOrder,
                 s.loadingGroupTypes,
                 s.taxonomicGroups,
                 s.searchQuery,
-                s.metaGroupTypes,
                 s.revealBarrierOpen,
             ],
             (
                 redistributed: TopMatchItem[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                groupOrder: TaxonomicFilterGroupType[],
                 loadingGroupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
                 searchQuery: string,
-                metaGroupTypes: Set<string>,
                 revealBarrierOpen: boolean
             ): (TopMatchItem | SkeletonItem)[] => {
                 if (!searchQuery) {
                     return redistributed
                 }
-
-                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
 
                 const buildSkeletons = (groupType: TaxonomicFilterGroupType): SkeletonItem[] => {
                     const groupDef = taxonomicGroups.find((g) => g.type === groupType)
@@ -2375,14 +2389,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // when a slower group finishes.
                 if (!revealBarrierOpen) {
                     const result: SkeletonItem[] = []
-                    for (const groupType of nonMetaGroups) {
+                    for (const groupType of groupOrder) {
                         result.push(...buildSkeletons(groupType))
                     }
                     return result
                 }
 
                 const result: (TopMatchItem | SkeletonItem)[] = []
-                for (const groupType of nonMetaGroups) {
+                for (const groupType of groupOrder) {
                     const groupItems = redistributed.filter((item) => item.group === groupType)
                     if (groupItems.length > 0) {
                         result.push(...groupItems)

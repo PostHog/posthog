@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import {
+    demoteValueShortcutGroups,
     isSkeletonItem,
     propertyTaxonomicGroupProps,
     redistributeTopMatches,
@@ -529,6 +530,41 @@ describe('taxonomicFilterLogic', () => {
             const afterLoading = quickLogic.values.topMatchItemsWithSkeletons
             expect(afterLoading.filter(isSkeletonItem)).toHaveLength(0)
             expect(quickLogic.values.revealBarrierOpen).toBe(true)
+        })
+
+        it('renders pageview URL rows below property name rows once the reveal barrier opens', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testDemotedShortcuts',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+            }
+            const demotedLogic = taxonomicFilterLogic(logicProps)
+            demotedLogic.mount()
+
+            await expectLogic(demotedLogic, () => {
+                demotedLogic.actions.setSearchQuery('host')
+                demotedLogic.actions.appendTopMatches([
+                    {
+                        name: 'https://posthog.com/a/very/long/url',
+                        group: TaxonomicFilterGroupType.PageviewUrls,
+                    } as any,
+                    { name: '$host', group: TaxonomicFilterGroupType.EventProperties } as any,
+                ])
+                demotedLogic.actions.openRevealBarrier()
+            }).toMatchValues({
+                topMatchItemsWithSkeletons: [
+                    expect.objectContaining({ name: '$host', group: TaxonomicFilterGroupType.EventProperties }),
+                    expect.objectContaining({
+                        name: 'https://posthog.com/a/very/long/url',
+                        group: TaxonomicFilterGroupType.PageviewUrls,
+                    }),
+                ],
+            })
+
+            demotedLogic.unmount()
         })
 
         it('does not insert skeletons when search query is empty', async () => {
@@ -1674,6 +1710,45 @@ describe('redistributeTopMatches', () => {
         },
     ])('$description', ({ items, activeGroupCount, expected, groupTypeOrder }) => {
         expect(redistributeTopMatches(items, activeGroupCount, groupTypeOrder)).toEqual(expected)
+    })
+})
+
+describe('demoteValueShortcutGroups', () => {
+    it.each([
+        {
+            description: 'moves value shortcut groups below the name matching groups',
+            groupTypes: [
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+            ],
+            expected: [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EmailAddresses,
+            ],
+        },
+        {
+            description: 'keeps the relative order inside each set',
+            groupTypes: [
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.Events,
+            ],
+            expected: [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.PageviewUrls,
+            ],
+        },
+    ])('$description', ({ groupTypes, expected }) => {
+        expect(demoteValueShortcutGroups(groupTypes)).toEqual(expected)
     })
 })
 
