@@ -20,24 +20,7 @@ impl Db {
     pub async fn connect(url: &str) -> Result<Self> {
         let mut cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
         cfg.ssl_mode(tokio_postgres::config::SslMode::Require);
-        let mut roots = rustls::RootCertStore::empty();
-        let native = rustls_native_certs::load_native_certs();
-        for err in &native.errors {
-            tracing::warn!(error = %err, "failed to load a native certificate");
-        }
-        for cert in native.certs {
-            if let Err(e) = roots.add(cert) {
-                tracing::warn!(error = %e, "failed to add a native certificate to root store");
-            }
-        }
-        if roots.is_empty() {
-            tracing::info!("no native certs found, falling back to webpki-roots");
-            roots.roots = webpki_roots::TLS_SERVER_ROOTS.to_vec();
-        }
-        let tls_cfg = rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg);
+        let tls = tls_connector();
         let mgr = Manager::from_config(
             cfg,
             tls,
@@ -179,4 +162,21 @@ pub fn row_to_json(r: &tokio_postgres::Row) -> Result<Value> {
         m.insert(col.name().to_string(), v.unwrap_or(Value::Null));
     }
     Ok(Value::Object(m))
+}
+
+fn tls_connector() -> tokio_postgres_rustls::MakeRustlsConnect {
+    let mut roots = rustls::RootCertStore::empty();
+    let native = rustls_native_certs::load_native_certs();
+    for err in &native.errors {
+        tracing::warn!(error = %err, "failed to load a native certificate");
+    }
+    for cert in native.certs {
+        if let Err(e) = roots.add(cert) {
+            tracing::warn!(error = %e, "failed to add a native certificate to root store");
+        }
+    }
+    let tls_cfg = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg)
 }

@@ -8998,7 +8998,6 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9034,7 +9033,6 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
