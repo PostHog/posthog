@@ -2083,7 +2083,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_datasets' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
         href: urls.aiObservabilityDatasets(),
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
         tags: ['beta'],
         sceneKey: 'AIObservabilityDatasets',
         sceneKeys: [

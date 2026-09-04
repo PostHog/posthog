@@ -38,12 +38,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
         ]
         self.organization.save()
-        feature_flag_patch = patch(
-            "posthog.permissions.posthog_feature_flag_enabled",
-            return_value=True,
-        )
-        feature_flag_patch.start()
-        self.addCleanup(feature_flag_patch.stop)
 
         AccessControl.objects.create(
             team=self.team,

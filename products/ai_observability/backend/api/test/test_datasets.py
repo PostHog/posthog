@@ -25,12 +25,6 @@ from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAss
 class TestDatasetsApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        feature_flag_patch = patch(
-            "posthog.permissions.posthog_feature_flag_enabled",
-            return_value=True,
-        )
-        feature_flag_patch.start()
-        self.addCleanup(feature_flag_patch.stop)
         self.datasets_url = f"/api/environments/{self.team.id}/datasets/"
         self.items_url = f"/api/environments/{self.team.id}/dataset_items/"
 
@@ -58,12 +52,6 @@ class TestDatasetsApi(APIBaseTest):
         response = self.client.post(self.items_url, payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.data
-
-    def test_feature_flag_gates_the_api_server_side(self) -> None:
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
-            response = self.client.get(self.datasets_url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_dataset_lifecycle_and_name_uniqueness(self) -> None:
         dataset = self._create_dataset()

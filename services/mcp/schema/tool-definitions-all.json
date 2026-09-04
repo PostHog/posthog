@@ -6329,8 +6329,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-create": {
         "description": "Create an empty dataset in the current project. Dataset names are unique within a project. The first immutable revision is created when the first item is added.",
@@ -6344,8 +6343,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-get": {
         "description": "Retrieve an active or archived dataset by UUID, including its metadata and latest committed revision.",
@@ -6359,8 +6357,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-item-archive": {
         "description": "Archive an active dataset item by stable item ID. Pass its current version as `base_version` to prevent a stale write. This creates an immutable archived version and a new dataset revision while preserving history.",
@@ -6374,8 +6371,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-item-create": {
         "description": "Add an item to a dataset and create its first immutable version. `input` accepts any non-null JSON value. Use `expected_output` for the user-authored target and `source_output` for an actual output copied from a trace. Supply a case-sensitive `client_item_id` for safe retries. An identical retry returns the existing item. A different payload or an archived matching item returns a conflict. Restore archived items explicitly. For trace provenance, provide `source_trace_id` and `source_timestamp` together; `source_event_id` is optional.",
@@ -6389,8 +6385,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-item-get": {
         "description": "Retrieve the current immutable version of an active or archived dataset item by its stable item UUID. Pass `revision` to retrieve the version visible at an exact dataset revision.",
@@ -6404,8 +6399,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-item-list": {
         "description": "List active items in a dataset by default. Set `archived` to list archived items, or pass `revision` to inspect the exact item snapshot at a committed dataset revision.",
@@ -6419,8 +6413,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-item-restore": {
         "description": "Restore an archived item by stable item ID. Pass its current version as `base_version` to prevent a stale write. By default the archived version's content is copied into a new active version. Pass `source_version` to restore content from another historical version.",
@@ -6434,8 +6427,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-item-update": {
         "description": "Update an active item by stable item ID. Pass its current version as `base_version` to prevent a stale write. Each update creates a new immutable item version and dataset revision. Only `input`, `expected_output`, and `metadata` are editable; source fields remain unchanged.",
@@ -6449,8 +6441,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-item-version-list": {
         "description": "List every immutable version of a dataset item, newest first. The response includes version metadata only. To retrieve a version's content, call `llma-dataset-item-get` with the item ID and its `dataset_revision` as `revision`.",
@@ -6464,8 +6455,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-list": {
         "description": "List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to list archived datasets.",
@@ -6479,8 +6469,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-restore": {
         "description": "Restore an archived dataset by ID. This makes item mutations available again without changing item states or creating a dataset revision. Restoring an active dataset leaves it unchanged.",
@@ -6494,8 +6483,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-revision-list": {
         "description": "List immutable revisions for a dataset by UUID, newest first. Use a revision number with the dataset item list tool to inspect that exact snapshot.",
@@ -6509,8 +6497,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-dataset-update": {
         "description": "Update an active dataset's name, description, or metadata by ID. These descriptive changes do not create a dataset revision.",
@@ -6524,8 +6511,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
+        }
     },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",

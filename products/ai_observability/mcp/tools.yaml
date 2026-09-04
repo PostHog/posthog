@@ -167,7 +167,6 @@ tools:
         description: >
             Archive a dataset by ID. Its revisions and items remain readable, but item mutations are rejected until the
             dataset is restored. Archiving an already archived dataset leaves it unchanged.
-        feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
             informational_wrapper:
@@ -187,7 +186,6 @@ tools:
         description: >
             Create an empty dataset in the current project. Dataset names are unique within a project. The first
             immutable revision is created when the first item is added.
-        feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
             informational_wrapper:
@@ -206,7 +204,6 @@ tools:
         title: Get dataset
         description: |
             Retrieve an active or archived dataset by UUID, including its metadata and latest committed revision.
-        feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
             informational_wrapper:
@@ -225,7 +222,6 @@ tools:
         description: >
             Archive an active dataset item by stable item ID. Pass its current version as `base_version` to prevent a
             stale write. This creates an immutable archived version and a new dataset revision while preserving history.
-        feature_flag: llm-analytics-datasets
         response:
             informational_wrapper:
                 tag: dataset-item-record
@@ -247,7 +243,6 @@ tools:
             item. A different payload or an archived matching item returns a conflict. Restore archived items
             explicitly. For trace provenance, provide `source_trace_id` and `source_timestamp` together;
             `source_event_id` is optional.
-        feature_flag: llm-analytics-datasets
         response:
             informational_wrapper:
                 tag: dataset-item-record
@@ -265,7 +260,6 @@ tools:
         description: >
             Retrieve the current immutable version of an active or archived dataset item by its stable item UUID. Pass
             `revision` to retrieve the version visible at an exact dataset revision.
-        feature_flag: llm-analytics-datasets
         response:
             informational_wrapper:
                 tag: dataset-item-record
@@ -284,7 +278,6 @@ tools:
         description: >
             List active items in a dataset by default. Set `archived` to list archived items, or pass `revision` to
             inspect the exact item snapshot at a committed dataset revision.
-        feature_flag: llm-analytics-datasets
         response:
             include:
                 - id
@@ -313,7 +306,6 @@ tools:
             Restore an archived item by stable item ID. Pass its current version as `base_version` to prevent a stale
             write. By default the archived version's content is copied into a new active version. Pass `source_version`
             to restore content from another historical version.
-        feature_flag: llm-analytics-datasets
         response:
             informational_wrapper:
                 tag: dataset-item-record
@@ -332,7 +324,6 @@ tools:
             Update an active item by stable item ID. Pass its current version as `base_version` to prevent a stale
             write. Each update creates a new immutable item version and dataset revision. Only `input`,
             `expected_output`, and `metadata` are editable; source fields remain unchanged.
-        feature_flag: llm-analytics-datasets
         response:
             informational_wrapper:
                 tag: dataset-item-record
@@ -352,7 +343,6 @@ tools:
             List every immutable version of a dataset item, newest first. The response includes version metadata only.
             To retrieve a version's content, call `llma-dataset-item-get` with the item ID and its `dataset_revision` as
             `revision`.
-        feature_flag: llm-analytics-datasets
         response:
             include:
                 - id
@@ -381,7 +371,6 @@ tools:
         description: >
             List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to
             list archived datasets.
-        feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
             include:
@@ -410,7 +399,6 @@ tools:
         description: >
             Restore an archived dataset by ID. This makes item mutations available again without changing item states or
             creating a dataset revision. Restoring an active dataset leaves it unchanged.
-        feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
             informational_wrapper:
@@ -430,7 +418,6 @@ tools:
         description: >
             List immutable revisions for a dataset by UUID, newest first. Use a revision number with the dataset item
             list tool to inspect that exact snapshot.
-        feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
             include:
@@ -456,7 +443,6 @@ tools:
         description: >
             Update an active dataset's name, description, or metadata by ID. These descriptive changes do not create a
             dataset revision.
-        feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
             informational_wrapper:
