@@ -1492,7 +1492,8 @@ describe('TaxonomicFilter', () => {
                 'TaxonomicFilter__search-input--with-category'
             )
             expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass(
-                'TaxonomicFilter__category-dropdown'
+                'TaxonomicFilter__category-dropdown',
+                'LemonButton--tertiary'
             )
         })
 

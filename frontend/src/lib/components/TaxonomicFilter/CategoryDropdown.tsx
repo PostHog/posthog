@@ -79,7 +79,7 @@ export function CategoryDropdown({
 function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, activeLabel: string): JSX.Element {
     return (
         <LemonButton
-            type="secondary"
+            type="tertiary"
             size="xsmall"
             sideIcon={<IconChevronDown />}
             data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
