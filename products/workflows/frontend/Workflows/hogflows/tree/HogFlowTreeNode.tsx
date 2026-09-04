@@ -162,10 +162,11 @@ export function HogFlowTreeNode({
                                             draggedActionId={draggedActionId}
                                             edge={branch.sequence.trailingEdge}
                                             showConnector={false}
+                                            compact
                                         />
                                     )}
                                     {joinAction && (
-                                        <div className="flex items-center gap-1 pt-1">
+                                        <div className="flex items-center gap-1">
                                             <Text size="xxs" variant="muted" render={<span />}>
                                                 {node.action.type === 'random_cohort_branch'
                                                     ? 'End of cohort split · continues to'
