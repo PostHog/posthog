@@ -1910,40 +1910,6 @@ export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     context_name: string
 }
 
-export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
-    /**
-     * Name of the evaluation context to restore to suggestions.
-     */
-    context_name: string
-}
-
-export type FeatureFlagRequestUsageListParams = {
-    /**
-     * Inclusive start of the usage period.
-     */
-    date_from: string
-    /**
-     * Exclusive end of the usage period.
-     */
-    date_to: string
-    /**
-     * Time bucket used to group request usage. Hourly queries are limited to 8 days.
-     *
-     * * `hour` - hour
-     * * `day` - day
-     * @minLength 1
-     */
-    time_interval?: FeatureFlagRequestUsageListTimeInterval
-}
-
-export type FeatureFlagRequestUsageListTimeInterval =
-    (typeof FeatureFlagRequestUsageListTimeInterval)[keyof typeof FeatureFlagRequestUsageListTimeInterval]
-
-export const FeatureFlagRequestUsageListTimeInterval = {
-    Hour: 'hour',
-    Day: 'day',
-} as const
-
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
