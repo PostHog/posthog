@@ -6,6 +6,7 @@ Two routes wrap these handlers with different authentication: the public externa
 by config presence (#82564), so the two must behave identically.
 """
 
+import math
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -25,7 +26,27 @@ from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
-from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
+from products.conversations.backend.services.sla import MAX_SLA_AMOUNT_BY_UNIT, WEEKDAYS, compute_sla_deadline
+
+
+def _sla_clock_minutes(value: object) -> int:
+    """Parse an 'HH:MM' string into minutes since midnight, rejecting malformed or out-of-range times.
+
+    Comparing the window bounds as minutes (not as text) keeps a bad time like
+    '99:00' from passing here and surfacing later under `sla_amount`.
+    """
+    if not isinstance(value, str):
+        raise serializers.ValidationError("sla_business_hours.time entries must be HH:MM strings")
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise serializers.ValidationError(f"sla_business_hours.time entries must be HH:MM, got {value!r}")
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise serializers.ValidationError(f"sla_business_hours.time entries must be HH:MM, got {value!r}")
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise serializers.ValidationError(f"sla_business_hours.time entries out of range, got {value!r}")
+    return hour * 60 + minute
 
 
 class TicketActionUpdateSerializer(serializers.Serializer):
@@ -60,9 +81,7 @@ class TicketActionUpdateSerializer(serializers.Serializer):
         if time_cfg != "any":
             if not (isinstance(time_cfg, list) and len(time_cfg) == 2):
                 raise serializers.ValidationError("sla_business_hours.time must be 'any' or [start, end]")
-            if not isinstance(time_cfg[0], str) or not isinstance(time_cfg[1], str):
-                raise serializers.ValidationError("sla_business_hours.time entries must be HH:MM strings")
-            if time_cfg[0] >= time_cfg[1]:
+            if _sla_clock_minutes(time_cfg[0]) >= _sla_clock_minutes(time_cfg[1]):
                 raise serializers.ValidationError("sla_business_hours.time start must be strictly before end")
 
         tz_name = value.get("timezone") or "UTC"
@@ -74,11 +93,25 @@ class TicketActionUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Invalid timezone: {tz_name}")
         return value
 
+    def validate_sla_amount(self, value: float) -> float:
+        # JSON has Infinity and NaN literals, and the field bounds let both through.
+        # A comparison against NaN is always false, and the field has no maximum.
+        if not math.isfinite(value):
+            raise serializers.ValidationError("sla_amount must be a finite number")
+        return value
+
     def validate(self, attrs):
         if "sla_due_at" in attrs and "sla_amount" in attrs:
             raise serializers.ValidationError(
                 {"sla_amount": "Cannot set both sla_due_at and sla_amount in the same request"}
             )
+        if "sla_amount" in attrs:
+            unit = attrs.get("sla_unit", "hour")
+            limit = MAX_SLA_AMOUNT_BY_UNIT[unit]
+            if attrs["sla_amount"] > limit:
+                raise serializers.ValidationError(
+                    {"sla_amount": f"sla_amount must be at most {limit:g} when sla_unit is '{unit}'"}
+                )
         return attrs
 
 
@@ -261,9 +294,10 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                 unit=serializer.validated_data.get("sla_unit", "hour"),
                 business_hours=serializer.validated_data.get("sla_business_hours"),
             )
-        except (ValueError, RuntimeError) as e:
-            capture_exception(e, {"ticket_id": str(ticket.id)})
-            return Response({"error": "Invalid SLA configuration."}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as e:
+            # The amount and the window are caller input, so a rejection gets the
+            # reason back instead of an error tracking issue nobody can act on.
+            return Response({"error": {"sla_amount": [str(e)]}}, status=status.HTTP_400_BAD_REQUEST)
 
         ticket.sla_due_at = new_sla_due_at
         if "sla_due_at" not in update_fields:

@@ -43,6 +43,16 @@ _VALID_UNITS = ("minute", "hour", "day")
 # Safety cap: 5 years of iterations, should never hit this with a valid config
 _MAX_DAY_ITERATIONS = 365 * 5
 
+# Largest amount a caller may ask for, per unit: one standard working year, which
+# is 52 weeks of 40 hours or 260 working days. That is also the most the narrowest
+# realistic window (one weekday a week, 09:00-17:00) reaches inside the walk cap
+# above, so a larger amount only burns the cap before it fails.
+MAX_SLA_AMOUNT_BY_UNIT: dict[str, float] = {
+    "minute": 52 * 40 * 60,
+    "hour": 52 * 40,
+    "day": 52 * 5,
+}
+
 
 def is_calendar_hours(business_hours: BusinessHoursConfig | dict[str, Any] | None) -> bool:
     """Return True when the config is equivalent to plain calendar hours.
@@ -222,5 +232,6 @@ def compute_sla_deadline(
         cursor_wall = next_day.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
 
     raise ValueError(
-        f"SLA amount is too large for the configured business hours (exceeded {_MAX_DAY_ITERATIONS}-day walk cap)"
+        "The SLA amount is too large for the configured business hours: "
+        f"the deadline is more than {_MAX_DAY_ITERATIONS} days away."
     )
