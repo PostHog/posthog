@@ -123,6 +123,31 @@ describe('LemonTable', () => {
         expect(screen.getByText('Name').closest('th')).not.toHaveStyle({ maxWidth: '90px' })
     })
 
+    it('leaves a cell that spans several columns uncapped', () => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        width: 90,
+                        resizable: true,
+                        onResize: jest.fn(),
+                        render: () => ({ children: 'spans the row', props: { colSpan: 2 } }),
+                    },
+                    { title: 'Name', key: 'name', dataIndex: 'name', width: 90 },
+                ]}
+            />
+        )
+
+        const spanningCell = document.querySelector('tbody tr:first-child > td')
+        expect(spanningCell).toHaveAttribute('colspan', '2')
+        expect(spanningCell).not.toHaveStyle({ maxWidth: '90px' })
+        expect(spanningCell).not.toHaveClass('whitespace-nowrap')
+    })
+
     it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {
         const { rerender } = render(
             <LemonTable

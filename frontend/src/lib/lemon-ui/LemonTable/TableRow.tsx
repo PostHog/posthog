@@ -144,15 +144,18 @@ function TableRowRaw<T extends Record<string, any>>({
                                 columns
                             )
 
-                            const widthCap = getColumnWidthCap(column)
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
+                            // A cell that spans several columns is not bound by the width of the one it starts in
+                            const spansColumns = extraCellProps.colSpan !== undefined && extraCellProps.colSpan !== 1
+                            const widthCap = spansColumns ? undefined : getColumnWidthCap(column)
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
                                     className={clsx(
                                         columnIndex === 0 && 'LemonTable__boundary',
-                                        // A column held at a width crops its content on one line, rather than growing taller
+                                        // Hold the value on one line, because a capped cell that wraps grows the row
+                                        // taller instead of cropping
                                         widthCap && 'whitespace-nowrap',
                                         isSticky && 'LemonTable__cell--sticky',
                                         isColumnSticky && 'LemonTable__cell--pinned',

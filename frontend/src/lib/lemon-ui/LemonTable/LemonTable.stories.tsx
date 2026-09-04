@@ -510,7 +510,8 @@ function ResizableColumnsTable(): JSX.Element {
                 onResize: (width: number) => setWidths((currentWidths) => ({ ...currentWidths, [index]: width })),
             }))}
             dataSource={MANY_PEOPLE.slice(0, 5)}
-            // Columns keep the width a person gives them, so the table grows past its container instead
+            // Size the table to its content once a column is resized, the same as tables that persist
+            // column widths. Intrinsic sizing is the mode a cropped column shows in.
             tableStyle={Object.keys(widths).length > 0 ? { width: 'max-content' } : undefined}
         />
     )
