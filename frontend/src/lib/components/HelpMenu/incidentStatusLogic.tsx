@@ -69,7 +69,16 @@ export interface ComponentIncidentAlert {
     severity: 'warning' | 'error'
 }
 
-const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
+export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
+export const RATE_LIMITED_REFRESH_INTERVAL = 60 * 1000 * 30 // 30 minutes
+
+// A status page that answers 5xx (which includes Cloudflare's 52x family) or 429 is having a bad
+// moment of its own. Nobody can act on it, the status indicator degrades to 'operational', and the
+// poll retries by itself, so these are noise in error tracking. 403 and 404 are different: they mean
+// the page moved or our access broke, which is a defect we can fix.
+function isTransientStatusPageFailure(status: number): boolean {
+    return status >= 500 || status === 429
+}
 
 // A failed `fetch` to an external host throws a `TypeError` ("Failed to fetch", "NetworkError when
 // attempting to fetch resource", "Load failed", ...). These are expected and outside our control —
@@ -281,7 +290,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
 
-    loaders(() => ({
+    loaders(({ cache }) => ({
         summary: [
             null as Summary | null,
             {
@@ -289,16 +298,25 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                     // The incident.io status page is external (posthogstatus.com), so the fetch can fail
                     // for reasons outside our control: ad blockers, tracking-protection extensions, DNS
                     // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
-                    // via the rawStatus selector). We report a reachable-but-erroring status page (non-2xx)
-                    // and unexpected errors, but skip the expected network-level failures so they don't
+                    // via the rawStatus selector). We report the responses that point at a defect on our
+                    // side, but skip the expected network-level and upstream failures so they don't
                     // pollute error tracking as a recurring issue.
+                    cache.refreshInterval = REFRESH_INTERVAL
                     try {
                         const response = await fetch(`${STATUS_PAGE_BASE}/api/v1/summary`)
                         if (!response.ok) {
-                            posthog.captureException(
-                                new Error(`incident.io summary fetch returned ${response.status}`),
-                                { status: response.status, statusText: response.statusText }
-                            )
+                            if (response.status === 429) {
+                                // Poll less often so that we do not add to the rate limiting.
+                                cache.refreshInterval = RATE_LIMITED_REFRESH_INTERVAL
+                            }
+                            if (!isTransientStatusPageFailure(response.status)) {
+                                // The status stays out of the message so that every code groups into
+                                // one issue instead of one issue per code.
+                                posthog.captureException(new Error('incident.io summary fetch failed'), {
+                                    status: response.status,
+                                    statusText: response.statusText,
+                                })
+                            }
                             return null
                         }
                         const data: Summary = await response.json()
@@ -380,7 +398,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
             setIncidentStatus(values.status)
 
             cache.disposables.add(() => {
-                const timerId = setTimeout(() => actions.loadSummary(), REFRESH_INTERVAL)
+                const timerId = setTimeout(() => actions.loadSummary(), cache.refreshInterval ?? REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)
             }, 'refreshTimeout')
         },
