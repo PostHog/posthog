@@ -9,7 +9,7 @@ from products.growth.backend.models import OrganizationEnrichment
 
 _URL = "/api/growth_enrichment/rescore/"
 _SECRET = "wh_secret_test_value"
-_MODULE = "products.growth.backend.api.rescore"
+_MODULE = "products.growth.backend.facade.api"
 
 
 class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
@@ -92,7 +92,7 @@ class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
             response = self._post(str(self.organization.id))
 
         assert response.status_code == 202
-        assert response.json() == {"queued": True}
+        assert response.json() == {"queued": True, "reason": None}
         dispatch_mock.assert_called_once_with(str(self.organization.id))
 
     def test_unknown_organization_id_returns_no_enrichment_record(self):

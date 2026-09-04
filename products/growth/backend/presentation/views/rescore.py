@@ -12,13 +12,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import ErrorResponseSerializer
-from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.rate_limit import IPThrottle
-from posthog.utils import get_instance_region
 
-from products.growth.backend.models import OrganizationEnrichment
-from products.growth.backend.temporal.signup_enrichment.trigger import dispatch_wizard_stamp_rescore
+from products.growth.backend.facade.api import request_wizard_stamp_rescore
 
 WEBHOOK_SECRET_HEADER = "X-PostHog-Webhook-Secret"
 
@@ -40,17 +37,9 @@ class RescoreResponseSerializer(serializers.Serializer):
     queued = serializers.BooleanField(help_text="Whether the re-score workflow was dispatched.")
     reason = serializers.ChoiceField(
         choices=["disabled", "no_enrichment_record"],
-        required=False,
-        help_text="Present, with queued false, when nothing was dispatched.",
+        allow_null=True,
+        help_text="Why nothing was dispatched. Null when queued.",
     )
-
-
-def _rescore_enabled() -> bool:
-    try:
-        return bool(get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"))
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 class GrowthEnrichmentViewSet(viewsets.ViewSet):
@@ -80,13 +69,5 @@ class GrowthEnrichmentViewSet(viewsets.ViewSet):
 
         serializer = RescoreRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        organization_id = str(serializer.validated_data["organization_id"])
-
-        if not _rescore_enabled() or get_instance_region() not in ("US", "EU"):
-            return Response({"queued": False, "reason": "disabled"}, status=202)
-
-        if not OrganizationEnrichment.objects.filter(organization_id=organization_id).exists():
-            return Response({"queued": False, "reason": "no_enrichment_record"}, status=202)
-
-        dispatch_wizard_stamp_rescore(organization_id)
-        return Response({"queued": True}, status=202)
+        outcome = request_wizard_stamp_rescore(str(serializer.validated_data["organization_id"]))
+        return Response(RescoreResponseSerializer(instance=outcome).data, status=202)
