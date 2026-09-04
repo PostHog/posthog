@@ -17,6 +17,7 @@ import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai.errors import APIError
 from parameterized import parameterized
+from posthoganalytics.exception_utils import exceptions_from_error_tuple
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import (
@@ -2351,6 +2352,68 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "leaf_message,non_retryable,expected_kind,expected_reason",
+    [
+        # A genuine transport blip (5xx, timeout, dropped connection) reaches the parent as a retryable
+        # BLOCK_LISTING_FAILED whose message carries the errno and pod address. It must land as retryable
+        # infra_transient with the errno and address dropped, so one outage can't mint a fresh error-tracking
+        # issue per variant.
+        (
+            "Failed to fetch block listing: connect ECONNREFUSED 10.0.0.5:6738",
+            False,
+            FailureKind.INFRA_TRANSIENT,
+            "infra_transient:rasterizer could not reach a PostHog dependency (BLOCK_LISTING_FAILED)",
+        ),
+        # A permanent 4xx (auth, bad request) or malformed listing reaches the parent as a non-retryable
+        # BLOCK_LISTING_FAILED. Retrying can't heal it, so it must keep the recording-level rasterization_failed
+        # label with its own message, not a false retry prompt that merges into the transient-outage issue.
+        (
+            "Failed to fetch block listing: 401 - unauthorized",
+            True,
+            FailureKind.RASTERIZATION_FAILED,
+            "rasterization_failed:Failed to fetch block listing: 401 - unauthorized",
+        ),
+    ],
+)
+async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_by_retryability(
+    leaf_message: str, non_retryable: bool, expected_kind: FailureKind, expected_reason: str
+) -> None:
+    new_observation_id = uuid.uuid4()
+    leaf = ApplicationError(leaf_message, type="BLOCK_LISTING_FAILED", non_retryable=non_retryable)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(leaf)),
+    )
+
+    with pytest.raises(ScannerFailureError) as exc_info:
+        await _run_workflow(_build_inputs(session_id="sess-blocklist"), mocks)
+
+    assert exc_info.value.kind is expected_kind
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_failed_activity in called
+    assert mark_observation_ineligible_activity not in called
+    assert mocks.activity_calls[-1][1].error_reason == expected_reason
+
+    if expected_kind is FailureKind.INFRA_TRANSIENT:
+        # `from None` keeps the volatile cause out of the chain error tracking serializes, so the outage
+        # groups by the stable message instead of the errno and pod address the leaf still carries.
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__suppress_context__ is True
+        # Prove it through the real capture serializer: the errno and pod address must not survive into
+        # `$exception_list`, or one outage still fragments into a fresh error-tracking issue per variant.
+        serialized = exceptions_from_error_tuple((type(exc_info.value), exc_info.value, exc_info.value.__traceback__))
+        captured = " ".join(str(item.get("value")) for item in serialized)
+        assert "ECONNREFUSED" not in captured
+        assert "10.0.0.5" not in captured
 
 
 @pytest.mark.asyncio
