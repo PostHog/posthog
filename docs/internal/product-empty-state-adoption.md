@@ -66,6 +66,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                           | on master             |
 | Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                           | on master             |
 | Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`                              | on master             |
+| Notebooks              | `frontend/src/scenes/notebooks/NotebooksScene.tsx`                                  | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -114,7 +115,7 @@ Max conversation history, and data pipelines destinations and transformations
 Hand-rolled empty states: review hog, streamlit apps, groups (`GroupsIntroduction`), persons, and
 the LLM analytics sessions and evaluations tabs.
 
-Bare string or nothing: notebooks, the data warehouse overview scene, SQL editor, data modeling,
+Bare string or nothing: the data warehouse overview scene, SQL editor, data modeling,
 heatmaps, business knowledge, legal documents, MCP gateway, visual review, live debugger, batch
 exports, experiments shared metrics, skills community, and several LLM analytics sub-tabs.
 
