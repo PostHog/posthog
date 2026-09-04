@@ -978,7 +978,7 @@ jobs:
 
             - name: Install VR CLI
               if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
 
             - name: Create VR run
               id: vr-create
@@ -1274,7 +1274,7 @@ jobs:
                   restore-keys: npm-vr-cli-${{ runner.os }}-
 
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only), but

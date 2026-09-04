@@ -380,7 +380,7 @@ jobs:
                   restore-keys: npm-vr-cli-${{ runner.os }}-
 
             - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
+              run: cd vr-cli/products/visual_review/cli && npm ci --no-audit --no-fund && npm run build
 
             - name: Save VR CLI npm cache
               # The only writer for every VR CLI install, here and in
@@ -616,7 +616,7 @@ jobs:
 
             - name: Install VR CLI
               if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
+              run: cd vr-cli/products/visual_review/cli && npm ci --no-audit --no-fund && npm run build
 
             - name: Upload snapshots to Visual Review
               if: always() && needs.vr-setup.outputs.run_id != ''
@@ -874,7 +874,7 @@ jobs:
                   restore-keys: npm-vr-cli-${{ runner.os }}-
 
             - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
+              run: cd vr-cli/products/visual_review/cli && npm ci --no-audit --no-fund && npm run build
 
             - name: Complete Visual Review run
               # Pass the same --purpose vr-setup created the run with. The backend reports zero
