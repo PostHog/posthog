@@ -312,6 +312,29 @@ describe("ReportVerdictBanner", () => {
     );
   });
 
+  it("opens the task composer when the report selected no repository", async () => {
+    const user = userEvent.setup();
+    useInboxReportArtefacts.mockReturnValue({
+      data: { count: 0, results: [] },
+      isLoading: false,
+    });
+    render(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          status: "pending_input",
+          actionability: "requires_human_input",
+        }}
+      />,
+    );
+
+    await user.click(screen.getByText("Implement"));
+
+    expect(openTaskInput).toHaveBeenCalledWith(
+      expect.objectContaining({ initialCloudRepository: undefined }),
+    );
+  });
+
   it("uses the PR shortcut to open an existing PR", async () => {
     const user = userEvent.setup();
     render(
