@@ -20,13 +20,22 @@ export const sessionReplaySetupLogic = createSetupDetectionLogic({
         if (response.results.length > 0) {
             return 'has-data'
         }
-        const currentTeam = teamLogic.findMounted()?.values.currentTeam
+        const mountedTeamLogic = teamLogic.findMounted()
+        const currentTeam = mountedTeamLogic?.values.currentTeam
         if (!currentTeam?.session_recording_opt_in) {
             return 'needs-setup'
         }
         // Only an explicit `false` counts: the flag is absent from some team payloads, and
         // reading that as "no events" would tell a working project its SDK is broken.
-        return currentTeam.ingested_event === false ? 'no-events' : 'waiting-for-data'
+        if (currentTeam.ingested_event !== false) {
+            return 'waiting-for-data'
+        }
+        // The server sets `ingested_event`, and nothing else refreshes the team while this
+        // screen stays open, so the value the page booted with can be stale. Re-read the team
+        // before we send anyone to check an installation that now works. Only a project that
+        // has sent nothing pays for the extra request, and the first event ends it.
+        await mountedTeamLogic?.asyncActions.loadCurrentTeam()
+        return mountedTeamLogic?.values.currentTeam?.ingested_event === false ? 'no-events' : 'waiting-for-data'
     },
     pollIntervalMs: 20000,
     // Enabling recording (from this empty state or settings) must flip the
