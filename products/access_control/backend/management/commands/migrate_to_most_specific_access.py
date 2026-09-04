@@ -23,8 +23,12 @@ class Command(BaseCommand):
         if options["dry_run"]:
             self.stdout.write(f"Dry run: {len(unaffected_ids)} organizations would be migrated")
             return
-        updated = enable_most_specific_resolution(unaffected_ids)
+        updated = enable_most_specific_resolution(unaffected_ids, rules_unchanged_since=candidates.found_at)
         self.stdout.write(f"Migrated {updated} organizations")
+        if updated < len(unaffected_ids):
+            self.stdout.write(
+                f"{len(unaffected_ids) - updated} organizations skipped because their rules changed during the run"
+            )
 
     def _report(self, candidates: MigrationCandidates) -> None:
         self.stdout.write(

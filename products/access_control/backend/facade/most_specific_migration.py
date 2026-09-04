@@ -3,16 +3,18 @@ resolution does not affect, and switches them over.
 
 An organization is not affected when it has no access rules, or when every rule resolves
 the same under both resolutions on every team (see `resolution_preview`). Organizations
-that resolve differently, and organizations with rules but no active member to evaluate
-as, are reported and stay on the legacy resolution.
+that resolve differently, and organizations the preview cannot evaluate, are reported and
+stay on the legacy resolution.
 """
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from datetime import datetime
 from itertools import batched
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
@@ -45,6 +47,8 @@ class OrganizationRef:
 class MigrationCandidates:
     """Every organization still on the legacy resolution, sorted by what the switch would do."""
 
+    # When the classification started. Rules written after this may invalidate it.
+    found_at: datetime
     divergent: list[OrganizationChanges]
     unchanged: list[OrganizationChanges]
     unevaluated: list[OrganizationRef]
@@ -61,6 +65,7 @@ def _pending_organizations() -> QuerySet[Organization]:
 
 
 def find_organizations_to_migrate() -> MigrationCandidates:
+    found_at = timezone.now()
     names: dict[UUID, str] = {}
     teams_by_org: Counter[UUID] = Counter()
     changes_by_org: defaultdict[UUID, list[ResolutionChange]] = defaultdict(list)
@@ -96,14 +101,29 @@ def find_organizations_to_migrate() -> MigrationCandidates:
         _pending_organizations().exclude(id__in=organizations_with_rules).order_by("id").values_list("id", flat=True)
     )
     return MigrationCandidates(
-        divergent=divergent, unchanged=unchanged, unevaluated=unevaluated, without_rules=without_rules
+        found_at=found_at,
+        divergent=divergent,
+        unchanged=unchanged,
+        unevaluated=unevaluated,
+        without_rules=without_rules,
     )
 
 
-def enable_most_specific_resolution(organization_ids: Iterable[UUID]) -> int:
+def enable_most_specific_resolution(organization_ids: Iterable[UUID], *, rules_unchanged_since: datetime) -> int:
     """Switch the given organizations to the most-specific resolution. Returns the number of
-    rows updated. Batched so one run never holds a long lock on the organization table."""
+    rows updated. Batched so one run never holds a long lock on the organization table.
+
+    An organization whose access rules were written at or after `rules_unchanged_since` is
+    left alone: the classification that approved it no longer describes its rules.
+    """
+    rules_written_since = AccessControl.objects.filter(
+        team__organization_id=OuterRef("id"), updated_at__gte=rules_unchanged_since
+    )
     updated = 0
     for batch in batched(organization_ids, _UPDATE_BATCH_SIZE, strict=False):
-        updated += Organization.objects.filter(id__in=batch).update(uses_most_specific_access_resolution=True)
+        updated += (
+            Organization.objects.filter(id__in=batch)
+            .exclude(Exists(rules_written_since))
+            .update(uses_most_specific_access_resolution=True)
+        )
     return updated
