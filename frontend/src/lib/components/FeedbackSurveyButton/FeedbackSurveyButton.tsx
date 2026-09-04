@@ -7,6 +7,8 @@ export interface FeedbackSurveyButtonProps {
     surveyId: string
     properties?: Properties
     'data-attr'?: string
+    /** Button copy. Defaults to "Feedback". */
+    label?: string
 }
 
 /**
@@ -18,6 +20,7 @@ export function FeedbackSurveyButton({
     surveyId,
     properties,
     'data-attr': dataAttr,
+    label = 'Feedback',
 }: FeedbackSurveyButtonProps): JSX.Element {
     const [surveysLoaded, setSurveysLoaded] = useState(false)
 
@@ -35,6 +38,9 @@ export function FeedbackSurveyButton({
         <LemonButton
             size="small"
             data-attr={dataAttr}
+            // Without this, LemonButton copies the string tooltip into aria-label, so the
+            // accessible name would be the tooltip instead of the visible label.
+            aria-label={label}
             tooltip="Have any questions or feedback?"
             disabledReason={surveysLoaded ? undefined : 'Feedback is unavailable right now'}
             onClick={() =>
@@ -48,7 +54,7 @@ export function FeedbackSurveyButton({
                 })
             }
         >
-            Feedback
+            {label}
         </LemonButton>
     )
 }
