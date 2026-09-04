@@ -91,6 +91,12 @@ REPLAY_VISION_SCANNER_ADMISSION_BUSY = Counter(
     ["scanner_type"],
 )
 
+REPLAY_VISION_WATERMARK_ADVANCES = Counter(
+    "replay_vision_watermark_advance_total",
+    "Sweep watermark write outcomes: advanced, superseded by a newer keyset, row busy, or scanner missing",
+    ["outcome"],
+)
+
 REPLAY_VISION_SCANNER_LIMIT_REACHED = Counter(
     "replay_vision_scanner_limit_reached_total",
     "Requests refused because a per-scanner credit limit left no room, by the API surface that refused",
@@ -197,6 +203,12 @@ def record_quota_exhausted_skip(scanner_type: str) -> None:
 def record_scanner_admission_busy(scanner_type: str) -> None:
     REPLAY_VISION_SCANNER_ADMISSION_BUSY.labels(scanner_type=scanner_type).inc()
     _otel.record_counter_twin(REPLAY_VISION_SCANNER_ADMISSION_BUSY, 1, {"scanner_type": scanner_type})
+
+
+def record_watermark_advance(outcome: str) -> None:
+    """`outcome` is "advanced", "superseded", "busy", or "scanner_missing"."""
+    REPLAY_VISION_WATERMARK_ADVANCES.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_WATERMARK_ADVANCES, 1, {"outcome": outcome})
 
 
 def record_scanner_limit_reached(surface: str) -> None:

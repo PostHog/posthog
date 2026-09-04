@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import connections, transaction
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -62,6 +64,7 @@ from products.replay_vision.backend.temporal.constants import (
     PRIMING_SCAN_SESSIONS,
     SWEEP_READ_BUDGET_BYTES_24H,
 )
+from products.replay_vision.backend.temporal.errors import SCANNER_WATERMARK_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
@@ -906,6 +909,8 @@ class TestAdvanceScannerWatermarkActivity:
     def test_updates_watermark_and_last_seen(self) -> None:
         scanner = _make_scanner()
         new_watermark = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
+        # The keyset guard only advances; start the row behind the target.
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_swept_at=new_watermark - dt.timedelta(days=1))
 
         advance_scanner_watermark_activity(
             AdvanceScannerWatermarkInputs(
@@ -947,7 +952,9 @@ class TestAdvanceScannerWatermarkActivity:
         now = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
         stamped = now - dt.timedelta(minutes=3)
         scanner = _make_scanner(deep_swept_through=now - dt.timedelta(days=1))
-        ReplayScanner.objects.filter(pk=scanner.pk).update(deep_attempted_at=stamped)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            deep_attempted_at=stamped, last_swept_at=now - dt.timedelta(days=1)
+        )
 
         advance_scanner_watermark_activity(
             AdvanceScannerWatermarkInputs(
@@ -967,6 +974,8 @@ class TestAdvanceScannerWatermarkActivity:
     def test_clears_last_seen_with_empty_string(self) -> None:
         scanner = _make_scanner(last_seen_session_id="stale-id")
         new_watermark = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
+        # The keyset guard only advances; start the row behind the target.
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_swept_at=new_watermark - dt.timedelta(days=1))
 
         advance_scanner_watermark_activity(
             AdvanceScannerWatermarkInputs(
@@ -983,6 +992,8 @@ class TestAdvanceScannerWatermarkActivity:
         existing_deep = dt.datetime(2026, 5, 1, 6, 0, 0, tzinfo=dt.UTC)
         scanner = _make_scanner(deep_swept_through=existing_deep)
         new_deep = dt.datetime(2026, 5, 1, 11, 0, 0, tzinfo=dt.UTC)
+        # The keyset guard only advances; start the row behind the target.
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_swept_at=existing_deep)
 
         advance_scanner_watermark_activity(
             AdvanceScannerWatermarkInputs(
@@ -1017,6 +1028,8 @@ class TestAdvanceScannerWatermarkActivity:
     def test_does_not_bump_scanner_version(self) -> None:
         scanner = _make_scanner()
         original_version = scanner.scanner_version
+        # The keyset guard only advances; start the row behind the target.
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_swept_at=dt.datetime(2026, 4, 1, tzinfo=dt.UTC))
 
         advance_scanner_watermark_activity(
             AdvanceScannerWatermarkInputs(
@@ -1028,6 +1041,85 @@ class TestAdvanceScannerWatermarkActivity:
 
         scanner.refresh_from_db()
         assert scanner.scanner_version == original_version
+
+    def test_stale_write_never_regresses_the_keyset(self) -> None:
+        # A delayed retry from an older tick must not drag the sweep backwards: the ground it would
+        # re-open was already covered, and every re-dispatched session burns a duplicate-key insert.
+        current = dt.datetime(2026, 5, 2, 12, 0, 0, tzinfo=dt.UTC)
+        scanner = _make_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            last_swept_at=current, last_seen_session_id="b", deep_swept_through=current
+        )
+
+        advance_scanner_watermark_activity(
+            AdvanceScannerWatermarkInputs(
+                scanner_id=scanner.id,
+                new_last_swept_at=current - dt.timedelta(minutes=35),
+                new_last_seen_session_id="z",
+                # Deep progress rides only with an admitted fast keyset; a stale tick drops both.
+                new_last_deep_swept_at=current + dt.timedelta(hours=1),
+            )
+        )
+
+        scanner.refresh_from_db()
+        assert scanner.last_swept_at == current
+        assert scanner.last_seen_session_id == "b"
+        assert scanner.deep_swept_through == current
+
+    def test_equal_timestamp_advances_only_past_the_session_tiebreaker(self) -> None:
+        current = dt.datetime(2026, 5, 2, 12, 0, 0, tzinfo=dt.UTC)
+        scanner = _make_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_swept_at=current, last_seen_session_id="b")
+
+        advance_scanner_watermark_activity(
+            AdvanceScannerWatermarkInputs(
+                scanner_id=scanner.id, new_last_swept_at=current, new_last_seen_session_id="a"
+            )
+        )
+        scanner.refresh_from_db()
+        assert scanner.last_seen_session_id == "b"
+
+        advance_scanner_watermark_activity(
+            AdvanceScannerWatermarkInputs(
+                scanner_id=scanner.id, new_last_swept_at=current, new_last_seen_session_id="c"
+            )
+        )
+        scanner.refresh_from_db()
+        assert scanner.last_seen_session_id == "c"
+
+    def test_contended_row_fails_fast_as_retryable_busy(self) -> None:
+        # Watermark writers queued behind one open transaction each hold a pooled connection; a held
+        # row must defer to the activity retry within the lock_timeout, not camp in the lock queue.
+        scanner = _make_scanner()
+        target = timezone.now() + dt.timedelta(hours=1)
+        lock_taken = threading.Event()
+        release_lock = threading.Event()
+
+        def hold_scanner_row() -> None:
+            try:
+                with transaction.atomic():
+                    ReplayScanner.objects.select_for_update().filter(pk=scanner.pk).first()
+                    lock_taken.set()
+                    release_lock.wait(timeout=30)
+            finally:
+                connections.close_all()
+
+        holder = threading.Thread(target=hold_scanner_row)
+        holder.start()
+        assert lock_taken.wait(timeout=30)
+        try:
+            with pytest.raises(ApplicationError) as err:
+                advance_scanner_watermark_activity(
+                    AdvanceScannerWatermarkInputs(
+                        scanner_id=scanner.id, new_last_swept_at=target, new_last_seen_session_id=""
+                    )
+                )
+        finally:
+            release_lock.set()
+            holder.join(timeout=30)
+
+        assert err.value.type == SCANNER_WATERMARK_BUSY_ERROR_TYPE
+        assert err.value.non_retryable is False
 
 
 # check_scanner_budget_activity
