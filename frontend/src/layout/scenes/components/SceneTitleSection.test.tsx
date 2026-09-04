@@ -116,23 +116,16 @@ describe('SceneName', () => {
         expect(press.defaultPrevented).toBe(false)
     })
 
-    // Links inside editable markdown descriptions should remain clickable and navigate,
-    // not be prevented by the description button's press handler.
-    test('links in read-only markdown descriptions remain clickable', () => {
-        render(<SceneName name="Paying users" canEdit={false} onChange={undefined} />)
+    // Ctrl+click is the macOS secondary press. It reports button 0, so it needs its own
+    // guard or it would enter edit mode and swallow the context menu.
+    test('ctrl+click on the view mode title does not enter edit mode', () => {
+        render(<SceneName name="Paying users" canEdit onChange={jest.fn()} />)
 
-        // Create a mock link element inside the rendered content
-        const link = document.createElement('a')
-        link.href = 'https://example.com'
-        const press = createEvent.mouseDown(link)
+        const title = screen.getByRole('button')
+        const press = createEvent.mouseDown(title, { button: 0, ctrlKey: true })
+        fireEvent(title, press)
 
-        // Simulate the enterEditOnPress logic
-        const target = link as HTMLElement
-        const isInteractive = target.closest('button, a, input, textarea, [role="button"]')
-
-        // The link should be detected as interactive and the press should not be prevented
-        expect(isInteractive).toBe(link)
-        // If target is a link, enterEditOnPress should return without preventing default
         expect(press.defaultPrevented).toBe(false)
+        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     })
 })

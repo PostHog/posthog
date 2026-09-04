@@ -449,26 +449,18 @@ type SceneNameProps = {
  * (Arc, when its toolbar is hidden) is then free to read the drag as a window move. Preventing
  * the default claims the press for the page and puts the caret in the field.
  *
- * Only prevent default on primary (left) clicks; right-click and middle-click should open
- * the context menu or trigger browser behavior normally. On macOS, Cmd+click is reported as
- * button 0 but is semantically a context-menu gesture and should not enter edit mode.
+ * Only a primary press is a text entry gesture. A secondary or middle press must keep its
+ * usual browser behavior, so leave it alone. Ctrl+click is the macOS secondary press and
+ * counts as one too.
  *
- * Do not prevent default when pressing interactive elements like links or buttons inside
- * content (e.g. markdown links), allowing them to retain their default behavior.
+ * A markdown description can render a link inside the button. A press on that link belongs
+ * to the link, so do not claim it.
  */
 function enterEditOnPress(e: React.MouseEvent, startEditing: () => void): void {
-    // Ignore non-primary presses
-    if (e.button !== 0) {
+    if (e.button !== 0 || e.ctrlKey) {
         return
     }
-    // On macOS, Cmd+click is a context-menu gesture; don't enter edit mode
-    if (e.metaKey) {
-        return
-    }
-    // Don't claim presses on links, inputs, or other interactive content (but not
-    // the button that contains them, which we want to activate)
-    const target = e.target as HTMLElement
-    if (target.tagName === 'A' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+    if ((e.target as HTMLElement).closest('a, input, textarea')) {
         return
     }
     e.preventDefault()
