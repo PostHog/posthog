@@ -5496,8 +5496,8 @@ database "posthog" {
       granularity = 1
     }
     index "bloom_filter_$session_id" {
-      expr        = "`$session_id`"
-      type        = "bloom_filter(0.01)"
+      expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
+      type        = "bloom_filter"
       granularity = 1
     }
     index "minmax_$group_0" {
