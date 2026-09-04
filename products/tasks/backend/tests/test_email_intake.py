@@ -139,9 +139,16 @@ class TestStartTaskFromEmail(APIBaseTest):
         assert task.title == "First line"
         assert task.description == "First line\nsecond line"
 
-    def test_empty_email_creates_nothing(self, _workflow, _quota, _email):
+    @parameterized.expand(
+        [
+            ("nothing_at_all", "", ""),
+            # A reply to a message with no subject arrives as a bare "Re:", which strips to nothing.
+            ("reply_prefix_only_subject", "Re:", ""),
+        ]
+    )
+    def test_empty_email_creates_nothing(self, _workflow, _quota, _email, _name, subject, body):
         intake = email_intake.start_task_from_email(
-            self.team, _inbound(sender_email=self.user.email, subject="", body="")
+            self.team, _inbound(sender_email=self.user.email, subject=subject, body=body)
         )
 
         assert intake.outcome == "empty"

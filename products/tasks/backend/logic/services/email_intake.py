@@ -188,9 +188,11 @@ def _resolve_member_user_id(team: Team, sender_email: str) -> int | None:
 def _task_text(email: InboundTaskEmail) -> _TaskText | None:
     subject = " ".join(email.subject.split())
     body = email.body.strip()
-    if not subject and not body:
+    # A reply to a message with no subject arrives as a bare "Re:", which strips to nothing,
+    # so the title decides emptiness rather than the raw subject.
+    title = _REPLY_PREFIX.sub("", subject) or (body.splitlines()[0] if body else "")
+    if not title:
         return None
-    title = _REPLY_PREFIX.sub("", subject) or body.splitlines()[0]
     description = body or subject
     quoted = email.quoted_body.strip()
     if quoted:
