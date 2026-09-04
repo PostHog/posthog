@@ -19,7 +19,7 @@ pub struct Db {
 impl Db {
     pub async fn connect(url: &str) -> Result<Self> {
         let mut cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
-        cfg.ssl_mode(tls_policy(url));
+        cfg.ssl_mode(tls_policy(&cfg));
         let tls = tls_connector();
         let mgr = Manager::from_config(
             cfg,
@@ -164,18 +164,13 @@ pub fn row_to_json(r: &tokio_postgres::Row) -> Result<Value> {
     Ok(Value::Object(m))
 }
 
-/// TLS is required unless the URL opts out with `sslmode=disable` (local dev against
-/// a plain Postgres) or `sslmode=prefer`. RDS always offers TLS, so deployed URLs
-/// carry no parameter.
-fn tls_policy(url: &str) -> tokio_postgres::config::SslMode {
+/// TLS is required unless the parsed URL carries `sslmode=disable` (local dev against
+/// a plain Postgres). RDS always offers TLS, so deployed URLs carry no parameter.
+fn tls_policy(cfg: &tokio_postgres::Config) -> tokio_postgres::config::SslMode {
     use tokio_postgres::config::SslMode;
-    let lower = url.to_ascii_lowercase();
-    if lower.contains("sslmode=disable") {
-        SslMode::Disable
-    } else if lower.contains("sslmode=prefer") {
-        SslMode::Prefer
-    } else {
-        SslMode::Require
+    match cfg.get_ssl_mode() {
+        SslMode::Disable => SslMode::Disable,
+        _ => SslMode::Require,
     }
 }
 
