@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-from typing import Any
 
 from unittest import TestCase as UnitTestCase
 from unittest.mock import MagicMock, patch
@@ -27,6 +26,7 @@ from posthog.temporal.ai.slack_app.helpers import safe_react
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
+from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, parse_slack_file_refs
 
 
 def _make_inputs(
@@ -41,6 +41,7 @@ def _make_inputs(
 
 
 def _make_slack_file(**overrides: object) -> dict[str, object]:
+    """A file as Slack puts it on an event payload."""
     file: dict[str, object] = {
         "id": "F123",
         "name": "debug.log",
@@ -51,6 +52,11 @@ def _make_slack_file(**overrides: object) -> dict[str, object]:
     }
     file.update(overrides)
     return file
+
+
+def _make_file_ref(**overrides: object) -> SlackFileRef:
+    """The same file as it reaches a thread snapshot."""
+    return parse_slack_file_refs([_make_slack_file(**overrides)])[0]
 
 
 def _assert_quota_denial_posted(mock_slack_instance: MagicMock, channel: str, thread_ts: str) -> None:
@@ -216,7 +222,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "run without repo"}],
+            [SlackThreadMessage(user="U_ALICE", text="run without repo")],
             None,
         )
 
@@ -282,7 +288,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 "U_ALICE",
                 self.user.id,
                 event,
-                [{"user": "U_ALICE", "text": "review this log", "ts": "1234.5678"}],
+                [SlackThreadMessage(user="U_ALICE", text="review this log", ts="1234.5678")],
                 None,
             )
 
@@ -330,14 +336,14 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             slack_team_id="T_SLACK",
             user_id=self.user.id,
         )
-        thread_messages: list[dict[str, Any]] = [
-            {
-                "user": "U_ALICE",
-                "text": "",
-                "ts": "1234.0000",
-                "files": [_make_slack_file(name="costs.png", mimetype="image/png", filetype="png", size=9)],
-            },
-            {"user": "U_ALICE", "text": "what is this telling us?", "ts": "1234.5678"},
+        thread_messages = [
+            SlackThreadMessage(
+                user="U_ALICE",
+                text="",
+                ts="1234.0000",
+                files=[_make_file_ref(name="costs.png", mimetype="image/png", filetype="png", size=9)],
+            ),
+            SlackThreadMessage(user="U_ALICE", text="what is this telling us?", ts="1234.5678"),
         ]
 
         with (
@@ -401,7 +407,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "do something"}],
+            [SlackThreadMessage(user="U_ALICE", text="do something")],
             None,
         )
 
@@ -437,7 +443,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "hi"}],
+            [SlackThreadMessage(user="U_ALICE", text="hi")],
             None,
         )
 
@@ -462,7 +468,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "investigate the flaky checkout test"}],
+            [SlackThreadMessage(user="U_ALICE", text="investigate the flaky checkout test")],
             None,
             "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222",
@@ -493,7 +499,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "just answer this, no repo needed"}],
+            [SlackThreadMessage(user="U_ALICE", text="just answer this, no repo needed")],
             None,
         )
 
@@ -520,7 +526,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -559,7 +565,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -595,7 +601,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -634,8 +640,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             self.user.id,
             inputs.event,
             [
-                {"user": "georgiy", "user_id": "U_GEORGIY", "text": "preamble", "ts": "1.000"},
-                {"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"},
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="preamble", ts="1.000"),
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678"),
             ],
             None,
         )
@@ -665,7 +671,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "do something"}],
+            [SlackThreadMessage(user="U_ALICE", text="do something")],
             None,
         )
 
@@ -1278,14 +1284,14 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # agent only if the diff window's own attachments are fetched.
         self._create_mapping()
         inputs = _make_inputs(self.integration.id, self.user.id)
-        thread_messages: list[dict[str, Any]] = [
-            {
-                "user": "mira",
-                "user_id": "U_MIRA",
-                "text": "",
-                "ts": "1234.5678999",
-                "files": [_make_slack_file(name="trace.png", mimetype="image/png", filetype="png", size=9)],
-            },
+        thread_messages = [
+            SlackThreadMessage(
+                user="mira",
+                user_id="U_MIRA",
+                text="",
+                ts="1234.5678999",
+                files=[_make_file_ref(name="trace.png", mimetype="image/png", filetype="png", size=9)],
+            ),
         ]
 
         with (

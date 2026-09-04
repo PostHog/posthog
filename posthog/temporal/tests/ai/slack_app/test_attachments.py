@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -13,22 +14,25 @@ from posthog.temporal.ai.slack_app.attachments import (
     prepare_slack_thread_file_artifacts,
 )
 
+from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage
+
 _TYPE_SKIP_SUFFIX = (
     "was skipped because only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported."
 )
 
 
-def _slack_file(**overrides: object) -> dict[str, object]:
-    file: dict[str, object] = {
-        "id": "F123",
-        "name": "debug.log",
-        "mimetype": "text/plain",
-        "filetype": "text",
-        "size": 12,
-        "url_private_download": "https://files.slack.com/files-pri/T123-F123/debug.log",
-    }
-    file.update(overrides)
-    return file
+def _slack_file(**overrides: Any) -> SlackFileRef:
+    return replace(
+        SlackFileRef(
+            id="F123",
+            name="debug.log",
+            mimetype="text/plain",
+            filetype="text",
+            size=12,
+            url_private_download="https://files.slack.com/files-pri/T123-F123/debug.log",
+        ),
+        **overrides,
+    )
 
 
 class TestSlackAttachments(SimpleTestCase):
@@ -36,11 +40,11 @@ class TestSlackAttachments(SimpleTestCase):
         [
             ("declared_mimetype", "text/plain", "text", "text/plain"),
             # Slack falls back to octet-stream for safe uploads; it must stay neutral.
-            ("octet_stream_fallback", "application/octet-stream", None, "application/octet-stream"),
+            ("octet_stream_fallback", "application/octet-stream", "", "application/octet-stream"),
         ]
     )
     def test_prepares_safe_slack_file_as_user_attachment(
-        self, _name: str, mimetype: str, filetype: str | None, expected_content_type: str
+        self, _name: str, mimetype: str, filetype: str, expected_content_type: str
     ) -> None:
         file = _slack_file(mimetype=mimetype, filetype=filetype)
         with patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"hello") as download:
@@ -63,19 +67,19 @@ class TestSlackAttachments(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("installer.exe", "application/x-msdownload", None),
+            ("installer.exe", "application/x-msdownload", ""),
             ("deploy.sh", "text/plain", "shell"),
             # Shebang-less macOS script: extension is the only dangerous signal.
-            ("run.command", "text/plain", None),
-            ("report.docm", "application/vnd.ms-word.document.macroEnabled.12", None),
+            ("run.command", "text/plain", ""),
+            ("report.docm", "application/vnd.ms-word.document.macroEnabled.12", ""),
             ("page.html", "text/html", "html"),
-            ("diagram.svg", "image/svg+xml", None),
+            ("diagram.svg", "image/svg+xml", ""),
             # Contradiction: allowed extension, disallowed mimetype — fail closed.
-            ("notes.txt", "application/x-sh", None),
+            ("notes.txt", "application/x-sh", ""),
         ]
     )
     def test_rejects_disallowed_attachment_metadata_without_downloading(
-        self, name: str, mimetype: str, filetype: str | None
+        self, name: str, mimetype: str, filetype: str
     ) -> None:
         with patch("posthog.temporal.ai.slack_app.attachments._download_slack_file") as download:
             prepared = prepare_slack_file_artifacts(
@@ -125,12 +129,12 @@ class TestSlackAttachments(SimpleTestCase):
 
     def test_collects_thread_files_without_refetching_the_triggering_message(self) -> None:
         triggering_file = _slack_file(id="F_TRIGGER", name="pasted.png")
-        thread_messages: list[dict[str, Any]] = [
-            {"ts": "1.000", "files": [_slack_file(id="F_PARENT", name="chart.png")]},
-            {"ts": "2.000"},
+        thread_messages: list[SlackThreadMessage] = [
+            SlackThreadMessage(ts="1.000", files=[_slack_file(id="F_PARENT", name="chart.png")]),
+            SlackThreadMessage(ts="2.000"),
             # The same upload re-shared later in the thread, and the file the mention
             # itself carries — both already accounted for, neither fetched twice.
-            {"ts": "3.000", "files": [_slack_file(id="F_PARENT", name="chart.png"), triggering_file]},
+            SlackThreadMessage(ts="3.000", files=[_slack_file(id="F_PARENT", name="chart.png"), triggering_file]),
         ]
 
         with patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"bytes") as download:
@@ -143,8 +147,8 @@ class TestSlackAttachments(SimpleTestCase):
 
     def test_caps_how_many_thread_files_one_turn_carries(self) -> None:
         over_cap = MAX_SLACK_ATTACHMENTS_PER_THREAD + 1
-        thread_messages: list[dict[str, Any]] = [
-            {"ts": f"{index}.000", "files": [_slack_file(id=f"F{index}", name=f"shot-{index}.png")]}
+        thread_messages: list[SlackThreadMessage] = [
+            SlackThreadMessage(ts=f"{index}.000", files=[_slack_file(id=f"F{index}", name=f"shot-{index}.png")])
             for index in range(over_cap)
         ]
 
