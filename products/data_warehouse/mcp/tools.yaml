@@ -399,15 +399,22 @@ tools:
             idempotent: true
         enrich_url: ?open_view={id}
         title: Revert materialization
-        description: |
+        description: >
             Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule,
+
             reverting the view back to a virtual query that runs on each access. The view definition itself is
+
             preserved. Rate limited.
+
 
             Resend the view's own name and definition alongside its id, with the HogQL inside a nested `query` object:
 
+
             ```json
-            { "id": "<view-id>", "name": "weekly_active_users", "query": { "kind": "HogQLQuery", "query": "SELECT count() FROM events" } }
+
+            { "id": "<view-id>", "name": "weekly_active_users", "query": { "kind": "HogQLQuery", "query": "SELECT
+            count() FROM events" } }
+
             ```
     view-update:
         operation: warehouse_saved_queries_partial_update
