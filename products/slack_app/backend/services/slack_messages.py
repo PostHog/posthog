@@ -50,6 +50,10 @@ logger = structlog.get_logger(__name__)
 # fetch without the cache.
 THREAD_REPLIES_CACHE_TTL_SECONDS = 10
 
+# Ceiling on a Slack call made from inside the webhook request path. Slack's retry window
+# is the budget: a slow or rate-limited response must not eat into it before we return.
+SLACK_WEBHOOK_TIMEOUT_SECONDS = 3
+
 
 def resolve_user_mentions_text(
     slack: SlackIntegration,
@@ -641,6 +645,11 @@ def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
     only the button that was clicked. The integration rides along so the cross-region
     interactivity router can tell whose click this is, the same way the fork menu's
     option value does. The task is not carried: it is read back from the run row.
+
+    The block's shape is also a read contract, not only a render: the reaction feedback
+    path fetches the posted message back from Slack and finds the run through this
+    element's action id and button value (``turn_feedback._feedback_value_from_message``).
+    Renaming the element's keys silently kills reaction feedback.
     """
     target = {"integration_id": integration_id, "run_id": run_id}
     return {
