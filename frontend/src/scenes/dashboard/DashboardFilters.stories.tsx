@@ -200,6 +200,6 @@ export const LargeDashboardPreviewingFilters: Story = {
     args: { state: 'previewing' },
 }
 
-export const SqlOverridesBeforeAdvancedOptions: Story = {
+export const SqlVariablesBeforeAdvancedOptions: Story = {
     args: { state: 'sql-overrides' },
 }

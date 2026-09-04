@@ -666,7 +666,7 @@ describe('dashboardLogic', () => {
             ])
             expect(logic.values.filtersDirty).toBe(false)
             expect(logic.values.filterChanges).toEqual([])
-            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
+            expect(logic.values.dashboardConfigurationState).toBe('saved')
 
             await expectLogic(logic, () => {
                 logic.actions.saveDashboardFilters()
@@ -868,7 +868,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.effectiveEditBarFilters).toEqual(expect.objectContaining(filters))
 
             await expectLogic(logic, () => {
-                logic.actions.discardDashboardFilters()
+                logic.actions.discardDashboardChanges()
             }).toFinishAllListeners()
 
             expect(logic.values.urlFilters).toEqual({})
@@ -2959,6 +2959,58 @@ describe('dashboardLogic', () => {
             })
             expect(router.values.searchParams).toEqual({})
             expect(logic.values.dashboardConfigurationState).toBe('saved')
+        })
+
+        it('keeps edits made while dashboard changes save', async () => {
+            await mountDashboardWithVariable({})
+            let finishSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+                throw new Error('Save resolver is unavailable')
+            }
+            const save = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+                finishSave = resolve
+            })
+            jest.spyOn(api, 'update').mockReturnValueOnce(save)
+
+            logic.actions.overrideVariableValue(variableId, 'submitted', false)
+            logic.actions.saveDashboardChanges()
+            await expectLogic(logic).toMatchValues({ dashboardFiltersSaving: true })
+
+            logic.actions.overrideVariableValue(variableId, 'newer edit', false)
+            finishSave({
+                ...logic.values.dashboard!,
+                persisted_variables: {
+                    [variableId]: { ...baseVariable, value: 'submitted', isNull: false },
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
+            expect(logic.values.effectiveDashboardConfiguration.variables[variableId]).toEqual(
+                expect.objectContaining({ value: 'newer edit' })
+            )
+        })
+
+        it('waits for Preview before refreshing SQL variable changes on a large dashboard', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            await mountDashboardWithVariable({})
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+            }).toFinishAllListeners()
+
+            expect(logic.values.canAutoPreview).toBe(false)
+            expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.previewDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+            getInsightWithRetrySpy.mockRestore()
+            payloadSpy.mockRestore()
         })
 
         it('applying a variable value refreshes every tile with the new value attached to the request', async () => {

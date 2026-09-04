@@ -24,7 +24,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
         loadingPreview,
     } = useValues(dashboardLogic)
     const { previewDashboardChanges, discardDashboardChanges, saveDashboardChanges } = useActions(dashboardLogic)
-    if (!canEditDashboard || dashboardConfigurationState !== 'unsavedChanges') {
+    if (dashboardConfigurationState !== 'unsavedChanges') {
         return null
     }
 
@@ -40,11 +40,11 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                 <button
                     type="button"
                     className="flex items-center gap-1.5 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer"
-                    aria-label="Show filter changes"
+                    aria-label="Show dashboard changes"
                 >
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
+                    <span className="h-2 w-2 animate-pulse motion-reduce:animate-none rounded-full bg-warning" />
                     <span className="@max-lg/dashboard-filters:hidden whitespace-nowrap">
-                        {`${changedCount} unsaved changes`}
+                        {`${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}`}
                     </span>
                     <span className="@min-lg/dashboard-filters:hidden whitespace-nowrap">
                         {`${changedCount} unsaved`}
@@ -59,7 +59,8 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                         data-attr={discardDataAttr}
                         type="tertiary"
                         size="small"
-                        tooltip="Restore the filters saved to this dashboard."
+                        disabledReason={dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined}
+                        tooltip="Restore the configuration saved to this dashboard."
                         onClick={discardDashboardChanges}
                     >
                         Discard
@@ -80,22 +81,25 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                             <span className="h-4 border-l border-warning" />
                         </>
                     )}
-                    <LemonButton
-                        data-attr="dashboard-save-filters"
-                        type="tertiary"
-                        size="small"
-                        loading={dashboardFiltersSaving}
-                        tooltip="Save these filters as the dashboard default."
-                        onClick={saveDashboardChanges}
-                    >
-                        Save changes
-                    </LemonButton>
+                    {canEditDashboard && (
+                        <LemonButton
+                            data-attr="dashboard-save-filters"
+                            type="tertiary"
+                            size="small"
+                            loading={dashboardFiltersSaving}
+                            tooltip="Save these changes as the dashboard default."
+                            onClick={saveDashboardChanges}
+                        >
+                            Save changes
+                        </LemonButton>
+                    )}
                 </span>
             </span>
             <LemonMenu
                 items={[
                     {
                         label: 'Discard',
+                        disabledReason: dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined,
                         onClick: discardDashboardChanges,
                     },
                     ...(showApplyFiltersBanner && !layoutEditMode
@@ -107,10 +111,15 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                               },
                           ]
                         : []),
-                    {
-                        label: 'Save changes',
-                        onClick: saveDashboardChanges,
-                    },
+                    ...(canEditDashboard
+                        ? [
+                              {
+                                  label: 'Save changes',
+                                  disabledReason: dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined,
+                                  onClick: saveDashboardChanges,
+                              },
+                          ]
+                        : []),
                 ]}
                 placement="bottom-end"
             >

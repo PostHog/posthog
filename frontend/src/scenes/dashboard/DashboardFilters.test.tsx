@@ -14,6 +14,7 @@ import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightMode
 
 import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
+import * as dashboardUtils from './dashboardUtils'
 import { SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
@@ -67,13 +68,16 @@ describe('DashboardFilterBar', () => {
         cleanup()
     })
 
-    function renderFilterBar(dashboardModeSource: DashboardEventSource): ReturnType<typeof dashboardLogic.build> {
-        const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
+    function renderFilterBar(
+        dashboardModeSource: DashboardEventSource,
+        dashboard: DashboardType<QueryBasedInsightModel> = MOCK_DASHBOARD
+    ): ReturnType<typeof dashboardLogic.build> {
+        const logic = dashboardLogic({ id: dashboard.id, dashboard })
         logic.mount()
         logic.actions.setDashboardMode(DashboardMode.Edit, dashboardModeSource)
 
         render(
-            <BindLogic logic={dashboardLogic} props={{ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD }}>
+            <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard }}>
                 <DashboardFilterBar />
             </BindLogic>
         )
@@ -110,7 +114,29 @@ describe('DashboardFilterBar', () => {
 
     it('shows Previewing while a large dashboard preview loads', async () => {
         const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
-        const logic = renderFilterBar(DashboardEventSource.DashboardFilters)
+        let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
+            throw new Error('Preview resolver is unavailable')
+        }
+        const preview = new Promise<QueryBasedInsightModel>((resolve) => {
+            finishPreview = resolve
+        })
+        const getInsightSpy = jest
+            .spyOn(dashboardUtils, 'getInsightWithRetry')
+            .mockImplementation(async (_teamId, insight) => insight)
+        const previewDashboard: DashboardType<QueryBasedInsightModel> = {
+            ...MOCK_DASHBOARD,
+            tiles: [
+                {
+                    id: 1,
+                    color: null,
+                    layouts: {},
+                    insight: { id: 1, short_id: 'preview', name: 'Preview' } as QueryBasedInsightModel,
+                },
+            ],
+        }
+        const logic = renderFilterBar(DashboardEventSource.DashboardFilters, previewDashboard)
+        await expectLogic(logic).toFinishAllListeners()
+        getInsightSpy.mockReturnValue(preview)
 
         await expectLogic(logic, () => {
             logic.actions.setDates('-7d', null)
@@ -118,9 +144,7 @@ describe('DashboardFilterBar', () => {
 
         expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Preview')
 
-        await expectLogic(logic, () => {
-            logic.actions.previewDashboardChanges()
-        }).toMatchValues({ loadingPreview: true })
+        logic.actions.previewDashboardChanges()
 
         await waitFor(() => {
             expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Previewing')
@@ -130,6 +154,15 @@ describe('DashboardFilterBar', () => {
             )
         })
 
+        finishPreview(previewDashboard.tiles[0].insight!)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Preview')
+        expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveAttribute(
+            'aria-disabled',
+            'false'
+        )
+
+        getInsightSpy.mockRestore()
         payloadSpy.mockRestore()
         logic.unmount()
     })
@@ -210,6 +243,20 @@ describe('DashboardFilterBar', () => {
 
         expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('lets a dashboard viewer identify and discard URL overrides', async () => {
+        router.actions.push('/', {
+            [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+        })
+        const viewerDashboard = { ...MOCK_DASHBOARD, user_access_level: AccessControlLevel.Viewer }
+        const logic = renderFilterBar(DashboardEventSource.DashboardFilters, viewerDashboard)
+
+        expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="dashboard-edit-mode-discard"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="dashboard-save-filters"]')).not.toBeInTheDocument()
 
         logic.unmount()
     })

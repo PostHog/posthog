@@ -51,30 +51,14 @@ function ChangeValue({ value }: { value: string | string[] | undefined }): JSX.E
 }
 
 function renderChangeValue(change: DashboardFilterChange): JSX.Element {
-    if (change.status === 'new') {
-        return (
-            <div className="flex flex-wrap items-center gap-1 font-medium">
-                <strong>New:</strong> <ChangeValue value={change.value} />
-            </div>
-        )
-    }
-    if (change.status === 'removed') {
-        return (
-            <div className="flex flex-wrap items-center gap-1">
-                <span className="font-medium">Removed</span>
-                <span className="min-w-0 text-muted-alt">
-                    was <ChangeValue value={change.previousValue} />
-                </span>
-            </div>
-        )
-    }
     return (
         <div className="flex flex-wrap items-center gap-1 break-words">
-            <span className="font-medium">
-                <ChangeValue value={change.value} />
-            </span>
             <span className="min-w-0 text-muted-alt">
-                was <ChangeValue value={change.previousValue} />
+                <ChangeValue value={change.previousValue ?? 'Default'} />
+            </span>
+            <span aria-hidden="true">→</span>
+            <span className="font-medium">
+                <ChangeValue value={change.value ?? 'Default'} />
             </span>
         </div>
     )
