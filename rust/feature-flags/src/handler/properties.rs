@@ -49,19 +49,29 @@ pub fn prepare_overrides(
     })
 }
 
+/// Drops the JSON nulls a caller sent, so that only keys with a real value count as supplied.
+///
+/// A null means the caller had no value, not that the person's value is null — callers clear a
+/// property with `$unset`. Consumers of these overrides test for the presence of a key, so a
+/// retained null would suppress the persons-table read in `FeatureFlag::requires_db_preparation`
+/// and then hide the persons-table value behind itself in `get_person_properties`. One person
+/// would then resolve one flag two ways, depending on whether the caller sent the key.
+fn drop_null_values(mut properties: HashMap<String, Value>) -> HashMap<String, Value> {
+    properties.retain(|_, value| !value.is_null());
+    properties
+}
+
 /// Flags requests that supplied a `$geoip_*` value disagreeing with the lookup. These are the
 /// requests where keeping supplied values produces a different evaluation input than letting the
 /// lookup win, so the counter sizes the behavior difference between the two precedences.
-/// A JSON null counts as absent: it carries no value to compare against the lookup, so it can't
-/// be a divergence.
 fn record_geoip_divergence(
     person_properties: &HashMap<String, Value>,
     geoip_props: &HashMap<String, String>,
 ) {
     let diverged = geoip_props.iter().any(|(key, resolved)| {
-        person_properties.get(key).is_some_and(|supplied| {
-            !supplied.is_null() && supplied.as_str() != Some(resolved.as_str())
-        })
+        person_properties
+            .get(key)
+            .is_some_and(|supplied| supplied.as_str() != Some(resolved.as_str()))
     });
     if diverged {
         inc(GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER, &[], 1);
@@ -82,6 +92,8 @@ pub fn get_person_property_overrides(
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
 ) -> Option<HashMap<String, Value>> {
+    let person_properties = person_properties.map(drop_null_values);
+
     if geoip_disabled {
         return person_properties;
     }
@@ -96,16 +108,8 @@ pub fn get_person_property_overrides(
     let mut props = person_properties.unwrap_or_default();
     record_geoip_divergence(&props, &geoip_props);
     for (key, value) in geoip_props {
-        match props.entry(key) {
-            Entry::Vacant(slot) => {
-                slot.insert(Value::String(value));
-            }
-            // A JSON null means the caller had no value rather than that it supplied one.
-            // Callers clear a property with `$unset`, so a null here is a gap to fill.
-            Entry::Occupied(mut slot) if slot.get().is_null() => {
-                slot.insert(Value::String(value));
-            }
-            Entry::Occupied(_) => {}
+        if let Entry::Vacant(slot) = props.entry(key) {
+            slot.insert(Value::String(value));
         }
     }
 
@@ -116,6 +120,13 @@ pub fn get_group_property_overrides(
     groups: Option<HashMap<String, Value>>,
     existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 ) -> Option<HashMap<String, HashMap<String, Value>>> {
+    let existing_overrides = existing_overrides.map(|overrides| {
+        overrides
+            .into_iter()
+            .map(|(group_type, props)| (group_type, drop_null_values(props)))
+            .collect::<HashMap<_, _>>()
+    });
+
     match groups {
         Some(group_map) => {
             let group_key_overrides: HashMap<String, HashMap<String, Value>> = group_map

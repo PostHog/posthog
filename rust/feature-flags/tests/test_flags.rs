@@ -5641,6 +5641,105 @@ async fn test_initial_property_population_respects_db_values(
     Ok(())
 }
 
+/// Tests that one person resolves a flag the same way whether or not a caller sends the
+/// targeted property as a JSON null.
+///
+/// A caller that builds `person_properties` from its own records sends a null for every
+/// field it has no value for. A null carries no value, so it must not stand in for the
+/// persons-table value: it used to suppress the persons-table read and then win the override
+/// merge, which flipped the flag off for that caller alone while every other caller kept
+/// getting the value the person row says.
+#[rstest]
+#[case::sends_null_for_the_targeted_property(Some(json!({"plan": null})))]
+#[case::sends_null_alongside_other_properties(Some(json!({"plan": null, "$browser": "Chrome"})))]
+#[case::sends_nothing(None)]
+#[tokio::test]
+async fn test_supplied_null_does_not_shadow_the_person_row(
+    #[case] sent_person_properties: Option<Value>,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = format!("test_null_override_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"plan": "enterprise"})),
+        )
+        .await
+        .unwrap();
+
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "enterprise-flag",
+            "name": "Flag targeting the enterprise plan",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "plan",
+                                "value": "enterprise",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let mut payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+    if let Some(person_properties) = sent_person_properties {
+        payload["person_properties"] = person_properties;
+    }
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {status}\nBody: {text}");
+    }
+
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "enterprise-flag": {
+                    "key": "enterprise-flag",
+                    "enabled": true,
+                    "reason": { "code": "condition_match" }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
 /// Tests that `$os` and `$os_name` are mirrored at match time, so a flag condition
 /// keyed on either property matches a person row that carries only one of them.
 ///

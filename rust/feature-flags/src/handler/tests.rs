@@ -188,33 +188,57 @@ fn test_geoip_person_property_overrides(
     }
 }
 
-#[test]
-// A supplied null survives only when the IP resolves nothing: the fill loop at
-// properties.rs only visits keys MaxMind returns. That leftover null reads as
-// "supplied" to `requires_db_property`, so it suppresses the person fetch; treat
-// this as a presence test for the residual null, not a verdict that the DB
-// suppression is correct.
-fn test_supplied_geoip_null_survives_unresolvable_ip() {
+#[rstest]
+// The geoip fill only visits keys MaxMind returns, so it never clears a null on an ordinary
+// property such as `plan`. Dropping nulls at the boundary is what stops that leftover from
+// reading as "supplied" to `requires_db_property` and suppressing the persons-table read.
+#[case::geoip_disabled(true, IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))]
+#[case::geoip_unresolvable(false, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))]
+#[case::geoip_resolvable(false, IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))]
+fn test_supplied_null_is_dropped(#[case] geoip_disabled: bool, #[case] ip: IpAddr) {
     let geoip_service = create_test_geoip_service();
-    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
     let name = Value::String("John".to_string());
 
     let person_properties = HashMap::from([
         ("name".to_string(), name.clone()),
-        ("$geoip_country_code".to_string(), Value::Null),
+        ("plan".to_string(), Value::Null),
     ]);
 
     let result = properties::get_person_property_overrides(
-        false,
+        geoip_disabled,
         Some(person_properties),
         &ip,
         &geoip_service,
     );
 
     let result = result.expect("expected property overrides");
-    assert_eq!(result.len(), 2);
     assert_eq!(result.get("name"), Some(&name));
-    assert_eq!(result.get("$geoip_country_code"), Some(&Value::Null));
+    assert!(!result.contains_key("plan"));
+}
+
+#[test]
+fn test_supplied_null_does_not_suppress_the_persons_read() {
+    let geoip_service = create_test_geoip_service();
+    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    let flag = mock!(FeatureFlag,
+        filters: mock!(crate::properties::property_models::PropertyFilter,
+            key: "plan".mock_into(),
+            value: Some(json!("enterprise"))
+        ).mock_into()
+    );
+
+    let overrides = properties::get_person_property_overrides(
+        true,
+        Some(HashMap::from([("plan".to_string(), Value::Null)])),
+        &ip,
+        &geoip_service,
+    )
+    .expect("expected property overrides");
+
+    assert!(
+        flag.requires_db_preparation(&overrides),
+        "a null carries no value, so the persons-table read still has to happen"
+    );
 }
 
 /// `supplied` is the value the request sends for `$geoip_country_code`, or `None` for a request
