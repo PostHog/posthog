@@ -1089,7 +1089,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 onRecordingSelected,
             })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
 
             // A facet can match nothing: the player unloads into the empty state. When the next
@@ -1101,14 +1101,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ReturnType<typeof api.recordings.list>
                 >)
             logic.actions.loadSessionRecordings()
-            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            expect(logic.values.sessionRecordings).toEqual([])
+            expect(logic.values.activeSessionRecordingId).toBeUndefined()
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
 
             listSpy.mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
                 ReturnType<typeof api.recordings.list>
             >)
             logic.actions.loadSessionRecordings()
-            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [aRecording.id]])
         })
 

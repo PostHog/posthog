@@ -2,15 +2,6 @@ import type { BreakPointFunction, ListenerFunction, Logic, LogicBuilder, LogicIn
 
 type ListenersBuilder = <L extends Logic = Logic>(input: LogicInput<L>['listeners']) => LogicBuilder<L>
 
-const REAL_BREAKPOINT_PATH_PREFIXES = [
-    'products.workflows.frontend.Workflows.workflowLogic.',
-    'scenes.max.maxThreadLogic.',
-    'scenes.project-homepage.ai-first.aiFirstHomepageLogic',
-    'scenes.session-recordings.player.sessionRecordingPlayerLogic.',
-    'scenes.session-recordings.playlist.sessionRecordingsPlaylistLogic.',
-    'scenes.session-recordings.snapshotLogic.',
-]
-
 function hasFakeTimers(): boolean {
     return 'clock' in setTimeout
 }
@@ -24,9 +15,9 @@ function fastBreakpoint(breakpoint: BreakPointFunction): BreakPointFunction {
     }) as BreakPointFunction
 }
 
-function wrapListener(listener: ListenerFunction, keepDelay: boolean): ListenerFunction {
+function wrapListener(listener: ListenerFunction): ListenerFunction {
     return (payload, breakpoint, action, previousState) =>
-        listener(payload, keepDelay || hasFakeTimers() ? breakpoint : fastBreakpoint(breakpoint), action, previousState)
+        listener(payload, hasFakeTimers() ? breakpoint : fastBreakpoint(breakpoint), action, previousState)
 }
 
 export function testListeners(listenersBuilder: ListenersBuilder): ListenersBuilder {
@@ -38,14 +29,10 @@ export function testListeners(listenersBuilder: ListenersBuilder): ListenersBuil
                 string,
                 ListenerFunction | ListenerFunction[]
             >
-            const keepDelay = REAL_BREAKPOINT_PATH_PREFIXES.some((prefix) => logic.pathString.startsWith(prefix))
-
             return Object.fromEntries(
                 Object.entries(listeners).map(([action, listener]) => [
                     action,
-                    Array.isArray(listener)
-                        ? listener.map((item) => wrapListener(item, keepDelay))
-                        : wrapListener(listener, keepDelay),
+                    Array.isArray(listener) ? listener.map((item) => wrapListener(item)) : wrapListener(listener),
                 ])
             )
         }) as LogicInput<L>['listeners'])
