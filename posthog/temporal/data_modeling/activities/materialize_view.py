@@ -1,3 +1,4 @@
+import re
 import uuid
 import typing
 import asyncio
@@ -520,6 +521,50 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     return file_uri
 
 
+ArrowConversion = tuple[str, tuple[str, ...]]
+
+# ClickHouse types Arrow and Delta Lake cannot carry, matched on a substring of the described type
+# so that a wrapper such as Nullable(..) still matches.
+_ARROW_CONVERSION_BY_SUBSTRING: dict[str, ArrowConversion] = {
+    "DateTime": ("toTimeZone", ("UTC",)),
+    "Nullable(Nothing)": ("toNullableString", ()),
+    "FIXED_SIZE_BINARY": ("toString", ()),
+    "JSON": ("toString", ()),
+    "UUID": ("toString", ()),
+    "ENUM": ("toString", ()),
+    "IPv4": ("toString", ()),
+    "IPv6": ("toString", ()),
+}
+
+# Delta Lake has no unsigned integer type, so delta-rs narrows an Arrow uint64 to Int64 and the
+# write fails on every value above 2^63-1 — the range a hash key such as cityHash64 fills.
+# Decimal(20, 0) holds the whole UInt64 range, and is what the Trino printer maps UInt64 to.
+_UINT64_CONVERSION: ArrowConversion = ("accurateCastOrNull", ("Decimal(20, 0)",))
+
+_TYPE_WRAPPER_RE = re.compile(r"^(?:nullable|lowcardinality)\((.*)\)$")
+
+
+def arrow_conversion_for(ch_type: str) -> ArrowConversion | None:
+    """Return the ClickHouse call that makes a column of ``ch_type`` writable to Delta Lake."""
+    lowered = ch_type.lower()
+    # Arrays are already properly typed by ClickHouse, and converting them causes errors like
+    # "Illegal type Array(DateTime) of argument of function toTimezone".
+    if lowered.startswith("array("):
+        return None
+
+    # Matched on the whole type, because casting a Map or a Tuple that only holds a UInt64 fails.
+    unwrapped = lowered
+    while match := _TYPE_WRAPPER_RE.match(unwrapped):
+        unwrapped = match.group(1).strip()
+    if unwrapped == "uint64":
+        return _UINT64_CONVERSION
+
+    return next(
+        (conversion for name, conversion in _ARROW_CONVERSION_BY_SUBSTRING.items() if name.lower() in lowered),
+        None,
+    )
+
+
 async def hogql_table(
     query: str,
     team: Team,
@@ -570,30 +615,6 @@ async def hogql_table(
 
     printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
-    arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
-        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
-        "Nullable(Nothing)": ("toNullableString", ()),
-        "FIXED_SIZE_BINARY": ("toString", ()),
-        "JSON": ("toString", ()),
-        "UUID": ("toString", ()),
-        "ENUM": ("toString", ()),
-        "IPv4": ("toString", ()),
-        "IPv6": ("toString", ()),
-    }
-
-    def _needs_conversion(ch_type: str) -> bool:
-        # Skip array types from conversion — they are already properly typed by ClickHouse
-        # and attempting to convert them causes errors like:
-        # "Illegal type Array(DateTime) of argument of function toTimezone"
-        is_array_type = ch_type.lower().startswith("array(")
-        if is_array_type:
-            return False
-        return any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
-
-    get_call_tuple = lambda ch_type: next(
-        iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
-    )
-
     try:
         described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
     except ClickHouseError as error:
@@ -605,12 +626,9 @@ async def hogql_table(
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
         described_columns = await _describe_columns(untouched, context.values, None)
 
-    query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    for column_name, ch_type in described_columns.items():
-        if _needs_conversion(ch_type):
-            query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
-        else:
-            query_typings.append((column_name, ch_type, None))
+    query_typings: list[tuple[str, str, ArrowConversion | None]] = [
+        (column_name, ch_type, arrow_conversion_for(ch_type)) for column_name, ch_type in described_columns.items()
+    ]
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:
@@ -621,9 +639,13 @@ async def hogql_table(
                 await logger.adebug(
                     f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
                 )
+                call_name, extra_args = call_tuple
                 select_fields.append(
                     ast.Alias(
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                        expr=ast.Call(
+                            name=call_name,
+                            args=[ast.Field(chain=[column_name]), *(ast.Constant(value=arg) for arg in extra_args)],
+                        ),
                         alias=column_name,
                     )
                 )
