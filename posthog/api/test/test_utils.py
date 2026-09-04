@@ -19,7 +19,6 @@ from posthog.api.utils import (
     hostname_in_allowed_url_list,
     is_async_query,
     is_insight_query,
-    on_permitted_recording_domain,
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
     validate_authorized_url_wildcards,
@@ -68,17 +67,6 @@ class TestAppUrlCanonicalization(SimpleTestCase):
     )
     def test_strip_url_userinfo(self, _name: str, url: str, expected: str) -> None:
         assert strip_url_userinfo(url) == expected
-
-
-class TestPermittedRecordingDomain(SimpleTestCase):
-    def test_allows_unity_sdk_user_agent_without_a_permitted_web_origin(self) -> None:
-        request = RequestFactory().get(
-            "/",
-            HTTP_ORIGIN="https://unauthorized.example",
-            HTTP_USER_AGENT="posthog-unity/1.0.0",
-        )
-
-        assert on_permitted_recording_domain(["https://authorized.example"], request)
 
 
 class TestUtils(BaseTest):

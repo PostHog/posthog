@@ -51,7 +51,8 @@ export const getUnitySteps = (ctx: OnboardingComponentsContext): StepDefinition[
                 <>
                     <Markdown>
                         Enable `SessionReplay` in your PostHog configuration. You can also configure session replay in
-                        **Edit &gt; Project Settings &gt; PostHog** in the Unity Editor.
+                        **Edit &gt; Project Settings &gt; PostHog** in the Unity Editor. The `SessionReplayConfig`
+                        values below are the SDK defaults. Adjust them to match your app's requirements.
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -83,7 +84,7 @@ export const getUnitySteps = (ctx: OnboardingComponentsContext): StepDefinition[
                     />
                     <Markdown>
                         The SDK captures screenshots, touch and mouse input, and optional console logs. Session replay
-                        requires `AsyncGPUReadback` support and is unavailable on WebGL.
+                        requires `AsyncGPUReadback` support and is automatically disabled on WebGL.
                     </Markdown>
                     <CalloutBox type="caution" title="No masking support">
                         <Markdown>
