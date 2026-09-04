@@ -77,7 +77,7 @@ Icon bytes are never stored server-side (logo.dev licenses that separately), so 
 
 Firecrawl (`firecrawl/`) meters per account and bills a credit per call, and an instance holds a single API key, so it follows the same shape: one `firecrawl` domain, one instance-wide budget under a constant scope.
 Firecrawl's per-plan limits are not discoverable from the running process, so the budgets are operator ceilings on spend read from settings at acquire time: `FIRECRAWL_EGRESS_PER_MINUTE_BUDGET` (default 60) smooths a burst of concurrent callers, and `FIRECRAWL_EGRESS_HOURLY_BUDGET` (default 1,000) caps what a runaway caller can spend before anyone notices.
-One scrape is one credit, so those numbers cap a bill as much as a rate; they are sized for traffic of roughly one scrape per event a person triggers, and are meant to be raised in settings as that grows.
+One scrape is one credit and one search is two credits per ten results, so those numbers cap a bill as much as a rate; they are sized for traffic of roughly one scrape per event a person triggers, and are meant to be raised in settings as that grows.
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
 
