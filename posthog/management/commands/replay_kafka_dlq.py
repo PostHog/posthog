@@ -1,25 +1,43 @@
 import signal
+import dataclasses
 from argparse import ArgumentParser
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.kafka_client.dlq_replay import drain_dlq
+from posthog.kafka_client.dlq_replay import DLQ_REPLAY_PIPELINES, DLQReplayPipeline, drain_dlq
 
 
 def _parse_team_ids(raw: str) -> frozenset[int]:
     return frozenset(int(part) for part in raw.split(",") if part.strip())
 
 
+def resolve_pipeline(options: dict[str, Any]) -> DLQReplayPipeline:
+    """Start from the named pipeline and apply any topic or group id given on the command line."""
+    pipeline = DLQ_REPLAY_PIPELINES[options["pipeline"]]
+    overrides = {
+        field: options[field]
+        for field in ("source_topic", "target_topic", "group_id")
+        if options.get(field) is not None
+    }
+    return dataclasses.replace(pipeline, **overrides)
+
+
 class Command(BaseCommand):
     help = "Replay a Kafka DLQ topic back into its target topic using a consumer group."
 
     def add_arguments(self, parser: ArgumentParser) -> None:
-        parser.add_argument("--source-topic", required=True, help="DLQ topic to read from")
-        parser.add_argument("--target-topic", required=True, help="Topic to replay messages to")
+        parser.add_argument(
+            "--pipeline",
+            choices=sorted(DLQ_REPLAY_PIPELINES),
+            default="traces",
+            help="Ingestion pipeline whose DLQ to drain; sets the topics and group id unless overridden",
+        )
+        parser.add_argument("--source-topic", default=None, help="DLQ topic to read from")
+        parser.add_argument("--target-topic", default=None, help="Topic to replay messages to")
         parser.add_argument(
             "--group-id",
-            default="dlq-replay-ingestion-traces",
+            default=None,
             help="Consumer group id; reuse the same id to resume an interrupted run",
         )
         parser.add_argument("--max-replays", type=int, default=2, help="Skip a message replayed this many times")
@@ -51,10 +69,14 @@ class Command(BaseCommand):
         signal.signal(signal.SIGTERM, request_stop)
         signal.signal(signal.SIGINT, request_stop)
 
+        pipeline = resolve_pipeline(options)
+        self.stdout.write(
+            f"Draining {pipeline.source_topic} into {pipeline.target_topic} with group {pipeline.group_id}"
+        )
         result = drain_dlq(
-            source_topic=options["source_topic"],
-            target_topic=options["target_topic"],
-            group_id=options["group_id"],
+            source_topic=pipeline.source_topic,
+            target_topic=pipeline.target_topic,
+            group_id=pipeline.group_id,
             max_replays=options["max_replays"],
             batch_size=options["batch_size"],
             idle_polls=options["idle_polls"],
