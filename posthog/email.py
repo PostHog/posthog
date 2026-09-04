@@ -113,6 +113,26 @@ _TRANSIENT_SMTP_ERRORS = (
     ConnectionError,  # reset / refused / aborted
 )
 
+
+class _TransientHTTPError(Exception):
+    """A retryable Customer.io failure (provider 5xx). Re-raised into the task's autoretry."""
+
+
+# Retryable HTTP failures re-raised into the task's autoretry: network-level timeouts and
+# connection errors (the Customer.io ReadTimeout that drops password resets), and a body-read
+# failure after the response headers. requests reads the body inside post() (stream defaults to
+# False), so a connection that drops during that read raises ChunkedEncodingError, and a truncated
+# gzip reply raises ContentDecodingError. Neither inherits from ConnectionError, so both need
+# listing here. Provider 5xx arrives as _TransientHTTPError. A permanent request error (most 4xx)
+# is not listed, so it stays permanent.
+_TRANSIENT_HTTP_ERRORS = (
+    _TransientHTTPError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.ContentDecodingError,
+)
+
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
     # Set up in customer.io
     "2fa_enabled": "31",
@@ -213,62 +233,82 @@ def _send_via_http(
     }
 
     sent_count = 0
-    already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
+    already_sent_count = 0  # delivered by a prior run or a concurrent worker — not a batch failure
     try:
         for dest in to:
+            # Claim the recipient under a row lock, then release it before the network call.
+            # Holding select_for_update across a 30s POST pins a DB connection on the provider.
             with transaction.atomic():
                 record, _ = MessagingRecord.objects.get_or_create(
                     raw_email=dest["raw_email"], campaign_key=campaign_key
                 )
-
                 record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
                 if record.sent_at:
                     already_sent_count += 1
                     continue
 
-                identifiers: dict[str, str] = {"email": dest["raw_email"]}
-                if dest.get("distinct_id"):
-                    identifiers["id"] = dest["distinct_id"]
+            identifiers: dict[str, str] = {"email": dest["raw_email"]}
+            if dest.get("distinct_id"):
+                identifiers["id"] = dest["distinct_id"]
 
-                payload = {
-                    "transactional_message_id": get_customer_io_template_id(template_name),
-                    "to": dest["raw_email"],
-                    "identifiers": identifiers,
-                    "message_data": properties,
-                }
+            payload = {
+                "transactional_message_id": get_customer_io_template_id(template_name),
+                "to": dest["raw_email"],
+                "identifiers": identifiers,
+                "message_data": properties,
+            }
 
-                response = requests.post(
-                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
-                )
+            response = requests.post(
+                f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
+            )
 
-                if response.status_code != 200:
-                    raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
+            if response.status_code != 200:
+                message = f"Customer.io API error: {response.status_code} - {response.text}"
+                # 5xx is provider-side and transient, and 429 is rate limiting (a "try again later"
+                # signal), so both re-raise into autoretry. Other 4xx are permanent request errors
+                # we must not retry.
+                if response.status_code >= 500 or response.status_code == 429:
+                    raise _TransientHTTPError(message)
+                raise Exception(message)
 
-                provider_response = response.json()
+            provider_response = response.json()
 
-                # Mark delivery before any non-essential step so a delivered email is never
-                # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
-                # is best-effort and isolated so its failure can't roll back a successful send.
+            # Re-check under the lock before marking sent: a concurrent worker may have delivered
+            # this recipient while our POST was in flight, since the lock is no longer held across it.
+            # Marking sent before any non-essential step keeps a delivered email from being recorded
+            # as rejected (raise_if_delivery_rejected keys off sent_at).
+            with transaction.atomic():
+                record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+                if record.sent_at:
+                    already_sent_count += 1
+                    continue
                 record.sent_at = timezone.now()
                 record.save()
 
-                try:
-                    posthoganalytics.capture(
-                        distinct_id=dest.get("distinct_id") or dest["raw_email"],
-                        event="transactional email triggered",
-                        properties={
-                            "template_name": template_name,
-                            "campaign_key": campaign_key,
-                            "recipient_email": dest["raw_email"],
-                            **provider_response,
-                        },
-                    )
-                except Exception as analytics_err:
-                    logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
+            try:
+                posthoganalytics.capture(
+                    distinct_id=dest.get("distinct_id") or dest["raw_email"],
+                    event="transactional email triggered",
+                    properties={
+                        "template_name": template_name,
+                        "campaign_key": campaign_key,
+                        "recipient_email": dest["raw_email"],
+                        **provider_response,
+                    },
+                )
+            except Exception as analytics_err:
+                logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
 
-                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
-                sent_count += 1
+            EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
+            sent_count += 1
 
+    except _TRANSIENT_HTTP_ERRORS as err:
+        # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
+        # The `if record.sent_at` guard skips recipients already accepted, so retry won't duplicate.
+        # warning, not capture_exception: expected + auto-retried, capturing each attempt is noise.
+        logger.warning("email_send_http_transient_error", error=str(err))
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)
+        raise
     except Exception as err:
         capture_exception(err)  # already logs the traceback via logger.exception
         # Count every recipient that did not get through (the failing one + any not yet attempted),
