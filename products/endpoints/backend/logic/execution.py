@@ -131,13 +131,48 @@ def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
 
 
+# Connection loss outside SQLSTATE class 08 (connection_exception).
+_CONNECTION_LOSS_SQLSTATES = frozenset(
+    {
+        "57P01",  # admin_shutdown
+        "57P02",  # crash_shutdown
+        "57P03",  # cannot_connect_now
+    }
+)
+
+
+def _pg_sqlstate(error: BaseException) -> str | None:
+    """The Postgres SQLSTATE behind a Django database error, when the server reported one.
+
+    psycopg3 exposes it as ``sqlstate`` and psycopg2 as ``pgcode``, and Django re-raises its
+    own wrapper ``from`` the driver error, so the code sits on the cause.
+    """
+    for candidate in (error, error.__cause__):
+        for attr in ("sqlstate", "pgcode"):
+            code = getattr(candidate, attr, None)
+            if isinstance(code, str):
+                return code
+    return None
+
+
 def _is_db_connection_error(error: BaseException) -> bool:
     """Whether an error reflects a dropped/dead Postgres connection rather than a code fault.
 
     Transient connection loss is an infra condition, not a bug — re-reporting it to error
     tracking from the failure-handling path just adds noise to the real root cause.
     """
-    return isinstance(error, OperationalError | InterfaceError)
+    if isinstance(error, InterfaceError):
+        return True
+    if not isinstance(error, OperationalError):
+        return False
+    sqlstate = _pg_sqlstate(error)
+    # A dropped connection is detected client-side, so libpq reports no SQLSTATE. When the
+    # server did answer, the connection was alive: only class 08 and the shutdown codes mean
+    # it went away. A statement timeout (57014) or a deadlock (40P01) is a real fault, and
+    # must keep reaching error tracking.
+    if sqlstate is None:
+        return True
+    return sqlstate.startswith("08") or sqlstate in _CONNECTION_LOSS_SQLSTATES
 
 
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
