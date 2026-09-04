@@ -1474,6 +1474,7 @@ class TestCreateWebhookPermissionErrorCopy:
                 api_key="sk_test_123",
                 stripe_account_id=None,
                 webhook_url="https://example.com/webhook",
+                api_version=STRIPE_API_VERSION_ACACIA,
                 auth_method=auth_method,
             )
 
@@ -1495,6 +1496,7 @@ class TestCreateWebhookLimitErrorCopy:
                 api_key="sk_test_123",
                 stripe_account_id=None,
                 webhook_url="https://example.com/webhook",
+                api_version=STRIPE_API_VERSION_ACACIA,
             )
 
         assert result.success is False
