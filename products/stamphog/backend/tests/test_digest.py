@@ -39,6 +39,7 @@ from products.stamphog.backend.logic.digest import (
     _build_headline_prompt,
     _build_selection_prompt,
     _build_summary,
+    _fallback_summary,
     _parse_selection,
     summarize_merged_prs,
 )
@@ -889,11 +890,18 @@ def test_the_selection_prompt_asks_for_the_perspective_the_code_checks() -> None
     pr = _pr_stub("o/r", 1, "Ship it", "https://github.com/o/r/pull/1")
     pr.changed_files = 8
 
-    prompt = _build_selection_prompt([pr], [_audience(3)])
+    prompt = _build_selection_prompt([pr], [_audience(3)], AUDIENCE)
 
     assert SCOPE_YOUR_FILES in prompt
     assert "whole_pr" in prompt
     assert '"scope": "your_files"' in prompt  # the shape the answer is read out of
+    # The reviewed summary of a multi-team merge carries one clause per owning team, and the only
+    # thing that tells the model which clause is this digest's is the audience. A prompt that stops
+    # naming it, or stops saying a summary can carry clauses at all, sends every team the sentence
+    # about the whole pull request again.
+    assert f"team={AUDIENCE}" in prompt
+    assert f"the team `{AUDIENCE}`" in prompt
+    assert "one clause for each team" in prompt
 
 
 def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
@@ -912,10 +920,15 @@ def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
         )
     ]
 
-    prompt = _build_headline_prompt(picked, {})
+    prompt = _build_headline_prompt(picked, {}, AUDIENCE)
 
     assert "empty string" not in prompt
     assert "do not restate its line" in prompt
+    # The headline reads the same reviewed summaries the selection call did, so it needs the same
+    # audience: without it the paragraph can lead on another team's clause, which is the news this
+    # channel is not supposed to carry.
+    assert f"the team `{AUDIENCE}`" in prompt
+    assert "one clause for each team" in prompt
 
 
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
@@ -1000,6 +1013,25 @@ def test_only_a_string_becomes_a_change_line(raw_summary: Any, expected: str) ->
     picked = _parse_selection(content, {0: pr}, frozenset())
 
     assert [p.summary for p in picked] == [expected]
+
+
+def test_the_paths_that_skip_the_model_drop_the_other_teams_clauses() -> None:
+    # The reviewed summary carries one clause per owning team now, and two paths post it without a
+    # model picking this team's clause out of it: a malformed entry, and the outage fallback. Both
+    # used to be safe by construction, because the field was one sentence about the whole change.
+    pr = _pr_stub("o/r", 1, "The author's own claim.", "https://github.com/o/r/pull/1")
+    pr.summary_line = (
+        "Uploads pause when a workspace spends its quota. "
+        "@PostHog/team-storage: the upload path asks a limiter first. "
+        "@PostHog/team-billing: the counters live in that limiter."
+    )
+    whole_change = "Uploads pause when a workspace spends its quota."
+    content = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": None}]})
+
+    picked = _parse_selection(content, {0: pr}, frozenset())
+
+    assert [p.summary for p in picked] == [whole_change]
+    assert [p.summary for p in _fallback_summary([pr], 1).prs] == [whole_change]
 
 
 @parameterized.expand(

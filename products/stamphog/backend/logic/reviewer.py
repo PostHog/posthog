@@ -51,9 +51,9 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py) and the
-# stamphog_reviewrun column width.
-CHANGE_SUMMARY_MAX_CHARS = 200
+# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py).
+# The columns that hold this text are TextField, so the schema is the only width it must respect.
+CHANGE_SUMMARY_MAX_CHARS = 600
 
 
 @frozen
@@ -87,9 +87,10 @@ class ReviewerVerdict:
     # The engine-rendered comment body (reasoning + judgment bullets + gate
     # mechanics), posted verbatim when present.
     review_body: str = ""
-    # One-sentence plain-language description of what the change does, written
-    # in the sandbox where the diff is available. Feeds the daily digest. Blank
-    # when the engine predates the field, which the digest tolerates.
+    # Plain-language description of what the change does, written in the sandbox where the diff is
+    # available: one sentence about the whole change, plus one clause per owning team when more
+    # than one team owns files in it. Feeds the daily digest, which reads the clause addressed to
+    # its own audience. Blank when the engine predates the field, which the digest tolerates.
     change_summary: str = ""
     # The engine version the output reports, for analytics segmentation.
     stamphog_version: str = ""
