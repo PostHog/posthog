@@ -358,6 +358,9 @@ class TestCommunitySkillAPI(APIBaseTest):
 
         scouts = self.client.get(self._url(), {"kind": "scout"}).json()["results"]
         self.assertEqual([s["slug"] for s in scouts], ["signals-scout-feed"])
+        # The store card reads these to say how often the scout runs, and the nested serializer
+        # drops an absent field rather than emitting a null the card would render as a cadence.
+        self.assertEqual(scouts[0]["scout_config"], {"run_interval_minutes": 720, "emit": False})
         skills = self.client.get(self._url(), {"kind": "skill"}).json()["results"]
         self.assertEqual([s["slug"] for s in skills], ["a-skill"])
 

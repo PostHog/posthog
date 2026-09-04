@@ -44,6 +44,11 @@ export function encodeScoutCreateTemplate(template: ScoutTemplatePayload): strin
     return base64Encode(JSON.stringify(template)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+/** `{ key: value }` when the cleaner kept the value, and nothing when it dropped it. */
+function defined<K extends string, V>(key: K, value: V | undefined): Partial<Record<K, V>> {
+    return value === undefined ? {} : ({ [key]: value } as Record<K, V>)
+}
+
 /** The cadence, or undefined when the link gave none the create form would accept. */
 function cleanInterval(value: unknown): number | undefined {
     if (typeof value !== 'number' || !Number.isInteger(value)) {
@@ -86,11 +91,6 @@ function cleanConfig(raw: unknown): ScoutTemplateConfig | null {
         ...defined('tags', cleanTags(tags)),
     }
     return Object.keys(config).length > 0 ? config : null
-}
-
-/** `{ key: value }` when the cleaner kept the value, and nothing when it dropped it. */
-function defined<K extends string, V>(key: K, value: V | undefined): Partial<Record<K, V>> {
-    return value === undefined ? {} : ({ [key]: value } as Record<K, V>)
 }
 
 /** The skill name a link asked for, prefixed if it needs it, or empty when it isn't usable. */
