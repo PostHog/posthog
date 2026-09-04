@@ -71,9 +71,9 @@ def synchronize_insight_data_model_dependencies(
             if query_fingerprint(persisted_query) != fingerprint:
                 return InsightDataModelSynchronizationResult(status="stale", dependency_count=0)
 
-            dependencies = InsightDataModelDependency.objects.for_team(team_id).filter(insight_id=insight_id)
-            dependencies.delete()
-            InsightDataModelDependency.objects.for_team(team_id).bulk_create(
+            dependencies = InsightDataModelDependency.objects.for_team(team_id)
+            dependencies.filter(insight_id=insight_id).delete()
+            dependencies.bulk_create(
                 [
                     InsightDataModelDependency(
                         team_id=team_id,
