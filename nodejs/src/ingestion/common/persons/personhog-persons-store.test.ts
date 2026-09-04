@@ -767,6 +767,25 @@ describe('PersonhogPersonsStore', () => {
         )
     })
 
+    it('a failed redirect write still purges the survivor projection', async () => {
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        // A stale survivor projection; the redirect's ops may have partly
+        // landed even when the write throws, so it must go either way.
+        ;(store as any).projections.set('1:9', { ...person, id: '9', properties: { stale: 'yes' } })
+        repository.updatePersonProperties.mockImplementation(((request: { personId: string }) =>
+            request.personId === '7'
+                ? Promise.reject(new NoRowsUpdatedError('merged away'))
+                : Promise.reject(new Error('survivor write failed'))) as never)
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([
+            { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
+        ] as never)
+
+        await expect(bound.flush()).rejects.toThrow()
+
+        expect((store as any).projections.get('1:9')).toBeUndefined()
+    })
+
     describe('round-6 closures', () => {
         const mergeReq = (sources = ['anon-1', 'anon-2']) => ({
             teamId: 1,

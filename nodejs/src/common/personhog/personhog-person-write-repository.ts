@@ -119,14 +119,11 @@ export class PersonHogPersonWriteRepository {
 
     /**
      * Runs the identity service's merge saga to completion; the op id
-     * dedupes, so a retried call returns the recorded outcome.
+     * dedupes, so a retried call returns the recorded outcome. No
+     * transport retries: the merge service owns the single bounded retry
+     * layer, and layering both multiplies a wedged saga's deadline.
      */
     mergePersons(request: MergeSagaRequest, callerTag?: string): Promise<MergeSagaResult> {
-        const method = 'mergePersons'
-        return withRetry(
-            () => timedGrpc(this.clientLabel, method, () => this.identity.mergePersons(request, callerTag)),
-            this.clientLabel,
-            method
-        )
+        return timedGrpc(this.clientLabel, 'mergePersons', () => this.identity.mergePersons(request, callerTag))
     }
 }

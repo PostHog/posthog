@@ -361,16 +361,21 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** The person's documents and every sibling id, named by the caller or not. */
-    private clearAllCachesForPersonId(teamId: number, personId: string, reason: string): void {
-        const personKey = `${teamId}:${personId}`
+    /**
+     * The persons' documents and every sibling id, named by the caller or
+     * not — one pass over the resolutions however many persons the merge
+     * touched.
+     */
+    private clearAllCachesForPersonIds(personKeys: Set<string>, reason: string): void {
         for (const [distinctKey, mapped] of this.resolutions) {
-            if (mapped === personKey) {
+            if (mapped !== null && personKeys.has(mapped)) {
                 this.resolutions.delete(distinctKey)
                 personhogStoreCachePurgeCounter.inc({ reason })
             }
         }
-        this.clearPersonCacheForPersonId(personKey, reason)
+        for (const personKey of personKeys) {
+            this.clearPersonCacheForPersonId(personKey, reason)
+        }
     }
 
     /**
@@ -818,9 +823,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * reach the survivor through the redirect, as they do under Postgres.
      */
     private purgeAfterMerge(teamId: number, distinctIds: string[], personKeys: Set<string>, reason: string): void {
-        for (const personKey of personKeys) {
-            this.clearAllCachesForPersonId(teamId, personKey.slice(personKey.indexOf(':') + 1), reason)
-        }
+        this.clearAllCachesForPersonIds(personKeys, reason)
         for (const distinctId of distinctIds) {
             this.removeDistinctIdFromCache(teamId, distinctId, reason)
         }
@@ -1227,9 +1230,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'redirect_survivor')
         // Ops travel as they stand, deletions included, matching Postgres.
-        await this.writeSegments(entry, survivorId, progress)
-        // The survivor's projection cannot know about these ops.
-        this.clearPersonCacheForPersonId(`${entry.teamId}:${survivorId}`, 'redirect_survivor')
+        try {
+            await this.writeSegments(entry, survivorId, progress)
+        } finally {
+            // The survivor's projection cannot know about these ops, even
+            // the partial set a failed write may have landed.
+            this.clearPersonCacheForPersonId(`${entry.teamId}:${survivorId}`, 'redirect_survivor')
+        }
     }
 
     /** An entry still holding unwritten ops outlives its last reference. */
