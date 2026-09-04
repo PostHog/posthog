@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 class BaseHogQLError(Exception, ABC):
-    is_user_safe: ClassVar[bool] = False
+    user_safe: ClassVar[bool] = False
     message: str
     start: Optional[int]
     end: Optional[int]
@@ -42,7 +42,7 @@ class BaseHogQLError(Exception, ABC):
 class ExposedHogQLError(BaseHogQLError):
     """An exception that can be exposed to the user."""
 
-    is_user_safe = True
+    user_safe = True
     # Surfaced as the error code on API responses so clients can tell a deterministic query
     # failure from a transient blip without matching on the message. Subclasses override this
     # fallback with a more specific value.
@@ -107,7 +107,7 @@ class ResolutionError(InternalHogQLError):
 
     # Resolution failures describe the user's query structure, even though callers still handle
     # them as internal HogQL errors for retry behavior.
-    is_user_safe = True
+    user_safe = True
     # Stable code for consumers that surface this user-actionable resolution failure. Keeping it on
     # the exception prevents each query surface from inventing its own string mapping.
     code_name = "hogql_resolution_error"

@@ -181,7 +181,7 @@ def test_safe_query_error_details_matches_query_api(exc: BaseException, expected
 
 def test_safe_query_error_details_uses_exception_safety_marker() -> None:
     class UserSafeQueryError(Exception):
-        is_user_safe = True
+        user_safe = True
         code_name = "safe_query_error"
 
     assert safe_query_error_details(UserSafeQueryError("Safe detail")) == {

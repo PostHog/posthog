@@ -40,7 +40,7 @@ class ExposedCHQueryError(InternalCHQueryError):
     """User-safe ClickHouse query error. Subclasses have user_safe=True in ErrorCodeMeta,
     which classify_query_error() uses to categorize them as USER_ERROR."""
 
-    is_user_safe = True
+    user_safe = True
 
     def __str__(self) -> str:
         message: str = str(self.message)
