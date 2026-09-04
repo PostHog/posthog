@@ -691,6 +691,64 @@ describe('experimentMetricsLogic', () => {
                 expect(createMock).toHaveBeenCalled()
             })
 
+            it('queues a config change that arrives while a create POST is still in flight', async () => {
+                // Between the create POST firing and its response landing, currentRecalculation still holds the
+                // previous terminal status. A second config change here must queue, not post a duplicate the
+                // backend would dedupe to the active run and silently drop. cache.createInFlight closes it.
+                let resolveFirstCreate: (value: unknown) => void = () => {}
+                const createMock = jest.fn(async () => {
+                    if (createMock.mock.calls.length === 1) {
+                        // Hold the first create in flight until the test releases it.
+                        await new Promise((resolve) => {
+                            resolveFirstCreate = resolve
+                        })
+                    }
+                    // Terminal-on-create so no poll arms; the drain must fire the queued rerun.
+                    return [201, completedRecalculation2]
+                })
+                useMocks({
+                    get: {
+                        // Completed latest so mount does not auto-trigger; the run is at rest.
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            completedRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation']).toFinishAllListeners()
+
+                // First config change: its create POST is now in flight (held by the mock).
+                logic.actions.triggerRecalculation('metric_config_change')
+                while (createMock.mock.calls.length === 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                }
+                expect(createMock).toHaveBeenCalledTimes(1)
+
+                // Second config change arrives during the in-flight create: it must queue, not post again.
+                // No toFinishAllListeners here: the first create is deliberately held, so its listener is open.
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('experiment_config_change')
+                }).toDispatchActions(['setQueuedRerun'])
+                expect(logic.values.queuedRerun).toBe('experiment_config_change')
+                expect(createMock).toHaveBeenCalledTimes(1)
+
+                // The first create settles terminal; the drain fires the queued rerun, which now creates.
+                await expectLogic(logic, () => {
+                    resolveFirstCreate([201, completedRecalculation2])
+                }).toDispatchActions([
+                    (a) =>
+                        a.type === logic.actionTypes.triggerRecalculation &&
+                        a.payload.trigger === 'experiment_config_change',
+                ])
+                while (createMock.mock.calls.length < 2) {
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                }
+                expect(logic.values.queuedRerun).toBeNull()
+                expect(createMock).toHaveBeenCalledTimes(2)
+            })
+
             it('does not queue a cold_run (cold_run always starts fresh)', async () => {
                 const createMock = jest.fn(() => [201, pendingRecalculation])
                 useMocks({

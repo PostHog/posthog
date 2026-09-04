@@ -739,15 +739,23 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * A config change while a real run is polling queues a rerun; the poll's terminal branch
-                 * drains it. Guard on the run status, not isRecalculating: a transient loadLatestRecalculation
-                 * fetch also flips isRecalculating, and queueing against it strands the rerun forever, because
-                 * that fetch never polls and so never drains the queue.
+                 * A config change while a run is active queues a rerun; the terminal branch (poll, or a
+                 * terminal-on-create) drains it. Guard on the run status, not isRecalculating: a transient
+                 * loadLatestRecalculation fetch also flips isRecalculating, and queueing against it strands the
+                 * rerun forever, because that fetch never polls and so never drains the queue.
+                 *
+                 * `cache.createInFlight` closes the window between the create POST firing and
+                 * setCurrentRecalculation landing the pending run: during that round-trip currentRecalculation
+                 * still holds the previous terminal status, so without this a second config change would post
+                 * again, and the backend would dedupe it to the active run and drop its trigger.
                  */
                 const runStatus = values.currentRecalculation?.status
                 const runInFlight =
                     runStatus === RECALCULATION_STATUSES.pending || runStatus === RECALCULATION_STATUSES.in_progress
-                if ((trigger === 'experiment_config_change' || trigger === 'metric_config_change') && runInFlight) {
+                if (
+                    (trigger === 'experiment_config_change' || trigger === 'metric_config_change') &&
+                    (runInFlight || cache.createInFlight)
+                ) {
                     actions.setQueuedRerun(trigger)
                     return
                 }
@@ -781,6 +789,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * Cleared by setCurrentRecalculation on success, or in the catch below on failure.
                  */
                 actions.setRecalculationLoading(true)
+                // Mark the create in flight synchronously so a second config change during the POST round-trip
+                // queues instead of posting a duplicate the backend would dedupe and drop. Cleared in finally.
+                cache.createInFlight = true
                 try {
                     const { projectId, experimentId } = resolvedIds
 
@@ -823,6 +834,16 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                          */
                         applyResults(recalculation)
                         emitTerminalEvent(recalculation)
+                        // Terminal-on-create arms no poll, so drain any rerun queued during this create here,
+                        // the way the poll's terminal branch does. Otherwise a config change made mid-create
+                        // would strand. Clear createInFlight first so the drained rerun creates instead of
+                        // re-queuing against this finished create.
+                        cache.createInFlight = false
+                        const queued = values.queuedRerun
+                        if (queued) {
+                            actions.setQueuedRerun(null)
+                            actions.triggerRecalculation(queued)
+                        }
                     } else {
                         if (trigger === 'manual' && !recalculation.is_existing) {
                             lemonToast.info(
@@ -837,6 +858,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      */
                     actions.setRecalculationLoading(false)
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
+                } finally {
+                    cache.createInFlight = false
                 }
             },
             /**
