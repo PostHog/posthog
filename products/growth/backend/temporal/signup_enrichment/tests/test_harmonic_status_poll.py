@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
@@ -288,10 +289,11 @@ class TestPollStatusBatchActivity(BaseTest):
         record = OrganizationEnrichment.objects.get(organization=organization)
         assert record.data[HARMONIC_STATUS_KEY] == "STALLED"
 
-    def test_a_urn_still_under_the_stall_age_stays_pending(self):
+    @parameterized.expand([("an_hour_under", STALL_AGE_HOURS - 1), ("rounds_up_to_threshold", STALL_AGE_HOURS - 0.4)])
+    def test_a_urn_still_under_the_stall_age_stays_pending(self, _name: str, hours_ago: float):
         organization = Organization.objects.create(name="notyetstalled.example")
         OrganizationEnrichment.objects.create(organization=organization, data={HARMONIC_STATUS_KEY: "IN_PROGRESS"})
-        candidate = self._candidate(organization, urn="urn:harmonic:enrichment:notyet", hours_ago=STALL_AGE_HOURS - 1)
+        candidate = self._candidate(organization, urn="urn:harmonic:enrichment:notyet", hours_ago=hours_ago)
 
         result, _ = self._run([candidate], {"urn:harmonic:enrichment:notyet": "IN_PROGRESS"})
 

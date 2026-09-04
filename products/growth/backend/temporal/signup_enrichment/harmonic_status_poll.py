@@ -197,11 +197,11 @@ async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) ->
                 continue
             polled += 1
 
-            urn_fetched_at = dt.datetime.fromisoformat(candidate["urn_fetched_at"])
-            hours_since_urn_issued = round((now - urn_fetched_at).total_seconds() / 3600)
+            urn_age = now - dt.datetime.fromisoformat(candidate["urn_fetched_at"])
+            hours_since_urn_issued = round(urn_age.total_seconds() / 3600)
             effective_status = (
                 STALLED_STATUS
-                if raw_status in NON_TERMINAL_STATUSES and hours_since_urn_issued >= STALL_AGE_HOURS
+                if raw_status in NON_TERMINAL_STATUSES and urn_age >= dt.timedelta(hours=STALL_AGE_HOURS)
                 else raw_status
             )
 
