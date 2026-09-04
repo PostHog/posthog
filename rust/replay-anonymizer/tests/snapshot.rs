@@ -66,6 +66,7 @@ fn end_to_end_contract() {
         { "type": 3, "timestamp": TS0 + 2000.5, "data": { "source": 2, "type": 2, "id": 5, "x": 1, "y": 2 } },
         // Console warn plugin: counted, payload scrubbed.
         { "type": 6, "timestamp": TS0 + 3000.0, "data": { "plugin": "rrweb/console@1", "payload": { "level": "warn", "payload": ["secret"], "trace": [] } } },
+        { "type": 5, "timestamp": TS0 + 4000.0, "data": { "tag": "$json_ld", "payload": { "@context": "https://schema.org", "@type": "Product", "name": "Camera", "email": "viewer@example.com", "offers": { "@type": "Offer", "price": 100, "priceCurrency": "USD", "seller": { "@type": "Person", "name": "Example Viewer" } } } } },
         // Filtered out: no timestamp, non-object, non-positive timestamp.
         { "type": 3, "data": { "source": 1 } },
         "junk",
@@ -74,7 +75,7 @@ fn end_to_end_contract() {
     let out = run(&allow, &payload_of(&inner)).expect("message anonymizes");
 
     let lines = parse_lines(&out.lines);
-    assert_eq!(lines.len(), 4, "invalid events are filtered out");
+    assert_eq!(lines.len(), 5, "invalid events are filtered out");
     for line in &lines {
         assert_eq!(line[0], "w-1");
     }
@@ -88,6 +89,10 @@ fn end_to_end_contract() {
         json!({ "source": 2, "type": 2, "id": 5, "x": 1, "y": 2 })
     );
     assert_eq!(lines[3][1]["data"]["payload"]["payload"][0], "******");
+    assert_eq!(
+        lines[4][1]["data"],
+        json!({ "tag": "$json_ld", "payload": { "@context": "https://schema.org", "@type": "Product", "name": "Camera", "offers": { "@type": "Offer", "price": 100, "priceCurrency": "USD", "seller": { "@type": "Person" } } } })
+    );
 
     let meta = &out.meta;
     assert_eq!(meta.distinct_id, "d-1");
@@ -96,7 +101,7 @@ fn end_to_end_contract() {
     assert_eq!(meta.snapshot_source.as_deref(), Some("web"));
     assert_eq!(meta.snapshot_library.as_deref(), Some("posthog-js"));
     assert_eq!(meta.start_ts, TS0);
-    assert_eq!(meta.end_ts, TS0 + 3000.0);
+    assert_eq!(meta.end_ts, TS0 + 4000.0);
     assert_eq!(
         (
             meta.console_log_count,
@@ -105,6 +110,7 @@ fn end_to_end_contract() {
         ),
         (0, 1, 0)
     );
+    assert_eq!(meta.json_ld_event_count, 1);
 
     let flags: Vec<u8> = meta.events.iter().map(|e| e.flags).collect();
     assert_eq!(
@@ -113,6 +119,7 @@ fn end_to_end_contract() {
             0,
             FLAG_ACTIVE | FLAG_KEYPRESS,
             FLAG_ACTIVE | FLAG_CLICK | FLAG_MOUSE_ACTIVITY,
+            0,
             0,
         ]
     );

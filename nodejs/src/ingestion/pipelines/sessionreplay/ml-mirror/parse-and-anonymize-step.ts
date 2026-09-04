@@ -256,6 +256,8 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             return dlq('distinct_id_header_body_mismatch')
         }
 
+        MlMirrorMetrics.incrementMlJsonLdEvents(meta.jsonLdEventCount)
+
         const parsedMessage: ParsedMessageData = {
             metadata: {
                 partition: message.partition,
