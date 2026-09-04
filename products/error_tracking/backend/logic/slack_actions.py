@@ -11,13 +11,12 @@ resource access rules the API applies, before anything changes.
 from typing import Literal
 from uuid import UUID
 
-from django.db import transaction
-
 import structlog
 
 from posthog.models.integration import Integration
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
+from posthog.redis import get_client
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -30,31 +29,40 @@ from products.error_tracking.backend.models import (
 
 logger = structlog.get_logger(__name__)
 
-SlackActionOutcome = Literal["ok", "already", "not_found", "no_access"]
+# "ok_moved": the clicked thread's issue was merged away and the action landed on the survivor,
+# so the thread itself will not update.
+SlackActionOutcome = Literal["ok", "ok_moved", "already", "not_found", "no_access"]
+
+# Two quick clicks land on different workers; a short claim per (issue, action) makes the
+# second one report "already" instead of producing a second lifecycle reply.
+CLICK_CLAIM_SECONDS = 10
 
 
-def _find_issue(issue_id: UUID, fingerprint: str | None, team_id: int | None) -> ErrorTrackingIssue | None:
+def _find_issue(issue_id: UUID, fingerprint: str | None, team_id: int | None) -> tuple[ErrorTrackingIssue | None, bool]:
+    """The issue a click targets, and whether it had to follow the fingerprint to get there.
+
+    The thread belongs to the clicked issue, so that is the target while it exists. Only a
+    merge deletes it; the fingerprint then names the survivor in the same environment.
+    """
     # Slack webhook: no team in the request; the issue row is the source of the team, and
     # _authorized_issue decides whether this workspace and user may touch it.
-    if fingerprint and team_id is not None:
-        # The root's View issue link follows the fingerprint, so the buttons act on the same
-        # issue it opens: the survivor after a merge, the new issue after a split.
-        owner = (
-            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
-            .select_related("issue__team")
-            .first()
-        )
-        if owner is not None:
-            return owner.issue
-    return (
+    issue = (
         ErrorTrackingIssue.objects.filter(id=issue_id).select_related("team").first()
     )  # nosemgrep: idor-lookup-without-team
+    if issue is not None or not fingerprint or team_id is None:
+        return issue, False
+    owner = (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
+        .select_related("issue__team")
+        .first()
+    )
+    return (owner.issue, True) if owner is not None else (None, False)
 
 
 def _authorized_issue(
     issue_id: UUID, fingerprint: str | None, team_id: int | None, integration: Integration, user: User
-) -> ErrorTrackingIssue | SlackActionOutcome:
-    issue = _find_issue(issue_id, fingerprint, team_id)
+) -> tuple[ErrorTrackingIssue, bool] | SlackActionOutcome:
+    issue, moved = _find_issue(issue_id, fingerprint, team_id)
     if issue is None:
         return "not_found"
     if integration.team.project_id != issue.team.project_id:
@@ -76,7 +84,18 @@ def _authorized_issue(
     if not UserAccessControl(user, team=issue.team).check_access_level_for_resource("error_tracking", "editor"):
         logger.warning("error_tracking_slack_action_not_editor", issue_id=str(issue_id), user_id=user.id)
         return "no_access"
-    return issue
+    return issue, moved
+
+
+def _claim_click(issue: ErrorTrackingIssue, action: str) -> bool:
+    try:
+        return bool(
+            get_client().set(f"error_tracking:slack_action:{issue.id}:{action}", "1", nx=True, ex=CLICK_CLAIM_SECONDS)
+        )
+    except Exception:
+        # The claim only dedupes double clicks; without Redis the click still counts.
+        logger.exception("error_tracking_slack_action_claim_failed", issue_id=str(issue.id))
+        return True
 
 
 def resolve_issue_from_slack(
@@ -88,22 +107,20 @@ def resolve_issue_from_slack(
     user: User,
 ) -> SlackActionOutcome:
     authorized = _authorized_issue(issue_id, fingerprint, team_id, integration, user)
-    if not isinstance(authorized, ErrorTrackingIssue):
+    if isinstance(authorized, str):
         return authorized
-    # Two quick clicks land on different workers; the row lock makes check-and-change one step
-    # so only the first produces a lifecycle reply.
-    with transaction.atomic():
-        issue = _lock(authorized)
-        if issue.status == ErrorTrackingIssue.Status.RESOLVED:
-            return "already"
-        issue_mutations.update_issue(
-            issue.team_id,
-            issue.id,
-            fields={"status": ErrorTrackingIssue.Status.RESOLVED},
-            user=user,
-            was_impersonated=False,
-        )
-    return "ok"
+    issue, moved = authorized
+    if issue.status == ErrorTrackingIssue.Status.RESOLVED or not _claim_click(issue, "resolve"):
+        return "already"
+    # No transaction around this: the mutation syncs ClickHouse after its own commit.
+    issue_mutations.update_issue(
+        issue.team_id,
+        issue.id,
+        fields={"status": ErrorTrackingIssue.Status.RESOLVED},
+        user=user,
+        was_impersonated=False,
+    )
+    return "ok_moved" if moved else "ok"
 
 
 def assign_issue_to_user_from_slack(
@@ -115,17 +132,13 @@ def assign_issue_to_user_from_slack(
     user: User,
 ) -> SlackActionOutcome:
     authorized = _authorized_issue(issue_id, fingerprint, team_id, integration, user)
-    if not isinstance(authorized, ErrorTrackingIssue):
+    if isinstance(authorized, str):
         return authorized
-    with transaction.atomic():
-        issue = _lock(authorized)
-        if ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id, user_id=user.id).exists():
-            return "already"
-        issue_mutations.assign_issue(
-            issue.team_id, issue.id, {"type": "user", "id": user.id}, user=user, was_impersonated=False
-        )
-    return "ok"
-
-
-def _lock(issue: ErrorTrackingIssue) -> ErrorTrackingIssue:
-    return ErrorTrackingIssue.objects.select_for_update().select_related("team").get(id=issue.id, team_id=issue.team_id)
+    issue, moved = authorized
+    already_assigned = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id, user_id=user.id).exists()
+    if already_assigned or not _claim_click(issue, f"assign:{user.id}"):
+        return "already"
+    issue_mutations.assign_issue(
+        issue.team_id, issue.id, {"type": "user", "id": user.id}, user=user, was_impersonated=False
+    )
+    return "ok_moved" if moved else "ok"

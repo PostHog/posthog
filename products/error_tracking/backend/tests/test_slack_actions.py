@@ -70,7 +70,7 @@ class TestSlackIssueActions(BaseTest):
             gone_issue_id, fingerprint="fp-1", team_id=self.team.id, integration=self.integration, user=self.user
         )
 
-        assert outcome == "ok"
+        assert outcome == "ok_moved"
         survivor.refresh_from_db()
         assert survivor.status == ErrorTrackingIssue.Status.RESOLVED
         sibling_issue.refresh_from_db()
@@ -98,9 +98,8 @@ class TestSlackIssueActions(BaseTest):
         self.issue.refresh_from_db()
         assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
 
-    def test_fingerprint_owner_wins_over_the_issue_id_after_a_split(self):
-        # A split moves the fingerprint to a new issue while the old row stays; the buttons
-        # must follow it like the View issue link does.
+    def test_buttons_act_on_the_threads_own_issue_while_it_exists(self):
+        # After a split the fingerprint moves but the thread still belongs to the old issue.
         new_issue = ErrorTrackingIssue.objects.create(team=self.team, name="Split out")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=new_issue, fingerprint="fp-split")
 
@@ -109,7 +108,16 @@ class TestSlackIssueActions(BaseTest):
         )
 
         assert outcome == "ok"
-        new_issue.refresh_from_db()
         self.issue.refresh_from_db()
-        assert new_issue.status == ErrorTrackingIssue.Status.RESOLVED
+        new_issue.refresh_from_db()
+        assert self.issue.status == ErrorTrackingIssue.Status.RESOLVED
+        assert new_issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    def test_second_click_inside_the_claim_window_is_reported_as_already(self):
+        # The status re-read can miss a concurrent click; the claim catches it.
+        with patch("products.error_tracking.backend.logic.slack_actions._claim_click", return_value=False):
+            outcome = resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user)
+
+        assert outcome == "already"
+        self.issue.refresh_from_db()
         assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
