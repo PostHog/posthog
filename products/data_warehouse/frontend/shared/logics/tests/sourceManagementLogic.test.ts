@@ -10,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
-import { sourceManagementLogic } from '../sourceManagementLogic'
+import { isActivelySyncing, sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
 jest.mock('~/queries/query')
@@ -43,6 +43,19 @@ describe('sourceManagementLogic', () => {
     afterEach(() => {
         logic.unmount()
         databaseLogic.unmount()
+    })
+
+    it('detects a running schema in summary results even when aggregate source status is failed', () => {
+        expect(
+            isActivelySyncing({
+                results: [
+                    {
+                        status: 'Failed',
+                        has_running_schema: true,
+                    },
+                ],
+            } as any)
+        ).toBe(true)
     })
 
     it.each([

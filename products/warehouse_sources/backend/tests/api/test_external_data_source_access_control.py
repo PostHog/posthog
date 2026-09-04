@@ -147,6 +147,23 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_summary_list_respects_object_access(self):
+        inaccessible_source = self._create_external_data_source()
+        self._create_access_control(self.viewer_user, access_level="none")
+        self._create_access_control(
+            self.viewer_user,
+            resource_id=str(self.source.id),
+            access_level="viewer",
+        )
+
+        self.client.force_login(self.viewer_user)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/summary/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {item["id"] for item in response.json()["results"]}
+        self.assertEqual(returned_ids, {str(self.source.id)})
+        self.assertNotIn(str(inaccessible_source.id), returned_ids)
+
     def test_viewer_can_retrieve_source(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
 
@@ -659,6 +676,25 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         response = self.client.get(
             f"/api/environments/{self.team.pk}/external_data_sources/exists/",
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("external_data_source_read", "external_data_source:read", status.HTTP_200_OK),
+            ("query_read", "query:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_summary_preserves_external_data_source_api_scope(
+        self, _name: str, scope: str, expected_status: int
+    ) -> None:
+        api_key = self.create_personal_api_key_with_scopes([scope])
+        self.client.force_authenticate(None)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/summary/",
             headers={"authorization": f"Bearer {api_key}"},
         )
 

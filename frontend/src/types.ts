@@ -6489,6 +6489,8 @@ export interface ExternalDataSource extends Partial<
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
 }
 
+export type ExternalDataSourceListItem = ExternalDataSource | ExternalDataSourceSummaryApi
+
 export interface ExternalDataSourceApiVersionDeprecation {
     /** The deprecated vendor API version this source is pinned to */
     version: string

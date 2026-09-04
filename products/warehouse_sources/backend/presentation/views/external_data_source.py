@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
@@ -1588,6 +1590,7 @@ class ExternalDataSourceSummaryAnnotations(Protocol):
     _summary_latest_error: str | None
     _summary_schemas_count: int
     _summary_rows_synced: int
+    _summary_syncing_schema_statuses: list[str | None] | None
 
 
 class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -1599,6 +1602,9 @@ class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, seri
     last_run_at = serializers.SerializerMethodField(read_only=True)
     schemas_count = serializers.SerializerMethodField(read_only=True)
     rows_synced = serializers.SerializerMethodField(read_only=True)
+    syncing_schemas_count = serializers.SerializerMethodField(read_only=True)
+    has_running_schema = serializers.SerializerMethodField(read_only=True)
+    schema_status_counts = serializers.SerializerMethodField(read_only=True)
     engine = serializers.ChoiceField(
         source="connection_metadata.engine",
         read_only=True,
@@ -1631,6 +1637,9 @@ class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, seri
             "user_access_level",
             "schemas_count",
             "rows_synced",
+            "syncing_schemas_count",
+            "has_running_schema",
+            "schema_status_counts",
         ]
         read_only_fields = fields
 
@@ -1666,6 +1675,21 @@ class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, seri
     @extend_schema_field(serializers.IntegerField())
     def get_rows_synced(self, instance: ExternalDataSource) -> int:
         return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_rows_synced
+
+    def _syncing_schema_statuses(self, instance: ExternalDataSource) -> list[str | None]:
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_syncing_schema_statuses or []
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_syncing_schemas_count(self, instance: ExternalDataSource) -> int:
+        return len(self._syncing_schema_statuses(instance))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_running_schema(self, instance: ExternalDataSource) -> bool:
+        return ExternalDataSchema.Status.RUNNING in self._syncing_schema_statuses(instance)
+
+    @extend_schema_field(serializers.DictField(child=serializers.IntegerField()))
+    def get_schema_status_counts(self, instance: ExternalDataSource) -> dict[str, int]:
+        return dict(Counter(status for status in self._syncing_schema_statuses(instance) if status is not None))
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
@@ -2134,6 +2158,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "stored_credentials",
         "webhook_info",
         "cdc_status",
+        "summary",
     ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
@@ -2265,16 +2290,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             schemas = ExternalDataSchema.objects.filter(
                 team_id=self.team_id,
                 source_id=OuterRef("pk"),
-                deleted=False,
-            )
+            ).exclude(deleted=True)
             active_schemas = schemas.filter(Q(should_sync=True) | Q(latest_error__isnull=False))
             synced_rows = (
-                schemas.filter(table__deleted=False)
+                schemas.exclude(table__deleted=True)
                 .values("source_id")
                 .annotate(total=Sum("table__row_count"))
                 .values("total")[:1]
             )
             schema_count = schemas.values("source_id").annotate(total=Count("id")).values("total")[:1]
+            syncing_schema_statuses = (
+                schemas.filter(should_sync=True)
+                .values("source_id")
+                .annotate(statuses=ArrayAgg("status"))
+                .values("statuses")[:1]
+            )
             latest_error = schemas.filter(latest_error__isnull=False).order_by("name").values("latest_error")[:1]
 
             return (
@@ -2294,6 +2324,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     _summary_latest_error=Subquery(latest_error),
                     _summary_rows_synced=Coalesce(Subquery(synced_rows), Value(0), output_field=IntegerField()),
                     _summary_schemas_count=Coalesce(Subquery(schema_count), Value(0), output_field=IntegerField()),
+                    _summary_syncing_schema_statuses=Subquery(syncing_schema_statuses),
                 )
                 .prefetch_related(latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"))
                 .order_by(self.ordering)
@@ -2337,7 +2368,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     )
     @action(methods=["GET"], detail=False, url_path="summary")
     def summary(self, request: Request, *args, **kwargs) -> Response:
-        return super().list(request, *args, **kwargs)
+        queryset = self.filter_queryset(self.get_queryset())
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.

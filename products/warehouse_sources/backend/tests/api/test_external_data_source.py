@@ -273,6 +273,35 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(result["rows_synced"], 50)
         self.assertEqual(result["status"], ExternalDataSchema.Status.RUNNING)
         self.assertEqual(result["latest_error"], "still syncing")
+        self.assertEqual(result["syncing_schemas_count"], 2)
+        self.assertTrue(result["has_running_schema"])
+        self.assertEqual(
+            result["schema_status_counts"],
+            {ExternalDataSchema.Status.RUNNING: 1, ExternalDataSchema.Status.COMPLETED: 1},
+        )
+
+    def test_summary_treats_null_deletion_flags_as_not_deleted(self):
+        source = self._make_source("nullable-deletion")
+        schema = self._make_schema_with_table(
+            source,
+            "Customers",
+            status=ExternalDataSchema.Status.RUNNING,
+            latest_error="still syncing",
+            row_count=42,
+        )
+        assert schema.table is not None
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(deleted=None)
+        DataWarehouseTable.objects.filter(pk=schema.table.pk).update(deleted=None)
+
+        full_result = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
+        summary_result = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/summary/").json()[
+            "results"
+        ][0]
+
+        self.assertEqual(summary_result["schemas_count"], len(full_result["schemas"]))
+        self.assertEqual(summary_result["rows_synced"], 42)
+        self.assertEqual(summary_result["status"], full_result["status"])
+        self.assertEqual(summary_result["latest_error"], full_result["latest_error"])
 
     def test_list_query_count_does_not_scale_with_source_count(self):
         # Guards the prefetch design: adding sources (each with schemas + tables) must not add queries.
