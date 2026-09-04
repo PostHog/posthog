@@ -4,13 +4,12 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconRewindPlay, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
@@ -18,6 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+import { LoopDiagram } from './LoopDiagram'
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
 export const SELF_DRIVING_WIZARD_COMMAND = 'npx -y @posthog/wizard@latest self-driving'
@@ -130,108 +130,6 @@ function ManualSetupAction(): JSX.Element {
                 Turn on sources and scouts yourself in Configuration. You still need to connect GitHub for pull
                 requests.
             </p>
-        </div>
-    )
-}
-
-function StageLabel({ children }: { children: string }): JSX.Element {
-    return <div className="text-center text-xs font-semibold text-secondary">{children}</div>
-}
-
-/** A card in the loop diagram, lighting up at its stage's moment in the 9s sequence. */
-function StageCard({
-    stage,
-    className,
-    children,
-}: {
-    stage: 'signals' | 'pipeline' | 'inbox'
-    className?: string
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <LemonCard
-            hoverEffect={false}
-            className={`InboxWelcome__stage InboxWelcome__stage--${stage} ${className ?? ''}`}
-        >
-            {children}
-        </LemonCard>
-    )
-}
-
-function Arrow({ second = false }: { second?: boolean }): JSX.Element {
-    return (
-        <div
-            className={`InboxWelcome__arrow ${
-                second ? 'InboxWelcome__arrow--second ' : ''
-            }hidden pt-5 text-center text-2xl text-border-secondary md:block`}
-            aria-hidden="true"
-        >
-            &#8594;
-        </div>
-    )
-}
-
-/**
- * The illustrative loop: signal sources -> scouts & pipeline -> a PR in your inbox. Never interactive
- * (pointer-events-none on the whole grid); the cards and the Review button are props, not UI.
- */
-function LoopDiagram(): JSX.Element {
-    return (
-        <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 md:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
-            <div className="flex flex-col gap-2">
-                <StageLabel>Signal sources</StageLabel>
-                <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                        <IconRewindPlay className="text-sm text-[var(--color-product-session-replay-light)] dark:text-[var(--color-product-session-replay-dark)]" />
-                    </span>
-                    <span className="truncate text-xs">Rage clicks in checkout replay</span>
-                </StageCard>
-                <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                        <IconWarning className="text-sm text-[var(--color-product-error-tracking-light)] dark:text-[var(--color-product-error-tracking-dark)]" />
-                    </span>
-                    <span className="truncate font-mono text-xs">TypeError in checkout</span>
-                </StageCard>
-                <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                        <IconSlack className="size-4" />
-                    </span>
-                    <span className="truncate text-xs">"checkout hangs on Safari"</span>
-                </StageCard>
-            </div>
-            <Arrow />
-            <div className="flex flex-col gap-2">
-                <StageLabel>Scouts &amp; pipeline</StageLabel>
-                <StageCard stage="pipeline" className="flex flex-col gap-1.5 px-3.5 py-3">
-                    <div className="flex items-center gap-2 text-[13px] font-semibold">
-                        <span className="size-[7px] shrink-0 rounded-full bg-success" />
-                        Reproduced the bug, wrote the fix
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-semibold text-success">+142</span>
-                        <span className="font-mono text-xs font-semibold text-danger">&minus;38</span>
-                        <LemonTag type="success">Tests passing</LemonTag>
-                    </div>
-                </StageCard>
-            </div>
-            <Arrow second />
-            <div className="flex flex-col gap-2">
-                <StageLabel>Your inbox</StageLabel>
-                <StageCard stage="inbox" className="flex items-center gap-2.5 px-3.5 py-3">
-                    <span className="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-fill-warning-highlight font-mono text-[11px] font-bold text-warning">
-                        P1
-                    </span>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <div className="text-[13px] font-semibold">
-                            <code>fix(checkout)</code> restore Safari encode
-                        </div>
-                        <div className="text-[11.5px] text-tertiary">#486 &middot; ready to merge</div>
-                    </div>
-                    <LemonButton type="primary" size="small" className="shrink-0">
-                        Review
-                    </LemonButton>
-                </StageCard>
-            </div>
         </div>
     )
 }

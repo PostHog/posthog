@@ -26,6 +26,7 @@ export const INBOX_EVENTS = {
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
+    INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -174,6 +175,7 @@ export type ScoutActionType =
     | 'copy_finding_link'
     | 'open_task_run'
     | 'open_linked_report'
+    | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
@@ -284,6 +286,15 @@ export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcome
  */
 export function captureInboxWelcomeManualSetupClicked(): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
+}
+
+/**
+ * The self-driving intro modal rendered (opened from the Code badge next to PostHog AI). The
+ * click-through to the inbox is recoverable as this event followed by an inbox view in the same
+ * session, so the modal only needs its own top-of-funnel marker.
+ */
+export function captureSelfDrivingIntroModalViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.INTRO_MODAL_VIEWED, {})
 }
 
 /**
