@@ -57,7 +57,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _skip_ai_delivery_over_credit_limit_sync,
     generate_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportResult,
+    QueryStepDiagnostic,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
@@ -2563,13 +2566,35 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
 
     with patch(
         _GENERATE_REPORT,
-        return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+        return_value=AiReportResult(
+            markdown="# Report",
+            diagnostics=(
+                QueryStepDiagnostic(
+                    description="adoption",
+                    hogql="SELECT expensive",
+                    ok=False,
+                    error_type="ClickHouseQueryMemoryLimitExceeded",
+                    error_code="clickhouse_memory_limit_exceeded",
+                    human_readable_error="Query exceeded the memory limit.",
+                ),
+            ),
+            window_end_utc="2026-06-25T12:00:00+00:00",
+        ),
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
 
     assert result.aborted is False
+    assert result.failed_step_count == 1
+    assert result.total_step_count == 1
+    assert result.query_errors == [
+        {
+            "type": "ClickHouseQueryMemoryLimitExceeded",
+            "code": "clickhouse_memory_limit_exceeded",
+            "message": "Query exceeded the memory limit.",
+        }
+    ]
     # The report is handed to delivery via the row, not the activity return value.
     refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
     assert refreshed.content_snapshot["ai_report"] == "# Report"
