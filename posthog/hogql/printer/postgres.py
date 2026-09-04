@@ -26,6 +26,10 @@ from posthog.uuidt import UUIDT
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # ClickHouse-only window function names, and the Postgres native function each one maps onto.
+# The two engines disagree at a partition boundary when the call gives no explicit default argument.
+# ClickHouse returns the value type's default, such as 0 for a non-nullable integer, and Postgres
+# returns NULL. The native lag/lead spellings agree on NULL, because the ClickHouse rewrite in
+# BasePrinter wraps the value in toNullable.
 _CLICKHOUSE_WINDOW_FUNCTION_NATIVE_NAMES_LOWER: dict[str, str] = {
     "laginframe": "lag",
     "leadinframe": "lead",
