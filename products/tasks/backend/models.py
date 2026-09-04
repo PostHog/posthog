@@ -3900,9 +3900,10 @@ class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
     """The row a public share of a task-run artifact hangs off.
 
     Artifacts are manifest entries on ``TaskRun`` rows rather than rows of their
-    own, and a share needs something to point at. The anchor pins one upload,
-    so the public link keeps serving that version when a later run uploads the
-    file again under the same name.
+    own, and a share needs something to point at. The anchor is the file (one
+    per task and name); ``run`` and ``artifact_id`` pin the upload the public
+    link serves. A later upload under the same name stays private until the
+    owner publishes the changes, which moves the pin.
     """
 
     # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
@@ -3923,5 +3924,5 @@ class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_task_shared_artifact"
         constraints = [
-            models.UniqueConstraint(fields=["run", "artifact_id"], name="task_shared_artifact_run_artifact_unique"),
+            models.UniqueConstraint(fields=["task", "name"], name="task_shared_artifact_task_name_unique"),
         ]

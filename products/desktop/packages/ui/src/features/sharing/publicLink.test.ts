@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { publicLinkHasUnpublishedChanges } from "./publicLink";
+import {
+  fileLinkHasUnpublishedChanges,
+  publicLinkHasUnpublishedChanges,
+} from "./publicLink";
 
 describe("publicLinkHasUnpublishedChanges", () => {
   it.each([
@@ -26,5 +29,28 @@ describe("publicLinkHasUnpublishedChanges", () => {
     ],
   ])("is %s", (_name, dashboard, expected) => {
     expect(publicLinkHasUnpublishedChanges(dashboard)).toBe(expected);
+  });
+});
+
+describe("fileLinkHasUnpublishedChanges", () => {
+  it.each([
+    ["no sharing state yet", undefined, false],
+    [
+      "not shared publicly",
+      { enabled: false, sharedArtifactId: "u1", latestArtifactId: "u2" },
+      false,
+    ],
+    [
+      "shared and current",
+      { enabled: true, sharedArtifactId: "u1", latestArtifactId: "u1" },
+      false,
+    ],
+    [
+      "shared and uploaded again since",
+      { enabled: true, sharedArtifactId: "u1", latestArtifactId: "u2" },
+      true,
+    ],
+  ])("is %s", (_name, sharing, expected) => {
+    expect(fileLinkHasUnpublishedChanges(sharing)).toBe(expected);
   });
 });

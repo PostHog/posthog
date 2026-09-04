@@ -9399,18 +9399,18 @@ def user_can_control_task(task_id: str | UUID, team_id: int, user_id: int | None
         return False
 
 
-def _output_artifact_entry(task: Task, artifact_id: str) -> tuple[TaskRun, dict] | None:
+def _output_artifact_entry(task: Task, artifact_id: str) -> dict | None:
     for run in task.runs.only("id", "artifacts"):
         for entry in run.artifacts or []:
             if entry.get("id") == artifact_id and entry.get("storage_path") and entry.get("name"):
-                return run, entry
+                return entry
     return None
 
 
 def resolve_shared_task_artifact(
     task_id: str | UUID, team_id: int, user_id: int | None, *, artifact_id: str
 ) -> contracts.SharedTaskArtifactIdentityDTO | None:
-    """The upload an artifact id names, for the sharing API. ``None`` when the task isn't visible
+    """The file an artifact id names, for the sharing API. ``None`` when the task isn't visible
     to the user or the id is not a file on one of its runs. Never creates the anchor."""
     try:
         task = _visible_task(task_id, team_id, user_id)
@@ -9418,39 +9418,86 @@ def resolve_shared_task_artifact(
         return None
     if task is None:
         return None
-    found = _output_artifact_entry(task, artifact_id)
-    if found is None:
+    entry = _output_artifact_entry(task, artifact_id)
+    if entry is None:
         return None
-    run, entry = found
-    anchor = SharedTaskArtifact.objects.for_team(team_id).filter(run_id=run.id, artifact_id=artifact_id).first()
+    anchor = SharedTaskArtifact.objects.for_team(team_id).filter(task_id=task.id, name=entry["name"]).first()
     return contracts.SharedTaskArtifactIdentityDTO(
         task_id=task.id,
-        run_id=run.id,
-        artifact_id=artifact_id,
         name=str(entry["name"]),
         content_type=str(entry.get("content_type") or ""),
         anchor_id=anchor.id if anchor else None,
     )
 
 
+def _latest_artifact_entry(task_id: UUID, team_id: int, name: str) -> tuple[TaskRun, dict] | None:
+    """The newest undismissed upload with this name across the task's runs, the server-side twin
+    of the desktop's version grouping (newest ``uploaded_at`` wins, then the newest run)."""
+    best: tuple[TaskRun, dict] | None = None
+    best_key = ""
+    for run in TaskRun.objects.filter(task_id=task_id, team_id=team_id).only("id", "artifacts").order_by("-created_at"):
+        for entry in run.artifacts or []:
+            if entry.get("name") != name or not entry.get("storage_path") or entry.get("dismissed_at"):
+                continue
+            key = str(entry.get("uploaded_at") or "")
+            if best is None or key > best_key:
+                best, best_key = (run, entry), key
+    return best
+
+
 def get_or_create_shared_task_artifact(
-    task_id: str | UUID,
-    team_id: int,
-    user_id: int | None,
-    *,
-    run_id: UUID,
-    artifact_id: str,
-    name: str,
-    content_type: str,
-) -> UUID:
-    """The share anchor pinned to one upload, created on first use. Returns its id."""
+    task_id: str | UUID, team_id: int, user_id: int | None, *, name: str, content_type: str
+) -> UUID | None:
+    """The share anchor for the file, created on first use and pinned to its newest upload.
+    Returns its id, or ``None`` when no upload of the file exists to pin."""
+    task_uuid = task_id if isinstance(task_id, UUID) else UUID(str(task_id))
+    latest = _latest_artifact_entry(task_uuid, team_id, name)
+    if latest is None:
+        return None
+    run, entry = latest
     anchor, _ = SharedTaskArtifact.objects.for_team(team_id).get_or_create(
         team_id=team_id,
-        run_id=run_id,
-        artifact_id=artifact_id,
-        defaults={"task_id": task_id, "name": name, "content_type": content_type, "created_by_id": user_id},
+        task_id=task_uuid,
+        name=name,
+        defaults={
+            "run_id": run.id,
+            "artifact_id": str(entry["id"]),
+            "content_type": content_type,
+            "created_by_id": user_id,
+        },
     )
     return anchor.id
+
+
+def pin_shared_task_artifact(anchor_id: str | UUID, team_id: int) -> bool:
+    """Point the file's public link at its newest upload. False when there is none to pin."""
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return False
+    latest = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
+    if latest is None:
+        return False
+    run, entry = latest
+    anchor.run = run
+    anchor.artifact_id = str(entry["id"])
+    anchor.save(update_fields=["run", "artifact_id"])
+    return True
+
+
+def shared_task_artifact_versions(
+    anchor_id: str | UUID, team_id: int
+) -> contracts.SharedTaskArtifactVersionsDTO | None:
+    """The upload a file's public link is pinned to and the file's newest upload, so a client can
+    offer to publish the changes in between."""
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return None
+    latest = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
+    pinned = _pinned_artifact_entry(anchor)
+    return contracts.SharedTaskArtifactVersionsDTO(
+        shared_artifact_id=str(pinned["id"]) if pinned else None,
+        latest_artifact_id=str(latest[1]["id"]) if latest else None,
+    )
 
 
 def _pinned_artifact_entry(anchor: SharedTaskArtifact) -> dict | None:

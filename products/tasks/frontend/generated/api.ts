@@ -67,13 +67,13 @@ import type {
     SandboxEnvironmentDTOApi,
     SandboxEnvironmentWriteApi,
     SandboxListParams,
-    SharingConfigurationApi,
     SlackThreadContextResponseApi,
     StreamReadTokenResponseApi,
     TaskActivityListParams,
     TaskActivityMarkReadApi,
     TaskActivityMarkReadResponseApi,
     TaskActivityPageDTOApi,
+    TaskArtifactSharingConfigurationApi,
     TaskArtifactsResponseApi,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
@@ -1669,11 +1669,14 @@ export const tasksArtifactsSharingList = async (
     taskId: string,
     artifactId: string,
     options?: RequestInit
-): Promise<SharingConfigurationApi[]> => {
-    return apiMutator<SharingConfigurationApi[]>(getTasksArtifactsSharingListUrl(projectId, taskId, artifactId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<TaskArtifactSharingConfigurationApi[]> => {
+    return apiMutator<TaskArtifactSharingConfigurationApi[]>(
+        getTasksArtifactsSharingListUrl(projectId, taskId, artifactId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTasksArtifactsSharingPasswordsCreateUrl = (projectId: string, taskId: string, artifactId: string) => {
@@ -1687,16 +1690,16 @@ export const tasksArtifactsSharingPasswordsCreate = async (
     projectId: string,
     taskId: string,
     artifactId: string,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
+    taskArtifactSharingConfigurationApi?: NonReadonly<TaskArtifactSharingConfigurationApi>,
     options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(
+): Promise<TaskArtifactSharingConfigurationApi> => {
+    return apiMutator<TaskArtifactSharingConfigurationApi>(
         getTasksArtifactsSharingPasswordsCreateUrl(projectId, taskId, artifactId),
         {
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfigurationApi),
+            body: JSON.stringify(taskArtifactSharingConfigurationApi),
         }
     )
 }
@@ -1739,16 +1742,16 @@ export const tasksArtifactsSharingRefreshCreate = async (
     projectId: string,
     taskId: string,
     artifactId: string,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
+    taskArtifactSharingConfigurationApi?: NonReadonly<TaskArtifactSharingConfigurationApi>,
     options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(
+): Promise<TaskArtifactSharingConfigurationApi> => {
+    return apiMutator<TaskArtifactSharingConfigurationApi>(
         getTasksArtifactsSharingRefreshCreateUrl(projectId, taskId, artifactId),
         {
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfigurationApi),
+            body: JSON.stringify(taskArtifactSharingConfigurationApi),
         }
     )
 }

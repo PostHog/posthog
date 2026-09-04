@@ -1,5 +1,5 @@
 import type { TaskArtifactSharing } from "@posthog/api-client/posthog-client";
-import { Separator } from "@posthog/quill";
+import { Button, Separator, Text } from "@posthog/quill";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import {
@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AccessSection } from "./AccessSection";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { PublicShareSection } from "./PublicShareSection";
+import { fileLinkHasUnpublishedChanges } from "./publicLink";
 import { ShareDialog } from "./ShareDialog";
 import type { ShareVisibility } from "./shareTarget";
 import {
@@ -25,6 +26,8 @@ export interface ArtifactShareBodyViewProps {
   isLoading: boolean;
   isError: boolean;
   isPending: boolean;
+  /** The file was uploaded again after the public link was pinned. */
+  newerUploadExists: boolean;
   onToggle: (enabled: boolean) => void;
 }
 
@@ -37,6 +40,7 @@ export function ArtifactShareBodyView({
   isLoading,
   isError,
   isPending,
+  newerUploadExists,
   onToggle,
 }: ArtifactShareBodyViewProps) {
   return (
@@ -56,10 +60,21 @@ export function ArtifactShareBodyView({
         isError={isError}
         isPending={isPending}
         publicUrl={publicUrl}
-        description="Anyone with the link can view this version of the file. Versions uploaded later stay private unless you share them."
+        description="Anyone with the link can view the file as it was when you shared it. Changes made after that stay private until you publish them."
         dataAttrPrefix="share-artifact"
         onToggle={onToggle}
-      />
+      >
+        {newerUploadExists && (
+          <Text
+            size="xs"
+            variant="muted"
+            data-attr="share-artifact-newer-upload"
+          >
+            The file changed after you shared it. Publish the changes to update
+            the public link.
+          </Text>
+        )}
+      </PublicShareSection>
     </div>
   );
 }
@@ -88,10 +103,31 @@ export function ArtifactShareDialog({
       ? "unknown"
       : "project";
   const sharing = useArtifactSharingQuery(taskId, artifactId);
-  const { setEnabled, isPending } = useSetArtifactSharing(taskId, artifactId);
+  const { setEnabled, updateLink, isPending } = useSetArtifactSharing(
+    taskId,
+    artifactId,
+  );
+  const newerUploadExists = fileLinkHasUnpublishedChanges(sharing.data);
 
   return (
-    <ShareDialog title="Share file" description={name} onClose={onClose}>
+    <ShareDialog
+      title="Share file"
+      description={name}
+      onClose={onClose}
+      action={
+        newerUploadExists ? (
+          <Button
+            variant="primary"
+            size="sm"
+            loading={isPending}
+            onClick={() => void updateLink()}
+            data-attr="share-artifact-publish-changes"
+          >
+            Publish changes
+          </Button>
+        ) : null
+      }
+    >
       <ArtifactShareBodyView
         appUrl={artifactShareUrl(taskId, artifactId)}
         publicUrl={
@@ -104,6 +140,7 @@ export function ArtifactShareDialog({
         isLoading={sharing.isLoading}
         isError={sharing.isError}
         isPending={isPending}
+        newerUploadExists={newerUploadExists}
         onToggle={(enabled) => void setEnabled(enabled)}
       />
     </ShareDialog>

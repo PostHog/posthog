@@ -1,3 +1,4 @@
+import type { TaskArtifactSharing } from "@posthog/api-client/posthog-client";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 
 /**
@@ -13,4 +14,18 @@ export function publicLinkHasUnpublishedChanges(
 ): boolean {
   if (!dashboard?.sharedBuildId || !dashboard.publishedBuildId) return false;
   return dashboard.sharedBuildId !== dashboard.publishedBuildId;
+}
+
+/** Whether a file was uploaded again after its public link was pinned. */
+export function fileLinkHasUnpublishedChanges(
+  sharing:
+    | Pick<
+        TaskArtifactSharing,
+        "enabled" | "sharedArtifactId" | "latestArtifactId"
+      >
+    | null
+    | undefined,
+): boolean {
+  if (!sharing?.enabled || !sharing.latestArtifactId) return false;
+  return sharing.sharedArtifactId !== sharing.latestArtifactId;
 }

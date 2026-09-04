@@ -64,9 +64,7 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "posthog_task_shared_artifact",
                 "constraints": [
-                    models.UniqueConstraint(
-                        fields=("run", "artifact_id"), name="task_shared_artifact_run_artifact_unique"
-                    ),
+                    models.UniqueConstraint(fields=("task", "name"), name="task_shared_artifact_task_name_unique"),
                 ],
             },
         ),

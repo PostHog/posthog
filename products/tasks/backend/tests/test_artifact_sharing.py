@@ -20,6 +20,7 @@ EXPORTED_DATA_OPEN = '<script id="posthog-exported-data" type="application/json"
 STORAGE: dict[str, bytes] = {
     "artifacts/report-v1.md": b"# Draft\n",
     "artifacts/report-v2.md": b"# Final\n",
+    "artifacts/report-v3.md": b"# Revised\n",
     "artifacts/chart.png": b"\x89PNG fake",
     "artifacts/page.html": b"<script>alert(1)</script>",
 }
@@ -94,32 +95,42 @@ class TestTaskArtifactSharing(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["enabled"] is False
+        assert response.json()["shared_artifact_id"] is None
         assert not SharedTaskArtifact.objects.for_team(self.team.id).exists()
 
-    def test_a_share_serves_the_upload_that_was_shared_not_a_newer_one(self):
+    def test_sharing_pins_the_newest_upload_and_every_version_reads_the_same_share(self):
         access_token = self._enable_sharing("art-1")
 
         with team_scope(self.team.id):
-            anchor = SharedTaskArtifact.objects.get(run=self.older_run, artifact_id="art-1")
-            assert anchor.task_id == self.task.id
+            anchor = SharedTaskArtifact.objects.get(task=self.task, name="report.md")
+            assert anchor.artifact_id == "art-2"
             assert SharingConfiguration.objects.get(access_token=access_token).task_artifact_id == anchor.id
+        state = self.client.get(self._sharing_url("art-2")).json()
+        assert state["access_token"] == access_token
+        assert (state["shared_artifact_id"], state["latest_artifact_id"]) == ("art-2", "art-2")
         self.client.logout()
         payload = self._shared_payload(access_token)
 
         assert payload["task_artifact"]["kind"] == "markdown"
-        assert payload["task_artifact"]["markdown"] == "# Draft\n"
+        assert payload["task_artifact"]["markdown"] == "# Final\n"
         assert payload["task_artifact"]["file_url"] == f"/shared/{access_token}.md"
 
-    def test_each_upload_has_its_own_share(self):
-        first = self._enable_sharing("art-1")
+    def test_a_later_upload_stays_private_until_its_changes_are_published(self):
+        access_token = self._enable_sharing("art-1")
+        self.newer_run.artifacts.append(
+            _entry("art-3", "report.md", "artifacts/report-v3.md", "text/markdown", "2026-03-01T00:00:00+00:00")
+        )
+        self.newer_run.save(update_fields=["artifacts"])
 
-        assert self.client.get(self._sharing_url("art-2")).json()["enabled"] is False
-        second = self._enable_sharing("art-2")
+        state = self.client.get(self._sharing_url("art-3")).json()
+        assert (state["shared_artifact_id"], state["latest_artifact_id"]) == ("art-2", "art-3")
+        assert self._shared_payload(access_token)["task_artifact"]["markdown"] == "# Final\n"
 
-        assert first != second
-        assert SharedTaskArtifact.objects.for_team(self.team.id).count() == 2
-        self.client.logout()
-        assert self._shared_payload(second)["task_artifact"]["markdown"] == "# Final\n"
+        published = self.client.patch(self._sharing_url("art-3"), {"enabled": True})
+
+        assert published.status_code == status.HTTP_200_OK, published.json()
+        assert published.json()["shared_artifact_id"] == "art-3"
+        assert self._shared_payload(access_token)["task_artifact"]["markdown"] == "# Revised\n"
 
     def test_image_streams_inline_with_nosniff(self):
         access_token = self._enable_sharing("img-1")
@@ -153,8 +164,8 @@ class TestTaskArtifactSharing(APIBaseTest):
             self.task.deleted = True
             self.task.save()
         else:
-            self.older_run.artifacts[0]["dismissed_at"] = "2026-03-01T00:00:00+00:00"
-            self.older_run.save(update_fields=["artifacts"])
+            self.newer_run.artifacts[0]["dismissed_at"] = "2026-03-01T00:00:00+00:00"
+            self.newer_run.save(update_fields=["artifacts"])
         self.client.logout()
 
         assert self.client.get(f"/shared/{access_token}").status_code == status.HTTP_404_NOT_FOUND

@@ -107,7 +107,7 @@ from products.product_analytics.backend.facade.api import insight_variables_for_
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.contracts import SharedTaskArtifactFileDTO
+from products.tasks.backend.facade.contracts import SharedTaskArtifactFileDTO, SharedTaskArtifactVersionsDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -730,11 +730,11 @@ class SharingConfigurationViewSet(
             identity.task_id,
             self.team_id,
             user.id if user.is_authenticated else None,
-            run_id=identity.run_id,
-            artifact_id=identity.artifact_id,
             name=identity.name,
             content_type=identity.content_type,
         )
+        if anchor_id is None:
+            raise NotFound("Artifact not found.")
         instance.task_artifact_id = anchor_id
         context["task_artifact_id"] = anchor_id
 
@@ -812,6 +812,17 @@ class SharingConfigurationViewSet(
                     raise ValidationError("Publish the canvas before sharing it.")
             else:
                 clear_shared_build(canvas)
+        # The same rule for a file: enabling pins its newest upload, so "Publish changes" is a
+        # second enable. Disabling leaves the pin where it is; the link is off anyway. Read the
+        # flag off the saved row, not serializer.data, which would freeze the response before
+        # the pin moves.
+        if (
+            context.get("task_artifact_identity")
+            and "enabled" in request.data
+            and instance.enabled
+            and instance.task_artifact_id is not None
+        ):
+            tasks_facade.pin_shared_task_artifact(instance.task_artifact_id, self.team_id)
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
@@ -1063,6 +1074,45 @@ class SharingConfigurationViewSet(
             raise NotFound("Password not found")
 
 
+class TaskArtifactSharingConfigurationSerializer(SharingConfigurationSerializer):
+    shared_artifact_id = serializers.SerializerMethodField(
+        help_text="Manifest id of the upload the public link serves. Null until the file is shared."
+    )
+    latest_artifact_id = serializers.SerializerMethodField(
+        help_text="Manifest id of the file's newest upload. Differs from shared_artifact_id when there are changes to publish."
+    )
+
+    class Meta(SharingConfigurationSerializer.Meta):
+        fields = [*SharingConfigurationSerializer.Meta.fields, "shared_artifact_id", "latest_artifact_id"]
+        read_only_fields = [
+            *SharingConfigurationSerializer.Meta.read_only_fields,
+            "shared_artifact_id",
+            "latest_artifact_id",
+        ]
+
+    def _versions(self) -> SharedTaskArtifactVersionsDTO | None:
+        cached = getattr(self, "_versions_cache", None)
+        if cached is not None:
+            return cached
+        anchor_id = self.context.get("task_artifact_id")
+        team_id = self.context["get_team"]().id if "get_team" in self.context else None
+        if anchor_id is None or team_id is None:
+            return None
+        versions = tasks_facade.shared_task_artifact_versions(anchor_id, team_id)
+        self._versions_cache = versions
+        return versions
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_shared_artifact_id(self, _instance: SharingConfiguration) -> str | None:
+        versions = self._versions()
+        return versions.shared_artifact_id if versions else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_artifact_id(self, _instance: SharingConfiguration) -> str | None:
+        versions = self._versions()
+        return versions.latest_artifact_id if versions else None
+
+
 @extend_schema(
     parameters=[
         OpenApiParameter("task_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the task."),
@@ -1079,6 +1129,8 @@ class TaskArtifactSharingConfigurationViewSet(SharingConfigurationViewSet):
     """The sharing viewset mounted under a task artifact. Only the route differs: the parents are
     a task and an artifact rather than a field on the sharing model, which the schema generator
     could not type on its own."""
+
+    serializer_class = TaskArtifactSharingConfigurationSerializer
 
 
 def custom_404_response(request):
@@ -1758,7 +1810,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             )
             exported_data.update({"canvas": canvas_payload})
         elif isinstance(resource, SharingConfiguration) and resource.task_artifact_id:
-            # The link serves the upload that was shared, never a later upload of the same name.
+            # The link serves the upload pinned when the file was shared or its changes were last
+            # published, never a later upload on its own.
             file = tasks_facade.shared_task_artifact_file(resource.task_artifact_id, resource.team_id)
             if file is None:
                 raise NotFound("No resource found")

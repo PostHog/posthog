@@ -17,7 +17,7 @@ export function artifactSharingKey(
   return ["task-artifact-sharing", taskId, artifactId];
 }
 
-/** One upload's public-sharing state. `data` is null when the backend cannot share artifacts. */
+/** A file's public-sharing state, addressed by any of its uploads. `data` is null when the backend cannot share artifacts. */
 export function useArtifactSharingQuery(
   taskId: string,
   artifactId: string,
@@ -41,6 +41,8 @@ export function useSetArtifactSharing(
   artifactId: string,
 ): {
   setEnabled: (enabled: boolean) => Promise<TaskArtifactSharing | null>;
+  /** Point the public link at the file's newest upload. */
+  updateLink: () => Promise<TaskArtifactSharing | null>;
   isPending: boolean;
 } {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
@@ -59,6 +61,7 @@ export function useSetArtifactSharing(
   });
   return {
     setEnabled: (enabled) => mutation.mutateAsync(enabled).catch(() => null),
+    updateLink: () => mutation.mutateAsync(true).catch(() => null),
     isPending: mutation.isPending,
   };
 }

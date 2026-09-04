@@ -84690,6 +84690,34 @@ export namespace Schemas {
     }
 
     /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface TaskArtifactSharingConfiguration {
+      readonly created_at: string;
+      enabled?: boolean;
+      /** @nullable */
+      readonly access_token: string | null;
+      settings?: unknown;
+      password_required?: boolean;
+      readonly share_passwords: readonly SharePassword[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /**
+         * Manifest id of the upload the public link serves. Null until the file is shared.
+         * @nullable
+         */
+      readonly shared_artifact_id: string | null;
+      /**
+         * Manifest id of the file's newest upload. Differs from shared_artifact_id when there are changes to publish.
+         * @nullable
+         */
+      readonly latest_artifact_id: string | null;
+    }
+
+    /**
      * * `active` - active
      * * `failed` - failed
      */

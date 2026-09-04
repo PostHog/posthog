@@ -85,7 +85,7 @@ export function CanvasShareBodyView({
             isError={isError}
             isPending={isPending}
             publicUrl={publicUrl}
-            description="Anyone with the link can view the version you shared. Live data isn't shown."
+            description="Anyone with the link can view the canvas as it was when you shared it. Changes made after that stay private until you publish them. Live data isn't shown."
             disabledReason={disabledReason}
             dataAttrPrefix="share-canvas"
             onToggle={onToggle}
@@ -96,8 +96,8 @@ export function CanvasShareBodyView({
                 variant="muted"
                 data-attr="share-canvas-newer-version"
               >
-                A newer version is published. The public link still shows the
-                version you shared.
+                The canvas changed after you shared it. Publish the changes to
+                update the public link.
               </Text>
             )}
             <div className="flex items-start gap-3">

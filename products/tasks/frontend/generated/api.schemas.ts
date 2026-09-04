@@ -3041,7 +3041,7 @@ export interface SharePasswordApi {
 /**
  * Mixin for serializers to add user access control fields
  */
-export interface SharingConfigurationApi {
+export interface TaskArtifactSharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
     /** @nullable */
@@ -3054,6 +3054,16 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Manifest id of the upload the public link serves. Null until the file is shared.
+     * @nullable
+     */
+    readonly shared_artifact_id: string | null
+    /**
+     * Manifest id of the file's newest upload. Differs from shared_artifact_id when there are changes to publish.
+     * @nullable
+     */
+    readonly latest_artifact_id: string | null
 }
 
 export interface PaginatedTaskRunDetailDTOListApi {
