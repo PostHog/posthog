@@ -32,7 +32,7 @@ export function SignalReportFixOrStatus({ report }: { report: SignalReportApi })
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prNumber = prUrl ? parsePrUrlParts(prUrl)?.number : undefined
     if (prUrl && prNumber) {
-        const state = derivePrState(report.status, report.implementation_pr_merged)
+        const state = derivePrState(report.status, report.implementation_pr_merged, report.implementation_pr_state)
         return (
             <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold">{FIX_LABEL[state]}</span>

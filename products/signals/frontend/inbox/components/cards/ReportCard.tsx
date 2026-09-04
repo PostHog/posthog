@@ -28,6 +28,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportAssignmentLabel } from '../badges/SignalReportAssignmentLabel'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
@@ -221,6 +222,7 @@ export function ReportCard({
 
                 <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
+                    <SignalReportAssignmentLabel report={report} />
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
                     {!hasPr &&
                         !redesign &&
@@ -275,7 +277,11 @@ export function ReportCard({
                             // No link in preview mode: the sample PR url is fabricated, and a link would
                             // stay keyboard-focusable inside the otherwise non-routable card.
                             prUrl={preview ? null : prUrl}
-                            state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                            state={derivePrState(
+                                report.status,
+                                report.implementation_pr_merged === true,
+                                report.implementation_pr_state
+                            )}
                         />
                     </div>
                 ) : null}
