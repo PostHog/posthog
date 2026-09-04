@@ -161,6 +161,31 @@ export interface ExperimentRecordingsFilterContext {
 }
 
 /**
+ * What the recordings list came back with, and — when it came back with nothing — the cause the tab
+ * can name from what it already holds. Roughly two in five tab visits show an empty list today and
+ * nothing says why, so the facets are carried alongside `empty_reason` to tell a project with replay
+ * off apart from an experiment too young to have recordings, or a filter that matched nothing.
+ * Carries the same facets as `experiment recording opened`, so an empty list and an opened recording
+ * are comparable per facet.
+ */
+export interface ExperimentRecordingsListRenderedContext extends ExperimentRecordingsFilterContext {
+    result_count: number
+    /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
+    empty_reason: string | null
+    /** Null when the experiment has not launched. */
+    days_since_start: number | null
+    /** Null while the experiment runs. */
+    days_since_end: number | null
+    /** The project's replay retention setting, null when it has none. */
+    retention_period: string | null
+    replay_opt_in: boolean
+    /** Replay's default floor drops sessions under 5 active seconds, so it can empty a list. */
+    duration_filter_active: boolean
+    /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
+    exposure_linkable: boolean | null
+}
+
+/**
  * What the behavior comparison found, captured each time the shelf loads. The card counts are what
  * say whether the feature finds anything in the wild: all zeros on most experiments would mean the
  * evidence floors are set too high to ever show a card.
@@ -1342,6 +1367,13 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsBucketFailedContext
     ) => {
         context: ExperimentRecordingsBucketFailedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsListRendered: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsListRenderedContext
+    ) => {
+        context: ExperimentRecordingsListRenderedContext
         experimentId: ExperimentIdType
     }
     reportExperimentRecordingsBucketLoaded: (
@@ -2800,6 +2832,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsBucketFailedContext
         ) => ({ experimentId, context }),
+        reportExperimentRecordingsListRendered: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsListRenderedContext
+        ) => ({ experimentId, context }),
         reportExperimentRecordingOpened: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsFilterContext
@@ -4031,6 +4067,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentRecordingsBucketFailed: ({ experimentId, context }) => {
             posthog.capture('experiment recordings bucket failed', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsListRendered: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings list rendered', {
                 experiment_id: experimentId,
                 ...context,
             })

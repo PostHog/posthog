@@ -461,8 +461,12 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
-    /** Called with each freshly loaded page of recordings (not the accumulated list). */
-    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
+    /**
+     * Called with each freshly loaded page of recordings (not the accumulated list). `isFirstPage`
+     * is false for the pages scrolling adds on either end, so a host page can tell the list it
+     * first rendered from the ones paging appended to it.
+     */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[], isFirstPage: boolean) => void
     /**
      * Called once each time the recording the player shows changes — clicked, played next,
      * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
@@ -544,11 +548,21 @@ export interface sessionRecordingsPlaylistLogicActions {
         loadTime: number,
         filters: RecordingUniversalFilters,
         defaultDurationFilter: RecordingDurationFilter,
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        },
         source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        }
         source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
@@ -1015,6 +1029,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         loadTimeMs,
                         filters,
                         defaultRecordingDurationFilter,
+                        {
+                            resultCount: response.results.length,
+                            hasNext: response.has_next,
+                            isFirstPage: !direction,
+                        },
                         props.analyticsSource
                     )
 
@@ -1502,9 +1521,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(direction)
             },
 
-            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
+            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
-                props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
+                // A load without a direction replaces the list rather than paging it, the same
+                // reading the `sessionRecordings` reducer takes.
+                props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
                 notifyRecordingSelected()
             },
