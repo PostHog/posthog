@@ -867,16 +867,35 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
+def _filters_rule_is_enforced(rule_id: str | None) -> bool:
+    """Whether a violation of `rule_id` rejects the write, per the #50084 staged rollout.
+
+    DRF types an error's code as optional, so a violation can arrive without one. It matches
+    no rule id, which leaves it rejecting only once every rule is enforced.
+    """
+    enforced = settings.FEATURE_FLAG_FILTERS_ENFORCED_RULES
+    return "*" in enforced or rule_id in enforced
+
+
+def _all_filters_rules_are_enforced() -> bool:
+    """Whether the rollout has reached every rule.
+
+    Two behaviors stay all-or-nothing because they are not attached to any single rule:
+    the serde-fidelity guard below, and preserving unknown keys through normalization.
+    Both hold their pre-rollout behavior until the last rule goes in.
+    """
+    return "*" in settings.FEATURE_FLAG_FILTERS_ENFORCED_RULES
+
+
 def _reject_serde_unsafe_filters(filters: Any) -> None:
-    """Unconditional serde-fidelity guard on incoming filters, active regardless of the
-    FEATURE_FLAG_FILTERS_ENFORCEMENT switch.
+    """Serde-fidelity guard on incoming filters, independent of which rules are enforced.
 
     These are the pre-#50084 procedural type/bounds checks: values that fail serde in the
-    Rust flag service and poison the team's flag cache. While the enforcement switch is off,
-    the structural tier only logs, so this keeps the poisoning class rejected exactly as it
-    was before enforcement shipped. Only called while the switch is off: with it on, the
-    structural tier covers all of this with better per-rule error codes. DELETE together with
-    the switch in the follow-up PR that defaults enforcement on.
+    Rust flag service and poison the team's flag cache. A rule that is not yet enforced only
+    logs, so this keeps the poisoning class rejected exactly as it was before the rollout
+    started. Only called until every rule is enforced: after that the structural tier covers
+    all of this with better per-rule error codes. DELETE together with the rollout setting
+    once every rule is in.
     """
     if not isinstance(filters, dict):
         raise serializers.ValidationError(f"Filters must be a dictionary, got {type(filters).__name__}")
@@ -1056,8 +1075,8 @@ class _FlagFilterProperty:
 def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
     """Yield each well-formed property filter found under `groups`.
 
-    Malformed entries are skipped instead of crashing: they can only occur while the #50084
-    enforcement kill switch is off, and log-only mode must never 500.
+    Malformed entries are skipped instead of crashing: they can only occur while the rule
+    that would reject them is still rolling out (#50084), and logging must never 500.
     """
     if not isinstance(groups, list):
         return
@@ -1586,13 +1605,13 @@ class FeatureFlagSerializer(
 
         # `filters` arrives as the raw request dict, so the structural tier runs once below,
         # on the merged state.
-        enforcement: bool = settings.FEATURE_FLAG_FILTERS_ENFORCEMENT
+        fully_enforced = _all_filters_rules_are_enforced()
 
-        # Log-only mode must never accept what the pre-enforcement validator rejected, so the
-        # cache-poisoning class stays rejected while the switch is off. With the switch on the
-        # structural tier covers every one of these rules and reports them with per-rule codes
-        # instead of this guard's flat messages, so it would only shadow the better errors.
-        if not enforcement:
+        # A rule that only logs must never accept what the pre-enforcement validator rejected,
+        # so the cache-poisoning class stays rejected throughout the rollout. Once every rule
+        # is enforced the structural tier covers all of these and reports them with per-rule
+        # codes instead of this guard's flat messages, so it would only shadow better errors.
+        if not fully_enforced:
             try:
                 _reject_serde_unsafe_filters(filters)
             except serializers.ValidationError:
@@ -1638,7 +1657,7 @@ class FeatureFlagSerializer(
             data=merged,
             context={
                 FLAG_ID_CONTEXT_KEY: getattr(self.instance, "id", None),
-                PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: not enforcement,
+                PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: not fully_enforced,
             },
         )
         structurally_valid = structural.is_valid()
@@ -1657,9 +1676,12 @@ class FeatureFlagSerializer(
             # about are mostly cross-field violators whose merged state fails structurally, so a
             # bare zero on the cross_field series would read as "none left to fix".
             _count_filters_violations("cross_field", operation, ["not_evaluated"])
-            if enforcement:
+            # Only the enforced rules reject, and only they are reported: a rule still rolling
+            # out must not turn into a 400 by sharing a request with one that is enforced.
+            enforced_details = [detail for detail in details if _filters_rule_is_enforced(detail.code)]
+            if enforced_details:
                 _mark_filters_enforced_rejection(self)
-                raise serializers.ValidationError(details)
+                raise serializers.ValidationError(enforced_details)
             _mark_filters_bypassed(self)
             filters_enforcement_logger.warning(
                 "feature_flag_filters_enforcement_bypassed",
@@ -1771,12 +1793,15 @@ class FeatureFlagSerializer(
                 _count_filters_violations(
                     "cross_field", operation, [violation.rule_id for violation in cross_field_violations]
                 )
-                if enforcement:
+                enforced_violations = [
+                    violation for violation in cross_field_violations if _filters_rule_is_enforced(violation.rule_id)
+                ]
+                if enforced_violations:
                     _mark_filters_enforced_rejection(self)
                     raise serializers.ValidationError(
                         [
                             ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
-                            for violation in cross_field_violations
+                            for violation in enforced_violations
                         ]
                     )
                 _mark_filters_bypassed(self)
