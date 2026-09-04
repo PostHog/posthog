@@ -1740,6 +1740,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             {
                 setQueryInput: () => null,
                 fixErrorsFailure: (_, { error }) => error,
+                // The loader catches a failed fixer run and returns a response carrying the reason.
+                fixErrorsSuccess: (_, { response }) => (response.query ? null : (response.error ?? null)),
             },
         ],
         upstreamViewMode: [
@@ -1782,6 +1784,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
         return {
             fixErrorsSuccess: ({ response }) => {
+                if (!response.query) {
+                    lemonToast.error(response.error ?? 'The AI query fixer is unavailable right now.')
+                    posthog.capture('ai-error-fixer-failure', {
+                        trace_id: response.trace_id,
+                    })
+                    return
+                }
+
                 actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 
                 posthog.capture('ai-error-fixer-success', {
