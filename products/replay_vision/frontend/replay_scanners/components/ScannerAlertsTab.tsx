@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -25,8 +25,10 @@ export function ScannerAlertsTab({ scannerId }: { scannerId: string }): JSX.Elem
 }
 
 function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Element {
-    const { alerts, alertsLoading, busyAlertIds, isCreateAlertModalOpen, editingAlert } = useValues(scannerAlertsLogic)
+    const { alerts, alertsLoading, alertsFailed, busyAlertIds, isCreateAlertModalOpen, editingAlert } =
+        useValues(scannerAlertsLogic)
     const {
+        loadAlerts,
         toggleAlertEnabled,
         resetAlert,
         openCreateAlertModal,
@@ -137,14 +139,24 @@ function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Elem
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonTable
-                columns={columns}
-                dataSource={alerts}
-                loading={alertsLoading}
-                rowKey="id"
-                data-attr="vision-alerts-table"
-                emptyState="No alerts on this scanner yet. Create one to get notified about matching observations or metric thresholds."
-            />
+            {alerts === null && alertsFailed ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => loadAlerts() }}
+                    className="text-sm"
+                >
+                    Couldn't load this scanner's alerts.
+                </LemonBanner>
+            ) : (
+                <LemonTable
+                    columns={columns}
+                    dataSource={alerts ?? []}
+                    loading={alertsLoading || alerts === null}
+                    rowKey="id"
+                    data-attr="vision-alerts-table"
+                    emptyState="No alerts on this scanner yet. Create one to get notified about matching observations or metric thresholds."
+                />
+            )}
             <div className="flex justify-center">
                 <LemonButton
                     type="primary"
