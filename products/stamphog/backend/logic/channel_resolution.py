@@ -32,8 +32,8 @@ from django.db import router
 from django.db.models import Q
 
 import structlog
-from posthog_owners.resolver import Producer, Purpose, TeamChannel, team_channel, teams_registry
-from posthog_owners.schema import TeamEntry
+from posthog_owners.resolver import Purpose, TeamChannel, team_channel, teams_registry
+from posthog_owners.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
