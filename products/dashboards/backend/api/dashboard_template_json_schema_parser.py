@@ -1,5 +1,6 @@
 # parsers.py
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import jsonschema
@@ -16,6 +17,8 @@ class DashboardTemplateCreationJSONSchemaParser(JSONParser):
 
     def parse(self, stream, media_type=None, parser_context=None):
         data = super().parse(stream, media_type or "application/json", parser_context)
+        if not isinstance(data, Mapping) or "template" not in data:
+            raise ValidationError(detail="Request body must be a JSON object with a 'template' key")
         try:
             template = data["template"]
             jsonschema.validate(template, dashboard_template_schema)
