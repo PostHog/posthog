@@ -9,7 +9,11 @@ import { initKeaTests } from '~/test/init'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationConfig } from '../types'
-import { HogTestResultsPanel } from './EvaluationCodeEditor'
+import { EvaluationCodeEditor, HogTestResultsPanel } from './EvaluationCodeEditor'
+
+jest.mock('lib/monaco/CodeEditorResizable', () => ({
+    CodeEditorResizeable: () => <div data-attr="mock-code-editor" />,
+}))
 
 const props = { evaluationId: 'eval-123' }
 
@@ -56,7 +60,17 @@ function renderPanel(): void {
     )
 }
 
-describe('HogTestResultsPanel', () => {
+function renderEditor(): void {
+    render(
+        <Provider>
+            <BindLogic logic={llmEvaluationLogic} props={props}>
+                <EvaluationCodeEditor />
+            </BindLogic>
+        </Provider>
+    )
+}
+
+describe('EvaluationCodeEditor', () => {
     let logic: ReturnType<typeof llmEvaluationLogic.build>
 
     beforeEach(() => {
@@ -104,5 +118,20 @@ describe('HogTestResultsPanel', () => {
         expect(screen.getByText('1 failed')).toBeInTheDocument()
         expect(screen.getByText('Fail')).toBeInTheDocument()
         expect(screen.queryByText('Pass')).not.toBeInTheDocument()
+    })
+
+    it('describes detector polarity in the authoring tip', () => {
+        logic.actions.loadEvaluationSuccess({
+            ...baseEvaluation,
+            output_config: { allows_na: false, true_is_failure: true },
+        })
+        renderEditor()
+
+        expect(
+            screen.getByText(
+                (_, element) =>
+                    element?.tagName === 'LI' && element.textContent === 'Return true (fail) or false (pass)'
+            )
+        ).toBeInTheDocument()
     })
 })

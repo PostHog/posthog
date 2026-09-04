@@ -332,6 +332,7 @@ export function EvaluationCodeEditor(): JSX.Element {
 
     const source = evaluation.evaluation_config.source
     const isSessionTarget = evaluation.target === 'session'
+    const trueIsFailure = evaluationIsDetector(evaluation)
 
     return (
         <div className="space-y-4">
@@ -460,7 +461,8 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
-                        Return <code>true</code> (pass) or <code>false</code> (fail)
+                        Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
+                        {trueIsFailure ? 'pass' : 'fail'})
                         {evaluation.output_config.allows_na ? (
                             <>
                                 {' '}

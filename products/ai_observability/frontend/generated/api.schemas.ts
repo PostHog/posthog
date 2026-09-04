@@ -894,7 +894,7 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1033,7 +1033,7 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1169,7 +1169,7 @@ export interface TestHogTargetConfigApi {
 
 export interface TestHogRequestApi {
     /**
-     * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+     * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -1217,7 +1217,7 @@ export interface TestHogResultItemApi {
     /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
-     * True = pass, False = fail, null = N/A or error.
+     * Raw boolean result, or null when the evaluation returns N/A or raises an error.
      * @nullable
      */
     result: boolean | null

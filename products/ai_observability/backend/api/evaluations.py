@@ -101,7 +101,7 @@ logger = structlog.get_logger(__name__)
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                        "description": "Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
                         "minLength": 1,
                     }
                 },
@@ -461,6 +461,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 "output_config",
                 getattr(self.instance, "output_config", {}) if self.instance else {},
             )
+            if self.partial and self.instance is not None and "output_config" in data:
+                output_config = {**self.instance.output_config, **output_config}
             try:
                 data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
                     evaluation_type, output_type, evaluation_config, output_config
@@ -771,7 +773,10 @@ class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(
         required=True,
         min_length=1,
-        help_text="Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+        help_text=(
+            "Hog source code to test. Must return true or false, or null for N/A. "
+            "Output settings determine which boolean counts as a failure."
+        ),
     )  # type: ignore[assignment]
     sample_count = serializers.IntegerField(
         required=False,
@@ -822,7 +827,9 @@ class TestHogResultItemSerializer(serializers.Serializer):
     trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
     input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")
     output_preview = serializers.CharField(help_text="First 200 characters of output from the sampled unit.")
-    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    result = serializers.BooleanField(
+        allow_null=True, help_text="Raw boolean result, or null when the evaluation returns N/A or raises an error."
+    )
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
 

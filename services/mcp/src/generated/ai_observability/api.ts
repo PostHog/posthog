@@ -610,7 +610,9 @@ export const EvaluationsCreateBody = () => zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -835,7 +837,9 @@ export const EvaluationsPartialUpdateBody = () => zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -1030,7 +1034,9 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
     source: zod
         .string()
         .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N\/A.'),
+        .describe(
+            'Hog source code to test. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+        ),
     sample_count: zod
         .number()
         .min(1)
