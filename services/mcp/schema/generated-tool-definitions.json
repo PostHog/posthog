@@ -1212,6 +1212,20 @@
             "readOnlyHint": true
         }
     },
+    "canvas-move": {
+        "description": "Move a canvas to a visible destination space. The canvas and its full version history stay intact, but any pin in the current space is cleared. Only the canvas creator can move it. A sandbox task can move a canvas only within its own space; an attempted cross-space move returns 403.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Move canvas",
+        "title": "Move canvas",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-promote-create": {
         "description": "Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head: revert does not act on drafts.",
         "category": "Canvas",
@@ -2627,6 +2641,34 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "data-catalog-metric-delete-execute": {
+        "description": "Step 2 of 2 for delete metric. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Delete a catalog metric (execute)",
+        "title": "Delete a catalog metric (execute)",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "data-catalog-metric-delete-prepare": {
+        "description": "Step 1 of 2 for delete metric. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Delete a catalog metric (prepare)",
+        "title": "Delete a catalog metric (prepare)",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "data-catalog-metric-run": {
@@ -8010,7 +8052,7 @@
         }
     },
     "notebooks-get": {
-        "description": "The full notebook view: title, markdown source, the notebook's variables (name, type, value; a SQL cell reads one as `{name}`, a Python cell as a global — change them with notebooks-set-variables), and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell changed, an upstream changed, or, for a SQL cell that ran on ClickHouse, a variable it reads changed), so its displayed result is outdated. A changed variable value does not make a Python cell, or a SQL cell that reads a Python-created dataframe, stale: on those, 'done' means the code is current, not the values it ran with. Re-run them from the stale_cells list notebooks-set-variables returns, and re-run before trusting a result whose values may have changed since. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown.",
+        "description": "The full notebook view: title, markdown source, the notebook's variables (name, type, value; a SQL cell reads one as `{name}`, a Python cell as a global — change them with notebooks-set-variables), and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell changed, an upstream changed, or, for a SQL cell that ran on ClickHouse, a variable it reads changed), so its displayed result is outdated. A changed variable value does not make a Python cell, or a SQL cell that reads a Python-created dataframe, stale: on those, 'done' means the code is current, not the values it ran with. Re-run them from the stale_cells list notebooks-set-variables returns, and re-run before trusting a result whose values may have changed since. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown. When you do not have the notebook's short_id, find it with notebooks-list.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",
@@ -8070,7 +8112,7 @@
         "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
-        "description": "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. Use this when you need the raw content or the current version number — required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled).",
+        "description": "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. Use this when you need the raw content or the current version number — required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled). When you do not have the notebook's short_id, find it with notebooks-list; searching by title is what its search parameter is for.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",
@@ -11897,7 +11939,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshot-history-list": {
-        "description": "List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.",
+        "description": "List recent change history for one snapshot across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`. Passing the snapshot's own `id` as `id` does not work, and neither parameter can be left out.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Snapshot change history",
@@ -11942,7 +11984,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerated-hashes-list": {
-        "description": "List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. Requires `identifier` query parameter.",
+        "description": "List known tolerated alternate hashes for one snapshot in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. This covers a single snapshot, not the whole run or repo. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List tolerated hashes",
