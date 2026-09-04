@@ -1456,9 +1456,6 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.schedule\\.create_reaper_hog_schedules",
 ]
 from = [
     "products.reaper_hog",

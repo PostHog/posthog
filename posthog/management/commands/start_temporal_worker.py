@@ -235,7 +235,7 @@ from products.pulse.backend.temporal.registry import (
     ACTIVITIES as PULSE_ACTIVITIES,
     WORKFLOWS as PULSE_WORKFLOWS,
 )
-from products.reaper_hog.backend.temporal import (
+from products.reaper_hog.backend.facade.temporal import (
     ACTIVITIES as REAPER_HOG_ACTIVITIES,
     WORKFLOWS as REAPER_HOG_WORKFLOWS,
 )

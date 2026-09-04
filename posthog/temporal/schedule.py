@@ -107,7 +107,7 @@ from products.exports.backend.temporal.subscriptions.types import ScheduleAllSub
 from products.growth.backend.temporal.signup_enrichment.schedule import create_icp_reenrichment_sweep_schedule
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
-from products.reaper_hog.backend.temporal.schedule import create_reaper_hog_schedules
+from products.reaper_hog.backend.facade.temporal import create_reaper_hog_schedules
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
