@@ -24,7 +24,7 @@ permissions:
 jobs:
     probe:
         name: Depot CI probe
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'depot-cutover-test/')
+        if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'depot-cutover-test/')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
@@ -42,7 +42,7 @@ jobs:
                     echo "### Ambient GITHUB_TOKEN on Depot CI"
                     echo
                     echo "- token prefix: \`${GH_TOKEN:0:4}\` (ghs_ = App installation token)"
-                    echo "- run id: \`$GITHUB_RUN_ID\`, actions env: \`${GITHUB_ACTIONS:-unset}\`, server: \`${GITHUB_SERVER_URL:-unset}\`"
+                    echo "- event: \`${GITHUB_EVENT_NAME:-unset}\`, run id: \`$GITHUB_RUN_ID\`, actions env: \`${GITHUB_ACTIONS:-unset}\`, server: \`${GITHUB_SERVER_URL:-unset}\`"
                     echo
                     echo '```'
                     gh api -i rate_limit | grep -iE '^x-ratelimit-(limit|remaining|used|resource)'
