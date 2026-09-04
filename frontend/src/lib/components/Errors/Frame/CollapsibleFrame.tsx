@@ -22,7 +22,7 @@ export function CollapsibleFrame({
     return (
         <Collapsible variant="container" open={expanded} onOpenChange={onExpandedChange}>
             <CollapsibleFrameHeader frame={frame} expanded={expanded} record={record} recordLoading={recordLoading} />
-            <CollapsibleFrameContent frame={frame} record={record} />
+            <CollapsibleFrameContent frame={frame} record={record} recordLoading={recordLoading} />
         </Collapsible>
     )
 }

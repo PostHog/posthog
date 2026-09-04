@@ -12,6 +12,8 @@ import {
     FingerprintRecordPart,
 } from './types'
 
+export const SYMBOL_SETS_DOC_LINK = 'https://posthog.com/docs/error-tracking/upload-source-maps'
+
 export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
     switch (lib?.toLowerCase()) {
         case 'posthog-python':
