@@ -1992,7 +1992,7 @@ jobs:
               shell: bash
               run: |
                   if [[ -f products/canvas/packages/canvas_builder/package.json ]]; then
-                      npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+                      npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
                   fi
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
