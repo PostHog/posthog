@@ -20,8 +20,12 @@ export interface ObservationShareForm {
  * embedded recording starts where the sharer was watching instead of at the beginning.
  */
 export function observationShareUrl(observationId: string, form: ObservationShareForm): string {
+    // A cleared or unreadable field names no moment, so the param is dropped rather than sent as `t=0`,
+    // which would force the recording open at the very start on the reader's page. A typed `00:00` parses
+    // to 0 rather than null, so sharing the first second still works.
+    const seconds = form.includeTime ? reverseColonDelimitedDuration(form.time) : null
     return combineUrl(urls.absolute(urls.currentProject(urls.replayVisionObservation(observationId))), {
-        t: form.includeTime ? `${reverseColonDelimitedDuration(form.time) || 0}` : undefined,
+        t: seconds === null ? undefined : `${seconds}`,
     }).url
 }
 
