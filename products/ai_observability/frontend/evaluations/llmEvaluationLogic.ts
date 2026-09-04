@@ -4,7 +4,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -62,10 +64,17 @@ export const DEFAULT_SESSION_QUIET_PERIOD_SECONDS = 60 * 60
 export const DEFAULT_SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
 
 const AGGREGATE_TARGETS: EvaluationTarget[] = ['trace', 'session']
-const EVALUATION_DETAIL_TABS = new Set(['configuration', 'reports', 'runs'])
+const EVALUATION_DETAIL_TABS = new Set(['configuration', 'reports', 'runs', 'backfills'])
 
 function evaluationDetailTab(value: unknown): string | null {
-    return typeof value === 'string' && EVALUATION_DETAIL_TABS.has(value) ? value : null
+    if (typeof value !== 'string' || !EVALUATION_DETAIL_TABS.has(value)) {
+        return null
+    }
+    // Backfills is flag-gated, so a bookmarked URL for it falls back to the default tab.
+    if (value === 'backfills' && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]) {
+        return null
+    }
+    return value
 }
 
 function seedSettleConfig(target: EvaluationTarget, strategy: EvaluationSettleStrategy): EvaluationTargetConfig {

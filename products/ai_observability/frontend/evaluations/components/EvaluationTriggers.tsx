@@ -10,7 +10,12 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationConditionSet } from '../types'
 
-export function EvaluationTriggers(): JSX.Element {
+interface EvaluationTriggersProps {
+    conditions?: EvaluationConditionSet[]
+    onChange?: (conditions: EvaluationConditionSet[]) => void
+}
+
+export function EvaluationTriggers({ conditions, onChange }: EvaluationTriggersProps = {}): JSX.Element {
     const { evaluation } = useValues(llmEvaluationLogic)
     const { setTriggerConditions } = useActions(llmEvaluationLogic)
 
@@ -18,40 +23,43 @@ export function EvaluationTriggers(): JSX.Element {
         return <div>Loading...</div>
     }
 
+    const current = conditions ?? evaluation.conditions
+    const update = onChange ?? setTriggerConditions
+
     const addConditionSet = (): void => {
         const newCondition: EvaluationConditionSet = {
             id: `cond-${Date.now()}`,
             rollout_percentage: 100,
             properties: [],
         }
-        setTriggerConditions([...evaluation.conditions, newCondition])
+        update([...current, newCondition])
     }
 
     const updateConditionSet = (index: number, updates: Partial<EvaluationConditionSet>): void => {
-        const updatedConditions = evaluation.conditions.map((condition, i) =>
+        const updatedConditions = current.map((condition, i) =>
             i === index ? { ...condition, ...updates } : condition
         )
-        setTriggerConditions(updatedConditions)
+        update(updatedConditions)
     }
 
     const removeConditionSet = (index: number): void => {
-        if (evaluation.conditions.length === 1) {
+        if (current.length === 1) {
             // Keep at least one condition set
             return
         }
-        const updatedConditions = evaluation.conditions.filter((_, i) => i !== index)
-        setTriggerConditions(updatedConditions)
+        const updatedConditions = current.filter((_, i) => i !== index)
+        update(updatedConditions)
     }
 
     const duplicateConditionSet = (index: number): void => {
-        const conditionToDuplicate = evaluation.conditions[index]
+        const conditionToDuplicate = current[index]
         const duplicatedCondition: EvaluationConditionSet = {
             ...conditionToDuplicate,
             id: `cond-${Date.now()}`,
         }
-        const updatedConditions = [...evaluation.conditions]
+        const updatedConditions = [...current]
         updatedConditions.splice(index + 1, 0, duplicatedCondition)
-        setTriggerConditions(updatedConditions)
+        update(updatedConditions)
     }
 
     const isTraceTarget = evaluation.target === 'trace'
@@ -70,7 +78,7 @@ export function EvaluationTriggers(): JSX.Element {
                 )}
             </div>
 
-            {evaluation.conditions.map((condition, index) => {
+            {current.map((condition, index) => {
                 const percentageValue = condition.rollout_percentage || 0
 
                 return (
@@ -79,7 +87,7 @@ export function EvaluationTriggers(): JSX.Element {
                         <div className="flex justify-between items-center">
                             <div className="flex items-center gap-2">
                                 <h4 className="font-semibold">Condition set {index + 1}</h4>
-                                {evaluation.conditions.length > 1 && (
+                                {current.length > 1 && (
                                     <div className="text-sm text-muted">{index === 0 ? 'IF' : 'OR IF'}</div>
                                 )}
                             </div>
@@ -91,7 +99,7 @@ export function EvaluationTriggers(): JSX.Element {
                                     onClick={() => duplicateConditionSet(index)}
                                     tooltip="Duplicate condition set"
                                 />
-                                {evaluation.conditions.length > 1 && (
+                                {current.length > 1 && (
                                     <LemonButton
                                         icon={<IconTrash />}
                                         size="small"

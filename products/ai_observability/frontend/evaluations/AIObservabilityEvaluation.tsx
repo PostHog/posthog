@@ -37,6 +37,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
+import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
@@ -86,6 +87,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
+    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -456,6 +458,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     evaluationId={evaluation.id}
                                     userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
+                                />
+                            ),
+                        },
+                    !isNewEvaluation &&
+                        backfillsEnabled && {
+                            key: 'backfills',
+                            label: 'Backfills',
+                            'data-attr': 'llma-evaluation-backfills-tab',
+                            content: (
+                                <EvaluationBackfillsTab
+                                    evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
                                 />
                             ),
                         },
