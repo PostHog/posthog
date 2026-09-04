@@ -24,11 +24,18 @@ from products.experiments.backend.hogql_queries.experiment_breakdown_attribution
 
 
 def _funnel_metric(
-    attribution=None, attribution_value=None, num_steps=2, funnel_order_type=None, properties=("$browser",)
-):
+    attribution: BreakdownAttributionType | None = None,
+    attribution_value: int | None = None,
+    num_steps: int = 2,
+    funnel_order_type: StepOrderValue | None = None,
+    properties: tuple[str, ...] = ("$browser",),
+    breakdown_limit: int | None = None,
+) -> ExperimentFunnelMetric:
     return ExperimentFunnelMetric(
         series=[EventsNode(event=f"step_{i}") for i in range(num_steps)],
-        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property=p) for p in properties]),
+        breakdownFilter=BreakdownFilter(
+            breakdowns=[Breakdown(property=p) for p in properties], breakdown_limit=breakdown_limit
+        ),
         breakdownAttributionType=attribution,
         breakdownAttributionValue=attribution_value,
         funnel_order_type=funnel_order_type,
@@ -36,6 +43,7 @@ def _funnel_metric(
 
 
 def _builder(metric: ExperimentFunnelMetric) -> ExperimentBreakdownAttributionQueryBuilder:
+    assert metric.breakdownFilter is not None and metric.breakdownFilter.breakdowns is not None
     context = ExperimentBreakdownAttributionContext(
         breakdowns=tuple(metric.breakdownFilter.breakdowns),
         metric=metric,
@@ -58,8 +66,8 @@ def _split_condition(condition: ast.Expr) -> tuple[ast.Expr, ast.Expr]:
     return condition.exprs[0], condition.exprs[1]
 
 
-def _matched_steps(condition: ast.Expr) -> set[str]:
-    """Step columns an attribution condition matches: one comparison, or an OR of comparisons."""
+def _compared_fields(condition: ast.Expr) -> set[str]:
+    """Field names on the left of a comparison, or of an OR of comparisons."""
     comparisons = condition.exprs if isinstance(condition, ast.Or) else [condition]
     return {
         c.left.chain[0]
@@ -115,7 +123,7 @@ class TestExperimentBreakdownAttributionQueryBuilder:
         # values could come from different rows. The uuid makes the pick the same for every column.
         assert expr.args[1] == ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["uuid"])])
         steps, _ = _split_condition(expr.args[2])
-        assert _matched_steps(steps) == expected_steps
+        assert _compared_fields(steps) == expected_steps
 
     def test_unattributed_users_get_null_label_not_empty_string(self):
         # argMinIf over zero matching rows returns "", which the UI labels "None" like the null
@@ -146,7 +154,7 @@ class TestExperimentBreakdownAttributionQueryBuilder:
         builder.inject_funnel_breakdown_columns_optimized(query)
 
         steps, _ = _split_condition(_unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"]).args[2])
-        assert _matched_steps(steps) == {"step_1", "step_2"}
+        assert _compared_fields(steps) == {"step_1", "step_2"}
 
     @parameterized.expand([("one_breakdown", ("$browser",)), ("two_breakdowns", ("$browser", "$os"))])
     def test_attribution_skips_events_without_a_breakdown_value(self, _name, properties):
@@ -165,10 +173,12 @@ class TestExperimentBreakdownAttributionQueryBuilder:
             for i in range(len(properties))
         ]
         assert all(c == conditions[0] for c in conditions)
-        comparisons = conditions[0].exprs if isinstance(conditions[0], ast.Or) else [conditions[0]]
-        assert {c.left.chain[0] for c in comparisons} == {f"breakdown_value_{i + 1}" for i in range(len(properties))}
+        shared = conditions[0]
+        assert _compared_fields(shared) == {f"breakdown_value_{i + 1}" for i in range(len(properties))}
+        comparisons = shared.exprs if isinstance(shared, ast.Or) else [shared]
         assert all(
-            c.op == ast.CompareOperationOp.NotEq
+            isinstance(c, ast.CompareOperation)
+            and c.op == ast.CompareOperationOp.NotEq
             and isinstance(c.right, ast.Constant)
             and c.right.value == BREAKDOWN_NULL_STRING_LABEL
             for c in comparisons
@@ -210,8 +220,7 @@ class TestExperimentBreakdownAttributionQueryBuilder:
         assert ast.Field(chain=["breakdown_value_1"]) in query.group_by
 
     def test_final_breakdown_column_applies_top_n_other_relabel(self):
-        metric = _funnel_metric()
-        metric.breakdownFilter.breakdown_limit = 3
+        metric = _funnel_metric(breakdown_limit=3)
         builder = _builder(metric)
         query = _optimized_query()
 
