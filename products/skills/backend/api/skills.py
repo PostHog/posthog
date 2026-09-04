@@ -323,7 +323,7 @@ class ZipRenderer(BaseRenderer):
 
 def _spec_problems_detail(lead: str, problems: list[str], next_step: str) -> str:
     # Clients such as the app toast show only `detail`, so the specific problems must live there too.
-    sentences = ". ".join(problem[:1].upper() + problem[1:] for problem in problems)
+    sentences = ". ".join((problem[:1].upper() + problem[1:]).removesuffix(".") for problem in problems)
     return f"{lead} {sentences}. {next_step}"
 
 
