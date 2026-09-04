@@ -180,11 +180,14 @@ class ProviderError(HTTPException):
     """
 
 
-# Provider replies that mean the gateway's own upstream credentials were refused, rather than
-# anything the caller did. OpenAI answers `invalid_organization` when the configured organization
-# and the API key disagree; `invalid_api_key` covers a revoked or mistyped key. Keep this a tight
-# allowlist: a caller-attributable 401 (an expired PostHog token) must keep its own message.
-_CREDENTIAL_REJECTION_CODES: tuple[str, ...] = ("invalid_organization", "invalid_api_key")
+# Provider replies that mean the gateway's own upstream credentials were refused. Caller
+# authentication happens before these handlers, and the request sanitizer removes headers that
+# could override gateway credentials.
+_CREDENTIAL_REJECTION_CODES: tuple[str, ...] = (
+    "invalid_organization",
+    "invalid_api_key",
+    "unrecognizedclientexception",
+)
 # Fallback for providers that leave the error code empty. Matched case-insensitively.
 _CREDENTIAL_REJECTION_SIGNATURES: tuple[str, ...] = (
     "organization tied to the api key",
@@ -195,19 +198,37 @@ _CREDENTIAL_REJECTION_SIGNATURES: tuple[str, ...] = (
 CREDENTIAL_REJECTION_ERROR_TYPE = "provider_credentials_rejected"
 
 
-def _is_credential_rejection(status_code: int, code: Any, message: str) -> bool:
+def _provider_error_codes(code: Any, body: Any) -> set[str]:
+    codes = {code.lower()} if isinstance(code, str) else set()
+    if not isinstance(body, dict):
+        return codes
+
+    error_bodies = [body]
+    for error_key in ("error", "Error"):
+        error = body.get(error_key)
+        if isinstance(error, dict):
+            error_bodies.append(error)
+
+    for error in error_bodies:
+        for code_key in ("code", "Code", "type", "Type"):
+            nested_code = error.get(code_key)
+            if isinstance(nested_code, str):
+                codes.add(nested_code.lower())
+    return codes
+
+
+def _is_credential_rejection(status_code: int, code: Any, message: str, body: Any = None) -> bool:
     # litellm maps an upstream 401 onto several exception classes and does not always keep the
     # provider's status, so accept the 400 it falls back to as well as the 401/403 it sent.
     if status_code not in (400, 401, 403):
         return False
-    if isinstance(code, str) and code.lower() in _CREDENTIAL_REJECTION_CODES:
+    # Caller authentication completes before the provider call. After request headers are stripped
+    # below, any 401 caught here can only reject a gateway-owned provider credential.
+    if status_code == 401:
+        return True
+    if _provider_error_codes(code, body).intersection(_CREDENTIAL_REJECTION_CODES):
         return True
     lowered = message.lower()
-    # litellm reports the provider code inside the serialized upstream body, not on the exception.
-    # Matched with its JSON quotes so a caller-chosen model name echoed into a 400 cannot pose as
-    # a credential rejection.
-    if any(f'"{rejection_code}"' in lowered for rejection_code in _CREDENTIAL_REJECTION_CODES):
-        return True
     # The prose signatures are unquoted, so a caller-selected model name echoed into a 400 body can
     # contain one and pose as a credential rejection. Trust them only on the 401 or 403 the provider
     # sends directly, where the caller cannot place the string. A real rejection that litellm
@@ -216,6 +237,30 @@ def _is_credential_rejection(status_code: int, code: Any, message: str) -> bool:
     if status_code == 400:
         return False
     return any(signature in lowered for signature in _CREDENTIAL_REJECTION_SIGNATURES)
+
+
+def provider_credential_rejection_error(
+    status_code: int,
+    code: Any,
+    message: str,
+    provider: str,
+    body: Any = None,
+) -> ProviderError | None:
+    if not _is_credential_rejection(status_code, code, message, body):
+        return None
+    return ProviderError(
+        status_code=status_code,
+        detail={
+            "error": {
+                "message": (
+                    f"PostHog's {provider} credentials were rejected. This is a problem with the "
+                    "PostHog gateway, not a usage limit on your account. Retries fail until PostHog fixes it."
+                ),
+                "type": CREDENTIAL_REJECTION_ERROR_TYPE,
+                "code": CREDENTIAL_REJECTION_ERROR_TYPE,
+            }
+        },
+    )
 
 
 def classify_provider_failure(e: Exception, provider: str) -> tuple[str, ProviderError]:
@@ -230,21 +275,10 @@ def classify_provider_failure(e: Exception, provider: str) -> tuple[str, Provide
     status_code = getattr(e, "status_code", 500)
     message = getattr(e, "message", str(e))
     code = getattr(e, "code", None)
-    if _is_credential_rejection(status_code, code, message):
-        return CREDENTIAL_REJECTION_ERROR_TYPE, ProviderError(
-            status_code=status_code,
-            detail={
-                "error": {
-                    "message": (
-                        f"PostHog's {provider} credentials were rejected. This is a problem with the "
-                        "PostHog gateway, not a usage limit on your account. Retries fail until "
-                        "PostHog fixes it."
-                    ),
-                    "type": CREDENTIAL_REJECTION_ERROR_TYPE,
-                    "code": CREDENTIAL_REJECTION_ERROR_TYPE,
-                }
-            },
-        )
+    body = getattr(e, "body", None)
+    credential_error = provider_credential_rejection_error(status_code, code, message, provider, body)
+    if credential_error is not None:
+        return CREDENTIAL_REJECTION_ERROR_TYPE, credential_error
     return type(e).__name__, ProviderError(
         status_code=status_code,
         detail={"error": {"message": message, "type": getattr(e, "type", "internal_error"), "code": code}},
@@ -276,7 +310,18 @@ def _raise_if_unsupported_model(model: str) -> None:
 
 # LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
 FORBIDDEN_REQUEST_PARAMS = frozenset(
-    {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
+    {
+        "api_key",
+        "api_base",
+        "base_url",
+        "api_version",
+        "organization",
+        "model_list",
+        "fallbacks",
+        "custom_llm_provider",
+        "headers",
+        "extra_headers",
+    }
 )
 
 

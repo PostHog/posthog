@@ -173,6 +173,15 @@ const MAX_HOST_ENDED_RESUBSCRIBES = 3;
  */
 const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
 const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+const PROVIDER_CREDENTIAL_ERROR_MESSAGE =
+  "The AI provider rejected PostHog's credentials. This is not your usage limit, and retrying will not help until PostHog fixes it.";
+
+class ProviderCredentialPromptError extends Error {
+  constructor(cause: unknown) {
+    super(PROVIDER_CREDENTIAL_ERROR_MESSAGE, { cause });
+    this.name = "ProviderCredentialPromptError";
+  }
+}
 
 /** Short label for a log line: `session/update:agent_message_chunk`, `response`. */
 function describeAcpMethod(acpMsg: AcpMessage): string {
@@ -4420,9 +4429,16 @@ export class SessionService {
         promptLength: promptText.length,
         error,
       });
-      this.d.toast.error("Couldn't send the queued message", {
-        description: "Your message is still queued. Use Steer to try again.",
-      });
+      if (error instanceof ProviderCredentialPromptError) {
+        this.d.toast.error("AI provider credentials rejected", {
+          description:
+            "Your message is still queued. Retry after PostHog fixes the problem.",
+        });
+      } else {
+        this.d.toast.error("Couldn't send the queued message", {
+          description: "Your message is still queued. Use Steer to try again.",
+        });
+      }
       throw error;
     }
   }
@@ -4560,10 +4576,7 @@ export class SessionService {
           errorMessage,
           errorDetails,
         });
-        throw new Error(
-          "The AI provider rejected PostHog's credentials. This is not your usage limit, and retrying will not help until PostHog fixes it.",
-          { cause: error },
-        );
+        throw new ProviderCredentialPromptError(error);
       }
 
       // A provider request that timed out, dropped, or was refused leaves the

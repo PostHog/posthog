@@ -41,14 +41,31 @@ function createHarness() {
     }),
     appendOptimisticItem: vi.fn(),
     clearOptimisticItems: vi.fn(),
+    dequeueMessages: vi.fn((taskId: string) => {
+      const session = Object.values(sessions).find((s) => s.taskId === taskId);
+      if (!session) return [];
+      const [message, ...remaining] = session.messageQueue;
+      session.messageQueue = remaining;
+      return message ? [message] : [];
+    }),
+    prependQueuedMessages: vi.fn(
+      (taskId: string, messages: AgentSession["messageQueue"]) => {
+        const session = Object.values(sessions).find(
+          (s) => s.taskId === taskId,
+        );
+        if (session)
+          session.messageQueue = [...messages, ...session.messageQueue];
+      },
+    ),
   };
   const promptMutate = vi.fn();
   const usageLimitShow = vi.fn();
+  const toastError = vi.fn();
   const deps = {
     store,
     h: { extractSkillButtonId: () => undefined },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-    toast: { error: vi.fn(), info: vi.fn() },
+    toast: { error: toastError, info: vi.fn() },
     track: vi.fn(),
     getIsOnline: () => true,
     addDirectoryDialog: { open: false },
@@ -75,7 +92,15 @@ function createHarness() {
     },
     "tryAutoRecoverLocalSession",
   );
-  return { service, sessions, store, promptMutate, recoverSpy, usageLimitShow };
+  return {
+    service,
+    sessions,
+    store,
+    promptMutate,
+    recoverSpy,
+    usageLimitShow,
+    toastError,
+  };
 }
 
 type RecoverSpy = ReturnType<typeof createHarness>["recoverSpy"];
@@ -197,4 +222,63 @@ describe("SessionService gateway billing denials", () => {
       expect(recoverSpy).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("SessionService provider credential rejections", () => {
+  it("preserves the session and replaces the provider wording", async () => {
+    const { service, promptMutate, recoverSpy, usageLimitShow, store } =
+      createHarness();
+    promptMutate.mockRejectedValue(
+      new Error(
+        `Internal error: API Error: 401 {"error":{"message":"Incorrect API key provided","type":"provider_credentials_rejected"}}`,
+      ),
+    );
+
+    await expect(service.sendPrompt(TASK_ID, "hello")).rejects.toThrow(
+      "retrying will not help until PostHog fixes it",
+    );
+
+    expect(recoverSpy).not.toHaveBeenCalled();
+    expect(usageLimitShow).not.toHaveBeenCalled();
+    expect(store.updateSession).toHaveBeenCalledWith(
+      TASK_RUN_ID,
+      expect.objectContaining({
+        isPromptPending: false,
+        promptStartedAt: null,
+      }),
+    );
+    expect(store.setSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps queued prompts and shows the credential-specific guidance", async () => {
+    const { service, sessions, promptMutate, toastError } = createHarness();
+    const queuedMessage = {
+      id: "queued-1",
+      content: "hello",
+      queuedAt: 1,
+    };
+    sessions[TASK_RUN_ID].messageQueue = [queuedMessage];
+    promptMutate.mockRejectedValue(
+      new Error(
+        `Internal error: API Error: 401 {"error":{"type":"provider_credentials_rejected"}}`,
+      ),
+    );
+
+    await expect(
+      (
+        service as unknown as {
+          sendQueuedMessages(taskId: string): Promise<{ stopReason: string }>;
+        }
+      ).sendQueuedMessages(TASK_ID),
+    ).rejects.toThrow("retrying will not help until PostHog fixes it");
+
+    expect(sessions[TASK_RUN_ID].messageQueue).toEqual([queuedMessage]);
+    expect(toastError).toHaveBeenCalledWith(
+      "AI provider credentials rejected",
+      {
+        description:
+          "Your message is still queued. Retry after PostHog fixes the problem.",
+      },
+    );
+  });
 });
