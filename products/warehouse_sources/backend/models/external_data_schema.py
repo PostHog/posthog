@@ -402,6 +402,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_full_run_at(self) -> str | None:
+        """ISO timestamp of the last run that actually extracted, so a schema completing on a
+        negative probe still gets one full run per interval (see `_fast_return_eligible`)."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_full_run_at", None)
+
+        return None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)
@@ -705,8 +714,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
-        self.sync_type_config["max_partition_bytes"] = max_partition_bytes
-        self._save_sync_type_config()
+        # Deferred: this module loads during django.setup() and the util pulls in temporalio.
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(
+                self.id,
+                self.team_id,
+                updates={"max_partition_bytes": max_partition_bytes},
+            )
+        )
 
     def set_repartition_pending(self, target: dict[str, Any]) -> None:
         self.sync_type_config["repartition_pending"] = target

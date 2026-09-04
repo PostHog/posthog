@@ -1,21 +1,23 @@
-import { buildInboxDeeplink } from "@posthog/shared/deeplink";
 import type { SignalReport } from "@posthog/shared/types";
 import { toast } from "@posthog/ui/primitives/toast";
+import { inboxReportUrl } from "@posthog/ui/utils/posthogLinks";
 
 /**
- * Copy a deep link (`<scheme>://inbox/{reportId}`) for an inbox report to the
- * clipboard, toasting success or failure. Shared by every inbox detail surface
- * (reports, runs, pull requests) so the link format and copy feedback stay in
- * one place. The inbound side of these links lives in `useInboxDeepLink`.
+ * Copy the report's browser-accessible PostHog URL. Shared by every inbox
+ * detail surface so links still work when the recipient has no Desktop app.
  */
-export function copyInboxReportLink(
-  report: Pick<SignalReport, "id" | "title">,
-): void {
-  const url = buildInboxDeeplink(report.id, report.title, {
-    isDevBuild: import.meta.env.DEV,
-  });
-  navigator.clipboard
-    .writeText(url)
-    .then(() => toast.success("Link copied"))
-    .catch(() => toast.error("Couldn't copy link"));
+export async function copyInboxReportLink(
+  report: Pick<SignalReport, "id">,
+): Promise<void> {
+  const url = inboxReportUrl(report.id);
+  if (!url) {
+    toast.error("Couldn't build a shareable link");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success("Link copied");
+  } catch {
+    toast.error("Couldn't copy link");
+  }
 }

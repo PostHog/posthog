@@ -33,6 +33,7 @@ import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
     type LogsIngestionConsumerDeps,
+    describeBatchPosition,
     logMessageDlqCounter,
     logMessageDroppedCounter,
     logsBillingBytesCreditedCounter,
@@ -43,6 +44,7 @@ import {
     logsRecordsBytesExceedPayloadCounter,
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
+    parseSizeHeader,
 } from './logs-ingestion-consumer'
 import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
@@ -632,9 +634,73 @@ describe('LogsIngestionConsumer', () => {
                 expect(dlqMessage.headers).toHaveProperty('error_message')
                 expect(dlqMessage.headers).toHaveProperty('error_name')
                 expect(dlqMessage.headers).toHaveProperty('failed_at')
+                // Position of the source record, so it can be read back and replayed
+                expect(dlqMessage.headers.source_topic).toEqual(messages[0].topic)
+                expect(dlqMessage.headers.source_partition).toEqual(messages[0].partition.toString())
+                expect(dlqMessage.headers.source_offset).toEqual(messages[0].offset.toString())
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
             }
+        })
+
+        it('should send a message with an unparseable size header to DLQ instead of ingesting it', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+                // NaN here would otherwise flow into the usage counters and per-team billing stats
+                bytes_uncompressed: 'not-a-number',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const produced = getProducedKafkaMessages()
+            expect(produced.filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+
+            const dlq = produced.filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)
+            expect(dlq).toHaveLength(1)
+            expect(dlq[0]?.headers?.error_message).toEqual('invalid_size_headers')
+            expect(dlq[0]?.headers?.team_id).toEqual(team.id.toString())
+        })
+
+        it('should fail the batch when the message cannot be written to the DLQ', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: 'not-a-number',
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            mockProducer.queueMessages = jest.fn().mockRejectedValue(new Error('DLQ unavailable'))
+
+            try {
+                // Resolving here would commit the source offset with no copy anywhere, so the
+                // only record of the payload would be gone.
+                await expect(consumer.processKafkaBatch(messages)).rejects.toThrow('DLQ unavailable')
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+    })
+
+    describe('describeBatchPosition', () => {
+        it('collapses each partition to its offset span', () => {
+            const at = (partition: number, offset: number): Message => ({ partition, offset }) as Message
+
+            expect(describeBatchPosition([at(3, 1000), at(3, 1099), at(7, 42)])).toEqual({
+                '3': '1000-1099',
+                '7': '42',
+            })
+        })
+    })
+
+    describe('parseSizeHeader', () => {
+        it.each([
+            ['1234', 1234],
+            [undefined, 0],
+            ['not-a-number', null],
+            ['-5', null],
+        ])('parses %p as %p', (raw, expected) => {
+            expect(parseSizeHeader(raw)).toEqual(expected)
         })
     })
 
@@ -1380,7 +1446,8 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            expect(messages).toHaveLength(8)
+            // 7 base metrics + per-tier retention + retention_byte_days.
+            expect(messages).toHaveLength(9)
 
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).toContain('bytes_received')
@@ -1391,15 +1458,22 @@ describe('LogsIngestionConsumer', () => {
             expect(metricNames).toContain('bytes_dropped')
             expect(metricNames).toContain('records_dropped')
             expect(metricNames).toContain('bytes_ingested_retention_30d')
+            expect(metricNames).toContain('retention_byte_days')
+
+            const retentionByteDays = messages
+                .map((m) => parseMetricValue(m.value))
+                .find((m) => m?.metric_name === 'retention_byte_days')
+            expect(retentionByteDays?.count).toBe(800 * 30)
         })
 
         it.each([
-            { retentionDays: 14, absent: ['bytes_ingested_retention_30d', 'bytes_ingested_retention_90d'] },
-            { retentionDays: 30, absent: ['bytes_ingested_retention_14d', 'bytes_ingested_retention_90d'] },
-            { retentionDays: 90, absent: ['bytes_ingested_retention_14d', 'bytes_ingested_retention_30d'] },
+            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d' },
+            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d' },
+            { retentionDays: 90, tierMetric: 'bytes_ingested_retention_90d' },
+            { retentionDays: 45, tierMetric: null },
         ])(
-            'should emit only bytes_ingested_retention_${retentionDays}d for the matching tier',
-            async ({ retentionDays, absent }) => {
+            'should emit retention_byte_days as bytes_ingested * $retentionDays alongside the per-tier metric',
+            async ({ retentionDays, tierMetric }) => {
                 const usageStats = new Map([
                     [
                         team.id,
@@ -1420,14 +1494,17 @@ describe('LogsIngestionConsumer', () => {
                 await consumer['emitUsageMetrics'](usageStats)
 
                 const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
-                const retentionMetric = messages
-                    .map((m) => parseMetricValue(m.value))
-                    .find((m) => m?.metric_name === `bytes_ingested_retention_${retentionDays}d`)
+                const parsed = messages.map((m) => parseMetricValue(m.value))
 
-                expect(retentionMetric?.count).toBe(500)
-                const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
-                for (const name of absent) {
-                    expect(metricNames).not.toContain(name)
+                expect(parsed.find((m) => m?.metric_name === 'retention_byte_days')?.count).toBe(500 * retentionDays)
+
+                const tierMetrics = parsed.filter((m) => m?.metric_name?.startsWith('bytes_ingested_retention_'))
+                if (tierMetric) {
+                    expect(tierMetrics).toHaveLength(1)
+                    expect(tierMetrics[0]?.metric_name).toBe(tierMetric)
+                    expect(tierMetrics[0]?.count).toBe(500)
+                } else {
+                    expect(tierMetrics).toHaveLength(0)
                 }
             }
         )
@@ -1454,12 +1531,13 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 non-zero base metrics (no dropped) + 1 retention tier row
-            expect(messages).toHaveLength(5)
+            // 4 non-zero base metrics (no dropped) + per-tier retention + retention_byte_days.
+            expect(messages).toHaveLength(6)
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).not.toContain('bytes_dropped')
             expect(metricNames).not.toContain('records_dropped')
             expect(metricNames).toContain('bytes_ingested_retention_14d')
+            expect(metricNames).toContain('retention_byte_days')
         })
 
         it('should handle empty usageStats', async () => {
@@ -1508,13 +1586,13 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 base metrics + 1 retention tier per team (no dropped) = 10 total
-            expect(messages).toHaveLength(10)
+            // 4 base metrics + per-tier retention + retention_byte_days per team (no dropped) = 12 total.
+            expect(messages).toHaveLength(12)
 
             const team1Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team.id)
             const team2Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team2.id)
-            expect(team1Messages).toHaveLength(5)
-            expect(team2Messages).toHaveLength(5)
+            expect(team1Messages).toHaveLength(6)
+            expect(team2Messages).toHaveLength(6)
         })
     })
 

@@ -210,6 +210,10 @@ def _out_of_contract_delegation(d: dict) -> None:
     d["overrides"]["deny"] = {"ceiling": 1}
 
 
+def _ceiling_under_global_default(d: dict) -> None:
+    d["size_gate"]["max_lines"] = d["overrides"]["size_gate.max_lines"]["ceiling"] + 1
+
+
 def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
 
@@ -246,6 +250,7 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
         _invalid_regex,
         _drop_self_governance,
         _out_of_contract_delegation,
+        _ceiling_under_global_default,
         _rename_deps_toolchain,
         _ownership_unknown_format,
         _ownership_both_locators,
@@ -410,6 +415,27 @@ def test_resolve_no_folder_file_uses_global() -> None:
     assert eff.invalid_folder_files == ()
 
 
+@pytest.mark.parametrize(
+    "frontmatter, expected_line_roof",
+    [
+        pytest.param(None, gates.MAX_LINES, id="no-grant-keeps-the-global-total"),
+        pytest.param(_grant(max_lines=200), gates.MAX_LINES, id="grant-under-the-global-default"),
+        pytest.param(_grant(max_lines=1000), 1000, id="grant-over-the-global-default"),
+    ],
+)
+def test_roof_is_the_most_generous_ceiling_in_play(
+    fake_repo: Path, frontmatter: str | None, expected_line_roof: int
+) -> None:
+    # A folder may grant under the global default, so the roof reads the global
+    # pool too. It is always a scope, which keeps the roof from dropping below
+    # the global ceiling.
+    if frontmatter is not None:
+        _write_folder_policy(fake_repo, frontmatter)
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    assert eff.line_roof == expected_line_roof
+    assert eff.file_roof == gates.MAX_FILES
+
+
 def test_resolve_prose_only_folder_file_keeps_global_budget(fake_repo: Path) -> None:
     # No pseudo-scope budget: without a max_files grant the files pool into
     # the global budget, but the advisory prose still reaches the reviewer.
@@ -427,28 +453,8 @@ def test_resolve_carries_sanitized_prose(fake_repo: Path) -> None:
     assert eff.folder_prose == "keepthis"
 
 
-@pytest.mark.parametrize(
-    "vr_additions, global_additions, n_global, expected_ok, expected_where",
-    [
-        pytest.param(5, 5, 19, True, None, id="both-budgets-fit"),
-        pytest.param(5, 5, 21, False, "global", id="global-file-budget-exceeded"),
-        pytest.param(5, 30, 19, False, "global", id="global-line-budget-exceeded"),
-        pytest.param(30, 5, 19, True, None, id="folder-lines-exceed-global-ceiling-but-fit-own"),
-        pytest.param(40, 5, 19, False, _VISUAL_REVIEW_FILE, id="folder-line-budget-exceeded"),
-    ],
-)
-def test_size_gate_applies_mixed_leniency(
-    vr_additions: int, global_additions: int, n_global: int, expected_ok: bool, expected_where: str | None
-) -> None:
-    # 30 folder-scoped files ride the folder's ceilings while the remaining
-    # files are judged against the global ceilings on their own.
-    vr_files = [
-        {"filename": f"products/visual_review/f{i}.py", "additions": vr_additions, "deletions": 0} for i in range(30)
-    ]
-    global_files = [
-        {"filename": f"posthog/api/m{i}.py", "additions": global_additions, "deletions": 0} for i in range(n_global)
-    ]
-
+def _size_pipeline(vr_files: list[dict], global_files: list[dict]) -> "review_pr.Pipeline":
+    # The folder scope carries the higher ceiling on both keys.
     pipeline = review_pr.Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = PRData(
         number=1,
@@ -479,11 +485,60 @@ def test_size_gate_applies_mixed_leniency(
             ScopeBudget(path=None, ceiling=500, files=global_names),
         ),
     )
+    return pipeline
 
-    ok, message = pipeline._check_size()
+
+@pytest.mark.parametrize(
+    "vr_additions, global_additions, n_global, expected_ok, expected_where",
+    [
+        pytest.param(5, 5, 19, True, None, id="both-budgets-fit"),
+        pytest.param(5, 5, 21, False, "global", id="global-file-budget-exceeded"),
+        pytest.param(5, 30, 19, False, "global", id="global-line-budget-exceeded"),
+        pytest.param(30, 5, 19, True, None, id="folder-lines-exceed-global-ceiling-but-fit-own"),
+        pytest.param(40, 5, 19, False, _VISUAL_REVIEW_FILE, id="folder-line-budget-exceeded"),
+    ],
+)
+def test_size_gate_applies_mixed_leniency(
+    vr_additions: int, global_additions: int, n_global: int, expected_ok: bool, expected_where: str | None
+) -> None:
+    # 30 folder-scoped files ride the folder's ceilings while the remaining
+    # files are judged against the global ceilings on their own.
+    vr_files = [
+        {"filename": f"products/visual_review/f{i}.py", "additions": vr_additions, "deletions": 0} for i in range(30)
+    ]
+    global_files = [
+        {"filename": f"posthog/api/m{i}.py", "additions": global_additions, "deletions": 0} for i in range(n_global)
+    ]
+
+    ok, message = _size_pipeline(vr_files, global_files)._check_size()
     assert ok is expected_ok
     if expected_where is not None:
         assert f"in {expected_where}" in message
+
+
+@pytest.mark.parametrize(
+    "n_vr, vr_additions, n_global, global_additions, expected_roof",
+    [
+        pytest.param(30, 30, 19, 26, "1000L", id="line-roof"),
+        pytest.param(45, 1, 19, 1, "50F", id="file-roof"),
+    ],
+)
+def test_size_gate_roof_bounds_the_whole_pr(
+    n_vr: int, vr_additions: int, n_global: int, global_additions: int, expected_roof: str
+) -> None:
+    # Every scope fits its own budget here. Without a roof the PR total would
+    # grow with the number of granting folders it touches.
+    vr_files = [
+        {"filename": f"products/visual_review/f{i}.py", "additions": vr_additions, "deletions": 0} for i in range(n_vr)
+    ]
+    global_files = [
+        {"filename": f"posthog/api/m{i}.py", "additions": global_additions, "deletions": 0} for i in range(n_global)
+    ]
+
+    ok, message = _size_pipeline(vr_files, global_files)._check_size()
+    assert ok is False
+    assert "across the whole PR" in message
+    assert f"roof is {expected_roof}" in message
 
 
 @pytest.mark.parametrize(

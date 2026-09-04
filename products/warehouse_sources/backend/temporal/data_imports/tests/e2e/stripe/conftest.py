@@ -4,7 +4,12 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.stripe.data import BALANCE_TRANSACTIONS
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.stripe.data import (
+    BALANCE_TRANSACTIONS,
+    CUSTOMER_BALANCE_TRANSACTIONS,
+    CUSTOMERS,
+    DELETED_CUSTOMER_IDS,
+)
 
 
 class StripeData(TypedDict):
@@ -36,14 +41,35 @@ class MockStripeAPI:
         self.max_created = None
 
     def get_resources(self, request: Any, context: Any) -> dict:
-        # Get the path without query string, then get the last segment
-        resource = urlparse(request.url).path.split("/")[-1]
+        path = urlparse(request.url).path
+        # `/v1/customers/{id}/balance_transactions` and `/v1/balance_transactions` share a last
+        # segment, so the nested resource has to be matched on the whole path or the fan-out's
+        # child calls would be served the account-level ledger.
+        nested = re.match(r"^/v1/customers/(?P<customer>[^/]+)/balance_transactions$", path)
+        resource = path.split("/")[-1]
         data: list[StripeData] = []
-        match resource:
-            case "balance_transactions":
-                data = BALANCE_TRANSACTIONS  # type: ignore
-            case _:
-                raise ValueError(f"Mock Stripe API: Unknown resource: {resource}")
+        if nested:
+            customer_id = nested.group("customer")
+            if customer_id in DELETED_CUSTOMER_IDS:
+                # Deleted between the parent listing and this call — Stripe 404s, and the sweep
+                # is expected to skip the parent rather than fail the import.
+                context.status_code = 404
+                return {
+                    "error": {
+                        "type": "invalid_request_error",
+                        "code": "resource_missing",
+                        "message": f"No such customer: '{customer_id}'",
+                    }
+                }
+            data = CUSTOMER_BALANCE_TRANSACTIONS.get(customer_id, [])  # type: ignore
+        else:
+            match resource:
+                case "balance_transactions":
+                    data = BALANCE_TRANSACTIONS  # type: ignore
+                case "customers":
+                    data = CUSTOMERS  # type: ignore
+                case _:
+                    raise ValueError(f"Mock Stripe API: Unknown resource: {resource}")
 
         # Stripe returns data in reverse chronological order
         filtered_data = sorted(data, key=lambda x: x["created"], reverse=True)

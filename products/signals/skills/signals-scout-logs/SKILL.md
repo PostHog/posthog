@@ -1,9 +1,8 @@
 ---
 name: signals-scout-logs
 description: >
-  Signals scout for PostHog logs. Watches for emerging and rate-shifted message patterns
-  (window-over-window deltas), volume bursts, severity-distribution shifts, service
-  silence, and trace-correlated bursts.
+  Signals scout for PostHog logs. Watches for emerging and rate-shifted message patterns, volume
+  bursts, severity-distribution shifts, service silence, and trace-correlated bursts.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +

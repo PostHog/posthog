@@ -61,6 +61,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
     POSTHOG_CONNECT_KIND,
+    POSTHOG_SLACK_SCOPE,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -552,6 +553,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    files_write_requestable = serializers.SerializerMethodField(
+        help_text="Slack only: whether reconnecting can request the files:write scope."
+    )
     installation_shared = serializers.SerializerMethodField(
         help_text=(
             "GitHub only, null otherwise. Whether another project's GitHub integration references the same "
@@ -576,6 +580,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "created_by",
             "errors",
             "display_name",
+            "files_write_requestable",
             "installation_shared",
             "installation_status",
         ]
@@ -585,9 +590,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "created_by",
             "errors",
             "display_name",
+            "files_write_requestable",
             "installation_shared",
             "installation_status",
         ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_files_write_requestable(self, obj: Integration) -> bool:
+        return obj.kind == "slack" and "files:write" in POSTHOG_SLACK_SCOPE.split(",")
 
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_installation_shared(self, obj: Integration) -> bool | None:

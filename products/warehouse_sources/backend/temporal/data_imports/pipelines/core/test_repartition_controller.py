@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
-from products.warehouse_sources.backend.temporal.data_imports import workload_report
+from products.warehouse_sources.backend.temporal.data_imports import schema_flags, workload_report
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -304,7 +304,7 @@ class TestIsAutoRepartitionEnabled:
 
         with (
             patch("posthog.models.Team.objects.only", return_value=mock_queryset),
-            patch.object(ctrl, "capture_exception") as mock_capture_exception,
+            patch.object(schema_flags, "capture_exception") as mock_capture_exception,
         ):
             assert ctrl.is_auto_repartition_enabled(schema) is False
 

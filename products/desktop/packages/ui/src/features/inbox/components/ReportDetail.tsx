@@ -109,9 +109,11 @@ function ReportDetailContent({
               initialEngagementOnly
             />
           }
-          summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+          summarySection={{ Icon: FileTextIcon, title: "Report summary" }}
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+          showDismiss={false}
+          showMetadata={false}
         >
           <ReportReviewersSection report={report} />
           <ReportRunsSection report={report} />

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -5,7 +7,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from products.growth.backend.enrichment.bridge import ClayBridgeInputs
-from products.growth.backend.enrichment.core import enrich_organization
+from products.growth.backend.enrichment.core import _MISS_PAYLOAD, enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.enrichment.providers import EnrichmentProvider, ProviderLookup
@@ -15,11 +17,26 @@ from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichm
 class _FakeProvider(EnrichmentProvider):
     name = "harmonic"
 
-    def __init__(self, lookup: ProviderLookup):
+    def __init__(
+        self,
+        lookup: ProviderLookup,
+        *,
+        status: Optional[str] = None,
+        status_side_effect: Optional[Exception] = None,
+    ):
         self._lookup = lookup
+        self._status = status
+        self._status_side_effect = status_side_effect
+        self.status_calls: list[str] = []
 
     async def enrich_by_domain(self, domain: str) -> ProviderLookup:
         return self._lookup
+
+    async def enrichment_status_for(self, urn: str) -> Optional[str]:
+        self.status_calls.append(urn)
+        if self._status_side_effect is not None:
+            raise self._status_side_effect
+        return self._status
 
 
 # A GraphQL-shaped company the fit score maxes with the test lists: traction 35 (120k
@@ -91,6 +108,7 @@ class TestEnrichmentCore(BaseTest):
         person=None,
         geoip_country_code=None,
         domain="stripe.com",
+        provider=None,
     ):
         person_patch_kwargs = {"side_effect": person} if isinstance(person, Exception) else {"return_value": person}
         clay_patch_kwargs = (
@@ -103,7 +121,7 @@ class TestEnrichmentCore(BaseTest):
             return async_to_sync(enrich_organization)(
                 organization_id=str(self.organization.id),
                 domain=domain,
-                provider=_FakeProvider(lookup),
+                provider=provider or _FakeProvider(lookup),
                 pha_client=pha_client or MagicMock(),
                 is_recheck=is_recheck,
                 role_at_organization=role_at_organization,
@@ -116,14 +134,37 @@ class TestEnrichmentCore(BaseTest):
     def test_archives_raw_payload_and_writes_live_stores_on_match(self):
         company = {"companyType": "STARTUP", "funding": {"fundingStage": "SEED"}}
         fields = EnrichmentFields(company_type="STARTUP")
-        outcome = self._enrich(ProviderLookup(fields=fields, raw_payload=company))
+        outcome = self._enrich(
+            ProviderLookup(fields=fields, raw_payload=company, enrichment_urn="urn:harmonic:enrichment:abc")
+        )
 
         assert outcome.provider_fields is fields
         row = OrganizationEnrichmentFetch.objects.get(organization=self.organization)
         assert row.provider == "harmonic"
         assert row.is_recheck is False
-        assert row.payload == company  # verbatim, un-transformed
+        assert row.payload == {**company, "enrichmentUrn": "urn:harmonic:enrichment:abc"}
         assert OrganizationEnrichment.objects.filter(organization=self.organization).exists()
+
+    @parameterized.expand(
+        [
+            ("miss", None, None, {"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:xyz"}),
+            (
+                "hit",
+                {"companyType": "STARTUP"},
+                EnrichmentFields(company_type="STARTUP"),
+                {"companyType": "STARTUP", "enrichmentUrn": "urn:harmonic:enrichment:xyz"},
+            ),
+        ]
+    )
+    def test_archived_payload_carries_the_enrichment_urn(self, _name, raw_payload, fields, expected_payload):
+        self._enrich(
+            ProviderLookup(fields=fields, raw_payload=raw_payload, enrichment_urn="urn:harmonic:enrichment:xyz")
+        )
+
+        row = OrganizationEnrichmentFetch.objects.get(organization=self.organization)
+        assert row.payload == expected_payload
+        # The module-level miss placeholder must never be mutated by the archive write.
+        assert _MISS_PAYLOAD == {"companyFound": False}
 
     def test_recheck_labels_the_archive_row(self):
         self._enrich(ProviderLookup(fields=None, raw_payload=None), is_recheck=True)
@@ -519,3 +560,102 @@ class TestEnrichmentCore(BaseTest):
         pha_client.set.assert_called_once_with(
             distinct_id="signer-distinct-id", properties={"icp_fit_status": "insufficient_data"}
         )
+
+    # ---------- recheck enrichment status instrumentation ----------
+
+    def test_recheck_polls_the_stored_urn_and_archives_the_status(self):
+        # The first attempt's miss left a real tracking urn; a prior recheck already landed on
+        # that stub with no pending refresh (a null urn). The latest row is the null one, so
+        # polling must walk back to the first attempt's urn, not stop at the latest row.
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            payload={"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:prior"},
+        )
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            is_recheck=True,
+            payload={"companyType": "STARTUP", "enrichmentUrn": None},
+        )
+        lookup = ProviderLookup(
+            fields=EnrichmentFields(company_type="STARTUP"),
+            raw_payload={"companyType": "STARTUP"},
+            enrichment_urn="urn:harmonic:enrichment:new",
+        )
+        provider = _FakeProvider(lookup, status="COMPLETE")
+
+        self._enrich(lookup, is_recheck=True, provider=provider)
+
+        assert provider.status_calls == ["urn:harmonic:enrichment:prior"]
+        row = OrganizationEnrichmentFetch.objects.filter(organization=self.organization).order_by("-fetched_at", "-id")[
+            0
+        ]
+        assert row.payload["enrichmentStatus"] == "COMPLETE"
+        assert row.payload["enrichmentUrn"] == "urn:harmonic:enrichment:new"
+
+    def test_recheck_with_no_stored_urn_makes_no_status_call(self):
+        # Neither an absent key nor an explicit JSON null counts as a stored urn.
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"companyType": "STARTUP"}
+        )
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            is_recheck=True,
+            payload={"companyType": "STARTUP", "enrichmentUrn": None},
+        )
+        lookup = ProviderLookup(fields=None, raw_payload=None, enrichment_urn=None)
+        provider = _FakeProvider(lookup, status="COMPLETE")
+
+        self._enrich(lookup, is_recheck=True, provider=provider)
+
+        assert provider.status_calls == []
+
+    def test_status_call_failure_is_captured_and_the_recheck_still_archives_and_writes(self):
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            payload={"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:prior"},
+        )
+        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
+        lookup = ProviderLookup(fields=fields, raw_payload=_empty_shell(), enrichment_urn="urn:harmonic:enrichment:new")
+        provider = _FakeProvider(lookup, status_side_effect=RuntimeError("harmonic is down"))
+
+        with patch("products.growth.backend.enrichment.core.capture_exception") as capture_mock:
+            outcome = self._enrich(lookup, is_recheck=True, provider=provider, role_at_organization="engineering")
+
+        capture_mock.assert_called_once()
+        exc_arg, context_arg = capture_mock.call_args.args
+        assert isinstance(exc_arg, RuntimeError)
+        assert context_arg == {
+            "organization_id": str(self.organization.id),
+            "enrichment_urn": "urn:harmonic:enrichment:prior",
+        }
+        assert outcome.provider_fields is fields
+        row = OrganizationEnrichmentFetch.objects.get(organization=self.organization, is_recheck=True)
+        assert row.payload["enrichmentStatus"] is None
+        assert row.payload["enrichmentUrn"] == "urn:harmonic:enrichment:new"
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == 12
+
+    def test_first_attempt_never_polls_status(self):
+        # A prior archived urn exists (e.g. from a backfill re-run), so an unguarded call
+        # would find something to poll; the first-attempt path must still never call it.
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            payload={"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:prior"},
+        )
+        lookup = ProviderLookup(
+            fields=EnrichmentFields(company_type="STARTUP"),
+            raw_payload={"companyType": "STARTUP"},
+            enrichment_urn="urn:harmonic:enrichment:new",
+        )
+        provider = _FakeProvider(lookup, status="COMPLETE")
+
+        self._enrich(lookup, is_recheck=False, provider=provider)
+
+        assert provider.status_calls == []
+        row = OrganizationEnrichmentFetch.objects.filter(organization=self.organization).latest("fetched_at")
+        assert "enrichmentStatus" not in row.payload

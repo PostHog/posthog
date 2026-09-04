@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { FileSystemIconColor, ProductManifest } from '~/types'
 
 import type { WarehousePropertiesSceneTab } from './frontend/scenes/WarehousePropertiesScene/warehousePropertiesSceneLogic'
 
@@ -104,6 +104,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.CUSTOMER_ANALYTICS],
             category: ProductItemCategory.ANALYTICS,
             iconType: 'cohort',
+            iconColor: [
+                'var(--color-product-customer-analytics-light)',
+                'var(--color-product-customer-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.customerAnalytics(),
             tags: ['beta'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,

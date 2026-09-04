@@ -15,6 +15,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
@@ -57,10 +58,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FAST_RETURN_PROBE_TIMEOUT,
     AnySource,
     ResumableSource,
     SimpleSource,
     error_message_matches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
+    is_byte_bounded_extraction_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
@@ -87,13 +92,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class ImportDataActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
     reset_pipeline: Optional[bool] = None
+    # From `create_external_data_job_model_activity` (`_fast_return_eligible`): the schema tracks
+    # a cursor, is past its initial sync, and owes no repair work, so a negative probe may
+    # complete this run without extracting. Defaults False so old payloads keep the full path.
+    fast_return_eligible: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -103,6 +112,7 @@ class ImportDataActivityInputs:
             "source_id": self.source_id,
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
+            "fast_return_eligible": self.fast_return_eligible,
         }
 
 
@@ -122,17 +132,26 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+# An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
+# streams the table with no dedupe state. Append keeps a row per sync and CDC keeps change
+# history, so either would fan the child out once per duplicate. Webhook qualifies because its
+# drains merge on the primary key — the pipeline maps it to `sync_type = "incremental"`.
+WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.FULL_REFRESH,
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+    }
+)
+
+
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
     """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
     if parent is None:
         return "missing"
     if not parent.should_sync:
         return "disabled"
-    if not (parent.is_incremental or parent.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH):
-        # An allow-list, not a deny-list: only merge and full-refresh parents hold one row per
-        # key. Append accumulates a row per sync, and CDC keeps change history, so the reader —
-        # which streams the table as-is, with no dedupe state — would fan the child out once
-        # per duplicate. New sync types have to opt in here deliberately.
+    if parent.sync_type not in WAREHOUSE_READABLE_PARENT_SYNC_TYPES:
         return "unsupported_sync_type"
     if not parent.initial_sync_complete:
         return "no_initial_sync"
@@ -244,6 +263,37 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
             "held_at": rewrite.get("held_at"),
         },
     )
+    return True
+
+
+async def _probe_found_new_data(
+    source: AnySource,
+    config: Any,
+    source_inputs: SourceInputs,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """False only when the source proves it has nothing past the watermark; True on any doubt.
+
+    The timeout bounds how long the run waits, but cannot interrupt the probe's thread: a probe
+    stuck on a remote call keeps running until the source's own bound fires (implementations cap
+    their query server-side, see `probe_new_data`). Either way this run continues into the full
+    sync, so a slow or broken probe costs time, never data.
+    """
+    try:
+        has_new_data = await asyncio.wait_for(
+            database_sync_to_async_pool(source.probe_new_data)(config, source_inputs),
+            timeout=FAST_RETURN_PROBE_TIMEOUT.total_seconds(),
+        )
+    except TimeoutError:
+        await logger.ainfo("Fast-return probe timed out, running the full sync")
+        return True
+    except Exception as e:
+        await logger.ainfo(f"Fast-return probe failed, running the full sync: {e}")
+        return True
+
+    if has_new_data is False:
+        await logger.ainfo("Fast-return probe: source has no new data")
+        return False
     return True
 
 
@@ -367,7 +417,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
 
-        if reset_pipeline is not True:
+        # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
+        # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
+        # extraction has to re-pull every row to match that overwrite. Keeping the incremental cursor
+        # would extract only the rows after the stored watermark and collapse the table to that slice.
+        delta_rebuild_pending = schema.delta_revive_required is not None
+        if delta_rebuild_pending:
+            await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
+
+        if reset_pipeline is not True and not delta_rebuild_pending:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -416,6 +474,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
                 new_source, schema, inputs.source_id, inputs.team_id, logger
             )
+            byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
+                inputs.team_id, str(source_type)
+            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -453,6 +514,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
+                byte_bounded_extraction=byte_bounded_extraction,
             )
 
             try:
@@ -471,6 +533,26 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 await handle_non_retryable_error(
                     job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
                 )
+
+            # Probing before source setup is what makes the fast return cheap: everything past
+            # this point (connections, metadata queries, the delta log read) is spent whether or
+            # not the sync has anything to move. The probe reads the same `source_inputs` the
+            # extraction below would, so watermark processing and row filters cannot drift.
+            # `reset_pipeline` is re-checked here because a reset asked for through the workflow
+            # input never reaches `sync_type_config`, which is all eligibility can see.
+            if inputs.fast_return_eligible and not reset_pipeline:
+                if not await _probe_found_new_data(new_source, config, source_inputs, logger):
+                    # The run checked the source, so the schema must not read as stale. Mirrors
+                    # `update_last_synced_at` on the extracting path (which also stamps
+                    # `last_full_run_at`; a fast return deliberately does not).
+                    await database_sync_to_async_pool(
+                        ExternalDataSchema.objects.filter(id=schema.id, team_id=inputs.team_id).update
+                    )(last_synced_at=model.created_at, updated_at=dt.datetime.now(dt.UTC))
+                    return PipelineResult(
+                        should_trigger_cdp_producer=False,
+                        skip_post_import_activities=True,
+                        fast_returned=True,
+                    )
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:

@@ -79,6 +79,7 @@ import {
   SIGNED_MERGE_QUALIFIED_TOOL_NAME,
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../adapters/signed-commit-shared";
+import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -132,9 +133,10 @@ import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
-import { resolveRtkSavings } from "./rtk-savings";
-import { RunUsageAccumulator } from "./run-usage";
+import { createRtkSavingsNotification } from "./rtk-savings";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
+import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -143,6 +145,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "content_block_rejection",
   "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
@@ -159,6 +162,12 @@ const upstreamProviderFailureClassifications =
     "upstream_timeout",
     "upstream_provider_failure",
   ]);
+
+type TurnFailureDisposition =
+  | "terminal"
+  | "recoverable"
+  | "retryable_delivery"
+  | "retryable_followup";
 
 const errorWithClassificationSchema = z.object({
   data: z.object({ classification: agentErrorClassificationSchema }),
@@ -545,6 +554,8 @@ export class AgentServer {
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
+  private storeSkillsInstalledCount = 0;
+  private storeSkillsActivationResolved = false;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -647,7 +658,11 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
-    this.bootTracker = new AgentBootTracker(config.runId);
+    this.bootTracker = new AgentBootTracker(
+      config.runId,
+      undefined,
+      config.launcherToProcessMs,
+    );
     this.posthogExecPermissionRegexSource =
       config.posthogExecPermissionRegex ??
       DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE;
@@ -1301,15 +1316,16 @@ export class AgentServer {
           // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveActivationSettings();
+          const activationContext = await this.resolveActivationSettings();
           const hostContext = [
-            ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
+            ...activationContext,
             ...(this.detectedPrUrl
               ? [this.buildDetectedPrContext(this.detectedPrUrl)]
               : []),
           ];
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
+            ...(messageId ? { messageId } : {}),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
@@ -1445,12 +1461,12 @@ export class AgentServer {
             }
           } catch (error) {
             await commandSession.logWriter.flushAll();
-            const { recoverable } = await this.handleTurnFailure(
+            const failureDisposition = await this.handleTurnFailure(
               commandSession.payload,
               "followup",
               error,
             );
-            if (!recoverable) {
+            if (failureDisposition !== "recoverable") {
               throw error;
             }
             commitDelivery();
@@ -1585,6 +1601,11 @@ export class AgentServer {
           );
         }
 
+        // The backend refreshes the session when the acting user changes, and
+        // the store skills on disk are that user's. Resync them so the previous
+        // actor's skill names and descriptions do not outlive their turn.
+        await this.refreshStoreSkills("refresh_session");
+
         if (mcpServers.length === 0) {
           return { refreshed: true };
         }
@@ -1715,6 +1736,7 @@ export class AgentServer {
     this.bootTracker = new AgentBootTracker(
       payload.run_id,
       this.httpReadyBootMs,
+      this.config.launcherToProcessMs,
     );
     this.initializationPromise = this._doInitializeSession(
       payload,
@@ -1795,6 +1817,7 @@ export class AgentServer {
     this.nativeResume = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
+    this.storeSkillsActivationResolved = false;
     this.prewarmedStartupTurnPending = false;
     this.autoPublishStateResolved = false;
     this.warmReasoningEffortResolved = false;
@@ -1816,14 +1839,12 @@ export class AgentServer {
           this.posthogAPI
             .getTaskRun(payload.task_id, payload.run_id)
             .catch((err) => {
-              this.logger.debug(
-                "Failed to fetch task run for session context",
-                {
-                  taskId: payload.task_id,
-                  runId: payload.run_id,
-                  error: err,
-                },
-              );
+              // Without the run the stage is unknown, so routing falls back to the env product.
+              this.logger.warn("Failed to fetch task run for session context", {
+                taskId: payload.task_id,
+                runId: payload.run_id,
+                error: err,
+              });
               return null;
             }),
           this.fetchTaskForSessionContext(payload.task_id),
@@ -1833,6 +1854,7 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
+    seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
@@ -1893,6 +1915,13 @@ export class AgentServer {
     const inboxReportUrl = signalReportId
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
+
+    // Before the prompt: its skills-store section counts the stubs on disk.
+    await this.installStoreSkills(
+      payload.task_id,
+      payload.run_id,
+      preTaskRun?.state ?? null,
+    );
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
@@ -2382,37 +2411,52 @@ export class AgentServer {
     payload: JwtPayload,
     phase: "initial" | "resume" | "followup",
     error: unknown,
-  ): Promise<{ recoverable: boolean }> {
+  ): Promise<TurnFailureDisposition> {
     const { classification, message } = this.extractErrorClassification(error);
     const isUpstreamFailure =
       upstreamProviderFailureClassifications.has(classification);
+    const isTurnWithoutResponse =
+      classification === "turn_ended_without_response";
     const displayMessage = isUpstreamFailure
       ? UPSTREAM_PROVIDER_FAILURE_MESSAGE
       : message || "Agent error";
-    const recoverable =
-      isUpstreamFailure &&
-      phase === "followup" &&
-      this.getEffectiveMode(payload) === "interactive";
+    const isInteractiveFollowup =
+      phase === "followup" && this.getEffectiveMode(payload) === "interactive";
+    const retryableFollowup = isTurnWithoutResponse && isInteractiveFollowup;
+    const retryableDelivery =
+      classification === "content_block_rejection" && phase === "followup";
+    const recoverable = isUpstreamFailure && isInteractiveFollowup;
     const expectedIdleTransportClosure =
       recoverable && /^ACP connection closed$/i.test(message.trim());
+    const suppressClientError =
+      retryableFollowup || expectedIdleTransportClosure;
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
       message,
       recoverable,
+      retryableDelivery,
     });
 
-    if (!expectedIdleTransportClosure) {
+    if (retryableDelivery) {
+      return "retryable_delivery";
+    }
+
+    if (!suppressClientError) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
-      return { recoverable: true };
+      return "recoverable";
+    }
+
+    if (retryableFollowup) {
+      return "retryable_followup";
     }
 
     await this.signalTaskComplete(payload, "error", displayMessage);
-    return { recoverable: false };
+    return "terminal";
   }
 
   private broadcastTurnFailure(
@@ -3770,6 +3814,49 @@ export class AgentServer {
     return normalizedName;
   }
 
+  /**
+   * Put the user's skills-store skills on disk as pointer stubs before the
+   * harness session starts, so it lists them like any local skill. The task
+   * worker resolves the list into the run state when it builds the run, so
+   * this is filesystem work only and adds no request to session start. Skill
+   * bodies stay in the store and cross the PostHog MCP only when a skill is
+   * invoked.
+   */
+  private async installStoreSkills(
+    taskId: string,
+    runId: string,
+    runState: TaskRunState | null,
+  ): Promise<void> {
+    this.storeSkillsInstalledCount = await syncStoreSkills(
+      runState,
+      { taskId, runId },
+      this.logger,
+    );
+  }
+
+  /**
+   * Re-read the run and bring the stubs on disk in line with it. The worker
+   * rewrites `store_skills` when the acting user changes, after this session
+   * started, and refreshes the session right after.
+   */
+  private async refreshStoreSkills(reason: string): Promise<void> {
+    if (!this.session) {
+      return;
+    }
+    const { task_id: taskId, run_id: runId } = this.session.payload;
+    let state: TaskRunState | undefined;
+    try {
+      state = (await this.posthogAPI.getTaskRun(taskId, runId))?.state;
+    } catch (error) {
+      this.logger.debug("Failed to fetch run state for skills store refresh", {
+        reason,
+        error,
+      });
+      return;
+    }
+    await this.installStoreSkills(taskId, runId, state ?? null);
+  }
+
   private async waitForRepoReady(): Promise<void> {
     const readyFile = this.config.repoReadyFile;
     if (!readyFile) {
@@ -3848,7 +3935,13 @@ export class AgentServer {
     );
     const userPrompt = this.config.claudeCode?.systemPrompt;
 
-    return buildCloudSessionSystemPrompt(cloudAppend, userPrompt);
+    const sessionPrompt = buildCloudSessionSystemPrompt(
+      cloudAppend,
+      userPrompt,
+    );
+    return this.getCloudInteractionOrigin() === "slack"
+      ? appendSte100Guidance(sessionPrompt)
+      : sessionPrompt;
   }
 
   private buildCodexInstructions(
@@ -3918,21 +4011,32 @@ export class AgentServer {
     );
   }
 
-  /** Apply settings from run state before the first turn when launch config is incomplete. */
-  private async resolveActivationSettings(): Promise<string | null> {
+  /**
+   * Apply settings from run state before the first turn when launch config is
+   * incomplete, and return the host-context blocks that prompt needs for them.
+   */
+  private async resolveActivationSettings(): Promise<string[]> {
     if (!this.session) {
-      return null;
+      return [];
     }
 
     const shouldResolveReasoning =
       this.prewarmedRun && !this.warmReasoningEffortResolved;
+    // A warm run's stubs were installed at prewarm time; the worker rewrites
+    // the list for the activating user before it forwards the first message.
+    const shouldResolveStoreSkills =
+      this.prewarmedRun && !this.storeSkillsActivationResolved;
     const shouldResolveAutoPublish =
       !this.autoPublishStateResolved &&
       this.config.autoPublish !== true &&
       this.config.createPr !== false &&
       !this.isAutomatedOrigin();
-    if (!shouldResolveReasoning && !shouldResolveAutoPublish) {
-      return null;
+    if (
+      !shouldResolveReasoning &&
+      !shouldResolveStoreSkills &&
+      !shouldResolveAutoPublish
+    ) {
+      return [];
     }
 
     let state: TaskRunState | undefined;
@@ -3946,13 +4050,29 @@ export class AgentServer {
       // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
       this.logger.debug("Failed to fetch activation settings", { error });
-      return null;
+      return [];
     }
 
     if (shouldResolveReasoning) {
       await this.resolveWarmReasoningEffort(state);
     }
-    return this.resolveAutoPublishFromState(state);
+    const context: string[] = [];
+    if (shouldResolveStoreSkills) {
+      const { task_id: taskId, run_id: runId } = this.session.payload;
+      const previousCount = this.storeSkillsInstalledCount;
+      await this.installStoreSkills(taskId, runId, state ?? null);
+      this.storeSkillsActivationResolved = true;
+      if (previousCount === 0 && this.storeSkillsInstalledCount > 0) {
+        context.push(
+          buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
+        );
+      }
+    }
+    const autoPublishUpgrade = this.resolveAutoPublishFromState(state);
+    if (autoPublishUpgrade) {
+      context.push(autoPublishUpgrade);
+    }
+    return context;
   }
 
   private async resolveWarmReasoningEffort(
@@ -4151,30 +4271,29 @@ ${unsupportedDeliverable}`;
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 
-  /**
-   * What to do when a cloud run has no way to reach the user's code.
-   *
-   * Repository access on a cloud run comes from the user's own GitHub connection in
-   * PostHog, so a run can legitimately start without one — nothing is checked out and
-   * there are no credentials to push with. The Slack mention path used to refuse those
-   * mentions outright, which walled off every question that only looked like it needed
-   * code; it now starts the run and leaves the judgement here, where the request itself
-   * is visible. The settings link is built from this run's own host and project so it
-   * lands the user in the right region rather than a hardcoded one.
-   *
-   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
-   * public repository clones with no token at all, so a run can hold the code and still
-   * have no way to push it.
-   */
-  private buildSourceControlAccessInstructions(): string {
+  private buildGithubAccessInstructions(hasGithubToken: boolean): string {
+    if (hasGithubToken) {
+      return `
+## GitHub access
+You have GitHub access in this session.`;
+    }
+
     const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
     return `
-## When you cannot reach the code
-You may have no repository checked out, or no credentials to push and open a pull request with.
-- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
-- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
-- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
-- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+## GitHub access
+You do not have GitHub access in this session.
+- You can read repository content that is already in the workspace.
+- You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
+- Codebase analysis and code review require readable repository content.
+- Code changes also require publishing access.
+- If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
+- Tell the user to connect GitHub at ${settingsUrl}.
+- The connection applies to a new task, not this task.
+- Write the access explanation first.
+- Then call \`show_actions\` with one \`compose\` action.
+- Use the label \`Try again in a new task\` and prefill the original repository request.
+- Include the exact \`owner/repo\` in the action when you know it.
+- Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
   private buildCloudSystemPrompt(
@@ -4185,7 +4304,19 @@ You may have no repository checked out, or no credentials to push and open a pul
     const taskId = this.config.taskId;
     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
     const isSlack = this.getCloudInteractionOrigin() === "slack";
-    const identityInstructions = isSlack
+    // Every instruction in this section runs through `gh`, so a sandbox holding no
+    // GitHub token cannot act on any of it. An empty token is an explicit logout.
+    const hasGithubToken = Boolean(resolveGithubToken());
+    const githubIdentityInstructions = hasGithubToken
+      ? `
+# Whose GitHub account you are using
+\`gh\` is authenticated as the person you are working for, so let GitHub resolve who that is. To put them on an issue or pull request, self-assign:
+  \`gh issue create --assignee "@me"\`, \`gh pr create --assignee "@me"\`, \`gh issue edit <number> --add-assignee "@me"\`
+To \`@\`-mention them in a body or a comment, read their handle with \`gh api user --jq .login\`. Read it once per reply rather than reusing one from an earlier reply, because a different person can take over between replies and \`gh\` follows that change.
+If the command fails, or returns a name ending in \`[bot]\`, you are acting as the PostHog app rather than as a person: ask them for their GitHub login instead of assigning or mentioning anyone.
+`
+      : "";
+    const slackIdentityInstructions = isSlack
       ? `
 # Identity
 You are the PostHog Slack app, PostHog's agent for helping users with their product data and coding tasks from Slack. When introducing yourself or referring to yourself in messages to the user, identify as "PostHog Slack app". Do NOT refer to yourself as Claude, an Anthropic assistant, or any underlying model name.
@@ -4212,6 +4343,7 @@ To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears
 You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
 `
       : "";
+    const identityInstructions = `${slackIdentityInstructions}${githubIdentityInstructions}`;
     const signedCommitInstructions = `
 ## Committing (signed commits required)
 Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.
@@ -4302,11 +4434,11 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
-    const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
+    const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread, or one you read from \`gh api user --jq .login\`, which authenticates as the person you are working for. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
     // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
@@ -4406,6 +4538,7 @@ When the user asks about analytics, data, metrics, events, funnels, dashboards, 
 - Use the canonical \`posthog:exec\` tool to query data, search insights, and provide real answers
 - Follow its built-in instructions to discover and invoke inner tools
 - Do NOT tell the user to check an external analytics platform — you ARE the analytics platform
+- For a named business or telemetry metric, inspect the complete governed catalog with \`posthog:metric-list\`, inspect a candidate with \`posthog:metric-describe\`, then run an approved match with \`posthog:data-catalog-metric-run\` before a typed domain tool or raw query
 - Inner tools include \`posthog:read-data-schema\`, \`posthog:execute-sql\`, \`posthog:insight-query\`, and the typed query tools
 
 When the user asks for code changes or software engineering tasks:
@@ -4657,7 +4790,8 @@ ${commonInstructions}
     // Go-gateway runs authenticate with the per-run scoped token minted by the
     // worker (pinned product + on-behalf-of team, per-run spend cap), not the
     // run's per-team OAuth token, whose team has no gateway wallet. A routed
-    // product with no token therefore stays on the Python gateway.
+    // product with no token therefore stays on the Python gateway. The worker's env values
+    // win, because the token is pinned to the product they name.
     const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
     let target = resolveGatewayTarget({
       product,
@@ -4675,7 +4809,12 @@ ${commonInstructions}
         env: { ...process.env, AI_GATEWAY_URL: undefined },
       });
     }
-    const { baseUrl: gatewayUrl, isAiGateway, aiProduct } = target;
+    const {
+      baseUrl: gatewayUrl,
+      isAiGateway,
+      aiProduct,
+      aiStage: resolvedStage,
+    } = target;
     const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
     const openaiBaseUrl = gatewayUrl.endsWith("/v1")
       ? gatewayUrl
@@ -4689,7 +4828,7 @@ ${commonInstructions}
       task_origin_product: originProduct,
       task_internal: isInternal,
       signal_report_id: signalReportId,
-      ai_stage: aiStage,
+      ai_stage: resolvedStage,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,
@@ -5220,8 +5359,9 @@ ${commonInstructions}
       ...(checkout ? [checkout] : []),
       ...ownedBranchesFromOutput(freshOutput),
     ];
-    // GitHub App installation tokens (all cloud runs) can't read `gh api user`, so
-    // ghLogin is null there and the head-branch match is what proves ownership.
+    // Bot-authored runs hold a GitHub App installation token, which can't read
+    // `gh api user`, so ghLogin is null there and the head-branch match is what proves
+    // ownership. User-authored runs carry the actor's own token and do resolve a login.
     const owned = wasCreatedByThisRun({
       createdAt: attribution.createdAt,
       nowMs: Date.now(),
@@ -5425,31 +5565,17 @@ ${commonInstructions}
     this.rtkSavingsAttempted = true;
 
     try {
-      const savings = await (
-        this.config.resolveRtkSavings ?? resolveRtkSavings
-      )();
-      if (!savings) return;
-
-      this.eventStreamSender.enqueue({
-        type: "notification",
-        timestamp: new Date().toISOString(),
-        notification: {
-          jsonrpc: "2.0",
-          method: POSTHOG_NOTIFICATIONS.RTK_SAVINGS,
-          params: {
-            task_id: this.config.taskId,
-            run_id: this.config.runId,
-            team_id: this.config.projectId,
-            counter_id: this.config.taskId,
-            cumulative_commands: savings.totalCommands,
-            cumulative_input_tokens: savings.inputTokens,
-            cumulative_output_tokens: savings.outputTokens,
-            cumulative_tokens_saved: savings.tokensSaved,
-            runtime_adapter: this.config.runtimeAdapter,
-            model: this.config.model,
-          },
-        },
+      const notification = await createRtkSavingsNotification({
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        teamId: this.config.projectId,
+        runtimeAdapter: this.config.runtimeAdapter,
+        model: this.config.model,
+        resolveSavings: this.config.resolveRtkSavings,
       });
+      if (notification) {
+        this.eventStreamSender.enqueue(notification);
+      }
     } catch (error) {
       this.logger.debug("Failed to emit rtk savings", { error });
     }
@@ -5464,13 +5590,13 @@ ${commonInstructions}
     if (!this.runUsage.add(usage)) return;
     const payload = this.session?.payload;
     if (!payload) return;
-    void this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        state: { token_usage: this.runUsage.snapshot() },
-      })
-      .catch((error) => {
-        this.logger.warn("Failed to report run token usage", error);
-      });
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      payload.task_id,
+      payload.run_id,
+      this.logger,
+    );
   }
 
   private handleAcpTransportMessage(message: unknown): void {

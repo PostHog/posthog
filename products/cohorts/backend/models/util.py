@@ -18,7 +18,13 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_hogql_global_settings
+from posthog.hogql.constants import (
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLGlobalSettings,
+    LimitContext,
+    get_default_hogql_global_settings,
+)
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
@@ -51,12 +57,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
-from products.cohorts.backend.models.sql import (
-    GET_COHORT_SIZE_SQL,
-    GET_COHORTS_BY_PERSON_UUID,
-    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
-    RECALCULATE_COHORT_BY_ID,
-)
+from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
     from posthog.personhog_client import ReadConsistency
@@ -906,11 +907,30 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
         return cohort.properties
 
 
-def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+def _get_cohort_ids_by_person_uuid(uuid: str, team: Team, database: Database) -> list[int]:
+    # Deferred: posthog.hogql.query reaches posthog.models.property.util, which imports this module.
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
     tag_queries(product=ProductKey.COHORTS, name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
-    res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    res = execute_hogql_query(
+        """
+        SELECT cohort_id, argMax(version, version) AS latest_version
+        FROM raw_cohort_people
+        WHERE person_id = {person_id}
+        GROUP BY cohort_id
+        HAVING argMax(sign, version) > 0
+        LIMIT {limit}
+        """,
+        placeholders={
+            "person_id": ast.Constant(value=uuid),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        team=team,
+        query_type="get_cohort_ids_by_person_uuid",
+        context=HogQLContext(team_id=team.pk, database=database),
+    ).results
     cohort_ids_from_cohortperson = [row[0] for row in res]
-    cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
+    cohorts = Cohort.objects.filter(deleted=False, team_id=team.pk, pk__in=cohort_ids_from_cohortperson)
     values_list_result = cohorts.values_list("id", "version")
     id_latest_version_map = dict(values_list_result)
     cohort_ids = []
@@ -926,16 +946,32 @@ def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return cohort_ids
 
 
-def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+def _get_static_cohort_ids_by_person_uuid(uuid: str, team: Team, database: Database) -> list[int]:
+    # Deferred: posthog.hogql.query reaches posthog.models.property.util, which imports this module.
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
     tag_queries(product=ProductKey.COHORTS, name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
-    res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    res = execute_hogql_query(
+        "SELECT DISTINCT cohort_id FROM static_cohort_people WHERE person_id = {person_id} LIMIT {limit}",
+        placeholders={
+            "person_id": ast.Constant(value=uuid),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        team=team,
+        query_type="get_static_cohort_ids_by_person_uuid",
+        context=HogQLContext(team_id=team.pk, database=database),
+    ).results
     return [row[0] for row in res]
 
 
-def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    with tags_context(team_id=team_id):
-        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
-        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+def get_all_cohort_ids_by_person_uuid(uuid: str, team: Team) -> list[int]:
+    with tags_context(team_id=team.pk):
+        # Both lookups run per request, so build the team's HogQL database once and share it.
+        # Each execute_hogql_query call would otherwise build its own, and the build cost
+        # scales with the team's warehouse size.
+        database = Database.create_for(team=team)
+        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team, database)
+        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team, database)
     return [*cohort_ids, *static_cohort_ids]
 
 

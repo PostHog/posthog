@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ProcessBatchFn,
     _group_by_key,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     _UNSET,
     FRESHNESS_WINDOW_SECONDS,
@@ -244,11 +245,34 @@ class DeltaBatchConsumerAdapter:
             logger.exception("fail_run_queue_update_failed", batch_id=batch.id, run_uuid=batch.run_uuid)
             capture_exception(e)
 
+        # A run that will not finish leaves scratch tables behind in someone else's database:
+        # a full refresh's staging table, and the run's merge stage. Nothing else drops them,
+        # because the next run stages under its own id.
+        if batch.destination_ids:
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
+                abort_destinations,
+            )
+
+            try:
+                # `to_export_signal()` hands back a dict, so it needs parsing the same way the
+                # delivery path does before anything reads a field off it.
+                await sync_to_async(abort_destinations)(ExportSignalMessage.from_dict(batch.to_export_signal()))
+            except Exception as e:
+                # Best effort by design: a leftover table costs the customer storage, not
+                # correctness, and is not worth failing the fail path over.
+                logger.warning(
+                    "fail_run_destination_abort_failed",
+                    job_id=batch.job_id,
+                    run_uuid=batch.run_uuid,
+                    error=str(e),
+                )
+
         try:
             await sync_to_async(_update_job_status_to_failed)(
                 job_id=batch.job_id,
                 team_id=batch.team_id,
                 error=reason,
+                run_uuid=batch.run_uuid,
             )
         except Exception as e:
             # Leave the job for the reconcile sweep rather than crashing the consumer.
@@ -738,7 +762,7 @@ def _get_job_status_and_error(*, job_id: str, team_id: int) -> tuple[str, str | 
     return ExternalDataJob.objects.filter(id=job_id, team_id=team_id).values_list("status", "latest_error").first()
 
 
-def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
+def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str, run_uuid: str = "") -> None:
     from products.data_warehouse.backend.facade.api import update_external_job_status
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 

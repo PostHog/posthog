@@ -6,7 +6,7 @@ from unittest import mock
 
 from django.utils import timezone
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks.tasks import (
     STALE_THRESHOLD_DAYS,
@@ -227,6 +227,69 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         # Should be deactivated because it's at or past the threshold
         version.refresh_from_db()
         assert version.saved_query is None
+
+    @mock.patch("products.endpoints.backend.tasks.tasks._deactivate_version_materialization")
+    def test_selects_stale_version_whose_saved_query_last_run_at_is_never_written(self, mock_deactivate):
+        now = timezone.now()
+        _, version = self._create_materialized_endpoint(
+            name="v2_scheduled",
+            last_run_at=now - timedelta(days=40),
+            last_executed_at=now - timedelta(days=45),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=version.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=now - timedelta(hours=1),
+        )
+
+        deactivate_stale_materializations()
+
+        mock_deactivate.assert_called_once()
+        assert mock_deactivate.call_args[0][0].id == version.id
+
+    @mock.patch("products.endpoints.backend.tasks.tasks._deactivate_version_materialization")
+    def test_deactivates_superseded_version_of_an_active_endpoint(self, mock_deactivate):
+        now = timezone.now()
+        endpoint, old_version = self._create_materialized_endpoint(
+            name="active_endpoint",
+            last_executed_at=now - timedelta(days=5),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        EndpointVersion.objects.filter(id=old_version.id).update(last_executed_at=now - timedelta(days=45))
+
+        current_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="active_endpoint_v2",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            last_run_at=now,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            table=DataWarehouseTable.objects.create(
+                team=self.team,
+                name="active_endpoint_v2_table",
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="s3://test-bucket/active_endpoint_v2_table",
+            ),
+        )
+        DataWarehouseSavedQuery.objects.filter(id=current_saved_query.id).update(created_at=now - timedelta(days=40))
+        current_version = EndpointVersion.objects.create(
+            endpoint=endpoint,
+            version=2,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            saved_query=current_saved_query,
+            last_executed_at=now - timedelta(days=5),
+        )
+        endpoint.current_version = 2
+        endpoint.save(update_fields=["current_version"])
+
+        deactivate_stale_materializations()
+
+        deactivated_ids = {call.args[0].id for call in mock_deactivate.call_args_list}
+        assert deactivated_ids == {old_version.id}
+        assert current_version.id not in deactivated_ids
 
 
 class TestDeactivateEndpointMaterialization(BaseTest):

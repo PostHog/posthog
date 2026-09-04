@@ -133,9 +133,12 @@ import type {
     TaskThreadMessageWriteApi,
     TaskUsageResponseApi,
     TaskWriteApi,
+    TasksAIRunPreferencesApi,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
+    TasksConfigListParams,
     TasksListParams,
+    TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
@@ -143,7 +146,9 @@ import type {
     TasksSearchRetrieveParams,
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
+    TasksTeamConfigResponseApi,
     TasksThreadMessagesListParams,
+    TasksUserConfigResponseApi,
     TeachingCanvasApi,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
@@ -779,7 +784,7 @@ export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsL
 }
 
 /**
- * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels.
+ * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels. Send `limit` (with `offset`) for one page and a `count`/`next` envelope; without `limit` the response is the full array of channels.
  * @summary List channels
  */
 export const taskChannelsList = async (
@@ -2305,6 +2310,8 @@ export const getTasksRunsStreamRetrieveUrl = (
  *
  * The server caps each connection at 900 seconds: it emits `event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run finished — reconnect with the `Last-Event-ID` header set to the last received event id to resume without gaps or duplicates. Only treat the stream as complete when the run itself reaches a terminal status.
  *
+ * Resume guarantees cover mirrored events only: on runs where live mirroring is presence-gated, events produced while no viewer was connected are not in the live stream. Reload the run's session logs to recover the agent's output; run-state and progress frames are not in those logs, so refetch the run itself for its current state.
+ *
  * `?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting without it re-resolves to the then-current latest event, silently skipping anything published while disconnected.
  *
  * **SDK consumers**: do not call the generated fetch wrapper for this path — it will buffer the entire stream. Use the URL builder (`getTasksRunsStreamRetrieveUrl`) with a streaming `fetch`/`EventSource`-style consumer and the `Last-Event-ID` header instead.
@@ -2614,6 +2621,56 @@ export const tasksThreadMessagesSendToAgentCreate = async (
     })
 }
 
+export const getTasksMeConfigListUrl = (projectId: string, params?: TasksMeConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/@me/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/@me/config/`
+}
+
+/**
+ * Retrieve your per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (your preference over the project default).
+ */
+export const tasksMeConfigList = async (
+    projectId: string,
+    params?: TasksMeConfigListParams,
+    options?: RequestInit
+): Promise<TasksUserConfigResponseApi> => {
+    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksMeConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/config/`
+}
+
+/**
+ * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
+ */
+export const tasksMeConfigCreate = async (
+    projectId: string,
+    tasksAIRunPreferencesApi?: TasksAIRunPreferencesApi,
+    options?: RequestInit
+): Promise<TasksUserConfigResponseApi> => {
+    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAIRunPreferencesApi),
+    })
+}
+
 export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/active_wizard_run/`
 }
@@ -2629,6 +2686,56 @@ export const tasksActiveWizardRunRetrieve = async (
     return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksConfigListUrl = (projectId: string, params?: TasksConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/config/`
+}
+
+/**
+ * Retrieve the project-wide default AI run preferences for task runs.
+ */
+export const tasksConfigList = async (
+    projectId: string,
+    params?: TasksConfigListParams,
+    options?: RequestInit
+): Promise<TasksTeamConfigResponseApi> => {
+    return apiMutator<TasksTeamConfigResponseApi>(getTasksConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/config/`
+}
+
+/**
+ * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
+ */
+export const tasksConfigCreate = async (
+    projectId: string,
+    tasksAIRunPreferencesApi?: TasksAIRunPreferencesApi,
+    options?: RequestInit
+): Promise<TasksTeamConfigResponseApi> => {
+    return apiMutator<TasksTeamConfigResponseApi>(getTasksConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAIRunPreferencesApi),
     })
 }
 
@@ -2802,7 +2909,7 @@ export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSumm
 }
 
 /**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */
 export const tasksSummariesCreate = async (

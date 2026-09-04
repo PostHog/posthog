@@ -1,12 +1,16 @@
 import {
-  ArchiveIcon,
   ArrowSquareOutIcon,
   ArrowsOutSimpleIcon,
   ChatCircleIcon,
+  CheckCircleIcon,
+  EyeSlashIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
-import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
+import {
+  canCreateImplementationPr,
+  canResolveReport,
+} from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   deriveReportVerdict,
@@ -30,6 +34,7 @@ import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChanne
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
@@ -65,26 +70,30 @@ interface ReportVerdictBannerProps {
   report: SignalReport;
   variant?: ReportVerdictBannerVariant;
   prHotkey?: string;
+  resolveHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /** Called after an action opens the report's conversation dock. */
   onEngaged?: () => void;
   /** Analytics and behavior context for actions rendered in this banner. */
   surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 /**
  * The report's decision bar, closing the document: what state the report is
  * in, what it asks of the reader, and every action that answers the ask -
- * start the fix, review work in flight, discuss, or archive.
+ * start the fix, review work in flight, discuss, or dismiss.
  */
 export function ReportVerdictBanner({
   report,
   variant = "full",
   prHotkey,
+  resolveHotkey,
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
+  triageId,
 }: ReportVerdictBannerProps) {
   const compact = variant === "header-actions";
   const triageActions = variant === "triage-actions";
@@ -99,14 +108,17 @@ export function ReportVerdictBanner({
   // that task rather than spin up a duplicate PR. `report.implementation_pr_url`
   // alone is unreliable here — it can be stale or not yet set — so we also look
   // at the linked implementation task's own state.
-  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
-    report.id,
-    report.status,
-  );
+  const {
+    data: reportTasks,
+    isLoading: reportTasksLoading,
+    isError: reportTasksFailed,
+  } = useReportTasks(report.id, report.status);
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
-    isTaskLookupPending: reportTasksLoading,
+    // A failed lookup leaves task state unknown, same as a pending one. Reading it
+    // as "no live task" would offer a second PR on work that already has one.
+    isTaskLookupPending: reportTasksLoading || reportTasksFailed,
   });
   // A merged PR is history, not live work: the report only still exists
   // because evidence kept arriving after the fix, so it reads by its own
@@ -135,7 +147,7 @@ export function ReportVerdictBanner({
 
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
-  const fireAction = useReportActionTracker(report, surface);
+  const fireAction = useReportActionTracker(report, surface, triageId);
   const openTask = useOpenTask();
   const queryClient = useQueryClient();
   const [prOpen, setPrOpen] = useState(false);
@@ -173,6 +185,8 @@ export function ReportVerdictBanner({
     reportId: report.id,
     reportTitle: report.title ?? null,
     cloudRepository,
+    surface,
+    triageId,
     // The dock binds to the new task the moment it exists — and only then does
     // the view advance. A failed create (offline, missing repo/integration/
     // model, API error) never reaches here, so the report and its actions stay
@@ -183,17 +197,24 @@ export function ReportVerdictBanner({
     report,
     channelId: taskChannelId,
     redirectOnSuccess: false,
+    surface,
+    triageId,
     onTaskCreated: handleTaskCreated,
   });
 
-  // Keep Archive beside Create PR because both resolve the review decision.
+  // Keep Dismiss beside Create PR because both resolve the review decision.
   // Offer it wherever the report is waiting on a person
   // (several verdict bodies tell the reader to archive; the button should be
   // right there). Running reports keep it out of the banner because the header's
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
-    useInboxReportDismissAction(report, surface);
-  const canArchiveHere =
+    useInboxReportDismissAction(report, surface, triageId);
+  const {
+    dialog: resolveDialog,
+    isPending: resolvePending,
+    openDialog: openResolveDialog,
+  } = useInboxReportResolveAction(report, surface, triageId);
+  const canDismissHere =
     report.status === "ready" ||
     report.status === "failed" ||
     report.status === "pending_input";
@@ -202,7 +223,6 @@ export function ReportVerdictBanner({
     const trimmed = prFeedback.trim();
     fireAction("create_pr", {
       has_feedback: trimmed.length > 0,
-      ...(trimmed ? { feedback_text: trimmed.slice(0, 500) } : {}),
     });
     setPrFeedback("");
     setPrOpen(false);
@@ -313,6 +333,33 @@ export function ReportVerdictBanner({
     handleOpenPr,
   ]);
 
+  useEffect(() => {
+    if (!resolveHotkey || !canResolveReport(report)) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== resolveHotkey ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (
+        (target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) ||
+        document.querySelector('[role="dialog"], [role="alertdialog"]')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      openResolveDialog();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openResolveDialog, report, resolveHotkey]);
+
   if (
     initialEngagementOnly &&
     (reportTasksLoading || engaged || hasPriorEngagement)
@@ -320,21 +367,35 @@ export function ReportVerdictBanner({
     return null;
   }
 
-  const archiveButton = canArchiveHere && !compact && (
+  const dismissButton = canDismissHere && !compact && (
     <Button
       type="button"
       variant="outline"
-      onClick={openDismissDialog}
+      onClick={() => openDismissDialog()}
       className={buttonClass}
     >
-      <ArchiveIcon size={15} />
-      Archive…
+      <EyeSlashIcon size={15} />
+      {triageActions ? "Dismiss" : "Dismiss…"}
     </Button>
   );
 
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
-      {triageActions && archiveButton}
+      {triageActions && canResolveReport(report) && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => openResolveDialog()}
+          loading={resolvePending}
+          disabled={resolvePending}
+          className={buttonClass}
+          data-attr="inbox-triage-resolve"
+        >
+          <CheckCircleIcon size={15} />
+          Resolve
+        </Button>
+      )}
+      {triageActions && dismissButton}
       {report.status === "ready" && externalPrUrl ? (
         <Button
           type="button"
@@ -509,7 +570,7 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       )}
-      {!triageActions && archiveButton}
+      {!triageActions && dismissButton}
     </div>
   ) : null;
 
@@ -522,6 +583,7 @@ export function ReportVerdictBanner({
     return (
       <>
         {actionsRow}
+        {resolveDialog}
         {dismissDialog}
       </>
     );

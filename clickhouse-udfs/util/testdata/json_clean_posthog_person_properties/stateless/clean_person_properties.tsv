@@ -1,0 +1,1 @@
+{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested.key":"value","huge":18446744073709551616,"drop":null}

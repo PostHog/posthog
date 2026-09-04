@@ -8,6 +8,30 @@
       "expected": "signals_scout"
     },
     {
+      "origin_product": "scout_suggestions",
+      "ai_stage": "scout_suggestions",
+      "internal": true,
+      "expected": "signals_scout_suggestions"
+    },
+    {
+      "origin_product": "signal_report",
+      "ai_stage": "inbox",
+      "internal": false,
+      "expected": "signals_inbox"
+    },
+    {
+      "origin_product": "signals_chat",
+      "ai_stage": "chat",
+      "internal": false,
+      "expected": "signals_chat"
+    },
+    {
+      "origin_product": "signals_chat",
+      "ai_stage": null,
+      "internal": false,
+      "expected": "signals"
+    },
+    {
       "origin_product": "signals_scout",
       "ai_stage": "scout:web-analytics",
       "internal": false,
@@ -153,6 +177,34 @@
       "ai_stage": null,
       "internal": true,
       "allowlist": "signals",
+      "expected": true
+    },
+    {
+      "origin_product": "signal_report",
+      "ai_stage": "inbox",
+      "internal": false,
+      "allowlist": "signals_inbox",
+      "expected": true
+    },
+    {
+      "origin_product": "signal_report",
+      "ai_stage": "inbox",
+      "internal": false,
+      "allowlist": "signals_scout,signals_implementation",
+      "expected": false
+    },
+    {
+      "origin_product": "signals_chat",
+      "ai_stage": "chat",
+      "internal": false,
+      "allowlist": "signals_chat",
+      "expected": true
+    },
+    {
+      "origin_product": "scout_suggestions",
+      "ai_stage": "scout_suggestions",
+      "internal": true,
+      "allowlist": "signals_scout_suggestions",
       "expected": true
     }
   ]

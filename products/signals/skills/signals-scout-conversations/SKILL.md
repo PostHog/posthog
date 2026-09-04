@@ -1,12 +1,9 @@
 ---
 name: signals-scout-conversations
 description: >
-  Signals scout for the PostHog Conversations (support inbox) product. Watches the
-  `$conversation_*` ticket-lifecycle events for support-delivery regressions — SLA
-  breach-rate steps, first-response latency blowouts, backlog inflow-vs-resolution
-  imbalance, and channel / assignment concentration — and files each dated regression
-  as a report. Complements the per-ticket product-feedback signals the emission pipeline
-  already fires; does not re-surface individual ticket content.
+  Signals scout for PostHog Conversations (support inbox). Watches `$conversation_*` ticket-
+  lifecycle events for SLA breach steps, first-response latency blowouts, backlog imbalance, and
+  channel or assignment concentration.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus `execute-sql` over the

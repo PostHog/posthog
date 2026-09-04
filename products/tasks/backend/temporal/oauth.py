@@ -12,6 +12,7 @@ from posthog.temporal.oauth import (
     McpScopePreset,
     PosthogMcpScopes,
     SandboxOAuthApplication,
+    ScoutScopePosture,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user as _create_wizard_oauth_access_token_for_user,
     resolve_scopes,
@@ -24,7 +25,7 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task
+from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, TASK_OWNERSHIP_VERSION_STATE_KEY, Task
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -54,6 +55,7 @@ SIGNALS_ORIGIN_PRODUCTS = frozenset(
     {
         Task.OriginProduct.SIGNAL_REPORT,
         Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
         Task.OriginProduct.SIGNALS_CHAT,
     }
 )
@@ -76,6 +78,11 @@ def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     return "array"
 
 
+# Stages `Task.create_run` stamps on person-started signals runs. Any other stage is the
+# pipeline's own and marks a self-driving run.
+INTERACTIVE_SIGNALS_AI_STAGES = frozenset(INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.values())
+
+
 def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool:
     """Whether *this run* exists because a person pressed something, not because we scheduled it.
 
@@ -84,15 +91,17 @@ def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool
     an implementation task, and a person can later start a second run on that same task from
     the report. One task, two runs, two different initiators.
 
-    `ai_stage` is the pipeline's own stamp on a run it started. It is absent from the task
-    create serializer and sits in `_PROTECTED_RUN_STATE_KEYS`, so no caller can set or forge
-    one — the review carve-outs already trust it as proof a run is self-driving. A signals run
-    without one therefore cannot have come from the pipeline, which makes the interactive
-    budget and its per-run ceiling the fail-closed default.
+    `ai_stage` is stamped server-side once at run creation: the pipeline stamps its own stage
+    on a run it started, and `Task.create_run` stamps `inbox` / `chat` on a person-started run
+    so it carries a gateway product. It is absent from the task create serializer and sits in
+    `_PROTECTED_RUN_STATE_KEYS`, so no caller can set or forge one — the review carve-outs
+    already trust a pipeline stage as proof a run is self-driving. An interactive stage, or
+    none at all, keeps the interactive budget and its per-run ceiling as the fail-closed default.
     """
     if task.origin_product not in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS:
         return False
-    return not (state or {}).get("ai_stage")
+    stage = (state or {}).get("ai_stage")
+    return not stage or stage in INTERACTIVE_SIGNALS_AI_STAGES
 
 
 def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
@@ -112,6 +121,13 @@ def _workflow_run_scopes(requested: PosthogMcpScopes, state: dict[str, Any] | No
         snapshot = [str(scope) for scope in raw]
     elif isinstance(raw, str) and raw in get_args(McpScopePreset):
         snapshot = cast(McpScopePreset, raw)
+    elif isinstance(raw, dict):
+        # A snapshotted scout posture. Passed through unchecked because `resolve_scopes` reads
+        # it defensively: an unrecognized preset resolves to `read_only`, and the extra write
+        # scopes are intersected with the grantable allowlist there. Skipping the dict instead
+        # would drop the snapshot leg of the intersection, which is the half that stops a
+        # widened request from taking effect.
+        snapshot = cast(ScoutScopePosture, raw)
     if snapshot is not None:
         resolved &= set(resolve_scopes(snapshot, include_internal_scopes=True))
     return sorted(scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES)
@@ -150,7 +166,9 @@ def create_oauth_access_token(
     }
     if task.origin_product in {
         Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
         Task.OriginProduct.SUPPORT_REPLY,
+        Task.OriginProduct.WORKFLOW,
     } and is_builtin_agent_enforcement_enabled(task.team_id):
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed
