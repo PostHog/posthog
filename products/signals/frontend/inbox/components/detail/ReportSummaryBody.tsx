@@ -1,13 +1,10 @@
 import { ReactNode, useCallback, useMemo } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { ChartPlacements } from '../../utils/chartPlacement'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { ReportChart } from './ReportChart'
-import { ReportDetailAction } from './ReportDetailActions'
 
 const PROSE_CLASS =
     'text-[15px] text-secondary leading-relaxed break-words [&>*+*]:mt-3.5 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-8 [&_h1]:text-lg [&_h2]:mt-8 [&_h2]:text-lg [&_h3]:mt-6 [&_h3]:text-base'
@@ -41,8 +38,8 @@ function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }:
 interface ReportSummaryBodyProps {
     summary: string
     chartPlacements: ChartPlacements
-    /** The Create PR action, rendered under the Solution section when the report offers it. */
-    createPrAction?: ReportDetailAction
+    /** The Create PR button, rendered under the Solution section when the report offers it. */
+    createPrButton?: ReactNode
     /**
      * Says a pull request with the fix is open and links to it. Rendered under the Solution section, or after
      * the body when the summary has no sections, so a report never hides that its fix already shipped.
@@ -57,7 +54,7 @@ interface ReportSummaryBodyProps {
 export function ReportSummaryBody({
     summary,
     chartPlacements,
-    createPrAction,
+    createPrButton,
     pullRequestNote,
 }: ReportSummaryBodyProps): JSX.Element {
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
@@ -95,22 +92,7 @@ export function ReportSummaryBody({
                         chartPlacements={chartPlacements}
                     />
                     {section.kind === 'solution' && pullRequestNote && <div className="mt-2">{pullRequestNote}</div>}
-                    {section.kind === 'solution' && createPrAction && (
-                        <div className="mt-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={createPrAction.icon}
-                                loading={createPrAction.loading}
-                                tooltip={createPrAction.disabledReason ? undefined : createPrAction.tooltip}
-                                disabledReason={createPrAction.disabledReason}
-                                onClick={createPrAction.onClick}
-                                data-attr="inbox-report-solution-create-pr"
-                            >
-                                {createPrAction.label}
-                            </LemonButton>
-                        </div>
-                    )}
+                    {section.kind === 'solution' && createPrButton && <div className="mt-2">{createPrButton}</div>}
                 </section>
             ))}
             {!hasSolutionSection && pullRequestNote}

@@ -1,8 +1,6 @@
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from functools import wraps
-from typing import Union
 
 import dagster
 from dagster import BackfillPolicy, DailyPartitionsDefinition
@@ -11,10 +9,9 @@ from posthog.schema import ProductKey
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import Feature, tags_context
-from posthog.dags.common import JobOwners, dagster_tags
+from posthog.dags.common import JobOwners, dagster_tags, skip_on_kill_switch
 from posthog.models.web_preaggregated.sql import (
     REPLACE_WEB_BOUNCES_V2_STAGING_SQL,
     REPLACE_WEB_STATS_V2_STAGING_SQL,
@@ -37,24 +34,6 @@ from products.web_analytics.dags.web_preaggregated_utils import (
     sync_partitions_on_replicas,
     web_analytics_retry_policy_def,
 )
-
-ScheduleResult = Union[dagster.SkipReason, dagster.RunRequest, None]
-
-
-def skip_on_kill_switch(
-    fn: Callable[[dagster.ScheduleEvaluationContext], ScheduleResult],
-) -> Callable[[dagster.ScheduleEvaluationContext], ScheduleResult]:
-    @wraps(fn)
-    def wrapper(context: dagster.ScheduleEvaluationContext) -> ScheduleResult:
-        if not TEST:
-            kill_switch_level = get_kill_switch_level()
-            if kill_switch_level != KillSwitchLevel.OFF:
-                context.log.info(f"Skipping due to ClickHouse kill switch: {kill_switch_level}")
-                return dagster.SkipReason(f"ClickHouse kill switch is enabled ({kill_switch_level})")
-        return fn(context)
-
-    return wrapper
-
 
 MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN"
 max_partitions_per_run = int(os.getenv(MAX_PARTITIONS_PER_RUN_ENV_VAR, 1))

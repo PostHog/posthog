@@ -124,7 +124,8 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
             ("message_dm_routes", "message", "handled_locally", 202, True),
             ("app_uninstalled_routes", "app_uninstalled", "handled_locally", 202, True),
-            ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
+            ("reaction_added_routes", "reaction_added", "handled_locally", 202, True),
+            ("non_handled_event_type_skips_routing", "emoji_changed", "handled_locally", 202, False),
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
@@ -1464,7 +1465,7 @@ class TestAssistantEvents(TestCase):
         with override_settings(DEBUG=False):
             return route_posthog_code_event_to_relevant_region(request, event, "T12345")
 
-    def _patch_resolution(self, *, user, enabled=True):
+    def _patch_resolution(self, *, user):
         from products.slack_app.backend.services.integration_resolver import (
             ResolutionResult,
             UserAndIntegrationsResolution,
@@ -1484,15 +1485,13 @@ class TestAssistantEvents(TestCase):
             else UserAndIntegrationsResolution(failure_reason="user_not_found")
         )
         resolve = patch("products.slack_app.backend.api.resolve_user_for_workspace", return_value=resolution)
-        # The route's kill-switch is the flag alone — missing scopes get a reply, not silence.
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_flag_enabled", return_value=enabled)
         usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
-        return load, resolve, enabled_p, usp, slack
+        return load, resolve, usp, slack
 
     def test_assistant_thread_started_sets_prompts_for_member(self):
-        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user)
-        with load, resolve, enabled_p, usp, slack as slack_cls:
+        load, resolve, usp, slack = self._patch_resolution(user=self.user)
+        with load, resolve, usp, slack as slack_cls:
             slack_cls.return_value.missing_scopes.return_value = set()
             self._route(
                 {
@@ -1503,8 +1502,8 @@ class TestAssistantEvents(TestCase):
             slack_cls.return_value.client.assistant_threads_setSuggestedPrompts.assert_called_once()
 
     def test_assistant_thread_started_noop_for_non_member(self):
-        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=None)
-        with load, resolve, enabled_p, usp, slack as slack_cls:
+        load, resolve, usp, slack = self._patch_resolution(user=None)
+        with load, resolve, usp, slack as slack_cls:
             self._route(
                 {
                     "type": "assistant_thread_started",
@@ -1516,8 +1515,8 @@ class TestAssistantEvents(TestCase):
     def test_context_changed_caches_viewed_channel(self):
         from products.slack_app.backend.api import _get_assistant_channel_context
 
-        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user)
-        with load, resolve, enabled_p, usp, slack:
+        load, resolve, usp, slack = self._patch_resolution(user=self.user)
+        with load, resolve, usp, slack:
             self._route(
                 {
                     "type": "assistant_thread_context_changed",
@@ -1532,9 +1531,9 @@ class TestAssistantEvents(TestCase):
         assert _get_assistant_channel_context(self.integration.id, "D001", "111.222") == "C999"
 
     def test_dm_message_starts_agent(self):
-        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user)
+        load, resolve, usp, slack = self._patch_resolution(user=self.user)
         start = patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
-        with load, resolve, enabled_p, usp, slack as slack_cls, start as mock_start:
+        with load, resolve, usp, slack as slack_cls, start as mock_start:
             slack_cls.return_value.missing_scopes.return_value = set()
             self._route(
                 {
@@ -1559,25 +1558,6 @@ class TestAssistantEvents(TestCase):
                 {"type": "message", "channel_type": "channel", "channel": "C1", "user": "U1", "text": "hi", "ts": "1"}
             )
             mock_start.assert_not_called()
-
-    def test_dm_message_flag_off_is_dark(self):
-        # Kill-switch: flag off -> no user resolution, no agent start, and no reply at all.
-        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user, enabled=False)
-        start = patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
-        with load, resolve as mock_resolve, enabled_p, usp, slack as slack_cls, start as mock_start:
-            self._route(
-                {
-                    "type": "message",
-                    "channel_type": "im",
-                    "channel": "D001",
-                    "user": "U123",
-                    "text": "fix it",
-                    "ts": "1.2",
-                }
-            )
-            mock_resolve.assert_not_called()
-            mock_start.assert_not_called()
-            slack_cls.return_value.client.chat_postMessage.assert_not_called()
 
 
 class TestAssistantInstallWelcome(TestCase):
@@ -1704,7 +1684,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
         # the timeout on one access and calling on another leaves the request on the SDK
         # default. Nothing about the app's behavior changes when that happens, so only an
         # assertion on the client instance catches it.
-        from products.slack_app.backend.api import SLACK_FEEDBACK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
 
         built_clients: list[MagicMock] = []
 
@@ -1718,7 +1698,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
 
         assert posted is True
         assert len(built_clients) == 1
-        assert built_clients[0].timeout == SLACK_FEEDBACK_TIMEOUT_SECONDS
+        assert built_clients[0].timeout == SLACK_WEBHOOK_TIMEOUT_SECONDS
         built_clients[0].chat_postEphemeral.assert_called_once()
 
     def test_failed_delivery_is_reported_as_not_replied(self):

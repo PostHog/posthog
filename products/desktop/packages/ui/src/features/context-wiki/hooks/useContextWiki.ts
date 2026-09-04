@@ -1,6 +1,8 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import {
   type ChannelContextWikiPage,
+  type ContextWikiDreamDetail,
+  type ContextWikiDreamList,
   type ContextWikiHealthReport,
   type ContextWikiPage,
   type ContextWikiTree,
@@ -10,11 +12,14 @@ import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMuta
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useQueryClient } from "@tanstack/react-query";
 
-export const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
-export const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
+const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
+const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
   ["context-wiki", "page", path] as const;
-export const CONTEXT_WIKI_REPORT_KEY = ["context-wiki", "report"] as const;
-export const CHANNEL_CONTEXT_WIKI_PAGE_KEY = (channelId: string) =>
+const CONTEXT_WIKI_REPORT_KEY = ["context-wiki", "report"] as const;
+const CONTEXT_WIKI_DREAMS_KEY = ["context-wiki", "dreams"] as const;
+const CONTEXT_WIKI_DREAM_KEY = (sha: string) =>
+  ["context-wiki", "dream", sha] as const;
+const CHANNEL_CONTEXT_WIKI_PAGE_KEY = (channelId: string) =>
   ["context-wiki", "channel-page", channelId] as const;
 
 export function useChannelContextWikiPage(channelId: string, enabled = true) {
@@ -102,6 +107,28 @@ export function useContextWikiPage(path: string) {
     // The pane remounts per selection, so revisits inside this window render
     // from cache; a stale-head save still fails safe via the 409 conflict.
     { staleTime: 30_000 },
+  );
+}
+
+export function useContextWikiDreams() {
+  return useAuthenticatedQuery<ContextWikiDreamList | null>(
+    CONTEXT_WIKI_DREAMS_KEY,
+    (client) => client.getContextWikiDreams(),
+    {
+      staleTime: 30_000,
+      refetchOnMount: "always",
+      refetchInterval: (query) =>
+        query.state.data?.active_run ? 5_000 : false,
+    },
+  );
+}
+
+/** `null` data means there is no dream run at this sha (404). */
+export function useContextWikiDream(sha: string | null) {
+  return useAuthenticatedQuery<ContextWikiDreamDetail | null>(
+    CONTEXT_WIKI_DREAM_KEY(sha ?? ""),
+    (client) => client.getContextWikiDream(sha as string),
+    { enabled: sha !== null, staleTime: Infinity },
   );
 }
 

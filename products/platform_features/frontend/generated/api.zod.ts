@@ -62,7 +62,7 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -120,7 +120,7 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -178,7 +178,7 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -209,13 +209,17 @@ export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
  */
-export const proxyRecordsPartialUpdateBodyRootRedirectUrlMax = 1024
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax = 1024
+
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax = 0
 
 export const ProxyRecordsPartialUpdateBody = /* @__PURE__ */ zod.object({
     root_redirect_url: zod
-        .url()
-        .max(proxyRecordsPartialUpdateBodyRootRedirectUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax).nullable(),
+            zod.string().max(proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax),
+        ])
+        .optional()
         .describe(
             'HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.'
         ),

@@ -20,6 +20,24 @@ ui_apps:
         detail_args: '{ issueId: item.id }'
         click_prop: onIssueClick
 tools:
+    error-tracking-alerts-create:
+        operation: error_tracking_alerts_create
+        enabled: false
+    error-tracking-alerts-destroy:
+        operation: error_tracking_alerts_destroy
+        enabled: false
+    error-tracking-alerts-list:
+        operation: error_tracking_alerts_list
+        enabled: false
+    error-tracking-alerts-partial-update:
+        operation: error_tracking_alerts_partial_update
+        enabled: false
+    error-tracking-alerts-retrieve:
+        operation: error_tracking_alerts_retrieve
+        enabled: false
+    error-tracking-alerts-update:
+        operation: error_tracking_alerts_update
+        enabled: false
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: true
@@ -235,7 +253,18 @@ tools:
         enabled: false
     error-tracking-issues-assign-partial-update:
         operation: error_tracking_issues_assign_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Assign error tracking issue
+        description: >
+            Assign an error tracking issue to an organization member or role. Provide the issue ID as `id` and set
+            `assignee` to a user with a numeric ID or a role with a UUID. Set `assignee` to null to remove the current
+            assignment.
     error-tracking-issues-bulk-create:
         operation: error_tracking_issues_bulk_create
         enabled: false
@@ -296,8 +325,8 @@ tools:
         enrich_url: '{id}'
         title: Update error tracking issue
         description: >
-            Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or
-            update description.
+            Update an error tracking issue's status, severity, name, or description. Use
+            `error-tracking-issues-assign-partial-update` to change its assignee.
         ui_app: error-issue
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve

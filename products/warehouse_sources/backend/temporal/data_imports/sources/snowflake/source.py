@@ -61,6 +61,16 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
     "Remove the passphrase, or paste your encrypted private key, then {action}"
 )
 
+# Snowflake rejects the login (250001 / 08001) when the account enforces multi-factor auth for the
+# connecting user. The server phrases this several ways, and the bare "MFA authentication is
+# required" variant carries the account host and vendor codes, so it must not reach the customer
+# raw. Same `{action}` placeholder convention as `_MALFORMED_PEM_MESSAGE`.
+_MFA_ENFORCED_MESSAGE = (
+    "Snowflake rejected the login because multi-factor authentication is enforced for this user. "
+    "Automated syncs can't answer an MFA prompt, so connect with a service user that uses key-pair "
+    "authentication or is exempt from MFA, then {action}"
+)
+
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
@@ -73,6 +83,11 @@ SnowflakeErrors = {
     # connector raises HttpError rather than the "Verify the account name is correct" OperationalError,
     # so it needs its own entry. The host and port in the message are volatile, so we match "404 Not Found".
     "404 Not Found": "Can't find a Snowflake account with the specified account ID. Please check your account identifier and try again.",
+    # Snowflake error 250001 (08001): the account enforces MFA for this user, either as a denied Duo
+    # push or as a bare requirement. Without these entries the wizard falls back to the generic
+    # "check all connection details" message, so people re-enter correct credentials repeatedly.
+    "Duo Security authentication is denied": _MFA_ENFORCED_MESSAGE.format(action="try again."),
+    "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
 }
 
 
@@ -241,7 +256,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # Snowflake error 250001 (08001): the user's password has expired. Snowflake requires it
             # to be changed via the web console before any login can succeed, so retrying never works.
             "Specified password has expired": "Your Snowflake password has expired. Please change it in the Snowflake web console (or switch to key-pair authentication), then resync.",
-            "MFA authentication is required": None,
+            "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="resync."),
             # The account enforces Duo Security multi-factor auth for this user, so the
             # connector's login is rejected (250001 / 08001). An unattended sync can't answer a
             # Duo push, so retrying never succeeds — surface an actionable message instead.

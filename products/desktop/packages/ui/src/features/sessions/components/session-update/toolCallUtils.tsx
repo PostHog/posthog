@@ -1,43 +1,19 @@
 import {
-  ArrowsClockwise,
-  ArrowsLeftRight,
-  Brain,
-  ChatCircle,
   Command,
-  FileText,
-  Globe,
   type Icon,
   MagnifyingGlass,
   Minus,
-  PencilSimple,
   Plus,
-  Terminal,
-  Trash,
-  Wrench,
 } from "@phosphor-icons/react";
 import { cn } from "@posthog/quill";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import { Box, Text } from "@radix-ui/themes";
-import type { CodeToolKind, ToolCall, ToolCallContent } from "../../types";
+import type { ToolCall, ToolCallContent } from "../../types";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
-
-/** Tool icon by `ToolCall.kind`. Shared by the per-tool views and the tool-group icon strip. */
-export const kindIcons: Record<CodeToolKind, Icon> = {
-  read: FileText,
-  edit: PencilSimple,
-  delete: Trash,
-  move: ArrowsLeftRight,
-  search: MagnifyingGlass,
-  execute: Terminal,
-  think: Brain,
-  fetch: Globe,
-  switch_mode: ArrowsClockwise,
-  question: ChatCircle,
-  other: Wrench,
-};
+import { iconForToolKind } from "./toolIcons";
 
 /** Tool icon by agent tool name, for tools without a generic `kind`. */
-export const toolNameIcons: Record<string, Icon> = {
+const toolNameIcons: Record<string, Icon> = {
   ToolSearch: MagnifyingGlass,
   Skill: Command,
 };
@@ -49,8 +25,7 @@ export function iconForToolCall(
 ): Icon {
   return (
     (agentToolName && toolNameIcons[agentToolName]) ||
-    (toolCall.kind && kindIcons[toolCall.kind]) ||
-    Wrench
+    iconForToolKind(toolCall.kind)
   );
 }
 
@@ -161,11 +136,6 @@ export function getReadToolContent(
   text = text.trim();
 
   return text || undefined;
-}
-
-export function getLineCount(content: ToolCall["content"]): number | null {
-  const text = getContentText(content);
-  return text ? text.split("\n").length : null;
 }
 
 const INPUT_PREVIEW_MAX_LENGTH = 60;
@@ -322,18 +292,6 @@ export function ContentPre({ children }: { children: React.ReactNode }) {
           {children}
         </pre>
       </Text>
-    </Box>
-  );
-}
-
-export function ExpandedContentBox({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <Box className="mt-2 ml-5 max-w-4xl overflow-hidden rounded-lg border border-gray-6">
-      <ContentPre>{children}</ContentPre>
     </Box>
   );
 }

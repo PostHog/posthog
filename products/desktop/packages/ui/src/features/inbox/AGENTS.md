@@ -46,16 +46,18 @@ The internal route segment, query key, and component/hook names keep the
 `dismissed`/`suppressed` vocabulary (the backend status is `suppressed`); only
 the user-facing copy uses "Archive"/"archived".
 
-Each `DismissedReportCard` shows why the report was suppressed (`dismissal_reason`,
-labelled via `dismissalReasonLabel`, with `dismissal_note` as a tooltip). These
+Each dismissed report shows why it was suppressed (`dismissal_reason`), labelled
+via `dismissalReasonLabel` beside a red dot, with `dismissal_note` as a tooltip. These
 are denormalised onto the list `SignalReport` by the backend serializer — the
 same artefact-lift pattern as `priority`/`actionability`/`already_addressed` —
 so cards avoid an N+1 per-card artefact fetch. Unknown reason codes fall back to
-the raw value; cards with no dismissal artefact simply omit the chip.
+the raw value; cards with no dismissal artefact simply omit the label.
 
 Responder configuration is **not** an Inbox tab. It is the top-level Responders sidebar item at `/agents`. The legacy `/inbox/agents` route redirects there.
 
 Reviewer scope is a UI preference stored in `inboxReviewerScopeStore`. It filters the list between reports suggested for the current user and reports for someone else. It does not change tab membership; the tab predicates are independent.
+
+The Reports page keeps priority, report status, sort, triage, and reviewer scope above one flat list in the page body. Review and merge plus Needs decision are selected by default; Resolved and Dismissed can be added without switching tabs. PR-backed and resolved rows use a solid neutral border. Reports that need a decision and dismissed rows use a dotted neutral border. Terminal rows recede until hover. Hovered rows keep their solid or dotted treatment while gaining an accent border and stronger background. Report rows show PR repository context and source icons, and omit signal counts. Triage contains only reports that need a decision, not reports waiting for a PR review.
 
 ## Ownership Boundaries
 
@@ -94,7 +96,13 @@ Detail screens layer additional data on top of the base report:
 - `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers and repo selection.
 - `useReportTasks(reportId, status)` for linked research/implementation tasks.
 
+Ready and pending-input report details offer Resolve and Dismiss beside the other report actions. Resolve records why the work is done; Dismiss records why the report should leave the inbox. Reviewer detail lives in the sidebar, not the title header.
+
+Actionable and pending-input report details also offer Implement. It opens the standard task composer with the report attached, and the repository too when the report selected one, so the user can add direction and choose the model before starting. A report with no repository still opens the composer, where the user picks one. Triage mode keeps the direct Create PR action.
+
 List cards should prefer fields already present in the list response. Fetching per-card secondary data is acceptable only for small, clearly bounded adornments; avoid new N+1 request patterns without a batching plan.
+
+Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link lets users choose a web or Desktop link; opening a report remains the row's primary interaction.
 
 ## Backend Contracts
 
@@ -110,7 +118,7 @@ The shared renderer type for the report is `SignalReport` in `packages/shared/sr
 
 Report charts: `SignalReport.charts` carries scout-authored chart definitions (`chart_id`, `title`, `query`, `caption?`, `size?`). The desktop app renders them natively in the detail views: `packages/core/src/inbox/reportCharts.ts` classifies the stored query (runnable HogQL/trends vs saved-insight vs link-out fallback), `PostHogAPIClient.runQuery` executes runnable sources against `/api/projects/{teamId}/query/`, and `components/detail/ReportChartCard.tsx` draws the result with `@posthog/quill-charts`. Query kinds the app can't draw degrade to a card that links out to PostHog. Summary prose references charts as `[label](chart:<chart_id>)` links; `SignalReportSummaryMarkdown` turns those into in-page jumps to the chart card (plain text on list rows).
 
-PR refunds: `POST /api/projects/{teamId}/signals/reports/{id}/refund/` refunds a billed PR and archives the report (`PostHogAPIClient.refundSignalReport`). The action is gated behind the `signals-pr-refunds` flag (`SIGNALS_PR_REFUNDS_FLAG`) and `@posthog/core/inbox/refundEligibility`'s `computeRefundEligibility` (shared with the mobile host), which reads `implementation_pr_url`, `refund` (one `SignalReportRefund` per report, ever), `billing_exempt_reason`, and the backend-owned `refund_ineligibility_reason`. The server enforces the same rules, so the gate is display-only; `ReportRefundAction` shows nothing when the report is ineligible.
+PR refunds: `POST /api/projects/{teamId}/signals/reports/{id}/refund/` refunds a billed PR and archives the report (`PostHogAPIClient.refundSignalReport`). The action is gated behind the `signals-pr-refunds` flag (`SIGNALS_PR_REFUNDS_FLAG`) and `@posthog/core/inbox/refundEligibility`'s `computeRefundEligibility` (shared with the mobile host), which reads `implementation_pr_url`, `refund` (one `SignalReportRefund` per report, ever), `billing_exempt_reason`, and the backend-owned `refund_ineligibility_reason`. The server enforces the same rules, so the gate is display-only; `ReportDetailActions` shows no refund action when the report is ineligible.
 
 Card headlines are derived client-side from `summary` by `utils/reportPresentation.ts`; there is no backend headline field.
 
@@ -119,6 +127,8 @@ Card headlines are derived client-side from `summary` by `utils/reportPresentati
 Responder setup lives in `features/agents/components/AgentsView.tsx`, which mounts `ConfigureAgentsSection`. This surface composes existing GitHub, Slack, source-toggle, and MCP configuration pieces. Keep setup copy outcome-focused: the user is asking Self-driving to figure out what matters, not choosing internal artefact types.
 
 Onboarding/setup should be task-backed when it starts work. Do not model it as a static checklist if the intended behavior is to launch an agent task.
+
+An empty Reports view has two distinct causes, and they need different copy: nothing configured yet, versus configured with nothing found. `useSelfDrivingSetupStatus` (`hooks/useSelfDrivingSetupStatus.ts`) reads enabled signal source and scout counts to tell them apart. `ReportsInboxView` only sets `showConfigureAgentsEmptyState` when the inbox is empty with no active filters, so a genuinely quiet but configured project still gets "Nothing to review", not the welcome copy again. The welcome state's CTA links to this same configuration surface; it does not duplicate setup logic.
 
 ## UI Architecture
 

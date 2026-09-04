@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.logic.sources import build_github_so
 from products.engineering_analytics.backend.logic.suite_health import (
     build_broken_tests as build_broken_tests,
     build_flaky_tests as build_flaky_tests,
+    build_trunk_quarantine as build_trunk_quarantine,
 )
 from products.engineering_analytics.backend.logic.teams import (
     build_team_ci_activity as build_team_ci_activity,

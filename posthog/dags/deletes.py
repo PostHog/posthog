@@ -1,5 +1,4 @@
 import abc
-import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
+from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
     create_on_every_cluster,
@@ -72,6 +72,12 @@ class DeleteConfig(dagster.Config):
     max_memory_usage: int = pydantic.Field(
         default=0,
         description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
+    )
+    dictionary_load_timeout: int = pydantic.Field(
+        default=1800,
+        description="The maximum number of seconds to wait for a dictionary to finish loading on a host before "
+        "failing the run. A dictionary wedged in LOADING would otherwise hold the run open forever without "
+        "raising any failure alert.",
     )
     verification_max_execution_time: int = pydantic.Field(
         default=300,
@@ -130,9 +136,11 @@ _DELETE_PREDICATE = """or(
 
 ShardMutations = dict[int, MutationWaiters]
 # Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
-# alone. Keyed by cluster name rather than by handle: the handle is recovered with
-# ClickhouseCluster.sibling, which is memoized, and a name survives the op boundary.
-ClusterShardMutations = dict[str, ShardMutations]
+# alone. Keyed by cluster name and the role that owns its shards rather than by handle: the handle
+# is recovered with ClickhouseCluster.sibling, which is memoized, and both survive the op boundary.
+# The role has to travel with the name, or sibling hands back a default-role handle with no shards
+# and the waits find nothing to wait on.
+ClusterShardMutations = dict[tuple[str, NodeRole], ShardMutations]
 
 
 @dataclass
@@ -254,109 +262,20 @@ class AdhocEventDeletesTable(Table):
 
 
 @frozen
-class Dictionary(abc.ABC):
-    source: Table
+class PendingDeletesDictionary(Dictionary):
+    source: PendingDeletesTable
 
     @property
     def name(self) -> str:
         return f"{self.source.table_name}_dictionary"
 
     @property
-    def qualified_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
+    def schema(self) -> str:
+        return "team_id Int64, deletion_type UInt8, key String, created_at DateTime"
 
     @property
-    @abc.abstractmethod
-    def query(self) -> str:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def create(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        """``query`` overrides the SOURCE query, for a host that cannot see the source table."""
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def staged(self) -> StagedDictionary:
-        """Where this dictionary's rows go so another cluster can load them; see StagedDictionary.
-
-        Keyed by the dictionary's own name, never by anything per-run. A dictionary outlives the
-        run that created it, and CREATE ... IF NOT EXISTS keys on that same name, so a per-run key
-        would leave the earlier definition pointing at an object no later run writes.
-        """
-        raise NotImplementedError()
-
-    def recreate(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        """Replace the dictionary, so no definition an earlier run left behind can survive.
-
-        CREATE ... IF NOT EXISTS keeps the existing source, which is right where that source is the
-        replicated table and wrong where it is a staged object whose query can change between
-        deploys.
-        """
-        self.drop(client)
-        self.create(client, shards, max_execution_time, max_memory_usage, query)
-
-    def exists(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT count() FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        [[count]] = results
-        return count > 0
-
-    def drop(self, client: Client) -> None:
-        client.execute(f"DROP DICTIONARY IF EXISTS {self.qualified_name} SYNC")
-
-    def __is_loaded(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT status, last_exception FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        if not results:
-            raise Exception("dictionary does not exist")
-        else:
-            [[status, last_exception]] = results
-            if status == "LOADED":
-                return True
-            elif status in {"LOADING", "FAILED_AND_RELOADING", "LOADED_AND_RELOADING"}:
-                return False
-            elif status == "FAILED":
-                raise Exception(f"failed to load: {last_exception}")
-            else:
-                raise Exception(f"unexpected status: {status}")
-
-    def load(self, client: Client):
-        # TODO: this should probably not reload if the dictionary is already loaded
-        client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
-
-        # reload is async, so we need to wait for the dictionary to actually be loaded
-        # TODO: this should probably throw on unexpected reloads
-        while not self.__is_loaded(client):
-            time.sleep(5.0)
-
-        return self.checksum(client)
-
-    @abc.abstractmethod
-    def checksum(self, client: Client) -> int:
-        raise NotImplementedError()
-
-
-@frozen
-class PendingDeletesDictionary(Dictionary):
-    source: PendingDeletesTable
+    def primary_key(self) -> str:
+        return "team_id, deletion_type, key"
 
     @property
     def query(self) -> str:
@@ -366,53 +285,25 @@ class PendingDeletesDictionary(Dictionary):
         return StagedDictionary(
             key=f"{self.name}.parquet",
             columns="team_id, deletion_type, key, created_at",
-            structure="team_id Int64, deletion_type UInt8, key String, created_at DateTime",
+            structure=self.schema,
         )
-
-    def create(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        client.execute(
-            f"""
-            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
-                team_id Int64,
-                deletion_type UInt8,
-                key String,
-                created_at DateTime,
-            )
-            PRIMARY KEY team_id, deletion_type, key
-            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
-            LIFETIME(0)
-            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
-                "query": query or self.query,
-            },
-        )
-
-    def checksum(self, client: Client) -> int:
-        results = client.execute(
-            f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, key)
-            """
-        )
-        [[checksum]] = results
-        return checksum
 
 
 @frozen
 class AdhocEventDeletesDictionary(Dictionary):
     source: AdhocEventDeletesTable
+
+    @property
+    def name(self) -> str:
+        return f"{self.source.table_name}_dictionary"
+
+    @property
+    def schema(self) -> str:
+        return "team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')"
+
+    @property
+    def primary_key(self) -> str:
+        return "team_id, uuid"
 
     @property
     def query(self) -> str:
@@ -422,47 +313,8 @@ class AdhocEventDeletesDictionary(Dictionary):
         return StagedDictionary(
             key=f"{self.name}.parquet",
             columns="team_id, uuid, created_at",
-            structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
+            structure=self.schema,
         )
-
-    def create(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        client.execute(
-            f"""
-            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
-                team_id Int64,
-                uuid UUID,
-                created_at DateTime64(6, 'UTC')
-            )
-            PRIMARY KEY team_id, uuid
-            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
-            LIFETIME(0)
-            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
-                "query": query or self.query,
-            },
-        )
-
-    def checksum(self, client: Client) -> int:
-        results = client.execute(
-            f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, uuid)
-            """
-        )
-        [[checksum]] = results
-        return checksum
 
 
 @dagster.op
@@ -564,6 +416,7 @@ def create_deletes_dict(
 
     del_dict = PendingDeletesDictionary(
         source=load_pending_deletions,
+        load_timeout=config.dictionary_load_timeout,
     )
 
     create_on_every_cluster(
@@ -595,6 +448,7 @@ def create_adhoc_event_deletes_dict(
 
     del_dict = AdhocEventDeletesDictionary(
         source=adhoc_event_deletions,
+        load_timeout=config.dictionary_load_timeout,
     )
 
     create_on_every_cluster(
@@ -707,18 +561,19 @@ def delete_events(
         for placement in placements
     ]
 
-    waiters: dict[str, dict[int, list[MutationWaiter]]] = {}
+    waiters: dict[tuple[str, NodeRole], dict[int, list[MutationWaiter]]] = {}
     for placement, delete_mutation_runner in delete_mutation_runners:
         # placement.cluster, not the job's handle: the dictionary the predicate joins was created
         # on every cluster here, but the storage table only exists on this one.
         for host, mutation in placement.cluster.map_one_host_per_shard(delete_mutation_runner).result().items():
             if host.shard_num is not None:
-                by_shard = waiters.setdefault(placement.cluster.data_cluster_name, {})
+                key = (placement.cluster.data_cluster_name, placement.cluster.shard_role)
+                by_shard = waiters.setdefault(key, {})
                 by_shard.setdefault(host.shard_num, []).append(mutation)
 
     cluster_mutations: ClusterShardMutations = {
-        name: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
-        for name, by_shard in waiters.items()
+        key: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
+        for key, by_shard in waiters.items()
     }
 
     return (load_and_verify_deletes_dictionary, cluster_mutations)
@@ -805,8 +660,8 @@ def wait_for_delete_mutations_in_shards(
 ) -> PendingDeletesDictionary:
     pending_deletes_dict, cluster_mutations = delete_mutations
 
-    for cluster_name, shard_mutations in cluster_mutations.items():
-        handle = cluster.sibling(cluster_name)
+    for (cluster_name, shard_role), shard_mutations in cluster_mutations.items():
+        handle = cluster.sibling(cluster_name, shard_role)
         handle.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
     return pending_deletes_dict

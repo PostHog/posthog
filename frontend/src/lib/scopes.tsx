@@ -61,6 +61,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
+    { key: 'autoresearch', objectName: 'Autoresearch', objectPlural: 'autoresearch pipelines' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
     { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
@@ -74,6 +75,7 @@ export const API_SCOPES: APIScope[] = [
         info: 'Programmatic access to the PostHog AI (Max) chat via the conversations API.',
     },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
+    { key: 'customer_task', objectName: 'Customer task', objectPlural: 'customer tasks' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'data_catalog', objectName: 'Data catalog', objectPlural: 'data catalog' },
     {
@@ -266,6 +268,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
     signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
     signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
+    signal_scratchpad_internal: 'Internal: sandbox-only writes for the Signals scratchpad.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',

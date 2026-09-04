@@ -90,8 +90,8 @@ import type { ExperimentFeatureFlagInputApi } from 'products/experiments/fronten
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
-import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -290,6 +290,7 @@ export enum AccessControlResourceType {
     Organization = 'organization',
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
+    CustomerTask = 'customer_task',
     FeatureFlag = 'feature_flag',
     Heatmap = 'heatmap',
     Insight = 'insight',
@@ -305,6 +306,7 @@ export enum AccessControlResourceType {
     Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
+    Stamphog = 'stamphog',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -616,26 +618,6 @@ export interface OrganizationDomainType {
     scim_base_url?: string
 }
 
-export interface SCIMRequestLogType {
-    id: string
-    request_method: string
-    request_path: string
-    request_headers: Record<string, string>
-    request_body: Record<string, any> | null
-    response_status: number
-    response_body: Record<string, any> | null
-    identity_provider: string
-    duration_ms: number | null
-    created_at: string
-}
-
-export interface PaginatedSCIMRequestLogs {
-    count: number
-    next: string | null
-    previous: string | null
-    results: SCIMRequestLogType[]
-}
-
 /** Member properties relevant at both organization and project level. */
 export interface BaseMemberType {
     id: string
@@ -742,6 +724,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    tags?: string[]
 }
 
 export interface TeamSurveyConfigType {
@@ -843,9 +826,13 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /** Plan-derived events data retention window in months (synced from billing). */
+    /**
+     * Plan-derived events data retention window in months (synced from billing). Read-only: it follows the plan's
+     * data retention entitlement, so support cannot change it outside the enterprise plan.
+     * See https://github.com/PostHog/posthog/issues/17031
+     */
     event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only. */
     events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
@@ -911,6 +898,8 @@ export interface TeamType extends TeamBasicType {
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
+    // Optional so cached team objects from before this field shipped still typecheck.
+    feature_flag_policy_config?: FeatureFlagPolicyConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -918,6 +907,10 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+}
+
+export interface FeatureFlagPolicyConfig {
+    require_tags: boolean
 }
 
 export interface ProductIntentType {
@@ -1180,6 +1173,8 @@ export enum PropertyFilterType {
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    /** Customer analytics account relationship — the key is the relationship definition id */
+    AccountRelationship = 'account_relationship',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -1217,6 +1212,11 @@ export interface EventMetadataPropertyFilter extends BasePropertyFilter {
 
 export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.RevenueAnalytics
+    operator: PropertyOperator
+}
+
+export interface AccountRelationshipPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.AccountRelationship
     operator: PropertyOperator
 }
 
@@ -2551,6 +2551,8 @@ export interface Tileable {
     color: InsightColor | null
 }
 
+export type DashboardTileIdOrNew = number | null
+
 export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
     insight?: T
@@ -2624,6 +2626,10 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     favorited?: boolean
     order: number | null
     result: any
+    /** Result column names, served alongside `result`. SQL insights draw from these. */
+    columns?: string[] | null
+    /** ClickHouse type of each entry in `columns`, as [name, type] pairs. */
+    types?: string[][] | null
     deleted: boolean
     saved: boolean
     created_at: string
@@ -2785,6 +2791,7 @@ export type DashboardTemplateStoredInsightTile = {
     query?: Node | Record<string, unknown> | null
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
     filters?: Record<string, unknown>
 }
 
@@ -2793,6 +2800,7 @@ export type DashboardTemplateStoredTextTile = {
     body: string
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredButtonTile = {
@@ -2805,6 +2813,7 @@ export type DashboardTemplateStoredButtonTile = {
     }
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredWidgetTile = {
@@ -2813,6 +2822,7 @@ export type DashboardTemplateStoredWidgetTile = {
     config?: Record<string, unknown>
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredTile =
@@ -4515,11 +4525,6 @@ export enum FeatureFlagStatus {
     UNKNOWN = 'unknown',
 }
 
-export interface FeatureFlagStatusResponse {
-    status: FeatureFlagStatus
-    reason: string
-}
-
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
@@ -4788,6 +4793,15 @@ export type HotKey =
     | 'x'
     | 'y'
     | 'z'
+    | '1'
+    | '2'
+    | '3'
+    | '4'
+    | '5'
+    | '6'
+    | '7'
+    | '8'
+    | '9'
     | 'escape'
     | 'enter'
     | 'space'
@@ -4862,6 +4876,7 @@ export enum PropertyDefinitionType {
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    AccountRelationship = 'account_relationship',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
@@ -5509,6 +5524,7 @@ export interface SubscriptionType {
     integration_id?: number | null
     prompt?: string | null
     ai_prompt_config?: AIPromptConfigApi | null
+    delivery_config?: DeliveryConfigApi
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5584,6 +5600,7 @@ export const INTEGRATION_KINDS = [
     'apns',
     'postgresql',
     'aws-s3',
+    'aws-redshift',
     's3-compatible',
     'snowflake',
     'youtube-analytics',
@@ -5646,6 +5663,7 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    files_write_requestable?: IntegrationConfigApi['files_write_requestable']
     /** GitHub only. When false, disconnecting also uninstalls the App from GitHub. */
     installation_shared?: IntegrationConfigApi['installation_shared']
     /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
@@ -5831,6 +5849,7 @@ export const API_SCOPE_OBJECTS = [
     'alert',
     'annotation',
     'approvals',
+    'autoresearch',
     'batch_export',
     'batch_import',
     'batch_import_support',
@@ -5842,6 +5861,7 @@ export const API_SCOPE_OBJECTS = [
     'comment',
     'conversation',
     'customer_analytics',
+    'customer_task',
     'customer_journey',
     'customer_profile_config',
     'data_catalog',
@@ -5913,6 +5933,7 @@ export const API_SCOPE_OBJECTS = [
     'signal_scout',
     'signal_scout_internal',
     'signal_scout_report',
+    'signal_scratchpad_internal',
     'stamphog',
     'streamlit_app',
     'subscription',
@@ -6177,6 +6198,7 @@ export enum ActivityScope {
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
+    STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
 }
 
 export type CommentType = {
@@ -6420,6 +6442,8 @@ export interface ExternalDataSourceCreatePayload {
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
+    /** Destinations every table on the source writes to. Set at creation so the opening sync carries them. */
+    destination_ids?: string[]
 }
 
 /** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
@@ -6728,6 +6752,12 @@ export interface ExternalDataJob {
      * runs the customer isn't charged for. `null` on legacy rows and means billable.
      */
     billable?: boolean | null
+    /**
+     * Destinations this run delivered to, snapshotted when it started. Empty on runs that predate
+     * destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read
+     * from the source once, not once per destination.
+     */
+    destination_ids?: string[]
 }
 
 export interface SimpleDataWarehouseTable {
@@ -6835,6 +6865,9 @@ export type BatchExportServiceHTTP = {
 
 export type BatchExportServiceRedshift = {
     type: 'Redshift'
+    // Credentials live on the linked `aws-redshift` integration. Exports created before integrations
+    // keep their inline user/password.
+    integration?: number
     config: {
         user: string
         password: string
@@ -6843,21 +6876,24 @@ export type BatchExportServiceRedshift = {
         database: string
         schema: string
         table_name: string
-        properties_data_type: boolean
+        properties_data_type: 'varchar' | 'super'
         mode: 'COPY' | 'INSERT'
-        authorization_mode: 'IAMRole' | 'Credentials'
+        // Form-only: derived from the shape of copy_inputs.authorization, never sent to the API.
+        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole' | 'Credentials'
         copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
     }
 }
 
+// The two COPY credentials can each reference an `aws-s3` integration by id instead of holding
+// inline keys. `authorization` additionally accepts the ARN of a role attached to the cluster.
 export type BatchExportServiceRedshiftCopyInputs = {
     s3_bucket: string
     s3_key_prefix: string
     region_name: string
-    bucket_credentials: AWSCredentials
-    authorization: string | AWSCredentials
+    bucket_credentials: number | AWSCredentials
+    authorization: number | string | AWSCredentials
 }
 
 export type AWSCredentials = {
@@ -7115,6 +7151,7 @@ export enum SDKKey {
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',
+    GOOGLE_ADK = 'google_adk',
     GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
     GROQ = 'groq',
@@ -7300,6 +7337,8 @@ export type CyclotronJobInputSchemaType = {
         | 'task_model'
         | 'task_repository'
         | 'task_mcp_installations'
+        | 'signals_scout'
+        | 'task_skills'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -7360,7 +7399,7 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
@@ -7622,7 +7661,7 @@ export type ReplayTemplateType = {
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 
 export type ReplayTemplateVariableType = {
-    type: 'event' | 'flag' | 'pageview' | 'person-property' | 'snapshot_source'
+    type: 'event' | 'pageview' | 'person-property' | 'snapshot_source'
     name: string
     key: string
     touched?: boolean
@@ -7765,7 +7804,7 @@ export interface Conversation {
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
-    task?: { id: string; latest_run: string | null; runtime?: RuntimeEnumApi } | null
+    task?: { id: string; latest_run: string | null; runtime?: TaskRuntimeEnumApi } | null
 }
 
 export interface ConversationDetail extends Conversation {

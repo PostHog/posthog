@@ -1,5 +1,6 @@
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonCollapse, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -93,17 +94,21 @@ export function RetentionCohortTable({
     const columns: LemonTableColumn<MarketingAnalyticsRetentionRow, any>[] = [
         {
             title: 'Cohort',
+            tooltip: "The period a person's first session landed in. People stay in the same row for the whole table.",
             dataIndex: 'cohortDate',
             render: (_, row) => cohortLabel(row.cohortDate, interval, timezone),
         },
         {
             title: 'Acquired',
+            tooltip: `How many people had their first session of the date range in this period, credited to that session's ${dimensionLabel.toLowerCase()}. Each person is counted once. Options changes which sessions qualify and who counts as new.`,
             dataIndex: 'cohortSize',
             align: 'right',
             render: (_, row) => humanFriendlyNumber(row.cohortSize),
         },
         ...labels.map((label, index) => ({
             title: label,
+            tooltip:
+                "The share of this cohort seen again in this period, measured against the cohort's original size, not against the period before.",
             key: label,
             align: 'center' as const,
             render: (_: any, row: MarketingAnalyticsRetentionRow) => {
@@ -164,8 +169,13 @@ export function RetentionCohortTable({
             {caveats.length > 0 && <div className="text-secondary text-xs">{caveats.join(' ')}</div>}
             <RetentionSummaryTable rows={rows} labels={labels} dimensionLabel={dimensionLabel} />
             <div>
-                <div className="text-muted mb-1 text-xs font-semibold uppercase">
-                    All {dimensionLabel.toLowerCase()}s
+                <div className="text-muted mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold uppercase">
+                    <span>All {dimensionLabel.toLowerCase()}s</span>
+                    <Tooltip
+                        title={`Every ${dimensionLabel.toLowerCase()} added together. People and returns are summed per cohort and the rate is recalculated, so a ${dimensionLabel.toLowerCase()} with ten thousand people counts for more than one with ten. It is not an average of the rates below.`}
+                    >
+                        <IconInfo className="text-base" />
+                    </Tooltip>
                 </div>
                 <LemonTable columns={columns} dataSource={baselineRows(rows)} size="small" firstColumnSticky />
             </div>

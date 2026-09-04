@@ -18,6 +18,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
@@ -29,7 +30,10 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseError,
+    get_client as get_clickhouse_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -57,6 +61,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
@@ -99,6 +104,30 @@ def _print_describe_variant(
 ) -> str:
     downgraded = _DowngradeGlobalIn().visit(prepared_query)
     return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+def _print_untouched(
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
+) -> str:
+    return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+async def _describe_columns(
+    printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
+) -> dict[str, str]:
+    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+        async with client.apost_query(
+            query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
+            query_parameters=query_parameters,
+            query_id=str(uuid.uuid4()),
+            settings=query_settings,
+        ) as ch_response:
+            table_describe_response = await ch_response.content.read()
+    columns: dict[str, str] = {}
+    for line in table_describe_response.decode("utf-8").splitlines():
+        column_name, ch_type = line.strip().split("\t")
+        columns[column_name] = ch_type
+    return columns
 
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
@@ -515,15 +544,20 @@ async def hogql_table(
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async_pool(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     # Userless materialization context; bypass warehouse HogQL access control so the model query
     # can resolve its source tables/views.
     context.database = await database_sync_to_async_pool(Database.create_for)(
-        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+        team=team,
+        modifiers=context.modifiers,
+        bypass_warehouse_access_control=True,
+        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
     )
 
     factory = bounded_resolver_factory_for_view(view_name)
@@ -540,7 +574,6 @@ async def hogql_table(
 
     printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
-    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
         "Nullable(Nothing)": ("toNullableString", ()),
@@ -565,21 +598,23 @@ async def hogql_table(
         iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
     )
 
+    try:
+        described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
+    except ClickHouseError as error:
+        # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
+        # aggregate function. The untouched query is the one that runs, so it always describes.
+        await logger.awarning(
+            "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
+        )
+        untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
+        described_columns = await _describe_columns(untouched, context.values, None)
+
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        async with client.apost_query(
-            query=table_describe_query,
-            query_parameters=context.values,
-            query_id=str(uuid.uuid4()),
-            settings=DESCRIBE_QUERY_SETTINGS,
-        ) as ch_response:
-            table_describe_response = await ch_response.content.read()
-            for line in table_describe_response.decode("utf-8").splitlines():
-                column_name, ch_type = line.strip().split("\t")
-                if _needs_conversion(ch_type):
-                    query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
-                else:
-                    query_typings.append((column_name, ch_type, None))
+    for column_name, ch_type in described_columns.items():
+        if _needs_conversion(ch_type):
+            query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
+        else:
+            query_typings.append((column_name, ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:

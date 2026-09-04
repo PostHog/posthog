@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
@@ -23,13 +24,16 @@ from products.signals.backend.scout_harness.slack_charts import (
     strip_chart_blocks,
 )
 from products.signals.backend.slack_formatting import (
-    chunk_slack_mrkdwn,
+    SLACK_MARKDOWN_TEXT_MAX_LEN,
+    chunk_slack_text,
+    defuse_slack_tokens,
     escape_slack_mrkdwn,
-    markdown_to_slack_mrkdwn,
+    group_segments_to_limit,
+    prepare_slack_markdown,
     slack_channel_id_from_target,
+    slack_markdown_block,
     split_markdown_by_headings,
     strip_chart_references,
-    truncate_slack_section,
 )
 
 logger = structlog.get_logger(__name__)
@@ -37,16 +41,19 @@ logger = structlog.get_logger(__name__)
 _PERMANENT_SLACK_ERROR_CODES = frozenset(
     {
         "account_inactive",
+        "cannot_dm_bot",
         "channel_not_found",
         "ekm_access_denied",
         "invalid_auth",
         "is_archived",
+        "messages_tab_disabled",
         "missing_scope",
         "not_authed",
         "not_in_channel",
         "org_login_required",
         "restricted_action",
         "token_revoked",
+        "user_not_found",
     }
 )
 
@@ -57,13 +64,17 @@ _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_form
 
 ScoutSlackOutputType = Literal["finding", "report"]
 
+# Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
+# doesn't request), so this bounds the per-output Slack API fan-out.
+MAX_SCOUT_SLACK_DM_TARGETS = 5
+
 # A report only reaches Slack while it is surfaced. Checked both before enqueue and again just
 # before posting, since chart rendering can hold the worker long enough for the report to change.
 DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT))
 
-# Bound on the note snapshot a note-only edit carries through the Celery payload. Slack shows at
-# most SLACK_SECTION_TEXT_MAX_LEN characters after conversion, so anything past this headroom is
-# never rendered; the report keeps the full note either way.
+# Bound on the note snapshot a note-only edit carries through the Celery payload. A note past this
+# is clipped before Slack's own markdown-block cap applies; the report keeps the full note either
+# way.
 MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
 
 # Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
@@ -73,7 +84,10 @@ _SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and 
 @dataclass(frozen=True)
 class ScoutSlackDestination:
     integration_id: int
-    channel: str
+    # Conversation targets in the picker's `id|name` composite form: a single channel (`C…|#name`)
+    # or one or more members to DM individually (`U…|@name`) — Slack's chat.postMessage accepts
+    # either id as its `channel` argument, opening the DM for a member id.
+    targets: tuple[str, ...]
     thread_reports: bool = False
 
 
@@ -91,15 +105,24 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
     if not isinstance(slack, dict):
         return None
     integration_id = slack.get("integration_id")
-    channel = slack.get("channel")
     if not isinstance(integration_id, int) or isinstance(integration_id, bool) or integration_id < 1:
         return None
-    if not isinstance(channel, str) or not channel.strip():
+    thread_reports = slack.get("thread_reports") is True
+    channel = slack.get("channel")
+    if isinstance(channel, str) and channel.strip():
+        return ScoutSlackDestination(
+            integration_id=integration_id, targets=(channel.strip(),), thread_reports=thread_reports
+        )
+    users = slack.get("users")
+    if not isinstance(users, list):
+        return None
+    targets = tuple(dict.fromkeys(user.strip() for user in users if isinstance(user, str) and user.strip()))
+    if not targets:
         return None
     return ScoutSlackDestination(
         integration_id=integration_id,
-        channel=channel.strip(),
-        thread_reports=slack.get("thread_reports") is True,
+        targets=targets[:MAX_SCOUT_SLACK_DM_TARGETS],
+        thread_reports=thread_reports,
     )
 
 
@@ -165,6 +188,24 @@ def _slack_integration_for_project(*, integration_id: int, project_id: int) -> I
     return integration
 
 
+def _ensure_dm_recipient_eligible(slack: SlackIntegration, target_id: str) -> None:
+    """Re-resolve a DM recipient's eligibility at send time.
+
+    Config validation only checks the ID shape, so an API/MCP caller can persist any well-formed
+    member ID, and a member who was eligible at config time can later become a guest or leave.
+    `get_user_by_id` applies the same eligibility rules as the picker (no bots, guests, or
+    members from outside the connected workspace), so an ineligible recipient fails permanently
+    here instead of leaking internal output.
+    """
+    if not target_id.startswith(("U", "W")):
+        return
+    if slack.get_user_by_id(target_id) is None:
+        raise ScoutSlackPermanentDeliveryError(
+            "The configured Slack member can no longer receive scout output",
+            error_code="recipient_not_eligible",
+        )
+
+
 def _slack_channel_id(channel: str) -> str:
     channel_id = slack_channel_id_from_target(channel)
     if not channel_id:
@@ -176,7 +217,7 @@ def _slack_channel_id(channel: str) -> str:
 
 
 def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict], str]:
-    """Render a direct scout finding with the same safe Markdown conversion as inbox signals."""
+    """Render a direct scout finding, with its description delivered as Markdown."""
     scout_name = _prettify_scout_name(emission.scout_run.skill_name)
     blocks: list[dict] = [
         {
@@ -185,9 +226,9 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
         }
     ]
 
-    rendered_description = truncate_slack_section(markdown_to_slack_mrkdwn(emission.description.strip()))
+    rendered_description = prepare_slack_markdown(emission.description.strip())
     if rendered_description:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_description}})
+        blocks.append(slack_markdown_block(rendered_description))
 
     details: list[str] = []
     if emission.severity:
@@ -224,6 +265,7 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
 def post_scout_emission_to_slack(
     emission: SignalScoutEmission,
     *,
+    delivery_id: str,
     integration_id: int,
     channel: str,
 ) -> None:
@@ -234,13 +276,17 @@ def post_scout_emission_to_slack(
     channel_id = _slack_channel_id(channel)
 
     blocks, fallback = build_scout_slack_message(emission)
-    client = SlackIntegration(integration).client
+    slack = SlackIntegration(integration)
+    client = slack.client
     try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
         response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
-            client_msg_id=str(emission.id),
+            # The queue derives one delivery_id per recipient, so each DM keeps its own
+            # Slack idempotency key instead of every recipient sharing the emission id.
+            client_msg_id=delivery_id,
             unfurl_links=False,
             unfurl_media=False,
         )
@@ -301,9 +347,9 @@ def build_scout_report_slack_message(
     # Chart links in the prose still reduce to their label; the charts themselves follow the prose
     # as image blocks, the way the inbox places charts the summary doesn't reference inline.
     summary_text = strip_chart_references((report.summary or "").strip())
-    rendered_summary = truncate_slack_section(markdown_to_slack_mrkdwn(summary_text))
+    rendered_summary = prepare_slack_markdown(summary_text)
     if rendered_summary:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
+        blocks.append(slack_markdown_block(rendered_summary))
 
     # `render_budget` shares one render allowance across a delivery's initial build and any rebuild.
     blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
@@ -313,21 +359,24 @@ def build_scout_report_slack_message(
 
 
 def _report_summary_chunks(report: SignalReport) -> list[str]:
-    """Convert the report summary to mrkdwn and split it into one chunk per heading section.
+    """Split the report summary into one chunk of Markdown per section.
 
     Called only for a threaded delivery. The first chunk leads the channel and each later one
     becomes a reply, so the thread mirrors the report's outline at any length. Length is not the
-    test: a typical digest fits inside one Slack section, so a length test leaves it as one wall of
-    text. A summary with no headings has no seam and stays one chunk. A section too long for one
-    Slack section is hard-chunked on its line ends. The split runs after `strip_chart_references`
+    test: a typical digest fits inside one Slack block, so a length test leaves it as one wall of
+    text. A section is opened by a Markdown heading or a bold label, so the summary threads whether
+    the scout wrote `## Evidence` or `**Evidence**`. A summary with neither has no seam and stays
+    one chunk. A summary with more sections than `MAX_THREAD_SEGMENTS` has them grouped, so one
+    delivery cannot post a reply per paragraph of a malformed report. A section too long for one
+    Slack block is hard-chunked on its line ends. The split runs after `strip_chart_references`
     so a chart link never straddles two messages."""
     summary_text = strip_chart_references((report.summary or "").strip())
     chunks: list[str] = []
-    for segment in split_markdown_by_headings(summary_text):
-        rendered_segment = markdown_to_slack_mrkdwn(segment.strip())
+    for segment in group_segments_to_limit(split_markdown_by_headings(summary_text)):
+        rendered_segment = defuse_slack_tokens(segment.strip())
         if not rendered_segment:
             continue
-        chunks.extend(chunk_slack_mrkdwn(rendered_segment))
+        chunks.extend(chunk_slack_text(rendered_segment, SLACK_MARKDOWN_TEXT_MAX_LEN))
     return chunks
 
 
@@ -414,7 +463,7 @@ def build_scout_report_thread_slack_messages(
 
     The lead carries the scout name, the report title, the first summary chunk, the charts, and the
     report link. Every later chunk becomes a threaded reply, so the channel shows a short lead and
-    the thread holds the report's sections in order, with nothing clipped at the section cap. A
+    the thread holds the report's sections in order, with nothing clipped at the block's cap. A
     summary that opens with a heading puts that first section in the lead, so the channel never
     shows a title-only stub."""
     scout_name = _prettify_scout_name(run.skill_name)
@@ -429,13 +478,13 @@ def build_scout_report_thread_slack_messages(
 
     chunks = _report_summary_chunks(report)
     if chunks:
-        lead_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}})
+        lead_blocks.append(slack_markdown_block(chunks[0]))
     # Charts ride the lead rather than a reply: the lead is the message the channel sees, and the
     # replies only carry the summary's tail for anyone who opens the thread.
     lead_blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
     lead_blocks.append(_report_link_block(report))
 
-    reply_blocks = [[{"type": "section", "text": {"type": "mrkdwn", "text": chunk}}] for chunk in chunks[1:]]
+    reply_blocks = [[slack_markdown_block(chunk)] for chunk in chunks[1:]]
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
     return ScoutReportThreadMessages(lead_blocks=lead_blocks, fallback=fallback, reply_blocks=reply_blocks)
 
@@ -464,9 +513,9 @@ def build_scout_report_note_slack_message(
     ]
 
     note_text = strip_chart_references(note.strip())
-    rendered_note = truncate_slack_section(markdown_to_slack_mrkdwn(note_text))
+    rendered_note = prepare_slack_markdown(note_text)
     if rendered_note:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_note}})
+        blocks.append(slack_markdown_block(rendered_note))
 
     blocks.append(_report_link_block(report))
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"
@@ -495,7 +544,11 @@ def _post_scout_report_thread_replies(
                 thread_ts=thread_ts,
                 blocks=blocks,
                 text=fallback,
-                client_msg_id=f"{delivery_id}:{index}",
+                # Slack rejects a client_msg_id that is not a UUID, and this loop swallows the
+                # error, so a plain `id:index` string costs every reply silently. The `reply`
+                # infix keeps the derivation clear of the one the DM fan-out uses for extra
+                # recipients (`<delivery_id>:<index>`), which would otherwise collide.
+                client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:reply:{index}")),
                 unfurl_links=False,
                 unfurl_media=False,
             )
@@ -642,8 +695,10 @@ def post_scout_report_to_slack(
         integration_id=integration_id,
         project_id=report.team.project_id,
     )
-    client = SlackIntegration(integration).client
+    slack = SlackIntegration(integration)
+    client = slack.client
     try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
         response = _post_scout_report_lead_message(
             client,
             channel_id=channel_id,

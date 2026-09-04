@@ -26,7 +26,8 @@ class DisableReason(NamedTuple):
     key: str
     # Shown in the disabled-subscription email body and the activity's recipient_results.
     description: str
-    # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated.
+    # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated
+    # with the channel's display label, so it reads "Microsoft Teams" rather than "teams".
     user_message: str
 
 
@@ -44,6 +45,19 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     key="slack_permission_revoked",
     description="PostHog can no longer post to this Slack channel",
     user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
+)
+WEBHOOK_REJECTED_DISABLE_REASON = DisableReason(
+    key="webhook_rejected",
+    description="Microsoft Teams stopped accepting messages",
+    user_message="Cannot re-enable {target_type} subscription: Microsoft Teams stopped accepting messages. Create a new webhook URL in your Teams channel with the Workflows app, update this subscription with it, then try again.",
+)
+SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
+    key="slack_file_upload_permission_revoked",
+    description="PostHog can no longer upload files to Slack",
+    user_message=(
+        "Cannot re-enable {target_type} subscription: the Slack app needs the files:write permission. "
+        "Add files:write to a custom Slack app, or reconnect PostHog's Slack app, then try again."
+    ),
 )
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
@@ -70,12 +84,21 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
     return None
 
 
+def target_type_label(target_type: str | None) -> str:
+    if not target_type:
+        return ""
+    try:
+        return str(Subscription.SubscriptionTarget(target_type).label)
+    except ValueError:
+        return target_type
+
+
 def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
     """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
     reason = get_subscription_disable_reason(target_type, integration_id)
     if reason is None:
         return None
-    return reason.user_message.format(target_type=target_type)
+    return reason.user_message.format(target_type=target_type_label(target_type))
 
 
 def _get_notification_creator(subscription: Subscription) -> User | None:
@@ -158,9 +181,12 @@ def create_subscription_auto_disabled_notification(subscription: Subscription, r
             notification_type=NotificationType.PIPELINE_FAILURE,
             priority=Priority.NORMAL,
             title=f"{title[:75]} was automatically disabled",
+            # Every description is a sentence-case fragment, and most open on a brand name
+            # ("Microsoft Teams stopped accepting messages"), so it stands as its own sentence.
+            # Folding it into a "because ..." clause needs it lowercased, which mangles the brand.
             body=(
-                f"PostHog automatically disabled this subscription because {reason.description.lower()}. "
-                f"{reason.user_message.format(target_type=subscription.target_type)}"
+                f"PostHog automatically disabled this subscription. {reason.description}. "
+                f"{reason.user_message.format(target_type=target_type_label(subscription.target_type))}"
             ),
             target_type=TargetType.USER,
             target_id=str(creator.id),
@@ -197,7 +223,7 @@ def send_notifications_for_disabled_subscription(
             "subscription_url": subscription.url,
             "subscription_title": display_name,
             "reason": reason.description,
-            "action_message": reason.user_message.format(target_type=subscription.target_type),
+            "action_message": reason.user_message.format(target_type=target_type_label(subscription.target_type)),
         },
     )
     for target in targets:

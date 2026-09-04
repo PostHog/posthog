@@ -221,17 +221,10 @@ class TestRelaySlackMessage(TestCase):
         assert "user_activity_report.pdf" in posted
         assert "no file was attached to Slack for this run" in posted
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_run_manifest_artifacts_never_surface_in_slack(
-        self,
-        _mock_delete_progress,
-        mock_post,
-        _mock_update,
-        _mock_flag,
-    ):
+    def test_run_manifest_artifacts_never_surface_in_slack(self, _mock_delete_progress, mock_post, _mock_update):
         # Run-manifest artifacts are internal (inputs, context, raw agent outputs).
         # Even with living artifacts enabled they must not leak into the posted text,
         # and their presence must not suppress the unconfirmed-attachment notice.
@@ -315,11 +308,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping.return_value = slack_integration
         return slack
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -334,8 +322,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         mock_requests_post,
-        _mock_canvas_file_flag,
-        _mock_living_artifacts_flag,
     ):
         artifact, storage_path = self._create_pending_slack_file_artifact(
             name="report.xlsx",
@@ -371,11 +357,6 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
         self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -396,8 +377,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
-        _mock_living_artifacts_flag,
     ):
         # posthog_url must be SITE_URL-origin, or it is treated as untrusted caller metadata
         # and no button is added.
@@ -467,11 +446,6 @@ class TestRelaySlackMessage(TestCase):
         self.assertNotIn("slack_file_id", artifact.versions[0])
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -487,8 +461,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
-        _mock_living_artifacts_flag,
     ):
         artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",
@@ -524,11 +496,6 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
         self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -543,8 +510,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
-        _mock_living_artifacts_flag,
     ):
         artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",

@@ -24,13 +24,9 @@ from posthog.models.utils import UUIDTModel
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
-# All destination types that share the s3-export Temporal workflow.
-# Includes the legacy "S3" alias for backwards compatibility.
-S3_FAMILY_TYPES: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible"})
-
-# S3-family types that can be created via the API. The legacy "S3" type is excluded:
-# existing rows keep working, but new destinations must use "AwsS3" or "S3Compatible".
-S3_CREATABLE_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
+# S3-family destination types that are in use. Note that this excludes the legacy "S3"
+# type which has now been fully deprecated.
+S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 
 
 class DayOfWeek(IntEnum):
@@ -70,7 +66,7 @@ class BatchExportDestination(UUIDTModel):
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
-        S3 = "S3"  # legacy alias; AwsS3 / S3Compatible are the preferred types for new rows
+        S3 = "S3"  # TODO: legacy alias which is no longer used so can be removed
         AWS_S3 = "AwsS3"
         S3_COMPATIBLE = "S3Compatible"
         SNOWFLAKE = "Snowflake"
@@ -84,6 +80,9 @@ class BatchExportDestination(UUIDTModel):
         NOOP = "NoOp"
         FILE_DOWNLOAD = "FileDownload"
 
+    # S3-family exports read their credentials from an Integration, but rows migrated off inline
+    # credentials still hold them in `config`. These entries keep those stale values out of API
+    # responses until a follow-up strips them from stored config.
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
@@ -279,13 +278,15 @@ class BatchExportRun(UUIDTModel):
         raise ValueError("One of batch export or batch export on demand must always be defined")
 
 
-BATCH_EXPORT_INTERVALS = [
-    ("hour", "hour"),
-    ("day", "day"),
-    ("week", "week"),
-    ("every 5 minutes", "every 5 minutes"),
-    ("every 15 minutes", "every 15 minutes"),
-]
+class BatchExportInterval(models.TextChoices):
+    HOUR = "hour", "hour"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+    EVERY_5_MINUTES = "every 5 minutes", "every 5 minutes"
+    EVERY_15_MINUTES = "every 15 minutes", "every 15 minutes"
+
+
+BATCH_EXPORT_INTERVALS = BatchExportInterval.choices
 
 BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
     "hour": timedelta(minutes=15),

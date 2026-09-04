@@ -126,6 +126,21 @@ class TestDockerSandboxUnit:
         assert "secret token" not in redacted
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>" in redacted
 
+    def test_redact_sandbox_command_hides_mcp_credentials(self):
+        command = 'agent-server --mcpServers \'[{"headers":{"Authorization":"Bearer secret-token"}}]\' --port 8080'
+
+        redacted = redact_sandbox_command(command)
+
+        assert redacted == "agent-server --mcpServers <redacted> --port 8080"
+
+    def test_redact_sandbox_command_hides_file_heredoc(self):
+        command = "base64 -d > /tmp/value <<'POSTHOG_FILE_EOF'\nc2VjcmV0\nPOSTHOG_FILE_EOF"
+
+        redacted = redact_sandbox_command(command)
+
+        assert "c2VjcmV0" not in redacted
+        assert "<redacted>" in redacted
+
     @pytest.mark.parametrize(
         "input_url,expected_url",
         [

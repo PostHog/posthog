@@ -81,6 +81,12 @@ One scrape is one credit, so those numbers cap a bill as much as a rate; they ar
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
 
+Harmonic (`harmonic/`) meters one account-wide rate limit, and an instance holds a single API key, so it uses one constant scope like the two above.
+The budget is a single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
+Harmonic publishes no rate limit we could confirm, so that default is seeded from observed throughput and is meant to be tuned against the rate-limit headers this domain records.
+Harmonic is the first async domain: it subclasses `AsyncEgressClient` rather than `EgressClient`, because its client speaks `aiohttp`.
+Its lanes carry very different traffic, so the reserve floor matters: signup enrichment and the ICP re-enrichment sweep run `CRITICAL` inside a short Temporal activity budget, while the Salesforce enrichment sweep runs `BATCH` and yields to them.
+
 ### Priority lanes
 
 Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when the budget gets tight.
@@ -158,7 +164,7 @@ It is **never** a PostHog DB row id (`Integration.id`).
 Several PostHog integration rows can point at the same installation (multiple projects, one org), and GitHub gives that installation one shared budget: key a gauge by the row and one real budget splits into N flip-flopping series; key by the installation and you get one true series.
 Per-caller attribution is the `source` label's job, not the identity's.
 
-> The cache-hit counter in `github_integration_base` is a separate concern (cache efficiency per connection) and legitimately keys by the integration row — it is not egress-budget telemetry.
+> The cache-hit counter in `github_integration_base` is a separate concern (which rows are reading a warm cache) and legitimately keys by the integration row, not by the installation — it is not egress-budget telemetry. The caches it counts are installation-scoped, so a row can record a hit on an entry another row on the same installation filled.
 
 ## Identity-blind callers and the PAT scope decision
 

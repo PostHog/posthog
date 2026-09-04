@@ -1,3 +1,4 @@
+import { deepEqual as equal } from 'fast-equals'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -68,6 +69,7 @@ export function dashboardToSaveableTemplate(
                         body: tile.text.body,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.insight) {
@@ -78,6 +80,7 @@ export function dashboardToSaveableTemplate(
                         query: tile.insight.query,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.button_tile) {
@@ -91,6 +94,7 @@ export function dashboardToSaveableTemplate(
                         },
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.widget) {
@@ -100,6 +104,7 @@ export function dashboardToSaveableTemplate(
                         config: tile.widget.config,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 throw new Error('Unknown tile type')
@@ -453,6 +458,41 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     }
 
     return encodedFilters
+}
+
+/**
+ * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
+ * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
+ */
+export function searchParamsWithUrlFilters(
+    searchParams: Record<string, any>,
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter = {}
+): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    if (!dashboardFilterOverrideChangesFilters(filters, persistedFilters)) {
+        delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
+        return nextSearchParams
+    }
+    return { ...nextSearchParams, ...encodeURLFilters(filters) }
+}
+
+export function dashboardFilterOverrideChangesFilters(
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter
+): boolean {
+    return Object.entries(filters).some(([key, value]) => {
+        const persistedValue = (persistedFilters as Record<string, unknown>)[key]
+        if (key === 'properties') {
+            const properties = Array.isArray(value) ? value : []
+            const persistedProperties = Array.isArray(persistedValue) ? persistedValue : []
+            return !equal(properties, persistedProperties)
+        }
+        if (value == null && persistedValue == null) {
+            return false
+        }
+        return !equal(value, persistedValue)
+    })
 }
 
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {

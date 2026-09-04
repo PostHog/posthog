@@ -10,9 +10,7 @@ import { componentMetaSchema } from "./gridLayoutSchemas";
 // epoch-ms timestamps. Source code and version history are NOT part of the
 // record — they live behind the source/versions endpoints, and the rendered
 // output behind the build lifecycle.
-export const canvasKindSchema = z.enum(["freeform", "grid", "component"]);
-export type CanvasKind = z.infer<typeof canvasKindSchema>;
-
+const canvasKindSchema = z.enum(["freeform", "grid", "component"]);
 export const dashboardRecordSchema = z.object({
   id: z.string(),
   // The backend channel (task channel UUID) this canvas belongs to.

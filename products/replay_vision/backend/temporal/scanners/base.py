@@ -7,6 +7,8 @@ from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from posthog.dataclasses import frozen
+
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 # `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
@@ -100,7 +102,7 @@ class MissionStep:
     """One structured turn in a scanner's conversation: an instruction, the schema the model must answer with,
     and how its result feeds the final output.
 
-    `required` steps abort the scan when they can't be satisfied; non-required steps (facets, signals) are
+    `required` steps abort the scan when they can't be satisfied; non-required steps (signals) are
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
     """
@@ -123,6 +125,14 @@ def confidence_field() -> Any:
     return Field(ge=0, le=1, description=_CONFIDENCE_DESCRIPTION)
 
 
+@frozen
+class EmbeddingDocument:
+    """One embedding row's identity and text: `rendering` names which field of the output it came from."""
+
+    rendering: str
+    text: str
+
+
 class BaseScannerOutput(BaseModel, frozen=True):
     """Final output shape emitted as `$recording_observed` event properties (flattened with `scanner_output_*` keys)."""
 
@@ -132,13 +142,19 @@ class BaseScannerOutput(BaseModel, frozen=True):
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
         return {f"scanner_output_{k}": v for k, v in self.model_dump(mode="json", exclude={"scanner_type"}).items()}
 
+    def embedding_document(self) -> "EmbeddingDocument | None":
+        """What gets embedded for semantic search, or None when there is nothing to embed. Most scanner types
+        explain themselves in `reasoning`; the summarizer overrides this."""
+        reasoning = getattr(self, "reasoning", "")
+        return EmbeddingDocument(rendering="reasoning", text=reasoning) if reasoning and reasoning.strip() else None
+
 
 class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
-    the ordered `mission_steps` — one structured turn each. Most scanners have a single `core` step; the summarizer
-    splits into `summary` then `facets`; the signals side mission, when enabled, is always the final turn.
+    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step (the summarizer
+    names it `summary`); the signals side mission, when enabled, is always the final turn.
     """
 
     prompt: str

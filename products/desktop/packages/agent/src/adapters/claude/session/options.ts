@@ -40,6 +40,10 @@ import {
   type EnrichedReadCache,
   type OnModeChange,
 } from "../hooks";
+import {
+  applyMachineClaudeAuth,
+  type MachineClaudeAuth,
+} from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import { buildAppendedInstructions } from "./instructions";
@@ -47,6 +51,7 @@ import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
 import type { SettingsManager } from "./settings";
+import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
 export interface ProcessSpawnedInfo {
   pid: number;
@@ -87,6 +92,7 @@ export interface BuildOptionsParams {
   systemPrompt?: Options["systemPrompt"];
   userProvidedOptions?: Options;
   sessionId: string;
+  taskId?: string;
   isResume: boolean;
   forkSession?: boolean;
   additionalDirectories?: string[];
@@ -115,6 +121,10 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /** Session's discriminator for the traceparent hook's stderr; the hook is
+   * skipped when absent (see session/traceparent-hook.ts). */
+  traceparentHookNonce?: string;
+  machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
   /** Per-session context wiki mount — prevents global process.env mutation. */
@@ -172,10 +182,49 @@ function buildMcpServers(
 
 function buildEnvironment(
   gateway?: GatewayEnv,
-  sessionId?: string,
+  aiSessionId?: string,
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
+  machineAuth?: MachineClaudeAuth,
 ): Record<string, string> {
+  // SDK 0.3.142 made MCP servers connect in the background by default. That
+  // default is what we want: a slow or unreachable user MCP server (PostHog
+  // MCP, custom stdio servers) would otherwise stall turn 1 by up to ~5s per
+  // server. We honor an explicit override from the caller's environment for
+  // sessions that genuinely need MCP tools available on turn 1.
+  const mcpNonblocking = process.env.MCP_CONNECTION_NONBLOCKING;
+
+  const env: Record<string, string> = {
+    ...process.env,
+    ...((process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) && {
+      ELECTRON_RUN_AS_NODE: "1",
+    }),
+    CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL: "true",
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
+    // Offload all MCP tools by default
+    ENABLE_TOOL_SEARCH: "auto:0",
+    // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
+    CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
+    ...(mcpNonblocking !== undefined && {
+      MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
+    }),
+  };
+
+  if (machineAuth) {
+    applyMachineClaudeAuth(env, machineAuth);
+  } else {
+    applyGatewayAuth(env, gateway, aiSessionId, bedrockGatewayVariant);
+  }
+  applyContextWikiEnv(env, contextWiki);
+  return env;
+}
+
+function applyGatewayAuth(
+  env: Record<string, string>,
+  gateway: GatewayEnv | undefined,
+  aiSessionId: string | undefined,
+  bedrockGatewayVariant: BedrockGatewayVariant | undefined,
+): void {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
   // which reads them from this env var (newline-delimited `name: value` lines)
   // — the SDK has no direct header option. We finalize them here, the single
@@ -194,9 +243,9 @@ function buildEnvironment(
   if (projectId) {
     headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
-  if (sessionId) {
+  if (aiSessionId) {
     headerLines.push(
-      buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
+      buildPosthogPropertyHeaderLines({ $ai_session_id: aiSessionId }),
     );
   }
   // The two Bedrock headers are mutually exclusive at the gateway: it dispatches
@@ -218,14 +267,28 @@ function buildEnvironment(
       `x-posthog-flag-${BEDROCK_LLM_GATEWAY_FLAG}: ${bedrockGatewayVariant}`,
     );
   }
-  const customHeaders = headerLines.join("\n");
+  env.ANTHROPIC_CUSTOM_HEADERS = headerLines.join("\n");
 
-  // SDK 0.3.142 made MCP servers connect in the background by default. That
-  // default is what we want: a slow or unreachable user MCP server (PostHog
-  // MCP, custom stdio servers) would otherwise stall turn 1 by up to ~5s per
-  // server. We honor an explicit override from the caller's environment for
-  // sessions that genuinely need MCP tools available on turn 1.
-  const mcpNonblocking = process.env.MCP_CONNECTION_NONBLOCKING;
+  // Explicit gateway values win over whatever happens to be in process.env.
+  // This prevents concurrent Agent instances from clobbering each other's
+  // gateway config when process.env was mutated globally.
+  if (gateway?.anthropicBaseUrl) {
+    env.ANTHROPIC_BASE_URL = gateway.anthropicBaseUrl;
+  }
+  if (gateway?.anthropicAuthToken) {
+    env.ANTHROPIC_AUTH_TOKEN = gateway.anthropicAuthToken;
+    env.ANTHROPIC_API_KEY = gateway.anthropicAuthToken;
+  }
+  if (gateway?.openaiBaseUrl) {
+    env.OPENAI_BASE_URL = gateway.openaiBaseUrl;
+  }
+  if (gateway?.openaiApiKey) {
+    env.OPENAI_API_KEY = gateway.openaiApiKey;
+  }
+
+  if (!gateway?.anthropicBaseUrl) {
+    return;
+  }
 
   // Every var is load-bearing (ablation-tested): the CLI stamps the per-turn
   // traceparent only once its OTel tracer initializes, and the dead endpoint
@@ -237,54 +300,18 @@ function buildEnvironment(
   // inside the CLI and can redirect the endpoint or turn on content capture
   // (OTEL_LOG_TOOL_CONTENT, …) — pre-existing settingSources exposure, not
   // closable from here; hardening tracked separately.
-  const gatewayTracing: Record<string, string> = gateway?.anthropicBaseUrl
-    ? {
-        CLAUDE_CODE_ENABLE_TELEMETRY: "1",
-        CLAUDE_CODE_ENHANCED_TELEMETRY_BETA: "1",
-        CLAUDE_CODE_PROPAGATE_TRACEPARENT: "1",
-        OTEL_TRACES_EXPORTER: "otlp",
-        OTEL_EXPORTER_OTLP_PROTOCOL: "http/json",
-        OTEL_EXPORTER_OTLP_ENDPOINT:
-          process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://127.0.0.1:9",
-      }
-    : {};
+  env.CLAUDE_CODE_ENABLE_TELEMETRY = "1";
+  env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = "1";
+  env.CLAUDE_CODE_PROPAGATE_TRACEPARENT = "1";
+  env.OTEL_TRACES_EXPORTER = "otlp";
+  env.OTEL_EXPORTER_OTLP_PROTOCOL = "http/json";
+  env.OTEL_EXPORTER_OTLP_ENDPOINT =
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://127.0.0.1:9";
 
-  const env: Record<string, string> = {
-    ...process.env,
-    ...gatewayTracing,
-    // Explicit gateway values win over whatever happens to be in process.env.
-    // This prevents concurrent Agent instances from clobbering each other's
-    // gateway config when process.env was mutated globally.
-    ...(gateway?.anthropicBaseUrl && {
-      ANTHROPIC_BASE_URL: gateway.anthropicBaseUrl,
-    }),
-    ...(gateway?.anthropicAuthToken && {
-      ANTHROPIC_AUTH_TOKEN: gateway.anthropicAuthToken,
-      ANTHROPIC_API_KEY: gateway.anthropicAuthToken,
-    }),
-    ...(gateway?.openaiBaseUrl && { OPENAI_BASE_URL: gateway.openaiBaseUrl }),
-    ...(gateway?.openaiApiKey && { OPENAI_API_KEY: gateway.openaiApiKey }),
-    ...((process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) && {
-      ELECTRON_RUN_AS_NODE: "1",
-    }),
-    CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL: "true",
-    // Offload all MCP tools by default
-    ENABLE_TOOL_SEARCH: "auto:0",
-    // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
-    CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
-    ...(mcpNonblocking !== undefined && {
-      MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
-    }),
-    ANTHROPIC_CUSTOM_HEADERS: customHeaders,
-  };
-  if (gateway?.anthropicBaseUrl) {
-    // The CLI parents every turn under an inherited ambient TRACEPARENT,
-    // collapsing the per-turn trace ids this block exists to produce.
-    delete env.TRACEPARENT;
-    delete env.TRACESTATE;
-  }
-  applyContextWikiEnv(env, contextWiki);
-  return env;
+  // The CLI parents every turn under an inherited ambient TRACEPARENT,
+  // collapsing the per-turn trace ids this block exists to produce.
+  delete env.TRACEPARENT;
+  delete env.TRACESTATE;
 }
 
 function buildHooks(
@@ -507,6 +534,22 @@ function isLegacyJavaScriptClaudeExecutable(executablePath: string): boolean {
 export function buildSessionOptions(params: BuildOptionsParams): Options {
   ensureLocalSettings(params.cwd);
 
+  // Gateway sessions get the traceparent hook (see session/traceparent-hook.ts)
+  // so each turn's gateway trace id reaches the session as a `hook_response`.
+  // `--settings` is the one hook channel that needs no settingSources; skipped
+  // when the caller supplies its own settings (either the SDK `settings`
+  // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
+  // SDK silently drops the extraArgs one on collision) rather than clobbering
+  // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  const traceparentHookSettings =
+    params.gatewayEnv?.anthropicBaseUrl &&
+    params.traceparentHookNonce &&
+    process.platform !== "win32" &&
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined
+      ? buildTraceparentHookSettingsJson(params.traceparentHookNonce)
+      : undefined;
+
   // Resolve which built-in tools to expose.
   // Explicit tools array from userProvidedOptions takes precedence.
   // disableBuiltInTools is a legacy shorthand for tools: [] — kept for
@@ -541,17 +584,26 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
+      ...(traceparentHookSettings && { settings: traceparentHookSettings }),
     },
+    // Surfaces the traceparent hook's output as `hook_response` messages.
+    includeHookEvents:
+      params.userProvidedOptions?.includeHookEvents ??
+      traceparentHookSettings !== undefined,
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,
       loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
+    // Feedback events stamp the task id as $ai_session_id, so generations
+    // carry the same id for LLMA to group a task's runs and ratings together.
+    // A session without a task keeps the agent session id.
     env: buildEnvironment(
       params.gatewayEnv,
-      params.sessionId,
+      params.taskId ?? params.sessionId,
       params.bedrockGatewayVariant,
       params.contextWiki,
+      params.machineAuth,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
@@ -599,7 +651,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.model = DEFAULT_MODEL;
   }
 
-  if (!options.fallbackModel) {
+  if (!options.fallbackModel && !params.machineAuth) {
     options.fallbackModel = resolveFallbackModel(
       options.model ?? DEFAULT_MODEL,
     );

@@ -81,6 +81,10 @@ Without the variable the action does no extra work. Set it in one workflow that 
 every pull request; that keeps the merge-ref fetch off the critical path of the other
 gating jobs. This is temporary, and goes away with the decision it exists to inform.
 
+The event carries the differing paths and, in `selection_changed` and `keys_lost`, which
+filter keys answer differently on the two lists. The keys are what gate a job, so they are
+what the decision reads; the paths are there to explain a flip.
+
 ## Rebuilding after source changes
 
 The action runs the committed `dist/index.js` bundle. After editing anything under `src/`,

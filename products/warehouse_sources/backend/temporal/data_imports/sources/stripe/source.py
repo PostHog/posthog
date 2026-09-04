@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_OFF_ENDPOINTS as STRIPE_DEFAULT_OFF_ENDPOINTS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
     WEBHOOK_SYNC_ONLY_ENDPOINTS as STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS,
 )
@@ -490,7 +491,13 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
-        return create_webhook(api_key, config.stripe_account_id, webhook_url, auth_method=config.auth_method.selection)
+        return create_webhook(
+            api_key,
+            config.stripe_account_id,
+            webhook_url,
+            api_version=self.resolve_api_version(api_version),
+            auth_method=config.auth_method.selection,
+        )
 
     def get_desired_webhook_events(
         self, config: StripeSourceConfig, eligible_schema_names: list[str]
@@ -543,4 +550,16 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
+            team_id=inputs.team_id,
+            source_id=inputs.source_id,
+            # Both are required for the warehouse parent path, and both default to off, so a
+            # conversion that declares a parent without threading these silently keeps polling
+            # the parent API while the fan-out telemetry reports otherwise.
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        # These sweeps run from the SDK rather than a DependentEndpointConfig, so the dependency
+        # is read off the same declaration the resolve and the sweep read rather than derived.
+        converted = WAREHOUSE_PARENT_FANOUT.get(schema_name)
+        return [converted.schema] if converted else []
