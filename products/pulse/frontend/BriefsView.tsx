@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -30,16 +29,14 @@ export function BriefsView(): JSX.Element {
         )
     }
 
+    // The scene-level empty state covers a project with no briefs at all. This branch is the
+    // per-focus case: briefs exist, but none for the selected focus yet.
     if (visibleBriefs.length === 0) {
         return (
-            <ProductIntroduction
-                productName="Pulse"
-                thingName="brief"
-                titleOverride="No briefs yet"
-                description="Run your first brief to see what happened in your product, why it happened, and what to build next."
-                isEmpty
-                actionElementOverride={<RunBriefButton />}
-            />
+            <div className="flex flex-col items-center gap-3 border rounded p-8 text-center">
+                <span className="text-secondary">No briefs for this focus yet.</span>
+                <RunBriefButton />
+            </div>
         )
     }
 
