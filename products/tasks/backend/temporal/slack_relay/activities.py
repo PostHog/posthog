@@ -9,9 +9,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.living_artifacts import (
-    deliver_pending_slack_file_artifacts,
-    has_pending_slack_file_artifacts,
-    has_pending_slack_image_artifacts,
+    deliver_pending_slack_artifacts,
+    has_pending_slack_artifacts,
+    has_pending_slack_card_artifacts,
 )
 from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
 
@@ -407,22 +407,22 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # fenced SQL before splitting so chunk sizes account for the markdown they become.
     text = rewrite_object_tags_for_slack(text, project_url=project_web_url(task_run.team_id))
 
-    # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
-    # (and deliver_pending_slack_file_artifacts below) return falsy when the
+    # Living-artifacts gating lives in the service: has_pending_slack_artifacts
+    # (and deliver_pending_slack_artifacts below) return falsy when the
     # workspace's living-artifacts flag is off. Run-manifest artifacts are internal
     # and must never surface here — Slack delivery goes through living artifacts only.
-    has_pending_slack_files = has_pending_slack_file_artifacts(task_run)
-    if not has_pending_slack_files:
+    has_pending_artifacts = has_pending_slack_artifacts(task_run)
+    if not has_pending_artifacts:
         text = _append_unconfirmed_attachment_notice(
             text,
             origin_product=mapping.task.origin_product,
         )
 
-    # Pending chart images compose into a single Slack message together with the answer
-    # text (section blocks cap at 3000 chars, tighter than plain messages), so pick the
-    # chunk limit before splitting.
-    compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
-    chunk_limit = SLACK_SECTION_TEXT_LIMIT if compose_with_charts else SLACK_MESSAGE_TEXT_LIMIT
+    # Pending charts and canvases compose into a single Slack message together with the
+    # answer text (section blocks cap at 3000 chars, tighter than plain messages), so pick
+    # the chunk limit before splitting.
+    compose_with_cards = has_pending_artifacts and has_pending_slack_card_artifacts(task_run)
+    chunk_limit = SLACK_SECTION_TEXT_LIMIT if compose_with_cards else SLACK_MESSAGE_TEXT_LIMIT
 
     # Split the raw markdown first, then convert each chunk independently. Converting
     # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
@@ -475,14 +475,14 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         handler.delete_progress()
 
     answer_posted = False
-    if compose_with_charts:
+    if compose_with_cards:
         sections = list(chunks)
         if sections:
             sections[0] = f"{mention_prefix}{sections[0]}"
-        answer_posted = deliver_pending_slack_file_artifacts(task_run, answer_sections=sections).answer_posted
+        answer_posted = deliver_pending_slack_artifacts(task_run, answer_sections=sections).answer_posted
         if answer_posted:
             # The answer went out inside the composed message, whose blocks are the text
-            # sections and the chart cards, so the footer follows it as its own message.
+            # sections and the artifact cards, so the footer follows it as its own message.
             handler.post_footer()
 
     if not answer_posted:
@@ -491,8 +491,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             # This relay carries one agent answer, split only to fit Slack's length cap, so
             # the last chunk is where the turn ends and the footer belongs.
             handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1)
-        if has_pending_slack_files and not compose_with_charts:
-            deliver_pending_slack_file_artifacts(task_run)
+        if has_pending_artifacts and not compose_with_cards:
+            deliver_pending_slack_artifacts(task_run)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
