@@ -287,7 +287,9 @@ export interface insightSceneLogicMeta {
             insightQuery: Node<Record<string, any>> | null | undefined,
             dashboardId: number | null,
             dashboardName: string | null,
-            sceneSource: InsightSceneSource | null
+            sceneSource: InsightSceneSource | null,
+            filtersOverride: DashboardFilter | null,
+            variablesOverride: Record<string, HogQLVariable> | null
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
         sidePanelContext: (
