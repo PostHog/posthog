@@ -182,32 +182,48 @@ describe('experimentLogic', () => {
                 })
         })
 
-        it('renders the cached result while the backend recomputes, instead of waiting for the recompute', async () => {
+        it('shows the cached result first, then replaces it with the recomputed one', async () => {
             logic.actions.setExperiment(experiment)
 
-            const cachedResult = {
+            const metricResult = (sum: number, cached: boolean): Record<string, any> => ({
                 kind: NodeKind.ExperimentQuery,
                 baseline: { key: 'control', number_of_samples: 100, sum: 10, sum_squares: 5 },
-                variants: [{ key: 'test', number_of_samples: 100, sum: 12, sum_squares: 6 }],
-                is_cached: true,
+                variants: [{ key: 'test', number_of_samples: 100, sum, sum_squares: 6 }],
+                is_cached: cached,
                 last_refresh: '2025-02-06T13:33:40.311Z',
-                query_status: { id: 'recompute-in-progress', complete: false },
-            }
-            const poll = jest.fn(() => [200, experimentMetricResultsSuccessJson])
+            })
+            const cachedResult = { ...metricResult(12, true), query_status: { id: 'recomputing', complete: false } }
+            const recomputedResult = metricResult(19, false)
+
+            let releasePoll = (): void => {}
+            const pollGate = new Promise<void>((resolve) => {
+                releasePoll = resolve
+            })
 
             useMocks({
                 post: {
                     '/api/environments/:team/query/:kind': () => [200, cachedResult],
                 },
                 get: {
-                    '/api/environments/:team/query/:id': poll,
+                    '/api/environments/:team/query/:id': async () => {
+                        await pollGate
+                        return [200, { query_status: { id: 'recomputing', complete: true, results: recomputedResult } }]
+                    },
                 },
             })
 
-            await logic.asyncActions.loadPrimaryMetricsResults(false)
+            const loadPromise = logic.asyncActions.loadPrimaryMetricsResults(false)
 
+            await expectLogic(logic).toDispatchActions([
+                (action: any) =>
+                    action.type === logic.actionTypes.setPrimaryMetricsResults && !!action.payload.results[0],
+            ])
             expect(logic.values.primaryMetricsResults[0]).toEqual(cachedResult)
-            expect(poll).not.toHaveBeenCalled()
+
+            releasePoll()
+            await loadPromise
+
+            expect(logic.values.primaryMetricsResults[0]).toEqual(recomputedResult)
         })
     })
 

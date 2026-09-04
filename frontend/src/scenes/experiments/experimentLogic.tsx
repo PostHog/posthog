@@ -51,7 +51,7 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
+import { performQuery, pollForResults } from '~/queries/query'
 import {
     AnyEntityNode,
     Breakdown,
@@ -337,6 +337,11 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
 // prevents mass rejections and retry churn when experiments have many metrics.
 const METRIC_QUERY_CONCURRENCY_LIMIT = 10
 
+/** A cached response the backend served while a background recompute for it is still running. */
+function isStaleCachedResponse(response: any): response is { query_status: { id: string } } {
+    return !!response?.is_cached && !!response?.query_status && !response.query_status.complete
+}
+
 const loadMetrics = async ({
     metrics,
     experimentId,
@@ -390,6 +395,23 @@ const loadMetrics = async ({
                     undefined, // limitContext
                     true // acceptStaleCache
                 )
+
+                if (isStaleCachedResponse(response)) {
+                    // Put the cached numbers on screen now, then stay on the recompute: the task holds
+                    // its concurrency slot until the queue is done, and the fresher value replaces the
+                    // cached one in place when it lands.
+                    if (isNewExperimentResponse(response as CachedExperimentQueryResponse)) {
+                        results[originalIndex] = response as CachedNewExperimentQueryResponse
+                        onSetResults([...results])
+                    }
+                    try {
+                        response = (await pollForResults(response.query_status.id)).results
+                    } catch {
+                        // A recompute that stalls or fails leaves the cached numbers in place. They are
+                        // what the person is already reading, so an error state here would take away
+                        // results that work.
+                    }
+                }
 
                 const durationMs = Math.round(performance.now() - startTime)
                 const isCached = !!response?.is_cached
