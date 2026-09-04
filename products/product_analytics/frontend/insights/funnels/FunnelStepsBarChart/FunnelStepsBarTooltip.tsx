@@ -41,9 +41,8 @@ export function FunnelStepsBarTooltip({
         ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
         : null
 
-    // Vertical bar chart: cursor above the bar's top pixel is in the track (drop-off) region.
-    const isDropOffHover =
-        stepIndex > 0 && context.hoverPosition != null && entry.yPixel != null && context.hoverPosition.y < entry.yPixel
+    // Shares the chart's hit-test rects, so the drop-off framing matches what a click opens.
+    const isDropOffHover = stepIndex > 0 && context.inTrackArea === true
 
     const sharedProps = {
         showPersonsModal,

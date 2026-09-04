@@ -66,6 +66,27 @@ function context(status: "queued" | "in_progress" | "completed") {
   };
 }
 
+function turnCompleted(
+  totalTokens: number,
+  contextWindow: number | null = 200_000,
+): AgentConversationEvent {
+  return {
+    type: "turn_completed",
+    timestamp: 1,
+    stopReason: "stop",
+    totalTokens,
+    usage: {
+      inputTokens: totalTokens,
+      outputTokens: 0,
+      cachedReadTokens: 0,
+      cachedWriteTokens: 0,
+      totalTokens,
+      contextTokens: totalTokens,
+      contextWindow: contextWindow ?? undefined,
+    },
+  };
+}
+
 const snapshotEvent: AgentConversationEvent = {
   type: "assistant_message_chunk",
   timestamp: 1,
@@ -598,6 +619,41 @@ describe("CloudPiSessionClient", () => {
     });
   });
 
+  it("normalizes an aborted turn from a persisted cloud event", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    const events: AgentConversationEvent[] = [];
+    session.onConversationEvent((event) => events.push(event), vi.fn());
+
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      newEntries: [
+        {
+          type: "pi_event",
+          event: {
+            type: "turn_completed",
+            timestamp: 1,
+            stopReason: "aborted",
+          },
+        },
+      ],
+      totalEntryCount: 1,
+    });
+
+    expect(events).toContainEqual({
+      type: "turn_completed",
+      timestamp: 1,
+      stopReason: "cancelled",
+      sourceId: "run-1:log:0",
+    });
+  });
+
   it("loads terminal history from the cloud snapshot without sandbox RPC", async () => {
     const cloud = createCloudTaskClient();
     const session = new CloudPiSessionClient(
@@ -853,5 +909,102 @@ describe("CloudPiSessionClient", () => {
       "Cloud task run run-1 is failed",
     );
     expect(cloud.client.sendCommand).not.toHaveBeenCalled();
+  });
+  it("derives context usage from stored turn usage on a terminal run", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("completed"),
+    );
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "completed",
+      newEntries: [
+        { type: "pi_event", event: turnCompleted(1_000) },
+        { type: "pi_event", event: turnCompleted(50_000) },
+      ],
+      totalEntryCount: 2,
+    });
+
+    expect(session.usageStats()).toEqual({
+      contextUsage: {
+        tokens: 50_000,
+        contextWindow: 200_000,
+        percent: null,
+      },
+    });
+  });
+
+  it.each([
+    ["no earlier window", [turnCompleted(1_000, null)], undefined],
+    [
+      "an earlier window",
+      [turnCompleted(1_000), turnCompleted(50_000, null)],
+      {
+        contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: null },
+      },
+    ],
+  ])(
+    "keeps the last known context window when a turn reports none, with %s",
+    (_label, events, expected) => {
+      const cloud = createCloudTaskClient();
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("completed"),
+      );
+      session.onConversationEvent(vi.fn(), vi.fn());
+
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "snapshot",
+        status: "completed",
+        newEntries: events.map((event) => ({ type: "pi_event", event })),
+        totalEntryCount: events.length,
+      });
+
+      expect(session.usageStats()).toEqual(expected);
+    },
+  );
+
+  it("marks the context unknown after a completed compaction", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("completed"),
+    );
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "completed",
+      newEntries: [
+        { type: "pi_event", event: turnCompleted(50_000) },
+        {
+          type: "pi_event",
+          event: {
+            type: "runtime_status",
+            timestamp: 2,
+            status: "compacting",
+            isComplete: true,
+          },
+        },
+      ],
+      totalEntryCount: 2,
+    });
+
+    expect(session.usageStats()).toEqual({
+      contextUsage: {
+        tokens: null,
+        contextWindow: 200_000,
+        percent: null,
+      },
+    });
   });
 });

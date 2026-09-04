@@ -1,14 +1,18 @@
 import ipaddress
+from uuid import uuid4
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
+
+from posthog.schema import CustomBotDefinition, CustomBotField, CustomBotMatcher, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.traffic_type import (
+    _property_expr,
     get_bot_name,
     get_bot_operator,
     get_bot_type,
@@ -18,6 +22,7 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
@@ -41,6 +46,25 @@ class TestTrafficTypeFunctions:
         assert result.args[1].value == "Regular"
         # Third arg: array access
         assert isinstance(result.args[2], ast.ArrayAccess)
+
+    @parameterized.expand(
+        [
+            # Canonical shape: a rule on another property reads it from the same properties object.
+            ("event properties", ["properties", "$raw_user_agent"], ["properties", "$host"]),
+            ("person-on-events", ["poe", "properties", "$raw_user_agent"], ["poe", "properties", "$host"]),
+            # A user agent not read from a properties object has no sibling to reach for, so the rule
+            # is skipped rather than inventing a column that fails the whole query.
+            ("arbitrary parent", ["foo", "ua"], None),
+            ("parent is not properties", ["events", "$raw_user_agent"], None),
+        ]
+    )
+    def test_property_expr_only_infers_sibling_from_a_properties_object(self, _name, chain, expected):
+        result = _property_expr("$host", [ast.Field(chain=chain)])
+        if expected is None:
+            assert result is None
+        else:
+            assert isinstance(result, ast.Field)
+            assert result.chain == expected
 
     def test_get_traffic_type_uses_multiMatchAnyIndex(self):
         node = ast.Call(name="getTrafficType", args=[])
@@ -605,6 +629,40 @@ class TestMacroExpansionGuard(BaseTest):
         printed = self._print("SELECT __preview_getTrafficType(toString(__preview_isBot(properties.x))) FROM events")
         assert "multiMatchAnyIndex" in printed
 
+    @parameterized.expand(
+        [
+            # A user-agent rule makes the one-arg form duplicate the user-agent argument, so
+            # nesting it becomes the same exponential vector and must be rejected.
+            (
+                "a user agent rule guards",
+                CustomBotField.FIELD_RAW_USER_AGENT,
+                CustomBotMatcher.CONTAINS,
+                "AcmeBot",
+                True,
+            ),
+            # A rule on another property reads a sibling field, not the argument, so a one-arg call
+            # embeds its argument once and the previously valid nesting has to keep resolving.
+            ("an ip rule does not guard", CustomBotField.FIELD_IP, CustomBotMatcher.CIDR, "192.0.2.0/24", False),
+        ]
+    )
+    def test_one_arg_is_bot_nesting_guard_tracks_user_agent_rules(
+        self, _name: str, key: CustomBotField, matcher: CustomBotMatcher, pattern: str, guarded: bool
+    ):
+        # Without any rule the same nesting is allowed
+        # (test_non_duplicating_macro_inside_duplicating_macro_is_allowed).
+        modifiers = HogQLQueryModifiers(
+            customBotDefinitions=[CustomBotDefinition(id="1", name="Acme", key=key, pattern=pattern, matcher=matcher)]
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        query = parse_select("SELECT __preview_isBot(toString(__preview_isBot(properties.x))) FROM events")
+
+        if guarded:
+            with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+                prepare_and_print_ast(query, context, "clickhouse")
+        else:
+            printed = prepare_and_print_ast(query, context, "clickhouse")[0]
+            assert "multiMatchAnyIndex" in printed
+
     def test_two_arg_is_bot_expands_ip_ranges(self):
         printed = self._print(
             "SELECT isLikelyBot(toString(properties.$user_agent), toString(properties.$ip)) FROM events"
@@ -637,3 +695,176 @@ class TestMacroExpansionGuard(BaseTest):
         )
         printed = self._print(f"SELECT matchesAction({action.pk}) FROM events")
         assert "multiMatchAnyIndex" in printed
+
+
+CHROME_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+
+
+def _custom_bot(**kwargs) -> CustomBotDefinition:
+    return CustomBotDefinition(
+        **{
+            "id": "1",
+            "name": "Acme scraper",
+            "key": CustomBotField.FIELD_RAW_USER_AGENT,
+            "pattern": "AcmeBot",
+            "matcher": CustomBotMatcher.CONTAINS,
+            **kwargs,
+        }
+    )
+
+
+class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
+    """Runs the project's rules the way a query does: team settings, then ClickHouse."""
+
+    def _classify(self, definitions: list[CustomBotDefinition], properties: dict) -> tuple:
+        self.team.modifiers = {"customBotDefinitions": [d.model_dump(mode="json") for d in definitions]}
+        self.team.save()
+
+        tag = uuid4().hex
+        _create_event(
+            team=self.team,
+            distinct_id="visitor",
+            event="$pageview",
+            properties={**properties, "_test_tag": tag},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT `$virt_is_bot`, `$virt_bot_name`, `$virt_traffic_category` "
+            f"FROM events WHERE properties._test_tag = '{tag}'",
+            self.team,
+        )
+        assert response.results is not None
+        return response.results[0]
+
+    def test_a_user_agent_rule_names_the_event(self):
+        is_bot, name, category = self._classify(
+            [_custom_bot(pattern="AcmeBot", category="ai_crawler")],
+            {"$raw_user_agent": "AcmeBot/1.0 (+https://example.com/bot)"},
+        )
+
+        assert (is_bot, name, category) == (True, "Acme scraper", "ai_crawler")
+
+    def test_an_ip_range_rule_catches_a_browser_user_agent(self):
+        # The reason a rule can pick its property: a scraper sending a real browser user agent is
+        # only identifiable by where it comes from.
+        is_bot, name, _category = self._classify(
+            [
+                _custom_bot(
+                    name="Office crawler",
+                    key=CustomBotField.FIELD_IP,
+                    matcher=CustomBotMatcher.CIDR,
+                    pattern="192.0.2.0/24",
+                )
+            ],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$ip": "192.0.2.55"},
+        )
+
+        assert (is_bot, name) == (True, "Office crawler")
+
+    def test_an_ip_outside_the_range_is_left_alone(self):
+        is_bot, name, _category = self._classify(
+            [
+                _custom_bot(
+                    name="Office crawler",
+                    key=CustomBotField.FIELD_IP,
+                    matcher=CustomBotMatcher.CIDR,
+                    pattern="192.0.2.0/24",
+                )
+            ],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$ip": "192.0.3.55"},
+        )
+
+        assert (is_bot, name) == (False, "")
+
+    def test_a_rule_reads_the_property_it_names(self):
+        # A property other than the user agent and the IP is reached through the properties object
+        # rather than a call argument, so this is the case that silently matches nothing if the
+        # lookup regresses.
+        is_bot, name, _category = self._classify(
+            [_custom_bot(name="Load test", key=CustomBotField.FIELD_LIB, pattern="posthog-python")],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$lib": "posthog-python"},
+        )
+
+        assert (is_bot, name) == (True, "Load test")
+
+    def test_a_rule_on_a_numeric_property_matches_its_string_value(self):
+        # Screen width and height are stored as numbers. The rule matches against the string form,
+        # so the pattern "800" catches a screen width of 800. Without the cast, multiMatchAllIndices
+        # gets a number and the query fails to compile rather than matching.
+        is_bot, name, _category = self._classify(
+            [_custom_bot(name="Headless viewport", key=CustomBotField.FIELD_SCREEN_WIDTH, pattern="800")],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$screen_width": 800},
+        )
+
+        assert (is_bot, name) == (True, "Headless viewport")
+
+    @parameterized.expand(
+        [
+            # Someone who writes a rule for a bot PostHog already knows means to relabel it, so
+            # their rule takes both the name and the category.
+            ("a rule that matches", "GPTBot", ("Mine", "monitoring")),
+            # Rules extend the built-in list rather than replacing it, so an event no rule claims
+            # keeps the name PostHog gives it.
+            ("a rule that does not match", "AcmeBot", ("GPTBot", "ai_crawler")),
+        ]
+    )
+    def test_a_project_rule_is_named_ahead_of_a_built_in(self, _name: str, pattern: str, expected: tuple[str, str]):
+        # Precedence only holds while each group is checked in its own branch: multiMatchAnyIndex
+        # reports whichever pattern matches earliest in the string rather than earliest in the
+        # array, so merging the rules into the built-in array would decide this by user agent.
+        _is_bot, name, category = self._classify(
+            [_custom_bot(name="Mine", pattern=pattern, category="monitoring")],
+            {"$raw_user_agent": "Mozilla/5.0 (compatible; GPTBot/1.0)"},
+        )
+
+        assert (name, category) == expected
+
+    @parameterized.expand(
+        [
+            ("specific rule listed first", ["AcmeBot-Image", "Acme"], "AcmeBot-Image"),
+            ("broad rule listed first", ["Acme", "AcmeBot-Image"], "Acme"),
+        ]
+    )
+    def test_the_first_listed_rule_wins_when_two_rules_overlap(
+        self, _name: str, patterns: list[str], expected_name: str
+    ):
+        # Rules on one property share a single hyperscan pass, and hyperscan reports whichever
+        # pattern matches earliest in the string — here "Acme" always ends first, so an
+        # any-match index would name it in both orders. Taking the minimum of all matching
+        # pattern indices makes the settings page's list order decide instead.
+        _is_bot, name, _category = self._classify(
+            [_custom_bot(id=str(i), name=pattern, pattern=pattern) for i, pattern in enumerate(patterns)],
+            {"$raw_user_agent": "AcmeBot-Image/2.1 (+https://acme.example)"},
+        )
+
+        assert name == expected_name
+
+    def test_a_project_rule_beats_the_no_user_agent_bucket(self):
+        # Server logs arrive without a user agent. A project that named the IP wants its own name
+        # on those, not the generic empty-user-agent bucket.
+        _is_bot, name, category = self._classify(
+            [
+                _custom_bot(
+                    name="Office crawler",
+                    key=CustomBotField.FIELD_IP,
+                    matcher=CustomBotMatcher.CIDR,
+                    pattern="192.0.2.0/24",
+                )
+            ],
+            {"$ip": "192.0.2.55"},
+        )
+
+        assert (name, category) == ("Office crawler", "custom")
+
+    def test_a_missing_user_agent_still_falls_in_the_no_user_agent_bucket(self):
+        # Project rules move the empty-user-agent check out of the pattern array into its own
+        # branch, so it has to keep classifying events no rule claims.
+        is_bot, _name, category = self._classify(
+            [_custom_bot(pattern="AcmeBot")],
+            {"$ip": "203.0.113.9"},
+        )
+
+        assert (is_bot, category) == (True, "no_user_agent")

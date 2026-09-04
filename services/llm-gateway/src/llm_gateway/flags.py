@@ -35,27 +35,49 @@ def _get_client() -> Posthog | None:
     return _client
 
 
-async def evaluate_flag(flag_key: str, distinct_id: str) -> bool | None:
-    """None when evaluation is unavailable — callers fall back to their own default."""
-    cache_key = (flag_key, distinct_id)
-    if cache_key in _flag_cache:
-        return _flag_cache[cache_key]
-    if flag_key in _flag_unavailable_cache:
-        return None
+async def evaluate_flags(flag_keys: list[str], distinct_id: str) -> dict[str, bool | None]:
+    unique_keys = list(dict.fromkeys(flag_keys))
+    results: dict[str, bool | None] = {}
+    missing_keys: list[str] = []
+    for flag_key in unique_keys:
+        cache_key = (flag_key, distinct_id)
+        if cache_key in _flag_cache:
+            results[flag_key] = _flag_cache[cache_key]
+        elif flag_key in _flag_unavailable_cache:
+            results[flag_key] = None
+        else:
+            missing_keys.append(flag_key)
+
+    if not missing_keys:
+        return results
+
     client = _get_client()
     if client is None:
-        return None
+        return {flag_key: results.get(flag_key) for flag_key in unique_keys}
+
     try:
-        # Blocking /flags roundtrip — keep it off the event loop. send_feature_flag_events=False:
-        # with sync_mode the default would also block on a $feature_flag_called capture upload
-        # (15s SDK timeout) for every uncached user.
-        enabled = await asyncio.to_thread(client.feature_enabled, flag_key, distinct_id, send_feature_flag_events=False)
+        snapshot = await asyncio.to_thread(client.evaluate_flags, distinct_id, flag_keys=missing_keys)
     except Exception as exc:
-        logger.warning("flag_evaluation_failed", flag=flag_key, error=str(exc))
-        _flag_unavailable_cache[flag_key] = True
-        return None
-    if enabled is None:
-        _flag_unavailable_cache[flag_key] = True
-        return None
-    _flag_cache[cache_key] = bool(enabled)
-    return bool(enabled)
+        logger.warning("flag_evaluation_failed", flags=missing_keys, error=str(exc))
+        for flag_key in missing_keys:
+            _flag_unavailable_cache[flag_key] = True
+            results[flag_key] = None
+        return {flag_key: results[flag_key] for flag_key in unique_keys}
+
+    evaluated_keys = set(snapshot.keys)
+
+    for flag_key in missing_keys:
+        if flag_key not in evaluated_keys:
+            _flag_unavailable_cache[flag_key] = True
+            results[flag_key] = None
+            continue
+        enabled = snapshot.is_enabled(flag_key)
+        _flag_cache[(flag_key, distinct_id)] = enabled
+        results[flag_key] = enabled
+
+    return {flag_key: results[flag_key] for flag_key in unique_keys}
+
+
+async def evaluate_flag(flag_key: str, distinct_id: str) -> bool | None:
+    """None when evaluation is unavailable, so callers can apply their default."""
+    return (await evaluate_flags([flag_key], distinct_id))[flag_key]

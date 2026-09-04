@@ -254,11 +254,11 @@ async def arun_signals_scout(
     # the human who authored or enabled the scout instead of pooling on one team-level default
     # user. Scouts don't clone a repo on the cadence path, so they don't need a GitHub integration
     # — the `resolve_acting_user_id_for_team` fallback prefers the GitHub creator when present but
-    # falls back to any active org member, so a team that never connected GitHub still runs (these
-    # dominated the fleet failure rate when the run instead crashed ~5s into `_spawn_and_run` and
-    # booked a bogus `failed`). The only remaining short-circuit is the genuine "no active user to
-    # act as" case; like the withheld / in-flight skips it leaves no row, no lifecycle event, and
-    # a `skip_reason` the coordinator can surface — not a failure.
+    # falls back to any other member with access to this project, so a team that never connected
+    # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
+    # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
+    # genuine "no member can act" case; like the withheld / in-flight skips it leaves no row, no
+    # lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
     user_id = await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
         team, skill.name, config
     )

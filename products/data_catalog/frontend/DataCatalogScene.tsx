@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -11,9 +12,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 
 import { certificationsLogic } from './certificationsLogic'
 import { NewMetricModal } from './components/NewMetricModal'
+import { buildDataCatalogAgentContext, DATA_CATALOG_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
@@ -43,6 +46,13 @@ export function DataCatalogScene(): JSX.Element {
     const { pendingCount: relationshipsPending } = useValues(relationshipsLogic)
     const { proposedCount: certificationsPending } = useValues(certificationsLogic)
     const { openNewMetricModal: openMetricModal } = useActions(metricsLogic)
+    const contextItems = useMemo(() => buildDataCatalogAgentContext(activeTab), [activeTab])
+
+    useSceneAgentPanel({
+        sceneKey: 'data-catalog',
+        contextItems,
+        headlines: DATA_CATALOG_AGENT_HEADLINES,
+    })
 
     const tabs: LemonTab<DataCatalogTab>[] = [
         {

@@ -94,13 +94,148 @@ tools:
         enabled: false
     feature-flag-archive:
         operation: feature_flags_archive_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Archive feature flag
+        description: >
+            Archive a feature flag, hiding it from the default flag list. Requires the flag's numeric ID; use
+            `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or
+            name.
+
+
+            Sets `archived` to true. An archived flag must be disabled, so an enabled flag is turned off in the same
+            call. Nothing else changes: this tool never accepts or replaces the `filters` object, and linked experiment
+            and survey history is preserved. There is no request body.
+
+
+            When the flag is enabled, archiving stops it evaluating everywhere. Tell the user what else this affects:
+            linked experiments, surveys, early access features and session replay settings all appear in the flag's full
+            definition.
+
+
+            Returns 400 when the flag is enabled and other active flags depend on it. Returns 409 when an approval
+            policy gates disabling. Archiving an already-archived flag succeeds and changes nothing, so retrying is
+            safe.
+
+
+            A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
+            `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, so a flag that is already archived
+            looks missing on a retry. Pass `{"archived":"true"}` to `feature-flag-get-all` before you report the flag as
+            missing.
+
+
+            Use `feature-flag-unarchive` to put the flag back in the list, or `delete-feature-flag` when the user wants
+            it gone rather than tidied away.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flag-disable:
         operation: feature_flags_disable_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Disable feature flag
+        description: >
+            Turn a feature flag off. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it
+            from a key, or `feature-flag-get-all` to search by key or name.
+
+
+            Sets `active` to false and changes nothing else. This tool never accepts or replaces the `filters` object,
+            so targeting, rollout percentages, variants and payloads cannot change. There is no request body.
+
+
+            A disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user
+            what else this affects: linked experiments, surveys, early access features and session replay settings all
+            appear in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and
+            `feature-flag-get-definition` returns it by ID.
+
+
+            Returns 400 when other active flags depend on this one; `feature-flags-dependent-flags-retrieve` lists them.
+            Returns 409 when an approval policy gates disabling. Disabling an already-disabled flag succeeds and changes
+            nothing, so retrying is safe.
+
+
+            A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
+            `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, and an archived flag is already
+            disabled. Pass `{"archived":"true"}` to `feature-flag-get-all` before you report the flag as missing.
+
+
+            To turn the flag off at a future time instead, use `scheduled-changes-create` with the `update_status`
+            operation.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flag-enable:
         operation: feature_flags_enable_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Enable feature flag
+        description: >
+            Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it
+            from a key, or `feature-flag-get-all` to search by key or name.
+
+
+            Sets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so
+            targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who
+            the flag is served to, use `update-feature-flag`.
+
+
+            Returns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is
+            disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and
+            changes nothing, so retrying is safe.
+
+
+            A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
+            `feature-flag-get-definition-by-key` and from `feature-flag-get-all`. Pass `{"archived":"true"}` to
+            `feature-flag-get-all` before you report the flag as missing.
+
+
+            To turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status`
+            operation.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flag-get-all:
         operation: feature_flags_list
         enabled: true
@@ -153,7 +288,37 @@ tools:
                 cast: string-int
     feature-flag-unarchive:
         operation: feature_flags_unarchive_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Unarchive feature flag
+        description: >
+            Restore an archived feature flag to the default flag list. Requires the flag's numeric ID; pass
+            `{"archived":"true"}` to `feature-flag-get-all` to find archived flags.
+
+
+            Sets `archived` to false and changes nothing else. This tool never accepts or replaces the `filters` object.
+            There is no request body.
+
+
+            The flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again. Unarchiving
+            a flag that is not archived succeeds and changes nothing, so retrying is safe.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flags-activity-retrieve:
         operation: feature_flags_activity_retrieve
         enabled: true
@@ -499,12 +664,23 @@ tools:
         enrich_url: '{id}'
         title: Update feature flag
         description: >
-            Update a feature flag by numeric ID (partial update — only the fields you include are changed). Call when
-            the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit
-            variants or payloads, or update its description. Rollout conditions, variants, and payloads live in the
-            structured `filters` param, and sending `filters` replaces the whole object — read the flag first with
-            `feature-flag-get-definition` and merge your change. To apply a change at a future time instead, use
-            `scheduled-changes-create`. Use `feature-flag-get-all` to find the numeric ID from a key.
+            Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for
+            edits that have no dedicated tool, such as release conditions, rollout percentages, variants, payloads, tags
+            and the description.
+
+
+            Prefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`,
+            `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A
+            targeting change someone else made between your read and your write is therefore not overwritten. Send
+            `active` or `archived` here only when the same request also changes targeting or another field, so the whole
+            edit lands in one write.
+
+
+            Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
+            replaces the whole object, so read the flag first and merge your change. Use
+            `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full
+            definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at
+            a future time instead, use `scheduled-changes-create`.
         include_params:
             - key
             - name

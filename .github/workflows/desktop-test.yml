@@ -21,6 +21,11 @@ concurrency:
     group: desktop-test-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     changes:
         runs-on: depot-ubuntu-24.04
@@ -109,10 +114,6 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Only dependency builds are cached, tests themselves always run.
-            - name: Restore turbo cache
-              uses: ./.github/actions/desktop-restore-turbo-cache
-
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:
@@ -183,10 +184,6 @@ jobs:
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: |
                       electron-${{ runner.os }}-
-
-            # Seeded on Linux; turbo artifacts are plain JS, so cross-OS restore is fine.
-            - name: Restore turbo cache
-              uses: ./.github/actions/desktop-restore-turbo-cache
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile

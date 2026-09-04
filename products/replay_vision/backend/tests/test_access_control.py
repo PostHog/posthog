@@ -209,7 +209,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
                 "name": "targeting-denied",
                 "scanner_type": "monitor",
                 "scanner_config": {"prompt": "p"},
-                "model": "gemini-3.7-flash",
+                "model": "gemini-3.8-flash",
                 "experiment_targeting": {
                     "experiment_id": experiment.id,
                 },
