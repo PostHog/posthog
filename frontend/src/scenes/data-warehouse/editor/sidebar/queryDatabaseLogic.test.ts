@@ -37,6 +37,7 @@ describe('queryDatabaseLogic', () => {
         test.each([
             ['event properties', 'events', 'properties', jsonField(), { type: 'event' }],
             ['AI event properties', 'ai_events', 'properties', jsonField(), { type: 'event' }],
+            ['qualified AI event properties', 'posthog.ai_events', 'properties', jsonField(), { type: 'event' }],
             ['person properties', 'persons', 'properties', jsonField(), { type: 'person' }],
             ['person properties joined to events', 'events', 'person.properties', jsonField(), { type: 'person' }],
             [

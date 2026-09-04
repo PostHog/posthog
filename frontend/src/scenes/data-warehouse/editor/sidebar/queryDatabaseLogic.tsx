@@ -234,14 +234,17 @@ export const getSidebarPropertyDefinitionTarget = (
         return { type: 'group', groupTypeIndex: Number(groupPathSegment.at(-1)) }
     }
 
+    // Tables in the `posthog` namespace arrive qualified, e.g. `posthog.ai_events`.
+    const unqualifiedTableName = tableName.split('.').pop() ?? tableName
+
     if (
-        ['persons', 'raw_persons'].includes(tableName) ||
+        ['persons', 'raw_persons'].includes(unqualifiedTableName) ||
         pathSegments.some((segment) => ['person', 'pdi', 'poe'].includes(segment))
     ) {
         return { type: 'person' }
     }
 
-    if (['ai_events', 'events'].includes(tableName) && columnPath === 'properties') {
+    if (['ai_events', 'events'].includes(unqualifiedTableName) && columnPath === 'properties') {
         return { type: 'event' }
     }
 

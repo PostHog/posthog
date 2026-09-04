@@ -211,6 +211,23 @@ describe('databaseTableListLogic', () => {
         expect(logic.values.allTables.map((table) => table.name)).toEqual(['ducklake_accounts'])
     })
 
+    it('shows ai_events under the PostHog source while keeping internal namespace tables hidden', async () => {
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            tables: {
+                events: { name: 'events', type: 'posthog' },
+                'posthog.ai_events': { name: 'posthog.ai_events', type: 'posthog' },
+                'posthog.metrics': { name: 'posthog.metrics', type: 'posthog' },
+            },
+            joins: [],
+        })
+
+        logic = databaseTableListLogic()
+        logic.mount()
+        await logic.asyncActions.loadDatabase()
+
+        expect(logic.values.posthogTables.map((table) => table.name)).toEqual(['events', 'posthog.ai_events'])
+    })
+
     describe('lazy schema loading', () => {
         const shallowTables = {
             events: { name: 'events', type: 'posthog', fields: {} },
