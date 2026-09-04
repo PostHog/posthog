@@ -102,13 +102,11 @@ class ReasoningEffort(StrEnum):
     ULTRACODE = "ultracode"
 
 
-PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    ReasoningEffort.LOW,
-    ReasoningEffort.MEDIUM,
-    ReasoningEffort.HIGH,
-    ReasoningEffort.XHIGH,
-    ReasoningEffort.MAX,
-    ReasoningEffort.ULTRACODE,
+# Derived, not restated: this is the tuple the run serializers build their effort choices
+# from, so a tier added to the catalog and not here would have every picker offering a
+# depth the API rejects.
+PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = tuple(
+    ReasoningEffort(effort) for effort in model_catalog.REASONING_EFFORTS
 )
 
 
@@ -248,9 +246,11 @@ def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
     if not model:
         return None
 
-    normalized = model.strip().lower()
+    # The catalog's own normalization, so a provider-qualified id resolves the same way
+    # here as it does in `reasoning_efforts_for`.
+    normalized = model_catalog.normalize_model_id(model)
     for adapter in RuntimeAdapter:
-        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
+        if normalized in get_models_for_runtime_adapter(adapter):
             return adapter
     return None
 

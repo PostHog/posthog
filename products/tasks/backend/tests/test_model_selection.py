@@ -15,6 +15,10 @@ from products.tasks.backend.temporal.process_task.utils import (
         ("claude-sonnet-5", RuntimeAdapter.CLAUDE),
         ("CLAUDE-SONNET-5", RuntimeAdapter.CLAUDE),
         ("gpt-5.6-sol", RuntimeAdapter.CODEX),
+        # The gateway serves some models provider-qualified and a picker hands back either
+        # spelling, so both resolve to the adapter the bare id does.
+        ("anthropic/claude-sonnet-5", RuntimeAdapter.CLAUDE),
+        ("openai/gpt-5.6-sol", RuntimeAdapter.CODEX),
         ("some-model-nobody-serves", None),
         (None, None),
     ],

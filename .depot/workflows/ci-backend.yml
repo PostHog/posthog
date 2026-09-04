@@ -505,15 +505,13 @@ jobs:
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
                         # Task run model catalog: one Python module projected into a
-                        # checked-in .generated.ts per workspace. Named explicitly
-                        # because neither output sits in a generated/ directory, and
-                        # the desktop one is under products/desktop, which the backend
-                        # filter excludes.
-                        - 'products/tasks/backend/model_catalog.py'
+                        # checked-in .generated.ts per workspace. Only the outputs are
+                        # named — neither sits in a generated/ directory, and the
+                        # desktop one is under products/desktop, which the backend
+                        # filter excludes. The catalog and its generator are .py under
+                        # products/, so the backend filter already catches both.
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
                         - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
-                        # Generation tooling - changes here could affect output
-                        - 'products/tasks/scripts/build_model_catalog.py'
                         - 'tools/openapi-codegen/**/*'
                         - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
