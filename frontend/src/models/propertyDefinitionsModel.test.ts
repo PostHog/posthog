@@ -489,6 +489,54 @@ describe('the property definitions model', () => {
             expect(logic.values.options['browser'].status).toEqual('error')
             expect(logic.values.options['browser'].refreshing).toEqual(false)
         })
+
+        it('does not cancel an in-flight request for one property when another property loads', async () => {
+            // Two filter rows load values at once. Each property key owns its own request, so the
+            // second row must not abort the first and leave it spinning forever.
+            let resolveBrowser: (() => void) | undefined
+            const browserPending = new Promise<void>((resolve) => {
+                resolveBrowser = resolve
+            })
+
+            useMocks({
+                get: {
+                    '/api/event/values': async ({ request }) => {
+                        const key = new URL(request.url).searchParams.get('key')
+                        if (key === 'browser') {
+                            await browserPending
+                            return [200, { results: [{ name: 'Chrome' }], refreshing: false }]
+                        }
+                        return [200, { results: [{ name: 'Mac' }], refreshing: false }]
+                    },
+                },
+            })
+
+            // Start the slow `browser` request and let it clear the 300ms debounce so it is in-flight.
+            // `toFinishAllListeners` can't be used here: it would wait for this pending request.
+            logic.actions.loadPropertyValues({
+                endpoint: undefined,
+                type: PropertyDefinitionType.Event,
+                propertyKey: 'browser',
+                newInput: undefined,
+            })
+            await new Promise((r) => setTimeout(r, 500))
+
+            // A second property's request finishes while the first is still pending.
+            logic.actions.loadPropertyValues({
+                endpoint: undefined,
+                type: PropertyDefinitionType.Event,
+                propertyKey: 'os',
+                newInput: undefined,
+            })
+            await new Promise((r) => setTimeout(r, 500))
+            expect(logic.values.options['os'].status).toEqual('loaded')
+
+            // The first request was never cancelled, so it still applies its values.
+            resolveBrowser!()
+            await new Promise((r) => setTimeout(r, 100))
+            expect(logic.values.options['browser'].status).toEqual('loaded')
+            expect(logic.values.options['browser'].values).toEqual([{ name: 'Chrome' }])
+        })
     })
 
     describe('local property values', () => {

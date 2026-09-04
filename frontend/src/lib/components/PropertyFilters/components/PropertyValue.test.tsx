@@ -78,6 +78,41 @@ describe('PropertyValue', () => {
         expect(loadPropertyValuesSpy.mock.calls.length).toBe(callCountAfterLoad)
     })
 
+    it('does not retry loading values in a loop after the request fails', async () => {
+        // A failed load lands at the `error` status. The preload effect must not treat that as
+        // "not loaded yet" and re-fire, which looped the request and stacked a toast each time.
+        useMocks({
+            get: {
+                '/api/event/values': () => [500, { detail: 'A server error occurred.' }],
+            },
+        })
+
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="$browser"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={[]}
+                    preloadValues
+                />
+            </Provider>
+        )
+
+        await waitFor(
+            () => {
+                expect(propertyDefinitionsModel.values.options['$browser']?.status).toBe('error')
+            },
+            { timeout: 3000 }
+        )
+        const callsAfterError = loadPropertyValuesSpy.mock.calls.length
+
+        // Give the effect several debounce windows to (incorrectly) re-fire.
+        await new Promise((r) => setTimeout(r, 700))
+        expect(loadPropertyValuesSpy.mock.calls.length).toBe(callsAfterError)
+    })
+
     it('renders with showInlineValidationErrors prop', () => {
         const onSet = jest.fn()
         render(
