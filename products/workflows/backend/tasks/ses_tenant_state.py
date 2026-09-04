@@ -1,6 +1,10 @@
+import time
+
 from celery import shared_task
 from structlog import get_logger
 
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.ses.limiter import SESRecommendationsBudgetExhausted, pace_ses_recommendations_seconds
 from posthog.models.integration import Integration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -42,15 +46,26 @@ def reconcile_ses_tenant_states() -> None:
         .order_by("team_id")
     )
     # One provider for the whole sweep: a fresh SESProvider per team would rebuild its boto3
-    # clients (and re-resolve credentials) thousands of times.
-    provider = SESProvider()
+    # clients (and re-resolve credentials) thousands of times. It runs on the sheddable lane,
+    # because a daily backstop can wait while a person or an alert cannot.
+    provider = SESProvider(priority=Priority.BATCH, source="ses_tenant_reconciliation")
     synced = 0
     failed = 0
+    shed = 0
     for team_id in team_ids.iterator(chunk_size=500):
+        # Each team costs at least one ListRecommendations call, and that quota is account-wide at
+        # about one call a second. Walking the teams as fast as Postgres serves them holds the whole
+        # quota for the length of the sweep, which throttles the reputation poller and the
+        # Reputation tab instead. Waiting between teams keeps the sweep inside its own share.
+        time.sleep(pace_ses_recommendations_seconds(priority=Priority.BATCH))
         try:
             sync_ses_tenant_state(team_id, provider=provider, verify_team=False)
             synced += 1
+        except SESRecommendationsBudgetExhausted:
+            # Another caller took the headroom this interval counted on. The next team waits again,
+            # and EventBridge stays the real-time path, so one skipped team costs a day at most.
+            shed += 1
         except Exception:
             failed += 1
             logger.exception("SES tenant reconciliation failed for team", team_id=team_id)
-    logger.info("SES tenant reconciliation finished", synced=synced, failed=failed)
+    logger.info("SES tenant reconciliation finished", synced=synced, failed=failed, shed=shed)

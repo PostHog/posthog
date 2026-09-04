@@ -22,7 +22,7 @@ def poll_ses_account_reputation() -> None:
     forever and nothing would fire.
     """
     try:
-        reputation = SESProvider().get_account_reputation()
+        reputation = SESProvider(source="ses_account_reputation_poll").get_account_reputation()
     except Exception:
         # Regions without SES access (self-hosted, dev) land here every tick; a stale
         # last_poll_timestamp is the alertable signal for genuine poller breakage in cloud.

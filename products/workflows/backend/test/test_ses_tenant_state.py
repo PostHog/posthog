@@ -5,6 +5,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.egress.ses.limiter import SESRecommendationsBudgetExhausted
+from posthog.models.integration import Integration
+from posthog.models.team import Team
+
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.ses_tenant_state import (
     PROVIDER_PAUSE_REASON,
@@ -12,6 +16,7 @@ from products.workflows.backend.services.ses_tenant_state import (
     apply_ses_tenant_state,
     sync_ses_tenant_state,
 )
+from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
 
 
 class TestApplySesTenantState(BaseTest):
@@ -183,3 +188,33 @@ class TestSyncSesTenantState(BaseTest):
 
         provider.get_tenant_reputation.assert_not_called()
         assert not TeamWorkflowsConfig.objects.filter(team_id=self.team.id + 99_999).exists()
+
+
+class TestReconcileSesTenantStates(BaseTest):
+    def _team_with_ses_integration(self) -> Team:
+        team = Team.objects.create(organization=self.organization)
+        Integration.objects.create(team=team, kind="email", config={"provider": "ses"}, created_by=self.user)
+        return team
+
+    def test_the_sweep_waits_between_teams_and_carries_on_past_a_shed_one(self) -> None:
+        # Unpaced, the sweep holds the account's ListRecommendations quota for its whole run and
+        # throttles the reputation poller. And a team it has to give up on must not end the run:
+        # the teams after it would go a day without reconciliation.
+        first, second = self._team_with_ses_integration(), self._team_with_ses_integration()
+
+        with (
+            patch("products.workflows.backend.tasks.ses_tenant_state.time.sleep") as sleep,
+            patch(
+                "products.workflows.backend.tasks.ses_tenant_state.pace_ses_recommendations_seconds",
+                return_value=2.5,
+            ),
+            patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider"),
+            patch(
+                "products.workflows.backend.tasks.ses_tenant_state.sync_ses_tenant_state",
+                side_effect=[SESRecommendationsBudgetExhausted("spent"), None],
+            ) as sync,
+        ):
+            reconcile_ses_tenant_states()
+
+        assert [c.args[0] for c in sync.call_args_list] == [first.id, second.id]
+        assert sleep.call_args_list == [((2.5,),), ((2.5,),)]

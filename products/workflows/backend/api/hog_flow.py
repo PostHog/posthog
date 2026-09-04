@@ -2195,7 +2195,7 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
     if cached is not None:
         return cached["value"]
     try:
-        raw = SESProvider().get_tenant_reputation(team_id)
+        raw = SESProvider(source="reputation_tab").get_tenant_reputation(team_id)
     except Exception:
         logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
         cache.set(cache_key, {"value": None}, AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS)
