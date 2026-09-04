@@ -4,33 +4,53 @@ The events table is sorted by (team, day, event name). A filter on the event nam
 timestamp bound is answered from that index. A filter on a property is not: every row in the
 range is read to check it. So a SELECT that reads `events` with a property filter and no event
 name filter scans its whole date range, and one with no timestamp bound scans the whole history.
+
+A row limit is not a bound. ClickHouse reads at least one granule of every selected column in
+every stream before it can stop, so `SELECT * FROM events LIMIT 101` measures at about 1.7 GiB on
+a large team. `LIMIT` caps what comes back, not what is read, and no limit exempts a query here.
+
+What the check cannot see is how much data the team has: the same SELECT is free on a project with
+a thousand events and expensive on one with billions. Warning by query shape alone therefore
+reaches projects the advice does not apply to. A size threshold is the missing input.
 """
 
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from enum import StrEnum
-from hashlib import sha256
-from logging import getLogger
 from typing import TYPE_CHECKING, Any
-
-from django.core.cache import cache
-from django.db import DatabaseError
 
 from posthog.schema import EventsScanWarning
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
-from posthog.hogql.property import has_aggregation, has_window_function
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.dataclasses import frozen
+from posthog.ph_client import feature_enabled_or_false
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
     from posthog.models import Team
 
-logger = getLogger(__name__)
+
+def events_scan_warnings_enabled(team: "Team") -> bool:
+    """The warning fires on query shape alone, without knowing how much data the project holds.
+
+    On a small project the advice is noise, and the editor marks a query that costs nothing. Roll
+    out per team so that intrusiveness can be watched where the queries are real, and keep it off
+    until a size threshold replaces the guess.
+    """
+    return feature_enabled_or_false(
+        "hogql-events-scan-warning",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+    )
+
 
 _PROPERTIES = "properties"
 _EVENT = "event"
@@ -66,11 +86,6 @@ _MONOTONIC_TIMESTAMP_FUNCTIONS = frozenset(
 )
 _MONOTONIC_TIMESTAMP_PREFIX = "tostartof"
 _FILTERS_PLACEHOLDER = "filters"
-# A `LIMIT n` peek stops early, so it is not a scan. Above this the read is large enough to warn about.
-_PEEK_LIMIT = 10_000
-# Caps on the "events seen with" hint: enough to point somewhere, small enough to bound the message
-_MAX_HINT_PROPERTIES = 5
-_MAX_HINT_EVENTS = 20
 # An alias can name other aliases, and every reference expands on its own, so `a2 = plus(a1, a1)`
 # doubles what `a1` expands to. A short query can then describe a huge predicate, so stop here.
 _MAX_ALIAS_EXPANSION_NODES = 10_000
@@ -86,6 +101,12 @@ _POSITIVE_COMPARE_OPS = frozenset(
 )
 _POSITIVE_COMPARE_FUNCTIONS = frozenset({"equals", "in", "globalIn", "like", "ilike"})
 _NEGATION_FUNCTION = "not"
+# A query can filter on any number of properties; the message names enough to act on
+_MAX_LOOKUP_PROPERTIES = 5
+# Join words that keep every row of a side, so an ON condition there filters nothing on it
+_LEFT_PRESERVING_JOINS = frozenset({"LEFT", "FULL"})
+_RIGHT_PRESERVING_JOINS = frozenset({"RIGHT", "FULL"})
+_SEMI_JOIN = "SEMI"
 
 
 class EventsScanSource(StrEnum):
@@ -220,7 +241,7 @@ EVENT_FILTER_ADVICE = (
 )
 
 
-def finding_message(finding: EventsScanFinding, events_by_property: dict[str, list[str]] | None = None) -> str:
+def finding_message(finding: EventsScanFinding) -> str:
     if finding.source == EventsScanSource.TEST_ACCOUNT_FILTERS:
         return (
             'The "Filter out internal and test users" setting adds a property filter to this query, so it reads '
@@ -247,11 +268,23 @@ def finding_message(finding: EventsScanFinding, events_by_property: dict[str, li
             "Add one, such as a filter for the last 7 days."
         )
     message = EVENT_FILTER_ADVICE
-    for property_name in finding.property_names:
-        events = (events_by_property or {}).get(property_name)
-        if events:
-            message += f" Events seen with {property_name}: {', '.join(events)}."
+    lookup = property_lookup_query(finding.property_names)
+    if lookup:
+        message += f" To find which events carry the properties you filter on, run: {lookup}"
     return message
+
+
+def property_lookup_query(property_names: tuple[str, ...]) -> str | None:
+    """SQL that answers which events carry the filtered properties.
+
+    The answer used to be read from the ingestion-time associations and pasted into the message.
+    That cost a Postgres query with no index behind it on every keystroke in the editor, for a
+    hint. Handing over the query instead costs nothing until somebody wants the answer.
+    """
+    if not property_names:
+        return None
+    conditions = " OR ".join(f"properties.{name} IS NOT NULL" for name in property_names[:_MAX_LOOKUP_PROPERTIES])
+    return f"SELECT event, count() FROM events WHERE ({conditions}) AND <the same date range> GROUP BY event"
 
 
 def finding_fix(finding: EventsScanFinding) -> str | None:
@@ -273,53 +306,6 @@ def finding_fix(finding: EventsScanFinding) -> str | None:
             "matching the period the question is about."
         )
     return None
-
-
-def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> dict[str, list[str]]:
-    """Which event names have carried each property, from the ingestion-time associations.
-
-    Those associations are incomplete (no backfill, capped per event), so the result is a hint for
-    the message, never something to rewrite a query with.
-
-    This runs on the editor's metadata path, once per keystroke, and no index covers a lookup by
-    property alone. So it asks for every name at once, caps what it reads, and caches the answer
-    for the whole set of names.
-    """
-    from posthog.models import EventProperty  # noqa: PLC0415 - keeps the ORM off the pure AST path
-
-    from products.event_definitions.backend.models.property_definition import effective_project_id_expr  # noqa: PLC0415
-
-    names = list(dict.fromkeys(property_names))[:_MAX_HINT_PROPERTIES]
-    if not names:
-        return {}
-
-    digest = sha256("\0".join(sorted(names)).encode()).hexdigest()
-    cache_key = f"events_scan:events_with_properties:{team.project_id}:{digest}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    try:
-        rows = list(
-            EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
-            .filter(effective_project_id=team.project_id, property__in=names)
-            # `event, property` is the order of the unique (project, event, property) index, so the
-            # row cap below stops the index scan early. An order that starts with `property` needs a
-            # sort of the project's whole slice of the table, and it spends the cap on one property.
-            .order_by("event", "property")
-            .values_list("property", "event")[: _MAX_HINT_PROPERTIES * _MAX_HINT_EVENTS]
-        )
-    except DatabaseError:
-        logger.warning("Events scan hint skipped due to a database error", exc_info=True)
-        return {}
-
-    events_by_property: dict[str, list[str]] = {}
-    for property_name, event in rows:
-        events = events_by_property.setdefault(property_name, [])
-        if len(events) < _MAX_HINT_EVENTS:
-            events.append(event)
-    cache.set(cache_key, events_by_property, timeout=300)
-    return events_by_property
 
 
 class _ReferencedNames(TraversingVisitor):
@@ -389,18 +375,22 @@ class _EventsScanVisitor(TraversingVisitor):
 
     def _check(self, node: ast.SelectQuery) -> None:
         references = _events_references(node.select_from, self.database, self._cte_scopes)
-        if not references or _is_bounded_peek(node):
+        if not references:
             return
-        predicate = _row_predicate(node)
-        if predicate is not None:
-            predicate = _expand_select_aliases(predicate, node)
-        fields = _PredicateFields.collect(predicate) if predicate is not None else _PredicateFields()
+        predicates = [
+            dataclasses.replace(predicate, expr=_expand_select_aliases(predicate.expr, node))
+            for predicate in _row_predicates(node)
+        ]
+        # The message names every property the SELECT filters on, wherever it filters on it
+        everything = _combine([predicate.expr for predicate in predicates])
+        fields = _PredicateFields.collect(everything) if everything is not None else _PredicateFields()
         all_aliases = {alias for alias, _ in references}
 
         # Each read of events is checked against the predicates that constrain its own alias. A
         # self-join where one side is filtered still reads the other side in full.
         for alias, reference in references:
             scope = {alias}
+            predicate = _row_predicate(predicates, alias)
             if predicate is None or not _constrains_event(predicate, scope):
                 reason = (
                     EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT
@@ -419,33 +409,6 @@ class _EventsScanVisitor(TraversingVisitor):
                 self.findings.append(
                     EventsScanFinding(reason=EventsScanReason.NO_TIME_BOUND, start=reference.start, end=reference.end)
                 )
-
-
-def _is_bounded_peek(node: ast.SelectQuery) -> bool:
-    """Whether the SELECT stops after its first rows, the way the editor's table preview does.
-
-    With nothing to filter, sort, group, or aggregate, `LIMIT n` reads n rows and stops, so no
-    amount of history is scanned. Anything that must see every row first breaks that.
-    """
-    limit = node.limit
-    if not isinstance(limit, ast.Constant) or not isinstance(limit.value, int) or limit.value > _PEEK_LIMIT:
-        return False
-    return not (
-        node.where
-        or node.prewhere
-        or node.having
-        or node.qualify
-        or node.group_by
-        # `GROUP BY ALL` groups the read without filling group_by
-        or node.group_by_mode
-        or node.order_by
-        or node.distinct
-        or node.array_join_op
-        or node.limit_by
-        or node.window_exprs
-        or (node.select_from and node.select_from.next_join)
-        or any(has_aggregation(expr) or has_window_function(expr) for expr in node.select)
-    )
 
 
 def _events_references(
@@ -524,16 +487,69 @@ def _expand_select_aliases(predicate: ast.Expr, node: ast.SelectQuery) -> ast.Ex
         return predicate
 
 
-def _row_predicate(node: ast.SelectQuery) -> ast.Expr | None:
-    parts = [part for part in (node.where, node.prewhere) if part is not None]
+@frozen
+class _RowPredicate:
+    expr: ast.Expr
+    # The events aliases the predicate can remove rows from; None when it filters every row read
+    aliases: frozenset[str] | None = None
+
+
+def _row_predicates(node: ast.SelectQuery) -> list[_RowPredicate]:
+    """The predicates that remove rows, each with the join sides it removes them from.
+
+    WHERE and PREWHERE filter every row the SELECT reads. An ON condition only filters the side a
+    join does not preserve: a LEFT JOIN returns every left row whatever its ON condition says, so a
+    bound written there still leaves the left side read in full.
+    """
+    predicates = [_RowPredicate(expr=part) for part in (node.where, node.prewhere) if part is not None]
     join = node.select_from
+    left: set[str] = set()
     while join is not None:
+        alias = _join_alias(join)
         if join.constraint is not None and join.constraint.constraint_type == "ON":
-            parts.append(join.constraint.expr)
+            prunes_left, prunes_right = _on_prunes(join.join_type)
+            aliases = set(left) if prunes_left else set()
+            if prunes_right and alias is not None:
+                aliases.add(alias)
+            predicates.append(_RowPredicate(expr=join.constraint.expr, aliases=frozenset(aliases)))
+        if alias is not None:
+            left.add(alias)
         join = join.next_join
-    if not parts:
+    return predicates
+
+
+def _join_alias(join: ast.JoinExpr) -> str | None:
+    if join.alias:
+        return join.alias
+    return str(join.table.chain[-1]) if isinstance(join.table, ast.Field) else None
+
+
+def _on_prunes(join_type: str | None) -> tuple[bool, bool]:
+    """Which sides of a join an ON condition can remove rows from.
+
+    An outer join keeps every row of the side it preserves, so a condition on that side decides
+    whether the other side matches, not whether the row is read. A semi join returns only matching
+    rows on both sides, so its condition does filter both.
+    """
+    if join_type is None:
+        return True, True
+    words = set(join_type.upper().split())
+    if _SEMI_JOIN in words:
+        return True, True
+    left_preserved = bool(words & _LEFT_PRESERVING_JOINS)
+    right_preserved = bool(words & _RIGHT_PRESERVING_JOINS)
+    return not left_preserved, not right_preserved
+
+
+def _combine(exprs: list[ast.Expr]) -> ast.Expr | None:
+    if not exprs:
         return None
-    return parts[0] if len(parts) == 1 else ast.And(exprs=parts)
+    return exprs[0] if len(exprs) == 1 else ast.And(exprs=exprs)
+
+
+def _row_predicate(predicates: list[_RowPredicate], alias: str) -> ast.Expr | None:
+    """What constrains the rows read through `alias`."""
+    return _combine([p.expr for p in predicates if p.aliases is None or alias in p.aliases])
 
 
 def _is_event_field(node: ast.Expr, aliases: set[str]) -> bool:

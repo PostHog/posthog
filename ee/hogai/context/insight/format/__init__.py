@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +49,20 @@ def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
     return results if results else response.get("boxplot_data", [])
 
 
+# Event/property names are externally writable (anyone capturing events controls them), and a warning's
+# message embeds the name + suggestion verbatim into agent context. Strip control characters/newlines AND
+# angle brackets — the latter stops a crafted name (e.g. containing `</taxonomy_warnings>`) from closing
+# the wrapper early and breaking out of the delimited block — and cap length. This can't stop plain-text
+# influence (no escaping can), but it keeps the names contained as data inside the labeled block.
+_UNSAFE_WARNING_CHARS = re.compile(r"[\x00-\x1f\x7f<>]")
+_MAX_WARNING_CHARS = 300
+
+
+def sanitize_warning_line(message: str) -> str:
+    cleaned = re.sub(r"\s+", " ", _UNSAFE_WARNING_CHARS.sub(" ", message)).strip()
+    return cleaned[:_MAX_WARNING_CHARS] + "…" if len(cleaned) > _MAX_WARNING_CHARS else cleaned
+
+
 def _format_warnings(response: dict[str, Any], warning_type: str, header: str) -> str:
     """Select one kind of warning from the shared `warnings` list (by its `type` tag) and render it
     as a leading block. Empty string when there's nothing to show."""
@@ -63,6 +78,34 @@ def _format_warnings(response: dict[str, Any], warning_type: str, header: str) -
 def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
     return _format_warnings(
         response, "warehouse_sync", "[Data warehouse sync warnings — results may not reflect current source data]"
+    )
+
+
+def format_events_scan_warnings(response: dict[str, Any]) -> str:
+    """Tell an agent when the query it just ran reads more of the events table than it needs.
+
+    The runner computes these on the query it executed, so `{filters}` is expanded and every
+    limit is in place. Analysing the query text instead reports a query nobody ran.
+    """
+    # One unsafe read of events warns once per missing bound, and a self-join or a UNION repeats
+    # that per reference. The offsets differ, the sentence does not.
+    messages = list(
+        dict.fromkeys(
+            sanitize_warning_line(w["message"])
+            for w in (response.get("warnings") or [])
+            if w.get("type") == "events_scan" and w.get("message")
+        )
+    )
+    if not messages:
+        return ""
+    lines = "\n".join(f"- {message}" for message in messages)
+    return (
+        "[Query cost]\n"
+        "This query reads more of the events table than it needs. Tell the user which event-name or "
+        "time limits are missing, and help them add limits that keep their intent. Do not silently "
+        "narrow the query. Continue without limits only when the request requires it, or the user "
+        "chooses to after seeing the warning.\n"
+        f"{lines}\n\n"
     )
 
 

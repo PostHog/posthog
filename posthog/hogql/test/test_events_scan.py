@@ -1,25 +1,17 @@
-from posthog.test.base import BaseTest
 from unittest import TestCase
-
-from django.core.cache import cache
 
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.events_scan import (
-    _MAX_HINT_EVENTS,
-    _MAX_HINT_PROPERTIES,
     EventsScanReason,
     EventsScanSource,
     attribute_findings,
-    events_seen_with_properties,
     find_events_scans,
     finding_fix,
     finding_message,
 )
 from posthog.hogql.parser import parse_select
-
-from posthog.models import EventProperty
 
 # The default schema resolves `events` without a team or a database connection
 DATABASE = Database()
@@ -232,34 +224,35 @@ class TestFindEventsScans(TestCase):
                 [],
             ),
             (
-                "a limited peek stops early, so it is not a scan",
+                # Measured on a large team: `SELECT * FROM events LIMIT 101` reads about 1.7 GiB,
+                # because every stream reads a granule of every column before it can stop.
+                "a row limit caps the result, not the read",
                 "SELECT * FROM events LIMIT 100",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "an ON condition does not filter the side a LEFT JOIN keeps",
+                "SELECT count() FROM events e LEFT JOIN persons p ON e.person_id = p.id "
+                "AND e.event = 'x' AND e.timestamp >= today()",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "an ON condition filters the side a LEFT JOIN drops rows from",
+                "SELECT count() FROM persons p LEFT JOIN events e ON e.person_id = p.id "
+                "AND e.event = 'x' AND e.timestamp >= today()",
                 [],
             ),
             (
-                "an aggregate has to read every row, limit or not",
-                "SELECT count() FROM events LIMIT 100",
+                "a FULL JOIN keeps both sides whatever its ON condition says",
+                "SELECT count() FROM events e FULL OUTER JOIN persons p ON e.person_id = p.id "
+                "AND e.event = 'x' AND e.timestamp >= today()",
                 [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
             ),
             (
-                "GROUP BY ALL has to read every row, limit or not",
-                "SELECT event FROM events GROUP BY ALL LIMIT 100",
-                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
-            ),
-            (
-                "sorting has to read every row, limit or not",
-                "SELECT * FROM events ORDER BY timestamp DESC LIMIT 100",
-                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
-            ),
-            (
-                "a filtered peek scans until it finds enough rows",
-                "SELECT * FROM events WHERE properties.plan = 'pro' LIMIT 100",
-                [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT, EventsScanReason.NO_TIME_BOUND],
-            ),
-            (
-                "a limit far past a peek is a scan",
-                "SELECT * FROM events LIMIT 5000000",
-                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+                "a semi join returns only matching rows, so its ON condition filters both sides",
+                "SELECT count() FROM events e LEFT SEMI JOIN persons p ON e.person_id = p.id "
+                "AND e.event = 'x' AND e.timestamp >= today()",
+                [],
             ),
             (
                 "a self-join reports the side that is not filtered",
@@ -375,24 +368,3 @@ class TestFindEventsScans(TestCase):
         )
         (kept,) = attribute_findings(own, own, own)
         self.assertEqual((kept.source, kept.property_names), (EventsScanSource.QUERY, ("plan",)))
-
-
-class TestEventsSeenWithProperties(BaseTest):
-    def test_a_property_on_many_events_does_not_use_up_the_hint_for_the_others(self) -> None:
-        # One query covers every property, under one row cap. A property that many events carry must
-        # not take the whole cap and leave the other properties in the same query without a hint.
-        row_cap = _MAX_HINT_PROPERTIES * _MAX_HINT_EVENTS
-        EventProperty.objects.bulk_create(
-            [
-                EventProperty(team=self.team, event=f"event_{index:04}", property="aaa_common")
-                for index in range(row_cap + 20)
-            ]
-            + [EventProperty(team=self.team, event=f"event_{index:04}", property="zzz_rare") for index in range(3)]
-        )
-        cache.clear()
-
-        events_by_property = events_seen_with_properties(self.team, ["aaa_common", "zzz_rare"])
-
-        self.assertEqual(sorted(events_by_property), ["aaa_common", "zzz_rare"])
-        self.assertEqual(events_by_property["zzz_rare"], ["event_0000", "event_0001", "event_0002"])
-        self.assertEqual(len(events_by_property["aaa_common"]), _MAX_HINT_EVENTS)

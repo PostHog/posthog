@@ -23,7 +23,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.events_scan import events_scan_warnings
+from posthog.hogql.events_scan import events_scan_warnings, events_scan_warnings_enabled
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
@@ -322,7 +322,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         """Advisory warnings on the query that runs, with `{filters}` and variables applied: what ClickHouse
         reads is what counts, whichever part of the UI put the filter there. An external connection has no
         events table."""
-        if self.query.connectionId is not None:
+        if self.query.connectionId is not None or not events_scan_warnings_enabled(self.team):
             return []
         try:
             as_written, _ = self._parse_query()

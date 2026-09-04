@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
-from posthog.hogql.events_scan import attributed_events_scans, events_seen_with_properties, finding_fix, finding_message
+from posthog.hogql.events_scan import (
+    attributed_events_scans,
+    events_scan_warnings_enabled,
+    finding_fix,
+    finding_message,
+)
 
 from posthog.dataclasses import frozen
 
@@ -78,12 +83,10 @@ class EventsScanHeuristic(MetadataHeuristic):
 
     def __init__(
         self,
-        team: "Team | None",
         database: "Database",
         as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
         without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None,
     ) -> None:
-        self.team = team
         self.database = database
         # The query text and its expansion with the test-account filters off, to say where an injected filter came from
         self.as_written = as_written
@@ -91,15 +94,10 @@ class EventsScanHeuristic(MetadataHeuristic):
 
     def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
         findings = attributed_events_scans(query, self.database, self.as_written, self.without_test_accounts)
-        property_names = [name for finding in findings for name in finding.property_names]
-        events_by_property = (
-            events_seen_with_properties(self.team, property_names) if self.team and property_names else {}
-        )
-
         result = MetadataHeuristicNotices(warnings=[], notices=[])
         for finding in findings:
             notice = HogQLNotice(
-                message=finding_message(finding, events_by_property),
+                message=finding_message(finding),
                 start=finding.start,
                 end=finding.end,
                 fix=finding_fix(finding),
@@ -117,8 +115,8 @@ def run_metadata_heuristics(
 ) -> MetadataHeuristicNotices:
     heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
     # The events scan check resolves table names, which needs a database not every caller has
-    if database is not None:
-        heuristics.append(EventsScanHeuristic(team, database, as_written, without_test_accounts))
+    if database is not None and team is not None and events_scan_warnings_enabled(team):
+        heuristics.append(EventsScanHeuristic(database, as_written, without_test_accounts))
     result = MetadataHeuristicNotices(warnings=[], notices=[])
 
     for heuristic in heuristics:

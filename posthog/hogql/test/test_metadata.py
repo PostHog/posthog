@@ -41,6 +41,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     # ~100ms of org/team/user creation to every test.
     CLASS_DATA_LEVEL_SETUP = True
 
+    def setUp(self) -> None:
+        super().setUp()
+        # The events scan check ships behind a per-team flag, off everywhere until it is rolled out
+        scan_flag = patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=True)
+        scan_flag.start()
+        self.addCleanup(scan_flag.stop)
+
     def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
         return get_hogql_metadata(
             query=HogQLMetadata(
@@ -800,12 +807,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
                     },
-                    {
-                        "message": EVENT_FILTER_ADVICE,
-                        "start": 22,
-                        "end": 28,
-                        "fix": None,
-                    },
                 ],
             },
         )
@@ -1261,7 +1262,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(metadata.warnings), 2)
         property_warning, time_warning = metadata.warnings
         self.assertIn("filtering by event name is the most effective", property_warning.message)
-        self.assertIn("Events seen with plan: paid", property_warning.message)
+        self.assertIn("properties.plan IS NOT NULL", property_warning.message)
         self.assertTrue(property_warning.fix and property_warning.fix.startswith("ai_prompt:"))
         self.assertEqual(query[property_warning.start : property_warning.end], "events")
         self.assertIn("no timestamp filter", time_warning.message)
@@ -1272,13 +1273,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([warning.message for warning in all_events.warnings].count(EVENT_FILTER_ADVICE), 1)
         self.assertNotIn(EVENT_FILTER_ADVICE, [notice.message for notice in all_events.notices])
 
-    def test_metadata_does_not_warn_about_a_limited_peek_at_events(self):
-        # The editor's own table preview is this query; warning on it would be wrong and would greet
-        # every new user of the SQL editor
+    def test_metadata_warns_about_a_limited_read_of_events(self):
+        # A row limit caps the result, not the read: measured at about 1.7 GiB for `LIMIT 101` on a
+        # large team, because every stream reads a granule of every column before it can stop
         preview = self._select("SELECT * FROM events LIMIT 100")
 
-        self.assertEqual(preview.warnings, [])
-        self.assertNotIn(EVENT_FILTER_ADVICE, [notice.message for notice in preview.notices])
+        self.assertIn(EVENT_FILTER_ADVICE, [warning.message for warning in preview.warnings])
+
+    def test_metadata_says_nothing_about_scans_until_the_team_has_the_flag(self):
+        with patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=False):
+            metadata = self._select("SELECT count() FROM events WHERE properties.plan = 'pro'")
+
+        self.assertEqual(metadata.warnings, [])
 
     def test_metadata_stays_valid_when_a_heuristic_raises(self):
         with patch(

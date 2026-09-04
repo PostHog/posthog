@@ -71,6 +71,10 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.random_uuid = self._create_random_persons()
+        # The events scan check ships behind a per-team flag, off everywhere until it is rolled out
+        scan_flag = patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=True)
+        scan_flag.start()
+        self.addCleanup(scan_flag.stop)
 
     def test_calculate_with_query_modifiers_matches_unthreaded_executor_sql(self):
         # The runner hands the executor a context wired to its shared database, which is
@@ -528,6 +532,14 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+    def test_response_says_nothing_about_scans_until_the_team_has_the_flag(self):
+        with patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=False):
+            response = HogQLQueryRunner(
+                query=HogQLQuery(query="SELECT count() FROM events WHERE properties.plan = 'pro'"), team=self.team
+            ).calculate()
+
+        self.assertEqual([w for w in response.warnings or [] if isinstance(w, EventsScanWarning)], [])
 
     def test_response_warns_about_events_scans_from_the_sql_as_written(self):
         query = "SELECT count() FROM events WHERE properties.plan = 'pro' AND {filters}"

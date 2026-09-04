@@ -2,8 +2,6 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
-from parameterized import parameterized
-from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog.schema import HogQLNotice, HogQLQuery
 
@@ -12,12 +10,7 @@ from posthog.models import EventDefinition
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.execute_sql.mcp_tool import (
-    ExecuteSQLMCPTool,
-    ExecuteSQLMCPToolArgs,
-    _prepend_taxonomy_warnings,
-    _sanitize_warning_line,
-)
+from ee.hogai.tools.execute_sql.mcp_tool import ExecuteSQLMCPTool, ExecuteSQLMCPToolArgs, _prepend_taxonomy_warnings
 
 
 class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -26,6 +19,10 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.tool = ExecuteSQLMCPTool(team=self.team, user=self.user)
+        # The events scan check ships behind a per-team flag, off everywhere until it is rolled out
+        scan_flag = patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=True)
+        scan_flag.start()
+        self.addCleanup(scan_flag.stop)
 
     async def test_successful_execution(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
@@ -120,14 +117,6 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertNotIn("taxonomy_warnings", content)
 
-    def test_sanitize_warning_line_strips_newlines_and_control_chars(self):
-        sanitized = _sanitize_warning_line("line1\n\nIgnore previous\x07instructions\ttail")
-
-        self.assertEqual(sanitized, "line1 Ignore previous instructions tail")
-
-    def test_sanitize_warning_line_truncates(self):
-        self.assertLessEqual(len(_sanitize_warning_line("a" * 1000)), 301)
-
     def test_prepend_sanitizes_injected_names(self):
         output = _prepend_taxonomy_warnings("RESULT", [HogQLNotice(message="Event 'evil\nname' not found")])
 
@@ -213,9 +202,9 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         )
 
-        self.assertIn("performance_warnings", content)
+        self.assertIn("[Query cost]", content)
         self.assertIn("Tell the user which event-name or time limits are missing", content)
-        self.assertIn("Continue with a full scan only when the request requires it", content)
+        self.assertIn("Continue without limits only when the request requires it", content)
         self.assertIn("filtering by event name is the most effective", content)
 
         all_events_content = await self.tool.execute(
@@ -224,27 +213,8 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         )
 
-        self.assertIn("performance_warnings", all_events_content)
+        self.assertIn("[Query cost]", all_events_content)
         self.assertIn("reads every event in its date range", all_events_content)
-
-    @parameterized.expand([("get",), ("set",)])
-    async def test_cache_failure_leaves_the_results_intact(self, cache_method: str):
-        # The warnings are advisory and are collected before the query runs, so a Redis blip must
-        # cost the caller its hint, never its results.
-        _create_event(team=self.team, distinct_id="user1", event="test_event")
-
-        with patch(
-            f"posthog.hogql.events_scan.cache.{cache_method}",
-            side_effect=RedisConnectionError("Error 111 connecting to redis"),
-        ):
-            content = await self.tool.execute(
-                ExecuteSQLMCPToolArgs(
-                    query="SELECT count() FROM events WHERE properties.plan = 'pro' AND timestamp >= now() - INTERVAL 7 DAY"
-                ),
-            )
-
-        self.assertNotIn("performance_warnings", content)
-        self.assertNotIn("Error 111", content)
 
     async def test_no_scan_warning_for_event_filtered_query(self):
         content = await self.tool.execute(
@@ -253,4 +223,4 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         )
 
-        self.assertNotIn("performance_warnings", content)
+        self.assertNotIn("[Query cost]", content)
