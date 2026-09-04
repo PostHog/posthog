@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
+import structlog
 from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import MO, SU, relativedelta
 
@@ -34,6 +35,8 @@ from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
 
 from products.actions.backend.models.action import Action
+
+logger = structlog.get_logger(__name__)
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
@@ -213,8 +216,17 @@ def _get_earliest_timestamp_from_node(
         query = _get_event_earliest_timestamp_query(team, node)
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-    with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team, user=user)
+    try:
+        with _earliest_timestamp_query_tags():
+            result = execute_hogql_query(query=query, team=team, user=user)
+    except Exception as e:
+        # Resolving "all time" date_from must not fail the whole insight. A cancelled or
+        # pressure-evicted sub-query falls back to the 1980 floor, which only widens the range
+        # the main query scans. Skip the cache so the next run retries instead of pinning the
+        # fallback for the full TTL.
+        logger.warning("earliest_timestamp_query_failed", cache_key=cache_key, error=str(e))
+        return earliest_timestamp
+
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 
@@ -292,8 +304,18 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
         limit=ast.Constant(value=1),
     )
 
-    with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team)
+    try:
+        with _earliest_timestamp_query_tags():
+            result = execute_hogql_query(query=query, team=team)
+    except Exception as e:
+        # A cancelled or pressure-evicted query must not fail the caller. Fall back to the 2015
+        # floor, not the empty-team "now - delta" window below: a real earliest timestamp is always
+        # at or after the floor, so this only widens the range the main query scans, where
+        # "now - delta" would truncate an "all time" insight to the last week for a team that has
+        # older events. Skip the cache so the next run retries instead of pinning the fallback.
+        logger.warning("earliest_timestamp_unfiltered_query_failed", team_id=team.pk, error=str(e))
+        return UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
+
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
         # Only cache real results: a team with no events yet should keep re-checking rather than

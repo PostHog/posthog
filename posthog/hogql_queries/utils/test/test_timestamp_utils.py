@@ -17,6 +17,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
+    UNFILTERED_EARLIEST_TIMESTAMP_FLOOR,
     _coerce_to_datetime,
     _get_earliest_timestamp_cache_key,
     format_label_date,
@@ -351,6 +352,32 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # should still return the earliest timestamp from the first query
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
+
+    def test_series_earliest_timestamp_falls_back_when_query_fails(self):
+        # A cancelled or pressure-evicted sub-query must not fail the whole insight: it falls
+        # back to the 1980 floor and skips the cache so the next run retries.
+        node = EventsNode(event="$pageview")
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=Exception("Query was cancelled"),
+        ):
+            earliest_timestamp = get_earliest_timestamp_from_series(self.team, [node])
+
+        assert earliest_timestamp == EARLIEST_EVENT_TIMESTAMP
+        assert cache.get(_get_earliest_timestamp_cache_key(self.team, node)) is None
+
+    def test_unfiltered_earliest_timestamp_falls_back_when_query_fails(self):
+        # A cancelled query must not fail the caller and must not truncate an "all time" range: it
+        # falls back to the 2015 floor (which only widens the main query, never narrows it below a
+        # real earliest timestamp) and skips the cache so the next run retries.
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=Exception("Query was cancelled"),
+        ):
+            earliest_timestamp = get_earliest_timestamp_unfiltered(self.team)
+
+        assert earliest_timestamp == UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
+        assert cache.get(f"earliest_timestamp_unfiltered_{self.team.pk}") is None
 
     @freeze_time("2021-01-21")
     def test_unfiltered_earliest_timestamp_returns_earliest_event(self):
