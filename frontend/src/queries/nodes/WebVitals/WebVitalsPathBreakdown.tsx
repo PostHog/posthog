@@ -152,12 +152,13 @@ const Content = ({
 
     const values = response?.results?.[0]?.[band]
 
-    const loadedValues = values != null
-    const hasNoValues = values?.length === 0
+    // An empty result set leaves `values` undefined, so read the loaded state off the response itself
+    const hasLoaded = response != null
+    const hasNoValues = hasLoaded && !values?.length
 
     return (
-        <div className={clsx('pt-4', { 'h-full': loadedValues })}>
-            <div className={clsx('flex flex-col gap-1', { 'justify-center': hasNoValues, 'h-full': loadedValues })}>
+        <div className={clsx('pt-4', { 'h-full': hasLoaded })}>
+            <div className={clsx('flex flex-col gap-1', { 'justify-center': hasNoValues, 'h-full': hasLoaded })}>
                 {responseLoading ? (
                     <LemonSkeleton fade className={clsx('w-full', SKELETON_HEIGHT[band])} />
                 ) : values?.length ? (
