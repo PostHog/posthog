@@ -67,10 +67,12 @@ changes or writes them twice. Nothing about a run is written to `sync_type_confi
 
 Delta keeps per-file min/max for its first 32 columns only, and the position column sits past that
 on any real table. So every table a buffered lane writes declares `delta.dataSkippingStatsColumns`
-naming the position column plus its primary keys, and for the history table its SCD2 `valid_to`
-column, so the merges that predicate on them keep their pruning. Naming columns replaces the
-default 32, which is why those are named too. Legacy CDC tables are untouched: that path strips the
-position column before writing, and the property is never set on a table that lacks it.
+naming the position column, its primary keys, and for the history table its SCD2 `valid_to`.
+
+Naming any column replaces the default window rather than extending it, so the declaration repeats
+the table's own first 32 columns ahead of those. Without that repetition a schema flip would strip
+the min/max off every column the customer queries, and this property is the only thing that sets
+them. Legacy CDC tables never reach the lane build, so the property is never declared on them.
 
 A table whose files carry no statistic for the position column reports no position at all. The
 merge lane then re-applies rows as upserts, which is a no-op, but the append lane appends them a

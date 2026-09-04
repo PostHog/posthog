@@ -12,6 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
+    CDC_TIMESTAMP_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
@@ -47,9 +49,15 @@ def _table(ids: list[int], seqs: list[int]) -> pa.Table:
 
 
 def _ops(ids: list[int], seqs: list[int], ops: list[str] | None = None) -> pa.Table:
-    """A batch as the lanes see it: keyed rows carrying the position and the operation."""
-    return _table(ids, seqs).append_column(
-        pa.field(CDC_OP_COLUMN, pa.string()), pa.array(ops or ["I"] * len(ids), pa.string())
+    """A batch as the lanes see it: keyed rows carrying the position, operation and commit time.
+
+    The timestamp is what `build_scd2_table` reads to stamp the history lane's validity columns.
+    """
+    stamps = pa.array([dt.datetime(2026, 1, 1, tzinfo=dt.UTC)] * len(ids), pa.timestamp("us", tz="UTC"))
+    return (
+        _table(ids, seqs)
+        .append_column(pa.field(CDC_OP_COLUMN, pa.string()), pa.array(ops or ["I"] * len(ids), pa.string()))
+        .append_column(pa.field(CDC_TIMESTAMP_COLUMN, stamps.type), stamps)
     )
 
 
@@ -431,6 +439,23 @@ class TestReplayFilter:
 
         assert replay.rows_skipped == 2
 
+    def test_each_kind_of_drop_reports_its_own_reason(self):
+        # `superseded` is the series the loader raised while the position lived there. Reporting
+        # the identity drop under the same name would flatten a dashboard onto one number.
+        counter = MagicMock()
+        replay = ReplayFilter(
+            LanePosition(position=20, applied={(2, "I"): 1}, key_columns=("id", CDC_OP_COLUMN)), team_id=7
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager."
+            "CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL",
+            counter,
+        ):
+            replay.apply(_ops([1, 2, 3], [10, 20, 20], ["I", "I", "I"]))
+
+        assert [call.kwargs["reason"] for call in counter.labels.call_args_list] == ["superseded", "already_written"]
+
 
 @pytest.mark.asyncio
 class TestFloorDeletion:
@@ -583,6 +608,11 @@ class TestBuildOutputLanes:
 
         assert merged.column("id").to_pylist() == [1, 2, 3, 4]
         assert history.column("id").to_pylist() == [4]
+        # Stamped by the lane, not the loader: a loader on the previous release has no SCD2 step
+        # and would append these rows with no validity at all.
+        assert SCD2_VALID_FROM_COLUMN in history.column_names
+        assert SCD2_VALID_TO_COLUMN in history.column_names
+        assert SCD2_VALID_FROM_COLUMN not in merged.column_names
 
     async def test_the_floor_is_the_lowest_position_any_table_holds(self):
         _, floor = await self._build(

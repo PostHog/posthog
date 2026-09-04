@@ -28,10 +28,14 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Delta keeps per-file min/max for the first 32 columns, and the position column is appended after
-# the source's own — so on any real table it falls outside that window. Naming it here is what
-# makes the resume point a stats lookup rather than a scan of the whole column.
+# The position column is appended after the source's own, so on a wide table it falls outside the
+# window Delta indexes by default. Naming it here is what makes the resume point a stats lookup
+# rather than a scan of the whole column.
 STATS_COLUMNS_PROPERTY = "delta.dataSkippingStatsColumns"
+
+# Delta's own default for `delta.dataSkippingNumIndexedCols`, restated because naming any column
+# at all overrides it.
+_DEFAULT_INDEXED_COLUMNS = 32
 
 _MAX_STAT = f"max.{CDC_SEQ_COLUMN}"
 
@@ -101,8 +105,10 @@ async def read_lane_position(
 async def ensure_position_stats(delta_table: deltalake.DeltaTable, keep_stats_for: list[str] | None = None) -> None:
     """Keep per-file min/max for the position column, so reading the resume point stays a lookup.
 
-    Naming columns REPLACES Delta's default "first 32 columns", so every column that still needs
-    pruning has to be named too — the merge key above all, which every write matches on.
+    Naming columns REPLACES Delta's default of indexing the first `_DEFAULT_INDEXED_COLUMNS`, so
+    those are named again ahead of ours. Otherwise every column the customer queries loses its
+    min/max the moment a schema flips, and this property is the only thing that would have taken
+    it away — nothing sets it on a warehouse table today.
 
     The position column is named even before the table has it. A snapshot-seeded companion does
     not carry it until its first buffered write, and that write is the one that has to land with
@@ -110,10 +116,17 @@ async def ensure_position_stats(delta_table: deltalake.DeltaTable, keep_stats_fo
     delta-rs accepts a column the table lacks. Every other name is filtered by presence, since one
     that never arrives would buy no pruning while still displacing the defaults.
     """
-    present = {field.name for field in delta_table.schema().fields}
+    fields = delta_table.schema().fields
+    present = {field.name for field in fields}
     # Deduplicated, and normalized to match how the writer stores them: the caller passes raw source
     # names, so `userId` would otherwise be dropped and the merge key would lose its pruning.
-    candidates = dict.fromkeys([CDC_SEQ_COLUMN, *(normalize_column_name(n) for n in keep_stats_for or [])])
+    candidates = dict.fromkeys(
+        [
+            *(field.name for field in fields[:_DEFAULT_INDEXED_COLUMNS]),
+            CDC_SEQ_COLUMN,
+            *(normalize_column_name(n) for n in keep_stats_for or []),
+        ]
+    )
     wanted = ",".join(name for name in candidates if name == CDC_SEQ_COLUMN or name in present)
     if (delta_table.metadata().configuration or {}).get(STATS_COLUMNS_PROPERTY) == wanted:
         return

@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 import datetime as dt
 from collections import Counter
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Final, Literal
 
 from django.utils import timezone
@@ -32,7 +32,9 @@ from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
+    build_scd2_table,
     companion_resource_name as build_companion_resource_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
@@ -54,6 +56,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.types import p
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
@@ -145,7 +150,7 @@ _CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
 BUFFER_LISTED_AT_KEY = "cdc_buffer_listed_at"
 
 
-async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
+def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
     """When the buffer was last listed by a run that went on to complete every table it writes.
 
     Completion is what proves consumption: it means the generator drained every listed file and
@@ -160,33 +165,35 @@ async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | N
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
-    def _read() -> dt.datetime | None:
-        since = timezone.now() - _PROOF_WINDOW
-        jobs = (
-            ExternalDataJob.objects.filter(
-                team_id=schema.team_id,
-                schema_id=schema.id,
-                status=ExternalDataJob.Status.COMPLETED,
-                created_at__gte=since,
-            )
-            .order_by("-created_at")
-            .values_list("id", "created_at", "schema_snapshot")[:_PROOF_SEARCH_DEPTH]
+    since = timezone.now() - _PROOF_WINDOW
+    jobs = (
+        ExternalDataJob.objects.filter(
+            team_id=schema.team_id,
+            schema_id=schema.id,
+            status=ExternalDataJob.Status.COMPLETED,
+            created_at__gte=since,
         )
-        for job_id, created_at, snapshot in jobs:
-            listed_at = (snapshot or {}).get(BUFFER_LISTED_AT_KEY)
-            if not listed_at:
-                continue
-            try:
-                stamped = dt.datetime.fromisoformat(listed_at)
-            except (TypeError, ValueError):
-                continue
-            if stamped.tzinfo is None:
-                continue
-            if _companions_completed(job_id, schema, created_at):
-                return stamped
-        return None
+        .order_by("-created_at")
+        .values_list("id", "created_at", "schema_snapshot")[:_PROOF_SEARCH_DEPTH]
+    )
+    for job_id, created_at, snapshot in jobs:
+        listed_at = (snapshot or {}).get(BUFFER_LISTED_AT_KEY)
+        if not listed_at:
+            continue
+        try:
+            stamped = dt.datetime.fromisoformat(listed_at)
+        except (TypeError, ValueError):
+            continue
+        if stamped.tzinfo is None:
+            continue
+        if _companions_completed(job_id, schema, created_at):
+            return stamped
+    return None
 
-    return await database_sync_to_async_pool(db_read_with_retry)(_read)
+
+async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
+    """`read_completed_listing_proof`, off the event loop."""
+    return await database_sync_to_async_pool(db_read_with_retry)(lambda: read_completed_listing_proof(schema))
 
 
 def _companions_completed(job_id: uuid.UUID, schema: ExternalDataSchema, created_at: dt.datetime) -> bool:
@@ -223,6 +230,30 @@ _COMPANION_CLOCK_SLACK = dt.timedelta(minutes=1)
 _COMPANION_CREATION_WINDOW = dt.timedelta(hours=6)
 
 
+def _history_transform(replay: ReplayFilter, key_columns: list[str]) -> Callable[[pa.Table], pa.Table]:
+    """Replay first, then stamp the SCD2 validity columns onto what is left.
+
+    Derived here rather than in the loader so the staged parquet is complete on its own: a loader
+    on the previous release has no SCD2 step, and would append these rows with no validity at all.
+    The legacy extraction path stamps them at the same point for the same reason.
+
+    Replay runs first because `valid_to` points at the next event for the same key. Rows this lane
+    already wrote carry their own, and the writer closes them against what arrives next, so
+    including them here would both duplicate the row and mis-chain the one that follows it.
+
+    Applied to the coalesced batch the pipeline hands over, never per yield: a key changed in two
+    yields of one batch would otherwise leave two rows open.
+    """
+
+    def _apply(table: pa.Table) -> pa.Table:
+        table = replay.apply(table)
+        if not table.num_rows or SCD2_VALID_FROM_COLUMN in table.column_names:
+            return table
+        return build_scd2_table(table, key_columns)
+
+    return _apply
+
+
 async def build_output_lanes(
     schema: ExternalDataSchema, job: ExternalDataJob, logger: FilteringBoundLogger
 ) -> tuple[list[OutputLane], int | None]:
@@ -253,13 +284,13 @@ async def build_output_lanes(
         key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
         positions.append(position.position)
-        replay = ReplayFilter(position)
+        replay = ReplayFilter(position, team_id=job.team_id)
         lanes.append(
             OutputLane(
                 name=lane.resource_name,
                 cdc_write_mode=lane.write_mode,
                 billable=index == 0,
-                transform=replay.apply,
+                transform=_history_transform(replay, keys) if is_append else replay.apply,
             )
         )
     floor = None if any(p is None for p in positions) else min(p for p in positions if p is not None)
@@ -348,19 +379,27 @@ class ReplayFilter:
     been written, including one in a file capture wrote after the last run listed the buffer.
     """
 
-    def __init__(self, position: LanePosition) -> None:
+    def __init__(self, position: LanePosition, *, team_id: int | None = None) -> None:
         self._position = position.position
         self._applied = Counter(position.applied)
         # Taken from the position itself, so the batch is keyed exactly as the table was read.
         self._key_columns = list(position.key_columns)
+        self._team_id = team_id
         self.rows_skipped = 0
 
     def apply(self, table: pa.Table) -> pa.Table:
         table, dropped = drop_superseded_rows(table, self._position)
-        self.rows_skipped += dropped
+        self._count_skipped(dropped, "superseded")
         if self._position is None or not self._applied or not table.num_rows:
             return table
         return self._drop_already_written(table)
+
+    def _count_skipped(self, dropped: int, reason: str) -> None:
+        # `superseded` is the series the loader raised while the position lived there, so a
+        # dashboard reading it keeps working now that the drop happens on the read side.
+        self.rows_skipped += dropped
+        if dropped and self._team_id is not None:
+            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=str(self._team_id), reason=reason).inc(dropped)
 
     def _drop_already_written(self, table: pa.Table) -> pa.Table:
         # A source column of the same name is customer data, so comparing it against this lane's
@@ -385,7 +424,7 @@ class ReplayFilter:
             keep.append(i)
         if len(keep) == table.num_rows:
             return table
-        self.rows_skipped += table.num_rows - len(keep)
+        self._count_skipped(table.num_rows - len(keep), "already_written")
         return table.take(pa.array(keep, type=pa.int64()))
 
 

@@ -30,12 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
-    build_scd2_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
-    SCD2_APPEND_MODE,
     has_engine_seq,
     is_cdc_write_resolution_enabled,
     resolve_batch,
@@ -876,10 +874,8 @@ def _process_message_reported(
             if verify_ownership is not None:
                 verify_ownership()
             _mark_job_completed(export_signal)
-
             if prepared_queryable_folder:
                 _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-
             _trigger_post_import_workflow(export_signal)
             return
 
@@ -934,6 +930,7 @@ def _process_message_reported(
         resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
             export_signal.team_id, schema_id_str, export_signal.run_uuid
         )
+
         pa_table = _enrich_cdc_rows(
             pa_table,
             primary_keys=primary_keys,
@@ -951,13 +948,6 @@ def _process_message_reported(
                 cdc_write_mode=cdc_write_mode,
                 team_id=team_id_str,
             )
-
-        if cdc_write_mode == SCD2_APPEND_MODE and SCD2_VALID_FROM_COLUMN not in pa_table.column_names:
-            # Derived here rather than in the source: `valid_to` points at the next event for the
-            # same key, and the pipeline coalesces the source's yields into this batch. Deriving it
-            # per yield would leave a key changed in two coalesced windows with two rows open,
-            # because the writer only closes rows already in the target.
-            pa_table = build_scd2_table(pa_table, primary_keys or [])
 
         if existing_delta_table is not None:
             try:
@@ -1095,6 +1085,7 @@ def _process_message_reported(
                 _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
 
             _trigger_post_import_workflow(export_signal)
+
             logger.debug("post_load_operations_complete")
 
         mark_batch_as_processed(

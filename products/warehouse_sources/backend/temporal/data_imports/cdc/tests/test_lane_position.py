@@ -125,9 +125,8 @@ class TestEnsurePositionStats:
 
         await ensure_position_stats(table)
 
-        assert deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY] == (
-            CDC_SEQ_COLUMN
-        )
+        declared = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
+        assert CDC_SEQ_COLUMN in declared.split(",")
 
     async def test_it_names_the_position_column_before_the_table_has_one(self, tmp_path):
         # A snapshot-seeded companion has no position column until its first buffered write, and
@@ -142,12 +141,14 @@ class TestEnsurePositionStats:
         assert CDC_SEQ_COLUMN in declared.split(",")
 
     async def test_it_does_not_rewrite_a_table_that_already_has_it(self, tmp_path, mocker):
-        table = _write(tmp_path / "t", [10])
-        before = table.version()
+        # Runs on every lane build, so a second call has to be free.
+        table = _write(tmp_path / "t", [10], stats=False)
+        await ensure_position_stats(table, ["id"])
+        settled = deltalake.DeltaTable(str(tmp_path / "t"))
 
-        await ensure_position_stats(table)
+        await ensure_position_stats(settled, ["id"])
 
-        assert deltalake.DeltaTable(str(tmp_path / "t")).version() == before
+        assert deltalake.DeltaTable(str(tmp_path / "t")).version() == settled.version()
 
     async def test_a_table_that_refuses_the_property_does_not_fail_the_sync(self, tmp_path, mocker):
         table = _write(tmp_path / "t", [10], stats=False)
@@ -160,14 +161,27 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestStatsColumnList:
-    async def test_the_merge_key_keeps_its_pruning(self, tmp_path):
-        # Naming columns replaces Delta's default 32, so the keys the writer matches on must be named.
+    async def test_the_columns_delta_already_indexed_keep_their_statistics(self, tmp_path):
+        # Naming any column replaces Delta's default window, and nothing sets this property on a
+        # warehouse table today. Naming only ours would strip the min/max off every column the
+        # customer queries the moment their schema flips.
         table = _write(tmp_path / "t", [10], stats=False)
+        indexed_by_default = [field.name for field in table.schema().fields][:32]
+
+        await ensure_position_stats(table, ["id"])
+
+        wanted = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
+        assert set(indexed_by_default) <= set(wanted.split(","))
+
+    async def test_the_merge_key_keeps_its_pruning(self, tmp_path):
+        # The merge key can sit past the default window on a wide table, so it is named outright.
+        table = _write(tmp_path / "t", [10], stats=False, wide=False)
 
         await ensure_position_stats(table, ["id", "id"])
 
         wanted = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
-        assert wanted.split(",") == [CDC_SEQ_COLUMN, "id"]
+        assert wanted.split(",").count("id") == 1
+        assert CDC_SEQ_COLUMN in wanted.split(",")
 
     async def test_a_column_the_table_lacks_is_not_declared(self, tmp_path):
         table = _write(tmp_path / "t", [10], stats=False)
@@ -175,4 +189,4 @@ class TestStatsColumnList:
         await ensure_position_stats(table, ["nope"])
 
         wanted = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
-        assert wanted == CDC_SEQ_COLUMN
+        assert "nope" not in wanted.split(",")

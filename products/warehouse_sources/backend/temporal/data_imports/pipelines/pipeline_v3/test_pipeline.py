@@ -620,29 +620,26 @@ class TestCompanionJob:
         assert pipeline._consumer_finalizes_this_run() is False
 
     def test_a_failed_run_takes_its_open_companion_jobs_terminal(self) -> None:
-        # Only lanes that opened have a job; the sweep owns them once they have batches, but a
-        # run that fails before its final batch has to close them itself.
+        # Keyed on the job id the run recorded, not on a writer: the row is created before the S3
+        # client and the queue connect, and a failure between them must still retire it.
         pipeline = self._laned(self._both())
-        pipeline._lane_writers.append(
-            _LaneWriter(
-                lane=pipeline._output_lanes[1],
-                s3_batch_writer=MagicMock(),
-                pg_producer=MagicMock(),
-                job=MagicMock(id="companion-job"),
-            )
-        )
-        marked = MagicMock(return_value=True)
+        pipeline._companion_job_ids.append("companion-job")
+        retired: list[str] = []
 
         with (
-            patch(f"{_CONSUMER}.mark_job_failed_if_not_terminal", marked),
+            patch.object(LanedPipelineV3, "_retire_companion_batches", staticmethod(lambda job_id: None)),
+            patch.object(LanedPipelineV3, "_retire_companion_job", staticmethod(retired.append)),
             patch(
                 f"{_LANES}.database_sync_to_async_pool",
                 lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k)),
             ),
+            patch(f"{_LANES}.asyncio.to_thread", AsyncMock()),
         ):
             async_to_sync(pipeline._fail_companion_jobs)()
 
-        assert marked.call_args.kwargs["job_id"] == "companion-job"
+        # Written straight onto the row: going through the shared status helper would repaint the
+        # customer's schema FAILED and fire a digest, on a run Temporal may retry and complete.
+        assert retired == ["companion-job"]
 
 
 @pytest.mark.asyncio

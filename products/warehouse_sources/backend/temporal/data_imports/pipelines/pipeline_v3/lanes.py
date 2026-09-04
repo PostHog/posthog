@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from django.utils import timezone
+
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
 
@@ -71,6 +73,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     _output_lanes: list[OutputLane]
     _lane_writers: list[_LaneWriter]
     _writers_by_lane: dict[int, _LaneWriter]
+    _companion_job_ids: list[str]
 
     def __init__(
         self,
@@ -96,6 +99,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         self._lane_writers = [primary]
         # Companions are appended as they open; the primary is always here because the base built it.
         self._writers_by_lane: dict[int, _LaneWriter] = {id(self._output_lanes[0]): primary}
+        # Tracked apart from the writers, so a job row this run created is retired even when the
+        # writer built on top of it never came together.
+        self._companion_job_ids = []
 
     async def run(self) -> PipelineResult:
         completed = False
@@ -124,7 +130,12 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             return existing
 
         job = await self._create_companion_job(lane)
-        s3_batch_writer = self._build_s3_writer(f"{self._run_uuid}-cdc" if self._run_uuid else None)
+        # Recorded before the S3 client and the queue connect below, either of which can raise. A
+        # job row this run loses track of is a row nothing retires, and one of those blocks the
+        # flip and the rollback for the whole source.
+        self._companion_job_ids.append(str(job.id))
+
+        s3_batch_writer = self._build_s3_writer(self._companion_run_uuid())
         producer = PostgresProducer(
             **{
                 **self._producer_args(s3_batch_writer, resource_name=lane.name, cdc_write_mode=lane.cdc_write_mode),
@@ -136,6 +147,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         self._writers_by_lane[id(lane)] = writer
         self._lane_writers.append(writer)
         return writer
+
+    def _companion_run_uuid(self) -> str | None:
+        return f"{self._run_uuid}-cdc" if self._run_uuid else None
 
     async def _create_companion_job(self, lane: OutputLane) -> ExternalDataJob:
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -173,44 +187,50 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     async def _fail_companion_jobs(self) -> None:
         """Take this run's open companion jobs terminal when extraction did not finish.
 
-        Batches first, then the job, the same order the reconcile sweep and the unstick command
-        use: a straggler that loads after the job went terminal would write rows the next run's
-        read-back position cannot account for, and its final batch would flip the job back to
-        Completed.
+        The row is written directly, the way the legacy CDC path retires its own companion jobs.
+        Going through `update_external_job_status` would repaint the customer's schema FAILED and
+        fire a failure digest, and this runs from a `finally` on every attempt — including ones
+        Temporal retries and succeeds.
+
+        Batches first, then the job, the order the reconcile sweep uses: a straggler that loads
+        after the job went terminal would write rows the next run's read-back cannot account for.
         """
+
+        for job_id in self._companion_job_ids:
+            try:
+                await asyncio.to_thread(self._retire_companion_batches, job_id)
+            except Exception:
+                await self._logger.awarning("companion_batches_not_failed", companion_job_id=job_id, exc_info=True)
+
+            try:
+                await database_sync_to_async_pool(self._retire_companion_job)(job_id)
+            except Exception:
+                await self._logger.awarning("companion_job_fail_write_failed", companion_job_id=job_id, exc_info=True)
+
+    @staticmethod
+    def _retire_companion_job(job_id: str) -> None:
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+        ExternalDataJob.objects.filter(id=job_id, status=ExternalDataJob.Status.RUNNING).update(
+            status=ExternalDataJob.Status.FAILED,
+            latest_error="Extraction ended before this table's changes were written",
+            finished_at=timezone.now(),
+        )
+
+    @staticmethod
+    def _retire_companion_batches(job_id: str) -> None:
         import psycopg
 
         from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
-            mark_job_failed_if_not_terminal,
-        )
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
             BatchQueue,
         )
 
-        for writer in self._lane_writers:
-            if writer.job is None:
-                continue
-            job_id = str(writer.job.id)
-            try:
-                with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
-                    await asyncio.to_thread(
-                        BatchQueue.fail_batches_for_job_sync,
-                        conn,
-                        job_id=job_id,
-                        reason="extraction ended before this table's changes were written",
-                    )
-            except Exception:
-                await self._logger.awarning("companion_batches_not_failed", companion_job_id=job_id, exc_info=True)
-            try:
-                await database_sync_to_async_pool(mark_job_failed_if_not_terminal)(
-                    job_id=job_id,
-                    team_id=self._job.team_id,
-                    error="Extraction ended before this table's changes were written",
-                )
-            except Exception:
-                await self._logger.awarning("companion_job_fail_write_failed", companion_job_id=job_id, exc_info=True)
+        with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+            BatchQueue.fail_batches_for_job_sync(
+                conn, job_id=job_id, reason="extraction ended before this table's changes were written"
+            )
 
     async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
         # Each lane writes the same batch to its own job. A lane that already holds these rows
