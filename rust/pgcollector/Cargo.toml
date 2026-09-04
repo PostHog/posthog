@@ -25,6 +25,7 @@ prometheus = "0.13"
 regex = { workspace = true }
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
 rustls = { workspace = true }
+rustls-native-certs = "0.8"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = "0.9"

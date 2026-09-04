@@ -232,6 +232,7 @@ interface TestableServer {
   detectedPrUrl: string | null;
   slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
   slackChartDelivery: boolean;
+  slackReplyContext: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -974,7 +975,7 @@ describe("AgentServer HTTP Mode", () => {
       return testServer;
     }
 
-    it("reports cumulative run token usage into TaskRun.state after each settled turn", () => {
+    it("reports cumulative run token usage into TaskRun.state after each settled turn", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
@@ -987,7 +988,9 @@ describe("AgentServer HTTP Mode", () => {
       testServer.recordTurnUsage(turnUsage);
       testServer.recordTurnUsage(turnUsage);
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2),
+      );
       expect(testServer.posthogAPI.updateTaskRun).toHaveBeenNthCalledWith(
         1,
         "task-1",
@@ -2075,9 +2078,11 @@ describe("AgentServer HTTP Mode", () => {
     function exposeRefresh(testServer: AgentServer) {
       return testServer as unknown as {
         session: {
+          payload: { task_id: string; run_id: string };
           clientConnection: { extMethod: ReturnType<typeof vi.fn> };
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
         executeCommand(
           method: string,
           params: Record<string, unknown>,
@@ -2085,10 +2090,28 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
+    // A refresh also resyncs the acting user's skills store stubs. That reads
+    // the run and writes to the skill roots, so keep it out of these relay
+    // assertions by failing the fetch it starts from.
+    function attachSession(
+      testServer: ReturnType<typeof exposeRefresh>,
+      extMethod: ReturnType<typeof vi.fn>,
+    ) {
+      testServer.session = {
+        payload: { task_id: "test-task-id", run_id: "test-run-id" },
+        clientConnection: { extMethod },
+      };
+      testServer.posthogAPI = {
+        getTaskRun: vi.fn(async () => {
+          throw new Error("run fetch unavailable");
+        }),
+      };
+    }
+
     it("re-appends the loopback relay entries so a refresh doesn't drop them", async () => {
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));
-      testServer.session = { clientConnection: { extMethod } };
+      attachSession(testServer, extMethod);
       const relayEntry = {
         type: "http",
         name: "slack",
@@ -2123,7 +2146,7 @@ describe("AgentServer HTTP Mode", () => {
       // declare a server description; only pi reads it.
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));
-      testServer.session = { clientConnection: { extMethod } };
+      attachSession(testServer, extMethod);
       testServer.mcpRelayServer = null;
 
       await testServer.executeCommand("refresh_session", {
@@ -2149,7 +2172,7 @@ describe("AgentServer HTTP Mode", () => {
     it("does not duplicate a relay entry already present in the refresh list", async () => {
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));
-      testServer.session = { clientConnection: { extMethod } };
+      attachSession(testServer, extMethod);
       testServer.mcpRelayServer = {
         mcpServers: [
           {
@@ -5505,7 +5528,7 @@ describe("AgentServer HTTP Mode", () => {
         };
       } | null;
       posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-      resolveActivationSettings(): Promise<string | null>;
+      resolveActivationSettings(): Promise<string[]>;
       buildCloudSystemPrompt(): string;
     };
     const makeWarmServer = (
@@ -5543,7 +5566,7 @@ describe("AgentServer HTTP Mode", () => {
           };
         };
         posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-        resolveActivationSettings(): Promise<string | null>;
+        resolveActivationSettings(): Promise<string[]>;
       };
       t.prewarmedRun = true;
       t.session = {
@@ -5572,13 +5595,13 @@ describe("AgentServer HTTP Mode", () => {
     it("upgrades a prewarmed run to auto-publish from run state on the first message", async () => {
       const t = makeWarmServer({ prewarmed: true, auto_publish: true });
 
-      const override = await t.resolveActivationSettings();
+      const override = (await t.resolveActivationSettings()).join("\n");
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(override).toContain("gh pr create --draft");
       // The flip persists for the rest of the session...
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
       // ...and the override is injected only once.
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -5586,7 +5609,7 @@ describe("AgentServer HTTP Mode", () => {
       const t = makeWarmServer({ auto_publish: true });
       t.prewarmedRun = false;
 
-      const override = await t.resolveActivationSettings();
+      const override = (await t.resolveActivationSettings()).join("\n");
 
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
@@ -5596,11 +5619,11 @@ describe("AgentServer HTTP Mode", () => {
     it("keeps a prewarmed run review-first when run state has no auto_publish", async () => {
       const t = makeWarmServer({ prewarmed: true });
 
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -5612,7 +5635,7 @@ describe("AgentServer HTTP Mode", () => {
         { createPr: false },
       );
 
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
@@ -5621,12 +5644,12 @@ describe("AgentServer HTTP Mode", () => {
 
     it("retries the state fetch on a later message when it fails", async () => {
       const t = makeWarmServer(new Error("fetch failed"));
-      expect(await t.resolveActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toEqual([]);
 
       t.posthogAPI.getTaskRun = vi.fn(async () => ({
         state: { prewarmed: true, auto_publish: true },
       }));
-      expect(await t.resolveActivationSettings()).toContain(
+      expect((await t.resolveActivationSettings()).join("\n")).toContain(
         "gh pr create --draft",
       );
     });
@@ -5642,8 +5665,8 @@ describe("AgentServer HTTP Mode", () => {
         setSessionConfigOption,
       );
 
-      await expect(t.resolveActivationSettings()).resolves.toBeNull();
-      await expect(t.resolveActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveActivationSettings()).resolves.toEqual([]);
+      await expect(t.resolveActivationSettings()).resolves.toEqual([]);
 
       expect(setSessionConfigOption).toHaveBeenCalledTimes(2);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(2);
@@ -5775,6 +5798,17 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("identity instructions", () => {
+      it("injects Slack identity for workflow Slack replies", () => {
+        delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+        const s = createServer() as unknown as TestableServer;
+        s.slackReplyContext = true;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("# Identity");
+        expect(prompt).toContain("You are replying in a Slack thread");
+      });
+
       it.each([
         {
           label: "no repository, no PR",

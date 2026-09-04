@@ -102,10 +102,6 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Only dependency builds are cached, the typecheck itself always runs.
-            - name: Restore turbo cache
-              uses: ./.github/actions/desktop-restore-turbo-cache
-
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:

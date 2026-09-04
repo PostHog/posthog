@@ -168,6 +168,10 @@ jobs:
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
+                        # Jest reads these at runtime, so they are code here even though the
+                        # rule above treats YAML as docs: the agent-sync suites assert that a
+                        # product's frontend routes every tool the MCP build enables.
+                        - 'products/**/mcp/tools.yaml'
                         # products/desktop is the imported desktop app; it has its own
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'

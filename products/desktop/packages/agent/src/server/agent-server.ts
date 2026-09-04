@@ -134,8 +134,9 @@ import {
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
 import { createRtkSavingsNotification } from "./rtk-savings";
-import { RunUsageAccumulator } from "./run-usage";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
+import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -539,6 +540,7 @@ export class AgentServer {
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
+  private slackReplyContext = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -553,6 +555,8 @@ export class AgentServer {
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
+  private storeSkillsInstalledCount = 0;
+  private storeSkillsActivationResolved = false;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -1313,9 +1317,9 @@ export class AgentServer {
           // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveActivationSettings();
+          const activationContext = await this.resolveActivationSettings();
           const hostContext = [
-            ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
+            ...activationContext,
             ...(this.detectedPrUrl
               ? [this.buildDetectedPrContext(this.detectedPrUrl)]
               : []),
@@ -1598,6 +1602,11 @@ export class AgentServer {
           );
         }
 
+        // The backend refreshes the session when the acting user changes, and
+        // the store skills on disk are that user's. Resync them so the previous
+        // actor's skill names and descriptions do not outlive their turn.
+        await this.refreshStoreSkills("refresh_session");
+
         if (mcpServers.length === 0) {
           return { refreshed: true };
         }
@@ -1809,6 +1818,7 @@ export class AgentServer {
     this.nativeResume = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
+    this.storeSkillsActivationResolved = false;
     this.prewarmedStartupTurnPending = false;
     this.autoPublishStateResolved = false;
     this.warmReasoningEffortResolved = false;
@@ -1830,14 +1840,12 @@ export class AgentServer {
           this.posthogAPI
             .getTaskRun(payload.task_id, payload.run_id)
             .catch((err) => {
-              this.logger.debug(
-                "Failed to fetch task run for session context",
-                {
-                  taskId: payload.task_id,
-                  runId: payload.run_id,
-                  error: err,
-                },
-              );
+              // Without the run the stage is unknown, so routing falls back to the env product.
+              this.logger.warn("Failed to fetch task run for session context", {
+                taskId: payload.task_id,
+                runId: payload.run_id,
+                error: err,
+              });
               return null;
             }),
           this.fetchTaskForSessionContext(payload.task_id),
@@ -1847,6 +1855,7 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
+    seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
@@ -1899,6 +1908,7 @@ export class AgentServer {
     // instance must not keep the previous run's delivery capability.
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
     this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
+    this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -1907,6 +1917,13 @@ export class AgentServer {
     const inboxReportUrl = signalReportId
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
+
+    // Before the prompt: its skills-store section counts the stubs on disk.
+    await this.installStoreSkills(
+      payload.task_id,
+      payload.run_id,
+      preTaskRun?.state ?? null,
+    );
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
@@ -3799,6 +3816,49 @@ export class AgentServer {
     return normalizedName;
   }
 
+  /**
+   * Put the user's skills-store skills on disk as pointer stubs before the
+   * harness session starts, so it lists them like any local skill. The task
+   * worker resolves the list into the run state when it builds the run, so
+   * this is filesystem work only and adds no request to session start. Skill
+   * bodies stay in the store and cross the PostHog MCP only when a skill is
+   * invoked.
+   */
+  private async installStoreSkills(
+    taskId: string,
+    runId: string,
+    runState: TaskRunState | null,
+  ): Promise<void> {
+    this.storeSkillsInstalledCount = await syncStoreSkills(
+      runState,
+      { taskId, runId },
+      this.logger,
+    );
+  }
+
+  /**
+   * Re-read the run and bring the stubs on disk in line with it. The worker
+   * rewrites `store_skills` when the acting user changes, after this session
+   * started, and refreshes the session right after.
+   */
+  private async refreshStoreSkills(reason: string): Promise<void> {
+    if (!this.session) {
+      return;
+    }
+    const { task_id: taskId, run_id: runId } = this.session.payload;
+    let state: TaskRunState | undefined;
+    try {
+      state = (await this.posthogAPI.getTaskRun(taskId, runId))?.state;
+    } catch (error) {
+      this.logger.debug("Failed to fetch run state for skills store refresh", {
+        reason,
+        error,
+      });
+      return;
+    }
+    await this.installStoreSkills(taskId, runId, state ?? null);
+  }
+
   private async waitForRepoReady(): Promise<void> {
     const readyFile = this.config.repoReadyFile;
     if (!readyFile) {
@@ -3881,7 +3941,7 @@ export class AgentServer {
       cloudAppend,
       userPrompt,
     );
-    return this.getCloudInteractionOrigin() === "slack"
+    return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
       : sessionPrompt;
   }
@@ -3930,6 +3990,12 @@ export class AgentServer {
     );
   }
 
+  private isSlackReplyContext(): boolean {
+    return (
+      this.slackReplyContext || this.getCloudInteractionOrigin() === "slack"
+    );
+  }
+
   /**
    * Automated, PostHog-branded origins: the Slack app and the Self-driving
    * inbox. These both auto-publish by default and attribute their PRs to
@@ -3953,21 +4019,32 @@ export class AgentServer {
     );
   }
 
-  /** Apply settings from run state before the first turn when launch config is incomplete. */
-  private async resolveActivationSettings(): Promise<string | null> {
+  /**
+   * Apply settings from run state before the first turn when launch config is
+   * incomplete, and return the host-context blocks that prompt needs for them.
+   */
+  private async resolveActivationSettings(): Promise<string[]> {
     if (!this.session) {
-      return null;
+      return [];
     }
 
     const shouldResolveReasoning =
       this.prewarmedRun && !this.warmReasoningEffortResolved;
+    // A warm run's stubs were installed at prewarm time; the worker rewrites
+    // the list for the activating user before it forwards the first message.
+    const shouldResolveStoreSkills =
+      this.prewarmedRun && !this.storeSkillsActivationResolved;
     const shouldResolveAutoPublish =
       !this.autoPublishStateResolved &&
       this.config.autoPublish !== true &&
       this.config.createPr !== false &&
       !this.isAutomatedOrigin();
-    if (!shouldResolveReasoning && !shouldResolveAutoPublish) {
-      return null;
+    if (
+      !shouldResolveReasoning &&
+      !shouldResolveStoreSkills &&
+      !shouldResolveAutoPublish
+    ) {
+      return [];
     }
 
     let state: TaskRunState | undefined;
@@ -3981,13 +4058,29 @@ export class AgentServer {
       // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
       this.logger.debug("Failed to fetch activation settings", { error });
-      return null;
+      return [];
     }
 
     if (shouldResolveReasoning) {
       await this.resolveWarmReasoningEffort(state);
     }
-    return this.resolveAutoPublishFromState(state);
+    const context: string[] = [];
+    if (shouldResolveStoreSkills) {
+      const { task_id: taskId, run_id: runId } = this.session.payload;
+      const previousCount = this.storeSkillsInstalledCount;
+      await this.installStoreSkills(taskId, runId, state ?? null);
+      this.storeSkillsActivationResolved = true;
+      if (previousCount === 0 && this.storeSkillsInstalledCount > 0) {
+        context.push(
+          buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
+        );
+      }
+    }
+    const autoPublishUpgrade = this.resolveAutoPublishFromState(state);
+    if (autoPublishUpgrade) {
+      context.push(autoPublishUpgrade);
+    }
+    return context;
   }
 
   private async resolveWarmReasoningEffort(
@@ -4218,7 +4311,7 @@ You do not have GitHub access in this session.
   ): string {
     const taskId = this.config.taskId;
     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
-    const isSlack = this.getCloudInteractionOrigin() === "slack";
+    const isSlack = this.isSlackReplyContext();
     // Every instruction in this section runs through `gh`, so a sandbox holding no
     // GitHub token cannot act on any of it. An empty token is an explicit logout.
     const hasGithubToken = Boolean(resolveGithubToken());
@@ -4349,7 +4442,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
@@ -4705,7 +4798,8 @@ ${commonInstructions}
     // Go-gateway runs authenticate with the per-run scoped token minted by the
     // worker (pinned product + on-behalf-of team, per-run spend cap), not the
     // run's per-team OAuth token, whose team has no gateway wallet. A routed
-    // product with no token therefore stays on the Python gateway.
+    // product with no token therefore stays on the Python gateway. The worker's env values
+    // win, because the token is pinned to the product they name.
     const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
     let target = resolveGatewayTarget({
       product,
@@ -4723,7 +4817,12 @@ ${commonInstructions}
         env: { ...process.env, AI_GATEWAY_URL: undefined },
       });
     }
-    const { baseUrl: gatewayUrl, isAiGateway, aiProduct } = target;
+    const {
+      baseUrl: gatewayUrl,
+      isAiGateway,
+      aiProduct,
+      aiStage: resolvedStage,
+    } = target;
     const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
     const openaiBaseUrl = gatewayUrl.endsWith("/v1")
       ? gatewayUrl
@@ -4737,7 +4836,7 @@ ${commonInstructions}
       task_origin_product: originProduct,
       task_internal: isInternal,
       signal_report_id: signalReportId,
-      ai_stage: aiStage,
+      ai_stage: resolvedStage,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,
@@ -5499,13 +5598,13 @@ ${commonInstructions}
     if (!this.runUsage.add(usage)) return;
     const payload = this.session?.payload;
     if (!payload) return;
-    void this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        state: { token_usage: this.runUsage.snapshot() },
-      })
-      .catch((error) => {
-        this.logger.warn("Failed to report run token usage", error);
-      });
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      payload.task_id,
+      payload.run_id,
+      this.logger,
+    );
   }
 
   private handleAcpTransportMessage(message: unknown): void {
