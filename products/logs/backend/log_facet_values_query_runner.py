@@ -116,7 +116,11 @@ def _attribute_where_exprs(
 
 
 class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
-    """Values and cross-filtered counts for one facet, or for several attribute keys at once.
+    """Values and cross-filtered counts for a column facet, or for a set of attribute keys.
+
+    Attribute keys are always taken as a list, and one list of any length is one query. The
+    presentation layer turns a single-key request into a one-key list, so there is no separate
+    single-facet path here to drift from the shared one.
 
     A column facet (severity_text/service_name) groups the logs table directly. An attribute facet —
     a resource attribute like k8s.namespace.name, or a log-body attribute like log.iostream — reads
@@ -132,7 +136,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
     What sharing gives up is the per-facet part, which is why `own_facet_semantics` exists. A facet
     asked for on its own excludes its own resource-attribute filter (so selecting a value re-scopes
     its siblings rather than collapsing itself) and honours `facet_search`. Neither is expressible
-    across a set of keys, so a facet needing either is asked for on its own.
+    across a set of keys, so the flag is rejected for a list of more than one.
 
     Cross-filtering is exact for column facets, which strip their own WHERE clause. On the rollup it
     depends on what the rollup carries: every attribute facet honours service_name, severity levels
@@ -150,47 +154,37 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         query: LogsQuery,
         *args,
         facet_field: str | None = None,
-        facet_resource_attribute: str | None = None,
-        facet_attribute: str | None = None,
         facet_resource_attributes: list[str] | None = None,
         facet_attributes: list[str] | None = None,
+        own_facet_semantics: bool = False,
         facet_search: str | None = None,
         **kwargs,
     ):
         super().__init__(query, *args, **kwargs)
-        # A request targets a top-level column, one attribute map key, or a set of attribute keys.
-        # The two key lists are one target between them; a singular field is its own. Singular and
-        # plural cannot be combined, because they apply different filters.
-        singular_targets = sum(1 for target in (facet_field, facet_resource_attribute, facet_attribute) if target)
-        has_key_lists = bool(facet_resource_attributes or facet_attributes)
-        if singular_targets > 1 or (singular_targets and has_key_lists):
-            raise ValueError(
-                "Provide exactly one of facet_field, facet_resource_attribute, facet_attribute, "
-                "or the facet_resource_attributes/facet_attributes key lists"
-            )
-        if not singular_targets and not has_key_lists:
-            raise ValueError("Provide a facet field, an attribute key, or at least one attribute key list")
+        facets = [
+            *[_AttributeFacet(attribute_type="resource", key=key) for key in facet_resource_attributes or []],
+            *[_AttributeFacet(attribute_type="log", key=key) for key in facet_attributes or []],
+        ]
+        # A request targets a top-level column or a set of attribute keys — the two read different
+        # tables, so they can't share a query.
+        if bool(facet_field) == bool(facets):
+            raise ValueError("Provide either facet_field or at least one attribute key")
         if facet_field is not None and facet_field not in FACET_FIELDS:
             raise ValueError(f"Unsupported facet field: {facet_field!r}")
-
-        self.facet_field = facet_field
-        # True when one facet was asked for on its own, which is what earns it the two per-facet
-        # behaviours: excluding its own filter, and applying facet_search.
-        self.own_facet_semantics = not has_key_lists
-        if facet_resource_attribute:
-            facets = [_AttributeFacet(attribute_type="resource", key=facet_resource_attribute)]
-        elif facet_attribute:
-            facets = [_AttributeFacet(attribute_type="log", key=facet_attribute)]
-        else:
-            facets = [
-                *[_AttributeFacet(attribute_type="resource", key=key) for key in facet_resource_attributes or []],
-                *[_AttributeFacet(attribute_type="log", key=key) for key in facet_attributes or []],
-            ]
         if len(facets) > MAX_BATCH_FACETS:
             raise ValueError(f"At most {MAX_BATCH_FACETS} attribute keys may be requested, got {len(facets)}")
+        # Both per-facet behaviours name one key: an exclusion targets a single attribute, and a
+        # type-ahead filters a single value list. Neither is expressible across a set.
+        if own_facet_semantics and len(facets) > 1:
+            raise ValueError("own_facet_semantics applies to a single attribute key")
+
+        self.facet_field = facet_field
         # Frozen and hashable, so this dedupes while keeping the caller's order for the response.
         self.facets = list(dict.fromkeys(facets))
-
+        # Set by the presentation layer when the caller asked for one facet on its own, which is what
+        # earns it the two per-facet behaviours: excluding its own filter, and applying facet_search.
+        # A column facet always has them, having no set to share with.
+        self.own_facet_semantics = own_facet_semantics or not facets
         # Type-ahead over the facet's *own* values (e.g. service name contains "kafka"), distinct from
         # query.searchTerm which searches log bodies. Lets a dynamic facet search past the LIMIT window.
         self.facet_search = (facet_search or "").strip() or None
@@ -263,14 +257,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         )
 
     def to_query(self) -> ast.SelectQuery:
-        if not self.facets:
-            return self._column_facet_query()
-        # One key keeps the plain top-N sort. The windowed form below is only needed to give each
-        # key its own top-N, and a full window over a high-cardinality key costs more than the
-        # LIMIT sort ClickHouse can otherwise use.
-        if len(self.facets) == 1:
-            return self._attribute_query(self.facets[0])
-        return self._multi_attribute_query()
+        return self._column_facet_query() if not self.facets else self._attribute_query()
 
     def _column_facet_query(self) -> ast.SelectQuery:
         # The day-precision time_bucket prune in where() is widened to exact timestamp bounds so the
@@ -329,51 +316,6 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             exclude_resource_attribute=exclude_resource_attribute,
         )
 
-    def _attribute_query(self, facet: _AttributeFacet) -> ast.SelectQuery:
-        # Served from the pre-aggregated log_attributes rollup (sum(attribute_count)) rather than
-        # grouping the logs Map column, which reads the whole attribute column and blows past the
-        # read cap at scale. The rollup carries severity_text and service_name, so severity levels,
-        # service_name and resource-attribute filters re-scope the counts; body-search, log-attribute
-        # filters and personId / sessionId scoping still aren't in the rollup.
-        #
-        # attribute_type and attribute_key are selected back even though they are pinned in the
-        # WHERE, so every attribute query returns the same row shape for _calculate to group.
-        date_range = self._attributes_query_date_range
-        # A resource-attribute facet asked for on its own excludes its own key, so selecting a value
-        # doesn't collapse the facet to that single value. A log-attribute facet has nothing to
-        # exclude here, since its own filter isn't a resource one and the rollup never applies it.
-        exclude = facet.key if self.own_facet_semantics and facet.attribute_type == "resource" else None
-        where_exprs = self._rollup_where_exprs(exclude_resource_attribute=exclude)
-        search = ilike_pattern(self.facet_search if self.own_facet_semantics else None)
-
-        query = parse_select(
-            """
-            SELECT attribute_type, attribute_key, attribute_value AS value, sum(attribute_count) AS count
-            FROM log_attributes
-            WHERE time_bucket >= {date_from_start_of_interval}
-            AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
-            AND attribute_type = {attribute_type}
-            AND attribute_key = {attribute_key}
-            AND attribute_value != ''
-            AND attribute_value ILIKE {search}
-            AND {where}
-            GROUP BY attribute_type, attribute_key, attribute_value
-            ORDER BY sum(attribute_count) DESC, attribute_value ASC
-            LIMIT {limit}
-            """,
-            placeholders={
-                "attribute_type": ast.Constant(value=facet.attribute_type),
-                "attribute_key": ast.Constant(value=facet.key),
-                # ilike_pattern(None) -> '%', i.e. match every value when no facet search is given.
-                "search": ast.Constant(value=search),
-                "where": ast.And(exprs=where_exprs),
-                "limit": ast.Constant(value=self.query.limit or DEFAULT_FACET_LIMIT),
-                **date_range.to_placeholders(),
-            },
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
-
     def _targets_expr(self) -> ast.Expr:
         # One OR arm per attribute type, each an `attribute_key IN (...)`. A tuple-IN over
         # (attribute_type, attribute_key) reads the same rows but cannot use idx_attribute_key,
@@ -394,11 +336,25 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             )
         return arms[0] if len(arms) == 1 else ast.Or(exprs=arms)
 
-    def _multi_attribute_query(self) -> ast.SelectQuery:
+    def _attribute_query(self) -> ast.SelectQuery:
+        # Served from the pre-aggregated log_attributes rollup (sum(attribute_count)) rather than
+        # grouping the logs Map column, which reads the whole attribute column and blows past the
+        # read cap at scale. The rollup carries severity_text and service_name, so severity levels,
+        # service_name and resource-attribute filters re-scope the counts; body-search, log-attribute
+        # filters and personId / sessionId scoping still aren't in the rollup.
+        #
+        # One query whatever the key count. The row_number window is what lets each key keep its own
+        # top-N, so the counts a key returns don't depend on how many keys it was asked for
+        # alongside. With one key it costs a full sort where a plain LIMIT would let ClickHouse stop
+        # at 100, but the GROUP BY above it already materialised every group either way.
         date_range = self._attributes_query_date_range
-        # No key excludes its own filter here: one WHERE serves every key, which is the trade the
-        # plural request shape makes for costing one query.
-        where_exprs = self._rollup_where_exprs(exclude_resource_attribute=None)
+        # Only a lone resource-attribute facet excludes its own key, so selecting a value re-scopes
+        # its siblings rather than collapsing itself. A log-attribute facet has nothing to exclude
+        # here — its own filter isn't a resource one, and the rollup never applies it. A set of keys
+        # shares one WHERE, which is the trade it makes for costing one query.
+        own_key = self.facets[0] if self.own_facet_semantics else None
+        exclude = own_key.key if own_key and own_key.attribute_type == "resource" else None
+        where_exprs = self._rollup_where_exprs(exclude_resource_attribute=exclude)
 
         counts = parse_select(
             """
@@ -408,11 +364,15 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
             AND {targets}
             AND attribute_value != ''
+            AND attribute_value ILIKE {search}
             AND {where}
             GROUP BY attribute_type, attribute_key, attribute_value
             """,
             placeholders={
                 "targets": self._targets_expr(),
+                # ilike_pattern(None) -> '%', i.e. match every value. A search only ever accompanies
+                # a lone facet, so filtering pre-aggregation can't narrow a sibling key.
+                "search": ast.Constant(value=ilike_pattern(self.facet_search if own_key else None)),
                 "where": ast.And(exprs=where_exprs),
                 **date_range.to_placeholders(),
             },
@@ -437,10 +397,8 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             """,
             placeholders={
                 "counts": counts,
-                # Per key, matching the single-key LIMIT, so sharing a query can't change what a
-                # key returns.
-                "limit": ast.Constant(value=DEFAULT_FACET_LIMIT),
-                "total_limit": ast.Constant(value=DEFAULT_FACET_LIMIT * len(self.facets)),
+                "limit": ast.Constant(value=self.query.limit or DEFAULT_FACET_LIMIT),
+                "total_limit": ast.Constant(value=(self.query.limit or DEFAULT_FACET_LIMIT) * len(self.facets)),
             },
         )
         assert isinstance(query, ast.SelectQuery)

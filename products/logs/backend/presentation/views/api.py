@@ -1475,6 +1475,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if batched_keys > MAX_BATCH_FACETS:
             raise ParseError(f"At most {MAX_BATCH_FACETS} keys may be requested at once")
 
+        # The runner takes key lists only. A singular field becomes a one-key list carrying
+        # own_facet_semantics, which is what preserves the behaviour that field promises: its own
+        # filter excluded, and facetSearch applied.
+        if facet_resource_attribute:
+            resource_keys = [facet_resource_attribute]
+        elif facet_attribute:
+            attribute_keys = [facet_attribute]
+
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
 
@@ -1492,10 +1500,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             team=self.team,
             query=query,
             facet_field=facet_field or None,
-            facet_resource_attribute=facet_resource_attribute or None,
-            facet_attribute=facet_attribute or None,
             facet_resource_attributes=[str(key) for key in resource_keys],
             facet_attributes=[str(key) for key in attribute_keys],
+            own_facet_semantics=bool(facet_resource_attribute or facet_attribute),
             facet_search=query_data.get("facetSearch"),
         )
         response = runner.run(
