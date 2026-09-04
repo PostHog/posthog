@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import { ApiError, isScopeNotFoundError, isTransientServerError, shouldReportApiFailure } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -97,9 +97,12 @@ describe('api-error', () => {
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
+            ['a project-not-found 404', { status: 404, detail: 'Project not found.' }, false],
+            ['an organization-not-found 404', { status: 404, detail: 'Organization not found.' }, false],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
-            ['a 404', { status: 404 }, true],
+            ['a 404 for some other missing resource', { status: 404, detail: 'Not found.' }, true],
+            ['a 404 with no detail', { status: 404 }, true],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],
@@ -107,7 +110,30 @@ describe('api-error', () => {
         ])('decides whether to report %s', (_, error, expected) => {
             expect(shouldReportApiFailure(error)).toBe(expected)
         })
+    })
 
+    describe('isScopeNotFoundError', () => {
+        it.each([
+            ['a project-not-found 404 via detail', { status: 404, detail: 'Project not found.' }, true],
+            ['an org-not-found 404 via detail', { status: 404, detail: 'Organization not found.' }, true],
+            ['a 404 with the detail nested under data', { status: 404, data: { detail: 'Project not found.' } }, true],
+            ['a 404 for another resource', { status: 404, detail: 'Not found.' }, false],
+            ['a 404 with no detail', { status: 404 }, false],
+            ['a 403 that names the project', { status: 403, detail: 'Project not found.' }, false],
+            ['null', null, false],
+        ])('decides whether %s is a scope-not-found error', (_, error, expected) => {
+            expect(isScopeNotFoundError(error)).toBe(expected)
+        })
+
+        it('reads the detail off a constructed ApiError', async () => {
+            const error = await ApiError.fromResponse(
+                new Response(JSON.stringify({ detail: 'Project not found.' }), { status: 404 })
+            )
+            expect(isScopeNotFoundError(error)).toBe(true)
+        })
+    })
+
+    describe('shouldReportApiFailure (constructed)', () => {
         // The hand-written cases above use literals; this proves the shape `fromResponse` actually
         // builds (`code` lifted off the response body) classifies the same way.
         it('reads the code off a constructed ApiError', async () => {

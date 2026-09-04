@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 from unittest import mock
 
 from django.conf import settings
@@ -696,28 +696,33 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
 
-        runner = HogQLQueryRunner(
-            query=HogQLQuery(query="select properties.$browser from events"),
-            team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
-        )
-        response = runner.calculate()
-        assert response.clickhouse is not None
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert "events_json AS events" in response.clickhouse
-            assert "events.properties.`$browser`" in response.clickhouse
-            assert "events.`mat_$browser" not in response.clickhouse
-        else:
-            assert "events.`mat_$browser" in response.clickhouse
+        # `mat_$browser` outlives this test otherwise, and every later test in the same worker
+        # that reads `$browser` then renders the materialized column instead of a JSON extract.
+        try:
+            runner = HogQLQueryRunner(
+                query=HogQLQuery(query="select properties.$browser from events"),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
+            )
+            response = runner.calculate()
+            assert response.clickhouse is not None
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events_json AS events" in response.clickhouse
+                assert "events.properties.`$browser`" in response.clickhouse
+                assert "events.`mat_$browser" not in response.clickhouse
+            else:
+                assert "events.`mat_$browser" in response.clickhouse
 
-        runner = HogQLQueryRunner(
-            query=HogQLQuery(query="select properties.$browser from events"),
-            team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
-        )
-        response = runner.calculate()
-        assert response.clickhouse is not None
-        assert "events.`mat_$browser" not in response.clickhouse
+            runner = HogQLQueryRunner(
+                query=HogQLQuery(query="select properties.$browser from events"),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            )
+            response = runner.calculate()
+            assert response.clickhouse is not None
+            assert "events.`mat_$browser" not in response.clickhouse
+        finally:
+            cleanup_materialized_columns()
 
     @mock.patch("posthog.hogql_queries.query_runner.QueryCache")
     def test_schema_change_triggers_recalculation(self, mock_query_cache_cls):
