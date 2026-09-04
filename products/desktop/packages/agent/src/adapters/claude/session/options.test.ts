@@ -511,9 +511,7 @@ describe("buildSessionOptions", () => {
         taskId: "task-123",
       }).env?.ANTHROPIC_CUSTOM_HEADERS;
 
-      expect(headers).toContain(
-        "x-posthog-property-$ai_session_id: task-123",
-      );
+      expect(headers).toContain("x-posthog-property-$ai_session_id: task-123");
     });
   });
 
