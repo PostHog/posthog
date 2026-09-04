@@ -74,6 +74,7 @@ import { Route as ShellSpacesChannelIdArtifactsRouteImport } from './routes/_she
 import { Route as ShellSpacesChannelIdTasksTaskIdRouteImport } from './routes/_shell/spaces/$channelId/tasks/$taskId'
 import { Route as ShellSpacesChannelIdReportsReportIdRouteImport } from './routes/_shell/spaces/$channelId/reports/$reportId'
 import { Route as ShellSpacesChannelIdDashboardsDashboardIdRouteImport } from './routes/_shell/spaces/$channelId/dashboards/$dashboardId'
+import { Route as ShellSpacesChannelIdCanvasesV2BoardIdRouteImport } from './routes/_shell/spaces/$channelId/canvases-v2/$boardId'
 
 const UsageRoute = UsageRouteImport.update({
   id: '/usage',
@@ -409,6 +410,12 @@ const ShellSpacesChannelIdDashboardsDashboardIdRoute =
     path: '/spaces/$channelId/dashboards/$dashboardId',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellSpacesChannelIdCanvasesV2BoardIdRoute =
+  ShellSpacesChannelIdCanvasesV2BoardIdRouteImport.update({
+    id: '/spaces/$channelId/canvases-v2/$boardId',
+    path: '/spaces/$channelId/canvases-v2/$boardId',
+    getParentRoute: () => ShellRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
@@ -472,6 +479,7 @@ export interface FileRoutesByFullPath {
   '/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
   '/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
   '/agents/scouts/$skillName/': typeof AgentsScoutsSkillNameIndexRoute
+  '/spaces/$channelId/canvases-v2/$boardId': typeof ShellSpacesChannelIdCanvasesV2BoardIdRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -529,6 +537,7 @@ export interface FileRoutesByTo {
   '/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
   '/spaces/$channelId': typeof ShellSpacesChannelIdIndexRoute
   '/agents/scouts/$skillName': typeof AgentsScoutsSkillNameIndexRoute
+  '/spaces/$channelId/canvases-v2/$boardId': typeof ShellSpacesChannelIdCanvasesV2BoardIdRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -597,6 +606,7 @@ export interface FileRoutesById {
   '/_shell/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
   '/_shell/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
   '/agents/scouts/$skillName/': typeof AgentsScoutsSkillNameIndexRoute
+  '/_shell/spaces/$channelId/canvases-v2/$boardId': typeof ShellSpacesChannelIdCanvasesV2BoardIdRoute
   '/_shell/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/_shell/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/_shell/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -665,6 +675,7 @@ export interface FileRouteTypes {
     | '/spaces/$channelId/new'
     | '/spaces/$channelId/'
     | '/agents/scouts/$skillName/'
+    | '/spaces/$channelId/canvases-v2/$boardId'
     | '/spaces/$channelId/dashboards/$dashboardId'
     | '/spaces/$channelId/reports/$reportId'
     | '/spaces/$channelId/tasks/$taskId'
@@ -722,6 +733,7 @@ export interface FileRouteTypes {
     | '/spaces/$channelId/new'
     | '/spaces/$channelId'
     | '/agents/scouts/$skillName'
+    | '/spaces/$channelId/canvases-v2/$boardId'
     | '/spaces/$channelId/dashboards/$dashboardId'
     | '/spaces/$channelId/reports/$reportId'
     | '/spaces/$channelId/tasks/$taskId'
@@ -789,6 +801,7 @@ export interface FileRouteTypes {
     | '/_shell/spaces/$channelId/new'
     | '/_shell/spaces/$channelId/'
     | '/agents/scouts/$skillName/'
+    | '/_shell/spaces/$channelId/canvases-v2/$boardId'
     | '/_shell/spaces/$channelId/dashboards/$dashboardId'
     | '/_shell/spaces/$channelId/reports/$reportId'
     | '/_shell/spaces/$channelId/tasks/$taskId'
@@ -1271,6 +1284,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSpacesChannelIdDashboardsDashboardIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/spaces/$channelId/canvases-v2/$boardId': {
+      id: '/_shell/spaces/$channelId/canvases-v2/$boardId'
+      path: '/spaces/$channelId/canvases-v2/$boardId'
+      fullPath: '/spaces/$channelId/canvases-v2/$boardId'
+      preLoaderRoute: typeof ShellSpacesChannelIdCanvasesV2BoardIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
   }
 }
 
@@ -1308,6 +1328,7 @@ interface ShellRouteChildren {
   ShellSpacesChannelIdLoopsRoute: typeof ShellSpacesChannelIdLoopsRoute
   ShellSpacesChannelIdNewRoute: typeof ShellSpacesChannelIdNewRoute
   ShellSpacesChannelIdIndexRoute: typeof ShellSpacesChannelIdIndexRoute
+  ShellSpacesChannelIdCanvasesV2BoardIdRoute: typeof ShellSpacesChannelIdCanvasesV2BoardIdRoute
   ShellSpacesChannelIdDashboardsDashboardIdRoute: typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   ShellSpacesChannelIdReportsReportIdRoute: typeof ShellSpacesChannelIdReportsReportIdRoute
   ShellSpacesChannelIdTasksTaskIdRoute: typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -1335,6 +1356,8 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellSpacesChannelIdLoopsRoute: ShellSpacesChannelIdLoopsRoute,
   ShellSpacesChannelIdNewRoute: ShellSpacesChannelIdNewRoute,
   ShellSpacesChannelIdIndexRoute: ShellSpacesChannelIdIndexRoute,
+  ShellSpacesChannelIdCanvasesV2BoardIdRoute:
+    ShellSpacesChannelIdCanvasesV2BoardIdRoute,
   ShellSpacesChannelIdDashboardsDashboardIdRoute:
     ShellSpacesChannelIdDashboardsDashboardIdRoute,
   ShellSpacesChannelIdReportsReportIdRoute:

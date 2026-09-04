@@ -20,7 +20,7 @@ import {
 import { CanvasVersionTag } from "@posthog/ui/features/canvas-v2/components/CanvasVersionTag";
 import { useCanvasV2BoardMutations } from "@posthog/ui/features/canvas-v2/hooks/useCanvasV2BoardMutations";
 import { useCanvasesV2Flag } from "@posthog/ui/features/feature-flags/useCanvasesV2Flag";
-import { navigateToCanvasesV2 } from "@posthog/ui/router/navigationBridge";
+import { navigateToSpaceBoard } from "@posthog/ui/router/navigationBridge";
 import type { ReactElement, ReactNode } from "react";
 
 const NEW_CANVAS_ACTION = "New canvas";
@@ -103,7 +103,7 @@ export function NewCanvasMenu({
   const newBoard = async (): Promise<void> => {
     if (!boardChannelId) return;
     const board = await createBoard(boardChannelId, DEFAULT_BOARD_NAME);
-    navigateToCanvasesV2(board.id);
+    navigateToSpaceBoard(boardChannelId, board.id);
   };
 
   return (

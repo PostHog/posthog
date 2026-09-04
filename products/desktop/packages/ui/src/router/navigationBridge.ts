@@ -226,6 +226,20 @@ export function navigateToLoopDetail(
   });
 }
 
+export function navigateToSpaceBoard(channelId: string, boardId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/canvases-v2/$boardId",
+    params: { channelId, boardId },
+  });
+}
+
+export function navigateToSpaceCanvases(channelId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/canvases",
+    params: { channelId },
+  });
+}
+
 export function navigateToCanvasesV2(boardId: string): void {
   const router = getRouterOrNull();
   if (!router) return;

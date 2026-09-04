@@ -18,8 +18,9 @@ export const CanvasLinkEvent = {
 export interface CanvasLinkPayload {
   /** Channel (folder) row id the canvas lives under. */
   channelId: string;
-  /** Dashboard row id of the canvas. */
+  /** Dashboard row id of the canvas, or board row id for a v2 board. */
   dashboardId: string;
+  canvasVersion: 1 | 2;
 }
 
 export interface CanvasLinkEvents {
@@ -52,12 +53,15 @@ export class CanvasLinkService extends TypedEventEmitter<CanvasLinkEvents> {
     super();
     this.log = rootLogger.scope("canvas-link-service");
 
-    this.deepLinkService.registerHandler("canvas", (path) =>
-      this.handleCanvasLink(path),
+    this.deepLinkService.registerHandler("canvas", (path, searchParams) =>
+      this.handleCanvasLink(path, searchParams),
     );
   }
 
-  private handleCanvasLink(path: string): boolean {
+  private handleCanvasLink(
+    path: string,
+    searchParams?: URLSearchParams,
+  ): boolean {
     const [channelId, dashboardId] = path
       .split("/")
       .map((segment) => decodeSegment(segment));
@@ -67,7 +71,11 @@ export class CanvasLinkService extends TypedEventEmitter<CanvasLinkEvents> {
       return false;
     }
 
-    const payload: CanvasLinkPayload = { channelId, dashboardId };
+    const payload: CanvasLinkPayload = {
+      channelId,
+      dashboardId,
+      canvasVersion: searchParams?.get("v") === "2" ? 2 : 1,
+    };
 
     const hasListeners = this.listenerCount(CanvasLinkEvent.OpenCanvas) > 0;
 

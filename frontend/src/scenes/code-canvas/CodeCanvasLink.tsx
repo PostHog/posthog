@@ -11,18 +11,21 @@ import { DESKTOP_SCHEME } from './desktopScheme'
 export interface CodeCanvasLinkProps {
     channelId: string
     dashboardId: string
+    canvasVersion: 1 | 2
 }
 
 export const scene: SceneExport<CodeCanvasLinkProps> = {
     component: CodeCanvasLink,
-    paramsToProps: ({ params: { channelId, dashboardId } }) => ({
+    paramsToProps: ({ params: { channelId, dashboardId }, searchParams }) => ({
         channelId: channelId ?? '',
         dashboardId: dashboardId ?? '',
+        canvasVersion: String(searchParams?.v ?? '') === '2' ? 2 : 1,
     }),
 }
 
-function canvasDeepLink(channelId: string, dashboardId: string): string {
-    return `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
+function canvasDeepLink(channelId: string, dashboardId: string, canvasVersion: 1 | 2): string {
+    const base = `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
+    return canvasVersion === 2 ? `${base}?v=2` : base
 }
 
 /**
@@ -33,10 +36,10 @@ function canvasDeepLink(channelId: string, dashboardId: string): string {
  * auto-redirect), and a download link. The canvas itself only exists in the desktop
  * app, so nothing is rendered here beyond this interstitial.
  */
-export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps): JSX.Element {
+export function CodeCanvasLink({ channelId, dashboardId, canvasVersion }: CodeCanvasLinkProps): JSX.Element {
     // Null when a param is missing (a partial URL or params not yet resolved) —
     // firing with an empty id would send a malformed `<scheme>://canvas//`.
-    const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId) : null
+    const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId, canvasVersion) : null
 
     useEffect(() => {
         if (deepLink) {

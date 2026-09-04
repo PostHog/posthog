@@ -54,7 +54,10 @@ import { useBoardStream } from "@posthog/ui/features/canvas-v2/presence/useBoard
 import { usePresenceSender } from "@posthog/ui/features/canvas-v2/presence/usePresenceSender";
 import { useBoardSync } from "@posthog/ui/features/canvas-v2/sync/useBoardSync";
 import { HeaderTitleEditor } from "@posthog/ui/features/task-detail/HeaderTitleEditor";
-import { navigateToCanvases } from "@posthog/ui/router/navigationBridge";
+import {
+  navigateToCanvases,
+  navigateToSpaceCanvases,
+} from "@posthog/ui/router/navigationBridge";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -83,7 +86,13 @@ import { SyncChip } from "./SyncChip";
 const EMPTY_PANE = { left: 0, top: 0, width: 0, height: 0 };
 
 /** One board: the stage, its chrome, and the side panels. */
-export function BoardView({ boardId }: { boardId: string }): ReactElement {
+export function BoardView({
+  boardId,
+  channelId,
+}: {
+  boardId: string;
+  channelId?: string;
+}): ReactElement {
   const paneRef = useRef<HTMLDivElement | null>(null);
   const queryClient = useQueryClient();
   const api = useBoardApi();
@@ -281,7 +290,11 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
           variant="default"
           size="icon-sm"
           aria-label={BACK_TO_CANVASES_ACTION}
-          onClick={() => navigateToCanvases()}
+          onClick={() =>
+            channelId
+              ? navigateToSpaceCanvases(channelId)
+              : navigateToCanvases()
+          }
         >
           <ArrowLeftIcon />
         </Button>

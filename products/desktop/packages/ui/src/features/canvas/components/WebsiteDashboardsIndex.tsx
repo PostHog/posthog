@@ -23,15 +23,23 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { useSpaceBoardsAsCanvases } from "@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases";
+import { useCanvasV2BoardMutations } from "@posthog/ui/features/canvas-v2/hooks/useCanvasV2BoardMutations";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
 // A channel's dashboards index: a grid of cards, each showing a scaled-down
 // live preview. Clicking a card opens the full dashboard.
 export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
-  const { dashboards, isLoading } = useDashboards(channelId);
+  const { dashboards: canvases, isLoading } = useDashboards(channelId);
+  const boards = useSpaceBoardsAsCanvases(channelId);
+  const dashboards = useMemo(
+    () => [...canvases, ...boards].sort((a, b) => b.updatedAt - a.updatedAt),
+    [canvases, boards],
+  );
 
   // templateId -> display name, for the per-card badge ("Freeform (React)", …).
   // Falls back to the raw id for any template not in the registry.
@@ -93,6 +101,7 @@ const DashboardCard = memo(function DashboardCard({
   // Inside its delete-undo window the card stays in the grid (Undo puts it
   // straight back) but is dimmed and inert.
   const pendingDelete = useIsCanvasPendingDelete(summary.id);
+  const isBoard = summary.canvasVersion === 2;
   return (
     <Box
       className={cn(
@@ -101,8 +110,15 @@ const DashboardCard = memo(function DashboardCard({
       )}
     >
       <Link
-        to="/spaces/$channelId/dashboards/$dashboardId"
-        params={{ channelId, dashboardId: summary.id }}
+        {...(isBoard
+          ? {
+              to: "/spaces/$channelId/canvases-v2/$boardId" as const,
+              params: { channelId, boardId: summary.id },
+            }
+          : {
+              to: "/spaces/$channelId/dashboards/$dashboardId" as const,
+              params: { channelId, dashboardId: summary.id },
+            })}
         className="no-underline"
         onClick={() =>
           track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
@@ -140,6 +156,7 @@ const DashboardCard = memo(function DashboardCard({
         id={summary.id}
         name={summary.name}
         channelId={channelId}
+        isBoard={isBoard}
       />
     </Box>
   );
@@ -160,15 +177,24 @@ function DashboardCardMenu({
   id,
   name,
   channelId,
+  isBoard,
 }: {
   id: string;
   name: string;
   channelId: string;
+  isBoard: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { invalidateDashboards } = useDashboardMutations();
+  const { removeBoard } = useCanvasV2BoardMutations();
 
   const onDelete = () => {
+    if (isBoard) {
+      removeBoard(id).catch(() => {
+        toast.error("Couldn't delete the board");
+      });
+      return;
+    }
     deleteCanvasWithUndo({
       dashboardId: id,
       channelId,
@@ -200,7 +226,12 @@ function DashboardCardMenu({
         <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
           <DropdownMenuItem
             onClick={() =>
-              void copyCanvasLink(channelId, id, "dashboards_grid")
+              void copyCanvasLink(
+                channelId,
+                id,
+                "dashboards_grid",
+                isBoard ? 2 : 1,
+              )
             }
           >
             <LinkIcon size={14} />

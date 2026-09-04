@@ -20,13 +20,14 @@ import {
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSpaceBoardsAsCanvases } from "@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases";
+import { useCanvasV2BoardMutations } from "@posthog/ui/features/canvas-v2/hooks/useCanvasV2BoardMutations";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { toast } from "@posthog/ui/primitives/toast";
-import { navigateToCanvasesV2 } from "@posthog/ui/router/navigationBridge";
+import { navigateToSpaceBoard } from "@posthog/ui/router/navigationBridge";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
@@ -108,6 +109,7 @@ export function useChannelItems(channelId: string): {
     fileDashboard,
     invalidateDashboards,
   } = useDashboardMutations();
+  const { fileBoard, removeBoard } = useCanvasV2BoardMutations();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -167,7 +169,7 @@ export function useChannelItems(channelId: string): {
       open: (item) => {
         if (item.kind === "canvas") {
           if (item.canvasVersion === 2) {
-            navigateToCanvasesV2(item.id);
+            navigateToSpaceBoard(channelId, item.id);
             return;
           }
           void navigate({
@@ -231,7 +233,11 @@ export function useChannelItems(channelId: string): {
       },
       fileCanvas: async (item, targetChannelId) => {
         try {
-          await fileDashboard(item.id, targetChannelId);
+          if (item.canvasVersion === 2) {
+            await fileBoard(item.id, targetChannelId);
+          } else {
+            await fileDashboard(item.id, targetChannelId);
+          }
           const targetName = channels.find(
             (candidate) => candidate.id === targetChannelId,
           )?.name;
@@ -247,6 +253,12 @@ export function useChannelItems(channelId: string): {
       // delete costs nothing.
       remove: (item) => {
         if (item.kind !== "canvas") return;
+        if (item.canvasVersion === 2) {
+          removeBoard(item.id).catch(() => {
+            toast.error("Couldn't delete the board");
+          });
+          return;
+        }
         deleteCanvasWithUndo({
           dashboardId: item.id,
           channelId,
@@ -260,6 +272,8 @@ export function useChannelItems(channelId: string): {
       channelId,
       navigate,
       setCanvasPinned,
+      fileBoard,
+      removeBoard,
       togglePin,
       setPinnedMany,
       archiveTask,
