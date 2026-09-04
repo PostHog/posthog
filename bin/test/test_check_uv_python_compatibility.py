@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 
+import io
 import subprocess
+from contextlib import redirect_stdout
 
 import unittest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from bin.check_uv_python_compatibility import check_uv_python_compatibility, label_workflow_pins
+from bin.check_uv_python_compatibility import (
+    FloxUv,
+    check_flox_alignment,
+    check_uv_python_compatibility,
+    label_workflow_pins,
+)
 
 
 class TestCheckUvPythonCompatibility(unittest.TestCase):
@@ -58,6 +65,31 @@ class TestLabelWorkflowPins(unittest.TestCase):
         )
         self.assertEqual(missing, ["ci-b.yml"])
         self.assertEqual(set(locations), {"0.11.28", "0.10.2"})
+
+
+PINNED = FloxUv(install_id="uv", version="0.12.5")
+HELD_BACK = FloxUv(install_id="uv-x86_64-darwin", version="0.11.25")
+
+
+class TestCheckFloxAlignment(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("every_system_on_the_pin", {"aarch64-linux": PINNED, "x86_64-linux": PINNED}, True, "✓"),
+            ("one_system_held_back", {"aarch64-linux": PINNED, "x86_64-darwin": HELD_BACK}, True, "⚠"),
+            ("a_system_resolves_no_uv", {"aarch64-linux": PINNED, "x86_64-darwin": None}, False, "✗"),
+            ("no_system_on_the_pin", {"aarch64-linux": HELD_BACK, "x86_64-darwin": HELD_BACK}, False, "✗"),
+        ]
+    )
+    def test_alignment(self, _name, coverage, expected_ok, expected_marker):
+        buffer = io.StringIO()
+        with (
+            patch("bin.check_uv_python_compatibility.get_uv_coverage_from_flox_lock", return_value=coverage),
+            redirect_stdout(buffer),
+        ):
+            ok = check_flox_alignment("0.12.5")
+
+        self.assertEqual(ok, expected_ok)
+        self.assertIn(expected_marker, buffer.getvalue())
 
 
 if __name__ == "__main__":
