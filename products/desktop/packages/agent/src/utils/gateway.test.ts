@@ -511,6 +511,9 @@ describe("resolveAiProduct", () => {
     ["implementation", "signals_implementation"],
     ["repo_selection", "signals_repo_selection"],
     ["custom_agent", "signals_custom_agent"],
+    ["inbox", "signals_inbox"],
+    ["chat", "signals_chat"],
+    ["scout_suggestions", "signals_scout_suggestions"],
   ])("maps the signals %s stage to %s", (aiStage, expected) => {
     expect(resolveAiProduct({ product: "signals", aiStage })).toBe(expected);
   });
