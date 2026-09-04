@@ -466,8 +466,10 @@ describe('calculateOutputCost()', () => {
             const resolved = resolveModelCostForProvider(row.cost, event.properties.$ai_provider, row.model)!
 
             const result = calculateOutputCost(event, resolved)
+            const imageOutputRate = row.cost.default.image_output
 
-            expectCost(result, 0.12)
+            expect(imageOutputRate).toBeDefined()
+            expectCost(result, imageOutputRate! * 1000)
         })
     })
 

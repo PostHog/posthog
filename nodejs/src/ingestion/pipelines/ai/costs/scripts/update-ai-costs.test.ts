@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { openRouterCostsByModel } from '~/ingestion/pipelines/ai/costs/providers'
 import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 import {
@@ -458,12 +459,12 @@ describe('buildModelRow()', () => {
         const firstByKey = {
             tag: 'a-provider',
             provider_name: 'a-provider',
-            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006' },
+            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006', discount: 0.5 },
         }
         const lastByKey = {
             tag: 'z-provider',
             provider_name: 'z-provider',
-            pricing: { prompt: '0.00000075', completion: '0.00000075', image_output: '0.00009' },
+            pricing: { prompt: '0.00000075', completion: '0.00000075', image_output: '0.00009', discount: 0.5 },
         }
 
         const rates = [
@@ -474,16 +475,41 @@ describe('buildModelRow()', () => {
         expect(rates).toEqual([0.00006, 0.00006])
     })
 
-    it('backfills the served rate, not the list rate, when every variant is discounted', () => {
+    it('prefers an undiscounted variant when no endpoint matches the default prompt rate', () => {
+        const discounted = {
+            tag: 'a-discounted',
+            provider_name: 'a-discounted',
+            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006', discount: 0.5 },
+        }
+        const undiscounted = {
+            tag: 'z-undiscounted',
+            provider_name: 'z-undiscounted',
+            pricing: { prompt: '0.00000075', completion: '0.00000075', image_output: '0.00009' },
+        }
+
+        const rates = [
+            buildModelRow('x/y', listPricing, [discounted, undiscounted])!.cost.default.image_output,
+            buildModelRow('x/y', listPricing, [undiscounted, discounted])!.cost.default.image_output,
+        ]
+
+        expect(rates).toEqual([0.00009, 0.00009])
+    })
+
+    it('prefers a matching discounted variant over a nonmatching undiscounted variant', () => {
         const built = buildModelRow('x/y', listPricing, [
             {
-                tag: 'discounted',
-                provider_name: 'discounted',
+                tag: 'a-nonmatching',
+                provider_name: 'a-nonmatching',
+                pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006' },
+            },
+            {
+                tag: 'z-matching',
+                provider_name: 'z-matching',
                 pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00005', discount: 0.5 },
             },
         ])
         expect(built!.cost.default.image_output).toBe(0.00005)
-        expect(built!.cost.discounted.image_output).toBe(0.0001)
+        expect(built!.cost['z-matching'].image_output).toBe(0.0001)
     })
 
     it('confines a hostile provider name to a safe key', () => {
@@ -1078,8 +1104,11 @@ describe('fetchOpenRouterCosts()', () => {
         }) as never)
 
         const totals = await fetchOpenRouterCosts()
+        const committedImageOutputRate =
+            openRouterCostsByModel['google/gemini-3-pro-image-preview'].cost.default.image_output
 
-        expect(totals.models[0].cost.default.image_output).toBe(0.00012)
+        expect(committedImageOutputRate).toBeDefined()
+        expect(totals.models[0].cost.default.image_output).toBe(committedImageOutputRate)
     })
 
     it('throws when the models list cannot be fetched', async () => {

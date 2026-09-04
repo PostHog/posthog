@@ -13,6 +13,7 @@ interface ModelRow {
 
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
 const OPENROUTER_COSTS_FILENAME = 'llm-costs.json'
+const ENDPOINT_REQUEST_TIMEOUT_MS = 10_000
 const COMMITTED_DEFAULT_COSTS = new Map<string, ModelCost>(
     (committedOpenRouterCostsRaw as ModelCostRow[]).map((row) => [row.model.toLowerCase(), row.cost.default])
 )
@@ -505,7 +506,9 @@ export const readEndpointsFromOpenRouter: EndpointFetcher = async (modelId) => {
     let res: Response
     try {
         // eslint-disable-next-line no-restricted-globals
-        res = await fetch(`https://openrouter.ai/api/v1/models/${encoded}/endpoints`, {})
+        res = await fetch(`https://openrouter.ai/api/v1/models/${encoded}/endpoints`, {
+            signal: AbortSignal.timeout(ENDPOINT_REQUEST_TIMEOUT_MS),
+        })
     } catch (error) {
         console.warn('Error fetching endpoint pricing for model:', modelId, error)
         throw error
