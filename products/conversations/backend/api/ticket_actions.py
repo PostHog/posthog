@@ -26,7 +26,7 @@ from posthog.models.tag import tagify
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Priority, Status
+from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
@@ -172,14 +172,18 @@ _PARTIAL_MARKDOWN_TAIL = re.compile(r"!?\[[^\[\]]*(?:\](?:\([^)]*)?)?$")
 _MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 
 
-def _quotable_text(content: str) -> str:
+def _quotable_text(content: str, *, unescape_markdown: bool) -> str:
     window = content[:FIRST_MESSAGE_SCAN_CHARS]
     # Only a window that actually cut the body can hold a severed construct. Applying this to a
     # whole short message would eat a trailing bracket the customer meant to type.
     if len(content) > FIRST_MESSAGE_SCAN_CHARS:
         window = _PARTIAL_MARKDOWN_TAIL.sub("", window)
     text = _LINK_MARKDOWN.sub(r"\1", _IMAGE_MARKDOWN.sub("", window))
-    text = _MARKDOWN_ESCAPE.sub(r"\1", text)
+    # Only the widget editor escapes the customer's punctuation on the way in (its escapeMarkdown),
+    # so only a widget message is unescaped here. Email, Slack, Teams and imports store the text as
+    # typed, where a backslash is the customer's own and must survive into the preview.
+    if unescape_markdown:
+        text = _MARKDOWN_ESCAPE.sub(r"\1", text)
     return " ".join(text.split())
 
 
@@ -197,7 +201,7 @@ def _truncate_bytes(text: str, max_bytes: int) -> str:
     return (truncated[:-3] if len(truncated) > 3 else "") + "..."
 
 
-def _first_customer_message_text(team_id: int, ticket_id: str) -> str | None:
+def _first_customer_message_text(team_id: int, ticket_id: str, *, unescape_markdown: bool) -> str | None:
     """
     Preview of what the customer first asked, so a workflow can remind them which ticket it
     is writing about on channels that carry no email subject.
@@ -209,6 +213,9 @@ def _first_customer_message_text(team_id: int, ticket_id: str) -> str | None:
     author_type must say "customer" explicitly. Display code elsewhere treats a missing value
     as the customer's, but a wrong guess here is emailed out, so an unlabelled message is left
     out and the workflow renders no reminder instead.
+
+    unescape_markdown is on only for a widget ticket, whose editor markdown-escapes the customer's
+    punctuation. Other channels store the text as typed and must keep their backslashes.
     """
     candidates = (
         visible_ticket_messages(team_id, ticket_id)
@@ -225,7 +232,7 @@ def _first_customer_message_text(team_id: int, ticket_id: str) -> str | None:
         .values_list("content_preview", flat=True)[:FIRST_MESSAGE_CANDIDATES]
     )
     for content in candidates:
-        quotable = _quotable_text(content or "")
+        quotable = _quotable_text(content or "", unescape_markdown=unescape_markdown)
         if quotable:
             return _truncate_bytes(quotable, FIRST_MESSAGE_PREVIEW_BYTES) or None
     return None
@@ -307,7 +314,9 @@ def handle_ticket_get(
     }
 
     if include_first_customer_message_text:
-        payload["first_customer_message_text"] = _first_customer_message_text(team.id, str(ticket.id))
+        payload["first_customer_message_text"] = _first_customer_message_text(
+            team.id, str(ticket.id), unescape_markdown=ticket.channel_source == Channel.WIDGET
+        )
 
     return Response(payload)  # nosemgrep: api-response-must-match-schema
 
