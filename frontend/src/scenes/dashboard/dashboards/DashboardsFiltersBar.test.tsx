@@ -87,7 +87,7 @@ describe('DashboardsFiltersBar', () => {
         })
 
         render(<DashboardsFiltersBar />)
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Clear selection' }))
+        fireEvent.click(document.querySelector('[data-attr="dashboard-tags-clear-selection"]')!)
 
         expect(setFilters).toHaveBeenCalledWith({ tags: [] })
     })
