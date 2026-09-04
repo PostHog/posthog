@@ -12,11 +12,14 @@ on:
                 required: false
                 type: string
     schedule:
-        # Every 6 hours: merge the latest CI timing artifacts and refresh the Actions cache
-        # that ci-backend / ci-dagster restore for sharding. Frequent refresh keeps splits
-        # balanced even after large batches of new tests land mid-day. Cheap: it merges
+        # Hourly: merge the latest CI timing artifacts and refresh the Actions cache
+        # that ci-backend / ci-dagster restore for sharding. The timing data comes from
+        # the hourly scheduled master runs of those workflows (see "The hourly master
+        # lane" in .agents/skills/authoring-ci-workflows/SKILL.md for the cron offsets),
+        # so an hourly refresh here follows every new run. The minute is offset from the
+        # ci-backend cron so that run has most of the hour to finish. Cheap: it merges
         # artifacts without executing any tests.
-        - cron: '0 3,9,15,21 * * *'
+        - cron: '17 * * * *'
 
 permissions:
     contents: read
@@ -64,8 +67,10 @@ jobs:
                   fi
 
                   # Find recent successful ci-backend.yml runs with timing artifacts.
-                  # Most runs skip tests due to path filtering and finish in seconds, so filter by duration first
-                  # Runs that actually execute tests take 15+ minutes
+                  # Only the hourly scheduled runs carry them. Master pushes run the per-commit
+                  # checks only, but those take longer than the duration filter below, so
+                  # without the event filter they fill the candidate window and the search
+                  # finds nothing.
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for Backend CI runs with timing artifacts..."
 
@@ -83,11 +88,13 @@ jobs:
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
                   # Newest first: runs that ran tests (>5 min) and uploaded a full set of timing
-                  # artifacts (>=38), up to N. Scan a wider candidate window since most runs skip.
-                  run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                  # artifacts (>=38), up to N. Scan N plus a margin so a run with expired or
+                  # partial artifacts does not end the search early; the margin also bounds
+                  # the artifact API calls when nothing qualifies.
+                  run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&event=schedule&per_page=100&created=>=$cutoff_date" \
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                      ) | .id' | head -25 | \
+                      ) | .id' | head -n "$((N + 20))" | \
                       while read id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
                               --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
@@ -121,14 +128,15 @@ jobs:
                       exit 0
                   fi
 
-                  # Find a recent successful ci-dagster.yml run with timing artifacts
+                  # Find a recent successful ci-dagster.yml run with timing artifacts.
+                  # Only the hourly scheduled runs carry them (master pushes skip the suite).
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for Dagster CI run with timing artifacts..."
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
                   # Get runs that took more than 5 minutes (300 seconds) - likely ran tests
-                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-dagster.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-dagster.yml/runs?status=success&branch=master&event=schedule&per_page=100&created=>=$cutoff_date" \
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
                       ) | .id' | head -5 | \
@@ -397,8 +405,9 @@ jobs:
             - name: Publish the merged durations as an artifact
               # The cold-start floor for the consumers. .test_durations is not in the
               # repo: every consumer restores the newest cache and, on a miss, downloads
-              # this artifact from the latest successful run of this workflow. 90 days
-              # outlives any plausible cache lapse; the daily refresh keeps it fresh.
+              # this artifact from the latest successful run of this workflow. The repo
+              # caps artifact retention at 30 days, which outlives any plausible cache
+              # lapse; the hourly refresh keeps it fresh.
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: test-durations
@@ -409,4 +418,4 @@ jobs:
                   include-hidden-files: true
                   # The per-segment files are absent when their multi-run average failed.
                   if-no-files-found: error
-                  retention-days: 90
+                  retention-days: 30

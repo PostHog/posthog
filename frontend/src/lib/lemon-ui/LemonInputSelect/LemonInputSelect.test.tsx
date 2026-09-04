@@ -416,4 +416,38 @@ describe('LemonInputSelect', () => {
         const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]
         expect(lastCall[0]).toContain('alice@example.com')
     })
+
+    it.each([
+        {
+            name: 'adds nothing when the limit is reached',
+            keys: '{ArrowDown}{ArrowDown}{Enter}',
+            expectedSelections: [],
+        },
+        {
+            name: 'still removes a selected value when the limit is reached',
+            keys: '{Enter}',
+            expectedSelections: [['apricot']],
+        },
+    ])('multiple-select mode: pressing Enter $name', async ({ keys, expectedSelections }) => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[
+                    { key: 'apple', label: 'Apple' },
+                    { key: 'apricot', label: 'Apricot' },
+                    { key: 'zucchini', label: 'Zucchini' },
+                ]}
+                value={['apple', 'apricot']}
+                onChange={onChange}
+                limit={2}
+            />
+        )
+
+        await openDropdown(container)
+        await userEvent.keyboard(keys)
+
+        expect(onChange.mock.calls.map((call) => call[0])).toEqual(expectedSelections)
+    })
 })

@@ -13,7 +13,9 @@ don't drag heavy imports onto the ``django.setup()`` path.
 
 Write paths (create/update of sources, schemas, tables, jobs) remain inside
 ``products/data_warehouse`` for now — a legacy-leak swept in Phase 2 — so this
-first facade serves the read consumers and the framework-free helpers.
+first facade serves the read consumers and the framework-free helpers. The one
+exception is ``soft_delete_tables``: consumers may not iterate the model to call
+``soft_delete()`` themselves, so the facade does it for them.
 """
 
 from collections.abc import Collection
@@ -376,6 +378,21 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:
     qs = _DataWarehouseTable.objects.filter(team_id=team_id, external_data_source_id=source_id).exclude(deleted=True)
     return [_to_table(t) for t in qs]
+
+
+def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
+    """Soft-delete the team's tables with these names and return how many were deleted.
+
+    Goes through ``DataWarehouseTable.soft_delete`` so the joins that reference a table
+    are retired with it, instead of leaving a dangling join behind a hidden table.
+    Already-deleted tables are skipped, so calling this twice is safe.
+    """
+    tables = _DataWarehouseTable.objects.filter(team_id=team_id, name__in=names).exclude(deleted=True)
+    deleted = 0
+    for table in tables:
+        table.soft_delete()
+        deleted += 1
+    return deleted
 
 
 def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataJob]:
