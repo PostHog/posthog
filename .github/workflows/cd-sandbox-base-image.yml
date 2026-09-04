@@ -357,6 +357,11 @@ jobs:
                   fi
                   echo "version=$version" >> "$GITHUB_OUTPUT"
 
+            # Parallel branches that each download an action can corrupt the runner's action
+            # registry and kill the job during setup, so setup steps elsewhere run in order.
+            # These branches stay parallel: they are Depot image builds, and running three
+            # multi-platform builds one at a time costs more than the crash has ever cost here.
+            # See docs/internal/ci-things-already-tried.md.
             - parallel:
                   - name: Build and push container image (base)
                     id: build

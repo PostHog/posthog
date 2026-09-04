@@ -824,24 +824,26 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - parallel:
-                  - name: Install pnpm dependencies
-                    uses: ./.github/actions/pnpm-install
-                    with:
-                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # Don't wrap these in a `parallel:` block: two branches that each download an
+            # action corrupt the runner's action registry and kill the job during setup.
+            # See docs/internal/ci-things-already-tried.md.
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-                  - name: Set up Python
-                    uses: ./.github/actions/setup-python-cached
-                    with:
-                        python-version: 3.13.13
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - name: Set up Python
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.13.13
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-                  - name: Install Rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: cargo
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
 
             - name: Install uv
               id: setup-uv
@@ -2868,8 +2870,7 @@ jobs:
             # Tool cache steps inlined rather than the setup-python-cached composite:
             # this job checks out the PR head ref, which cannot resolve a local
             # action that only exists on master until the branch rebases. The
-            # restore sits before the parallel block so the tool cache is warm
-            # when setup-python starts.
+            # restore sits before setup-python so the tool cache is warm when it runs.
             - name: Restore Python tool cache
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -2877,19 +2878,21 @@ jobs:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
 
-            - parallel:
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version: ${{ matrix.python-version }}
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # Don't wrap these in a `parallel:` block: two branches that each download an
+            # action corrupt the runner's action registry and kill the job during setup.
+            # See docs/internal/ci-things-already-tried.md.
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: ${{ matrix.python-version }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-                  - name: Install Rust
-                    if: needs.changes.outputs.backend == 'true'
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: cargo
+            - name: Install Rust
+              if: needs.changes.outputs.backend == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
 
             - name: Save Python tool cache
               if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
