@@ -37,11 +37,22 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()["results"]
 
+    def _search(self, target: str, key: str, term: str, **filters) -> dict[str, int]:
+        body = {"query": {target: key, "facetSearch": term, "dateRange": self.DATE_RANGE, **filters}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_search", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["value"]: r["count"] for r in response.json()["results"]}
+
     def _facet(self, facet_field: str, **filters) -> dict[str, int]:
+        # facetSearch is a different endpoint now, so route it there rather than duplicating callers.
+        if "facetSearch" in filters:
+            return self._search("facetField", facet_field, filters.pop("facetSearch"), **filters)
         results = self._post_facets({"facetField": facet_field, **filters})
         return {r["value"]: r["count"] for r in results["facetField"]}
 
     def _facet_attr(self, key: str, target: str = "facetResourceAttribute", **filters) -> dict[str, int]:
+        if "facetSearch" in filters:
+            return self._search(target, key, filters.pop("facetSearch"), **filters)
         results = self._post_facets({target: key, **filters})
         group = "facetAttributes" if target == "facetAttribute" else "facetResourceAttributes"
         entries = results[group]
@@ -416,3 +427,17 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             body = {"query": {**query, "dateRange": self.DATE_RANGE}}
             response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            # facet_search is single-target and needs the term, so these are its two boundary rules.
+            ("no_target", {"facetSearch": "x"}),
+            ("two_targets", {"facetField": "service_name", "facetAttribute": "log.iostream", "facetSearch": "x"}),
+            ("missing_search", {"facetResourceAttribute": "k8s.pod.name"}),
+            ("blank_search", {"facetResourceAttribute": "k8s.pod.name", "facetSearch": "  "}),
+        ]
+    )
+    def test_facet_search_rejects_invalid_requests(self, _name, query):
+        body = {"query": {**query, "dateRange": self.DATE_RANGE}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_search", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -373,6 +373,20 @@ tools:
     logs-export-create:
         operation: logs_export_create
         enabled: false
+    logs-facet-search-create:
+        operation: logs_facet_search_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search log facet values
+        description_file: ./prompts/logs-facet-search.md
+        response:
+            include:
+                - results
     logs-facet-values-create:
         operation: logs_facet_values_create
         enabled: true

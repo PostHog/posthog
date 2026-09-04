@@ -33,7 +33,7 @@ Top-level column to facet on: `severity_text` or `service_name`. Counts are grou
 
 ## query.facetResourceAttribute
 
-Resource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Its own filter is excluded and `facetSearch` applies; use `facetResourceAttributes` to ask for several keys instead.
+Resource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Its own filter is excluded; use `facetResourceAttributes` to ask for several keys instead, or `logs-facet-search-create` to filter one key's values.
 
 **Limitation:** this path is served from a pre-aggregated rollup that has no severity or body dimension. It honors only `serviceNames` and other resource-attribute filters — `severityLevels`, `searchTerm`, and log-attribute filters are **ignored**. If you need those applied, facet a column instead, or narrow with `logs-attribute-values-list`.
 
@@ -41,11 +41,7 @@ Resource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `
 
 Lists of attribute keys to count in one call, which is far cheaper than a request per key. Use these when you want the distribution of several attributes at once — e.g. namespace, pod and node together.
 
-**They are not the same query as the singular fields.** All the keys share one filter set, so a key's own filter is _not_ excluded (ask for `k8s.pod.name` while filtering on `k8s.pod.name` and you get back only the pod you filtered to), and `facetSearch` does not apply. When you need either, ask for that key on the singular field instead. Up to 50 keys per request.
-
-## query.facetSearch
-
-Case-insensitive substring match over the faceted field's _own_ values (e.g. return only service names containing `kafka`). Distinct from `searchTerm`, which searches log bodies. Use it to search past the 100-value result cap. Only applies to a single-target request.
+**They are not the same query as the singular fields.** All the keys share one filter set, so a key's own filter is _not_ excluded (ask for `k8s.pod.name` while filtering on `k8s.pod.name` and you get back only the pod you filtered to). When you need it excluded, ask for that key on the singular field instead. Up to 50 keys per request.
 
 ## query.dateRange
 

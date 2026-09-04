@@ -58,6 +58,8 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
+    _LogsFacetSearchRequestApi,
+    _LogsFacetSearchResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
@@ -445,6 +447,31 @@ export const logsExportCreate = async (projectId: string, options?: RequestInit)
     })
 }
 
+export const getLogsFacetSearchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/facet_search/`
+}
+
+/**
+ * Values of one facet narrowed to those containing a substring.
+ *
+ * Separate from facet_values because it is the one facet request that cannot be shared: the
+ * search applies before the row limit, so it has to run against a single key to reach matches
+ * ranked below that key's top values. The searched facet's own filter is excluded, so typing
+ * in a facet does not narrow it to the value already selected there.
+ */
+export const logsFacetSearchCreate = async (
+    projectId: string,
+    _logsFacetSearchRequestApi: _LogsFacetSearchRequestApi,
+    options?: RequestInit
+): Promise<_LogsFacetSearchResponseApi> => {
+    return apiMutator<_LogsFacetSearchResponseApi>(getLogsFacetSearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsFacetSearchRequestApi),
+    })
+}
+
 export const getLogsFacetValuesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/facet_values/`
 }
@@ -454,8 +481,8 @@ export const getLogsFacetValuesCreateUrl = (projectId: string) => {
  *
  * The plural key lists exist because attribute facets all read the same rollup with the same
  * WHERE, so a rail full of them costs one query instead of one per facet. What they give up is
- * the per-facet part: a key's own filter is not excluded and facetSearch does not apply, so a
- * facet needing either goes on a single-target field. See LogFacetValuesQueryRunner.
+ * the per-facet part: a key's own filter is not excluded, so a facet carrying one goes on a
+ * single-target field. To filter one facet's values, use facet_search.
  */
 export const logsFacetValuesCreate = async (
     projectId: string,

@@ -8,8 +8,8 @@ import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import { logsFacetValuesCreate } from '../../../generated/api'
-import { _LogFacetValueApi, _LogPropertyFilterApi, _LogsFacetValuesBodyApi } from '../../../generated/api.schemas'
+import { logsFacetSearchCreate, logsFacetValuesCreate } from '../../../generated/api'
+import { _LogFacetValueApi, _LogsFacetSearchBodyApi, _LogPropertyFilterApi } from '../../../generated/api.schemas'
 import type { LogsViewerFilters } from '../config/types'
 import { facetRailLogic } from './facetRailLogic'
 import {
@@ -212,29 +212,39 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     const group = values.queryFilterGroup as UniversalFiltersGroup
                     const filterGroup = ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ??
                         []) as unknown as _LogPropertyFilterApi[]
-                    const target: Partial<_LogsFacetValuesBodyApi> =
+                    const target: Partial<_LogsFacetSearchBodyApi> =
                         source.type === 'column'
                             ? { facetField: source.column }
                             : source.type === 'attribute'
                               ? { facetAttribute: source.key }
                               : { facetResourceAttribute: source.key }
+                    const scope = {
+                        ...target,
+                        dateRange: values.utcDateRange,
+                        searchTerm: values.filters.searchTerm || undefined,
+                        filterGroup,
+                        personId: values.personId,
+                        sessionId: values.sessionId,
+                    }
+                    // A type-ahead is its own endpoint, because the search has to run against one
+                    // key to reach matches ranked below that key's top values. It answers flat,
+                    // having named a single facet.
+                    if (values.facetSearch) {
+                        const searched = await logsFacetSearchCreate(String(values.currentTeamId), {
+                            query: { ...scope, facetSearch: values.facetSearch },
+                        })
+                        // Bail out right after the round-trip: the rail (and this logic) unmounts
+                        // when the user collapses it, and returning into a dead store throws rather
+                        // than being discarded.
+                        breakpoint()
+                        return searched.results
+                    }
                     const response = await logsFacetValuesCreate(String(values.currentTeamId), {
-                        query: {
-                            ...target,
-                            dateRange: values.utcDateRange,
-                            searchTerm: values.filters.searchTerm || undefined,
-                            facetSearch: values.facetSearch || undefined,
-                            filterGroup,
-                            personId: values.personId,
-                            sessionId: values.sessionId,
-                        },
+                        query: scope,
                     })
-                    // Bail out right after the round-trip: the rail (and this logic) unmounts when the
-                    // user collapses it, and returning into a dead store throws rather than being
-                    // discarded.
                     breakpoint()
-                    // One grouped shape whichever target was asked for; a single-target request
-                    // comes back as a one-entry list under the field it asked on.
+                    // Grouped, since facet_values also answers for a set of keys; a single-target
+                    // request comes back as a one-entry list under the field it asked on.
                     if (source.type === 'column') {
                         return response.results.facetField
                     }
