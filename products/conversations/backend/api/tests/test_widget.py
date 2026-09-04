@@ -850,6 +850,86 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    # --- Widget session bridge ---
+
+    def _identity_fields(self, *, with_session=False):
+        fields = {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash}
+        if with_session:
+            fields["widget_session_id"] = self.widget_session_id
+        return fields
+
+    @parameterized.expand([("with_session", True, 1), ("without_session", False, 0)])
+    def test_list_tickets_matches_only_a_widget_session_the_caller_sends(self, _name, with_session, expected_count):
+        # A ticket started before sign-in keys on a distinct_id the verified person does not
+        # own, so the browser's own session id is the only thing that keeps it in the list.
+        self._create_ticket(distinct_id="anon_before_sign_in")
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            self._identity_fields(with_session=with_session),
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], expected_count)
+
+    def test_list_tickets_ignores_a_widget_session_of_another_browser(self):
+        self._create_ticket(distinct_id="anon_before_sign_in", widget_session_id=str(uuid.uuid4()))
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            self._identity_fields(with_session=True),
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_read_messages_of_a_ticket_in_the_callers_own_widget_session(self):
+        ticket = self._create_ticket(distinct_id="anon_before_sign_in")
+
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}",
+            self._identity_fields(with_session=True),
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_mark_read_of_a_ticket_in_the_callers_own_widget_session(self):
+        ticket = self._create_ticket(distinct_id="anon_before_sign_in")
+        ticket.unread_customer_count = 2
+        ticket.save(update_fields=["unread_customer_count"])
+
+        response = self.client.post(
+            f"/api/conversations/v1/widget/messages/{ticket.id}/read",
+            self._identity_fields(with_session=True),
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.unread_customer_count, 0)
+
+    def test_reply_through_a_widget_session_does_not_rebind_the_ticket_identity(self):
+        # Access here rests on possession of the session id alone. Rewriting the requester
+        # would let anyone holding that id take the ticket over, so only a distinct_id match
+        # may attest the ticket.
+        ticket = self._create_ticket(distinct_id="anon_before_sign_in")
+        ticket.identity_verified = False
+        ticket.save(update_fields=["identity_verified"])
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"message": "Any update?", "ticket_id": str(ticket.id), **self._identity_fields(with_session=True)},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.distinct_id, "anon_before_sign_in")
+        self.assertFalse(ticket.identity_verified)
+
     # --- Email claim bridge ---
 
     def _email_claim(self, email, *, expires_at=None):
