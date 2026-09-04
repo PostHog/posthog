@@ -592,7 +592,9 @@ export function MetricRowGroup({
     const tooltipRef = useRef<HTMLDivElement>(null)
     const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const colors = useChartColors()
-    const loadingSeconds = useElapsedSeconds(!!(isLoading || exposuresLoading))
+    // Only the skeleton branch below reads this, so a row that already has something to show
+    // never ticks a timer behind it.
+    const loadingSeconds = useElapsedSeconds(!result && !error && !!(isLoading || exposuresLoading))
 
     const clearTooltipCloseTimer = (): void => {
         if (tooltipCloseTimerRef.current !== null) {
