@@ -9,6 +9,13 @@ use serde_json::{json, Value};
 
 type Ts = DateTime<Utc>;
 
+/// Read a bigint back out of a row `Db::query` produced. Values past 2^53 come back
+/// as strings so JavaScript keeps them intact; query ids and fingerprints always do.
+fn json_i64(v: &Value) -> Option<i64> {
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
 /// Query a table that may not exist yet (created on first data by the collector).
 async fn opt(
     db: &Db,
@@ -139,7 +146,7 @@ pub async fn query_detail(
 ) -> Result<Value> {
     let interval = bucket_interval(bucket);
     let texts = opt(db, "SELECT datname, query, fingerprint, truncated, first_seen, last_seen FROM cur_queries WHERE server_id = $1 AND queryid = $2", &[&server, &queryid]).await?;
-    let fingerprint: Option<i64> = texts.first().and_then(|t| t["fingerprint"].as_i64());
+    let fingerprint: Option<i64> = texts.first().and_then(|t| json_i64(&t["fingerprint"]));
     let series = opt(db, &format!("SELECT {b} AS bucket, instance, datname,
                 sum(calls)::bigint AS calls, sum(total_exec_time)::float8 AS total_ms,
                 CASE WHEN sum(calls) > 0 THEN sum(total_exec_time) / sum(calls) END::float8 AS mean_ms,
@@ -218,7 +225,7 @@ pub async fn query_detail(
          WHERE server_id = $1 AND query_id = $2 AND collected_at >= $3 AND collected_at < $4 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10", &[&server, &queryid, &from, &to]).await?;
     Ok(
         json!({ "queryid": queryid, "bucket": interval, "texts": texts, "series": series, "latency_series": latency_series,
-               "latency_from_logs": quantiles.into_iter().next().filter(|q| q["samples"].as_i64().unwrap_or(0) > 0),
+               "latency_from_logs": quantiles.into_iter().next().filter(|q| json_i64(&q["samples"]).unwrap_or(0) > 0),
                "log_sampling": sampling, "slowest_samples": slow_samples,
                "plans": aurora_plans, "logged_plans": logged_plans, "wait_events": waits }),
     )
@@ -512,7 +519,18 @@ pub async fn schema_of_stats_db(db: &Db) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::denied_function;
+    use super::{denied_function, json_i64};
+    use serde_json::json;
+
+    #[test]
+    fn bigints_read_back_from_number_or_string() {
+        assert_eq!(json_i64(&json!(42)), Some(42));
+        assert_eq!(
+            json_i64(&json!("-9200948535353843818")),
+            Some(-9200948535353843818)
+        );
+        assert_eq!(json_i64(&json!(null)), None);
+    }
 
     #[test]
     fn denylist_catches_side_effecting_calls() {
