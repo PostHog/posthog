@@ -7,8 +7,10 @@ import { ApiError } from '~/lib/api-error'
 import { urls } from '~/scenes/urls'
 import { initKeaTests } from '~/test/init'
 
+import { decodeScoutCreateTemplate } from 'products/signals/frontend/inbox/utils/scoutTemplateDeepLink'
+
 import { communitySkillsLogic } from './communitySkillsLogic'
-import { communitySkillsInstallCreate, communitySkillsList } from './generated/api'
+import { communitySkillsInstallCreate, communitySkillsList, communitySkillsRenderCreate } from './generated/api'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { error: jest.fn(), success: jest.fn(), info: jest.fn() },
@@ -17,11 +19,13 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 jest.mock('./generated/api', () => ({
     communitySkillsInstallCreate: jest.fn(),
     communitySkillsList: jest.fn(),
+    communitySkillsRenderCreate: jest.fn(),
     communitySkillsVoteCreate: jest.fn(),
 }))
 
 const mockList = communitySkillsList as jest.MockedFunction<typeof communitySkillsList>
 const mockInstall = communitySkillsInstallCreate as jest.MockedFunction<typeof communitySkillsInstallCreate>
+const mockRender = communitySkillsRenderCreate as jest.MockedFunction<typeof communitySkillsRenderCreate>
 
 describe('communitySkillsLogic', () => {
     let logic: ReturnType<typeof communitySkillsLogic.build>
@@ -67,5 +71,32 @@ describe('communitySkillsLogic', () => {
         await expectLogic(logic).toDispatchActions(['installSkillFailure'])
 
         expect(lemonToast.error).toHaveBeenCalledWith(expectedMessage)
+    })
+
+    it('hands a scout to the create form prefilled, without creating anything', async () => {
+        mockRender.mockResolvedValue({
+            slug: 'signals-scout-feed',
+            kind: 'scout',
+            name: 'Feed scout',
+            description: 'Watch a feed for problems.',
+            body: '# Scout',
+            scout_config: { run_interval_minutes: 720, emit: false },
+            variable_bindings: {},
+        })
+        logic = communitySkillsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSkillsSuccess'])
+
+        logic.actions.setUpScout('signals-scout-feed')
+        await expectLogic(logic).toDispatchActions(['setUpScoutSuccess'])
+
+        expect(mockInstall).not.toHaveBeenCalled()
+        expect(router.values.location.pathname).toContain('/inbox/config')
+        expect(decodeScoutCreateTemplate(router.values.hashParams.createScout)).toEqual({
+            name: 'signals-scout-feed',
+            description: 'Watch a feed for problems.',
+            body: '# Scout',
+            config: { run_interval_minutes: 720, emit: false },
+        })
     })
 })

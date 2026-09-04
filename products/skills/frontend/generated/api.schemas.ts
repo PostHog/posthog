@@ -22,6 +22,42 @@ export const CommunitySkillTrustTierEnumApi = {
 } as const
 
 /**
+ * * `skill` - Skill
+ * * `scout` - Scout
+ */
+export type CommunitySkillKindEnumApi = (typeof CommunitySkillKindEnumApi)[keyof typeof CommunitySkillKindEnumApi]
+
+export const CommunitySkillKindEnumApi = {
+    Skill: 'skill',
+    Scout: 'scout',
+} as const
+
+/**
+ * The scout settings a published scout travels with. Every field is optional. An omitted field
+ * means the scout-create form's own default applies.
+ */
+export interface CommunitySkillScoutConfigApi {
+    /**
+     * How often the scout runs, in minutes. Ignored when run_cron_schedule is set.
+     * @minimum 30
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * Five-field cron expression for the scout's schedule, which takes precedence over the interval.
+     * @maxLength 100
+     */
+    run_cron_schedule?: string
+    /** Whether the scout writes its reports to the inbox. False means it runs as a dry run. */
+    emit?: boolean
+    /**
+     * Tags used to group the scout in the fleet.
+     * @items.maxLength 50
+     */
+    tags?: string[]
+}
+
+/**
  * One declared variable of a templated skill — the schema a client renders a form from.
  */
 export interface CommunitySkillTemplateVariableApi {
@@ -67,6 +103,13 @@ export interface CommunitySkillListApi {
      * * `verified` - Verified
      * * `community` - Community */
     trust_tier: CommunitySkillTrustTierEnumApi
+    /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout */
+    kind: CommunitySkillKindEnumApi
+    /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+    scout_config: CommunitySkillScoutConfigApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -135,6 +178,13 @@ export interface CommunitySkillApi {
      * * `verified` - Verified
      * * `community` - Community */
     trust_tier: CommunitySkillTrustTierEnumApi
+    /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout */
+    kind: CommunitySkillKindEnumApi
+    /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+    scout_config: CommunitySkillScoutConfigApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -310,6 +360,45 @@ export interface LLMSkillApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+}
+
+/**
+ * Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills.
+ */
+export type CommunitySkillRenderApiVariables = { [key: string]: string }
+
+export interface CommunitySkillRenderApi {
+    /** Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills. */
+    variables?: CommunitySkillRenderApiVariables
+}
+
+/**
+ * The {name: value} map the body was rendered with. Empty for a non-template skill.
+ */
+export type CommunitySkillRenderResponseApiVariableBindings = { [key: string]: string }
+
+/**
+ * A catalog entry with its template variables bound, for prefilling a create form. Nothing is
+ * persisted by rendering — the caller submits the result through the product's own create path.
+ */
+export interface CommunitySkillRenderResponseApi {
+    /** Slug of the rendered community skill. */
+    slug: string
+    /** Whether the rendered entry is a 'skill' or a 'scout'.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout */
+    kind: CommunitySkillKindEnumApi
+    /** Display name of the community skill. */
+    name: string
+    /** What the skill does and when to use it. */
+    description: string
+    /** The SKILL.md instruction content, with template variables bound. */
+    body: string
+    /** Schedule, emit posture and tags to prefill a scout with. Empty object for a skill. */
+    scout_config: CommunitySkillScoutConfigApi
+    /** The {name: value} map the body was rendered with. Empty for a non-template skill. */
+    variable_bindings: CommunitySkillRenderResponseApiVariableBindings
 }
 
 export interface CommunitySkillVoteResponseApi {
@@ -671,6 +760,8 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
+    /** Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout. */
+    scout_config?: CommunitySkillScoutConfigApi
     /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
@@ -708,6 +799,14 @@ export interface LLMSkillResolveResponseApi {
 }
 
 export type CommunitySkillsListParams = {
+    /**
+     * Filter to skills or to scouts. Omit to return both.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout
+     * @minLength 1
+     */
+    kind?: CommunitySkillsListKind
     /**
      * Number of results to return per page.
      */
@@ -750,6 +849,13 @@ export type CommunitySkillsListParams = {
      */
     trust_tier?: CommunitySkillsListTrustTier
 }
+
+export type CommunitySkillsListKind = (typeof CommunitySkillsListKind)[keyof typeof CommunitySkillsListKind]
+
+export const CommunitySkillsListKind = {
+    Skill: 'skill',
+    Scout: 'scout',
+} as const
 
 export type CommunitySkillsListTrustTier =
     (typeof CommunitySkillsListTrustTier)[keyof typeof CommunitySkillsListTrustTier]

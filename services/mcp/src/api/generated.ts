@@ -18347,6 +18347,43 @@ export namespace Schemas {
       Community: 'community',
     } as const;
 
+    /**
+     * * `skill` - Skill
+     * * `scout` - Scout
+     */
+    export type CommunitySkillKindEnum = typeof CommunitySkillKindEnum[keyof typeof CommunitySkillKindEnum];
+
+
+    export const CommunitySkillKindEnum = {
+      Skill: 'skill',
+      Scout: 'scout',
+    } as const;
+
+    /**
+     * The scout settings a published scout travels with. Every field is optional. An omitted field
+     * means the scout-create form's own default applies.
+     */
+    export interface CommunitySkillScoutConfig {
+      /**
+         * How often the scout runs, in minutes. Ignored when run_cron_schedule is set.
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * Five-field cron expression for the scout's schedule, which takes precedence over the interval.
+         * @maxLength 100
+         */
+      run_cron_schedule?: string;
+      /** Whether the scout writes its reports to the inbox. False means it runs as a dry run. */
+      emit?: boolean;
+      /**
+         * Tags used to group the scout in the fleet.
+         * @items.maxLength 50
+         */
+      tags?: string[];
+    }
+
     export interface CommunitySkillFileManifest {
       /** @maxLength 500 */
       path: string;
@@ -18394,6 +18431,13 @@ export namespace Schemas {
        * * `verified` - Verified
        * * `community` - Community */
       trust_tier: CommunitySkillTrustTierEnum;
+      /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
       /** GitHub handle (or name) of the contributor who published the skill. */
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
@@ -18464,6 +18508,13 @@ export namespace Schemas {
        * * `verified` - Verified
        * * `community` - Community */
       trust_tier: CommunitySkillTrustTierEnum;
+      /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
       /** GitHub handle (or name) of the contributor who published the skill. */
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
@@ -18492,6 +18543,45 @@ export namespace Schemas {
       pr_number: number;
       /** Name of the branch created in the community-skills repo. */
       branch: string;
+    }
+
+    /**
+     * Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills.
+     */
+    export type CommunitySkillRenderVariables = {[key: string]: string};
+
+    export interface CommunitySkillRender {
+      /** Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills. */
+      variables?: CommunitySkillRenderVariables;
+    }
+
+    /**
+     * The {name: value} map the body was rendered with. Empty for a non-template skill.
+     */
+    export type CommunitySkillRenderResponseVariableBindings = {[key: string]: string};
+
+    /**
+     * A catalog entry with its template variables bound, for prefilling a create form. Nothing is
+     * persisted by rendering — the caller submits the result through the product's own create path.
+     */
+    export interface CommunitySkillRenderResponse {
+      /** Slug of the rendered community skill. */
+      slug: string;
+      /** Whether the rendered entry is a 'skill' or a 'scout'.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Display name of the community skill. */
+      name: string;
+      /** What the skill does and when to use it. */
+      description: string;
+      /** The SKILL.md instruction content, with template variables bound. */
+      body: string;
+      /** Schedule, emit posture and tags to prefill a scout with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
+      /** The {name: value} map the body was rendered with. Empty for a non-template skill. */
+      variable_bindings: CommunitySkillRenderResponseVariableBindings;
     }
 
     export interface CommunitySkillVoteResponse {
@@ -47784,6 +47874,8 @@ export namespace Schemas {
     }
 
     export interface LLMSkillPublishToCommunity {
+      /** Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout. */
+      scout_config?: CommunitySkillScoutConfig;
       /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
       display_name?: string;
       /**
@@ -92348,6 +92440,14 @@ export namespace Schemas {
 
     export type CommunitySkillsListParams = {
     /**
+     * Filter to skills or to scouts. Omit to return both.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout
+     * @minLength 1
+     */
+    kind?: CommunitySkillsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -92389,6 +92489,14 @@ export namespace Schemas {
      */
     trust_tier?: CommunitySkillsListTrustTier;
     };
+
+    export type CommunitySkillsListKind = typeof CommunitySkillsListKind[keyof typeof CommunitySkillsListKind];
+
+
+    export const CommunitySkillsListKind = {
+      Skill: 'skill',
+      Scout: 'scout',
+    } as const;
 
     export type CommunitySkillsListTrustTier = typeof CommunitySkillsListTrustTier[keyof typeof CommunitySkillsListTrustTier];
 

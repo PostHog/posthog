@@ -33,21 +33,27 @@ interface PublishToCommunityOptions {
     author_handle?: string
 }
 
-/** Collect the publish fields, then hand them to `onPublish`. Shared so the list view and the
- * single-skill view open the identical dialog. */
+/** Collect the publish fields, then hand them to `onPublish`. Shared so the list view, the
+ * single-skill view and the scout page open the identical dialog.
+ *
+ * `isScout` only changes what the dialog says gets published. A scout's schedule and emit posture
+ * are read from the scout itself by the caller, never typed here. */
 export function openPublishToCommunityDialog({
     skillName,
     githubLogin,
+    isScout,
     onPublish,
 }: {
     skillName: string
     githubLogin: string | null
+    isScout?: boolean
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
     LemonDialog.openForm({
         title: 'Publish to community',
-        description:
-            "Publishing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
+        description: isScout
+            ? "Publishing commits the scout's instructions, its schedule, whether it writes to the inbox, and its tags to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details."
+            : "Publishing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
         initialValues: {
             display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
             tags: '',

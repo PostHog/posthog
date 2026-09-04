@@ -5,6 +5,8 @@ through the [`PostHog/community-skills`](https://github.com/PostHog/community-sk
 The catalog is an **instance-global** read-model — it is not team-scoped — synced hourly from the
 repo's `registry.json`.
 Installing copies a catalog entry into the team as a regular `LLMSkill`.
+A catalog entry is either a `skill`, which installs that way, or a `scout`, which does not.
+See [Entry kinds](#entry-kinds).
 
 Viewset: `products/skills/backend/api/community_skills.py` (`CommunitySkillViewSet`).
 Route: registered in `products/skills/backend/routes.py` as `community_skills` under
@@ -22,12 +24,13 @@ Route: registered in `products/skills/backend/routes.py` as `community_skills` u
 
 ## Endpoints
 
-| Method | Path                               | Purpose                                               |
-| ------ | ---------------------------------- | ----------------------------------------------------- |
-| `GET`  | `community_skills/`                | List catalog entries (paginated; body omitted).       |
-| `GET`  | `community_skills/{slug}/`         | Retrieve one entry, including body and file manifest. |
-| `POST` | `community_skills/{slug}/install/` | Copy the entry into the team as an `LLMSkill`.        |
-| `POST` | `community_skills/{slug}/vote/`    | Toggle the requesting user's upvote.                  |
+| Method | Path                               | Purpose                                                               |
+| ------ | ---------------------------------- | --------------------------------------------------------------------- |
+| `GET`  | `community_skills/`                | List catalog entries (paginated; body omitted).                       |
+| `GET`  | `community_skills/{slug}/`         | Retrieve one entry, including body and file manifest.                 |
+| `POST` | `community_skills/{slug}/install/` | Copy the entry into the team as an `LLMSkill`.                        |
+| `POST` | `community_skills/{slug}/render/`  | Bind template variables and return the text to prefill a create form. |
+| `POST` | `community_skills/{slug}/vote/`    | Toggle the requesting user's upvote.                                  |
 
 `{slug}` is the repo directory name.
 Slugs are validated at sync against the skill-name pattern, so they are always routable by DRF's
@@ -40,7 +43,46 @@ default lookup regex (no `.` or `/`).
 | `search`     | Case-insensitive substring on name and description; also matches a tag exactly (case-insensitive).     |
 | `tag`        | Returns only skills carrying this exact tag (case-insensitive; tags are stored lowercased at sync).    |
 | `trust_tier` | One of `official`, `verified`, `community`.                                                            |
+| `kind`       | One of `skill`, `scout`. Omit to return both.                                                          |
 | `order_by`   | One of name/created_at/published_at/install_count/vote_count (± prefix). Defaults to `-install_count`. |
+
+## Entry kinds
+
+`CommunitySkill.kind` says what an entry becomes in a team.
+
+- `skill` (the default) is copied in by `install` as a regular `LLMSkill`.
+- `scout` is a Signals scout. The coordinator auto-runs anything named `signals-scout-*` with
+  privileged scopes, which is why `install` refuses that prefix outright. Installing a scout under
+  some other name produces an inert skill with no schedule, so `install` refuses a `scout` entry with
+  `400` instead. The store calls `render` and hands the result to the scout-create form through the
+  `#createScout=` deep link, where a person reviews the schedule and submits it. `POST signals/scout`
+  stays the only path that creates a scout config.
+
+A scout entry may carry `scout_config`: the settings the scout-create form shows, and only those.
+
+| Field                  | Bound                                                            |
+| ---------------------- | ---------------------------------------------------------------- |
+| `run_interval_minutes` | 30 to 43200 (30 days).                                           |
+| `run_cron_schedule`    | Five fields, 100 characters. Takes precedence over the interval. |
+| `emit`                 | Boolean. `false` runs the scout without writing to the inbox.    |
+| `tags`                 | Up to 10 tags of 50 characters.                                  |
+
+`network_access`, `model` and `mcp_gateway_server_ids` reach into a project's data and services, so
+a published scout never carries them: `validate_shareable_scout_config` rejects the whole entry
+rather than dropping the key, on both the sync and the publish side. The bounds are local copies of
+the ones Signals enforces (`products.signals` already depends on `products.skills`, so the reverse
+import would cycle), and Signals validates them again when the form is submitted.
+
+Sync also refuses a `scout` entry with bundled files. The create form takes instructions but no
+files, so such a scout would arrive missing the references its body cites.
+
+## Rendering (`POST community_skills/{slug}/render/`)
+
+Takes the same `variables` map as `install` and returns `slug`, `kind`, `name`, `description`, the
+rendered `body`, `scout_config`, and the `variable_bindings` used. It persists nothing, so it needs
+no more access than reading the catalog: the caller reviews the result and creates the skill or
+scout through its own product's path. Rendering server-side keeps substitution in one place, so a
+client can't drift from what `install` produces for the same template.
 
 ## Install behavior
 
@@ -63,7 +105,8 @@ trusting the sync:
 - The catalog row is locked and its `deleted` flag re-checked before copying, so a skill removed from
   the catalog mid-install can't be installed.
 
-Errors surface as `400` (invalid payload / duplicate name) or `404` (unknown or removed slug).
+Errors surface as `400` (invalid payload / duplicate name / the entry is a scout) or `404` (unknown
+or removed slug).
 A duplicate-name conflict only blames the `new_name` field when the caller actually supplied it.
 
 ## Publishing to the community
@@ -95,6 +138,11 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
   takes) stores either field without the REST serializer's checks, so a skill can hold
   `references\guide.md` or a tool named `Bash Write`. Publishing one unchanged merges a pull
   request whose entry ingest then drops.
+- `kind` is derived from the skill's own `category`, never taken from the request: a scout published
+  as a plain skill is exactly the entry the catalog can't tell apart. A scout also publishes its
+  `scout_config`, so it lands in another project on the same cadence. The scout page supplies it; the
+  Skills page doesn't, and a scout published from there arrives on the create form's defaults.
+  Publishing a scout that has bundled files is refused, matching what sync accepts.
 - `display_name` is capped at 64 characters to match `CommunitySkill.name`. A longer name would pass
   review and then be dropped by ingest, so the skill would never appear in the catalog.
 - `author_handle` is validated against GitHub's username shape, and is self-reported. Nothing checks it

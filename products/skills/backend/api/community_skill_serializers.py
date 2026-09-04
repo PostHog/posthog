@@ -3,7 +3,13 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
+from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillKind, CommunitySkillTrustTier
+from .community_scout_config import (
+    MAX_CRON_SCHEDULE_LENGTH,
+    MAX_RUN_INTERVAL_MINUTES,
+    MAX_TAG_LENGTH,
+    MIN_RUN_INTERVAL_MINUTES,
+)
 from .skill_template_services import parse_template_variables
 
 ALLOWED_LIST_ORDERINGS = frozenset(
@@ -20,6 +26,32 @@ ALLOWED_LIST_ORDERINGS = frozenset(
         "-vote_count",
     }
 )
+
+
+class CommunitySkillScoutConfigSerializer(serializers.Serializer):
+    """The scout settings a published scout travels with. Every field is optional. An omitted field
+    means the scout-create form's own default applies."""
+
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=MIN_RUN_INTERVAL_MINUTES,
+        max_value=MAX_RUN_INTERVAL_MINUTES,
+        help_text="How often the scout runs, in minutes. Ignored when run_cron_schedule is set.",
+    )
+    run_cron_schedule = serializers.CharField(
+        required=False,
+        max_length=MAX_CRON_SCHEDULE_LENGTH,
+        help_text="Five-field cron expression for the scout's schedule, which takes precedence over the interval.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text="Whether the scout writes its reports to the inbox. False means it runs as a dry run.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_TAG_LENGTH),
+        required=False,
+        help_text="Tags used to group the scout in the fleet.",
+    )
 
 
 class CommunitySkillTemplateVariableSerializer(serializers.Serializer):
@@ -73,6 +105,16 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
         choices=CommunitySkillTrustTier.choices,
         help_text="Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.",
     )
+    kind = serializers.ChoiceField(
+        choices=CommunitySkillKind.choices,
+        help_text=(
+            "'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up "
+            "through the scout form instead of being installed."
+        ),
+    )
+    scout_config = CommunitySkillScoutConfigSerializer(
+        help_text="Schedule, emit posture and tags a scout travels with. Empty object for a skill.",
+    )
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest — path and content_type only. File contents are copied in on install.",
     )
@@ -103,6 +145,8 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
             "metadata",
             "tags",
             "trust_tier",
+            "kind",
+            "scout_config",
             "author_handle",
             "github_url",
             "files",
@@ -174,6 +218,11 @@ class CommunitySkillListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter to a single moderation tier.",
     )
+    kind = serializers.ChoiceField(
+        choices=CommunitySkillKind.choices,
+        required=False,
+        help_text="Filter to skills or to scouts. Omit to return both.",
+    )
     order_by = serializers.ChoiceField(
         choices=sorted(ALLOWED_LIST_ORDERINGS),
         required=False,
@@ -204,3 +253,37 @@ class CommunitySkillInstallSerializer(serializers.Serializer):
 class CommunitySkillVoteResponseSerializer(serializers.Serializer):
     vote_count = serializers.IntegerField(help_text="Total upvotes after applying the toggle.")
     has_voted = serializers.BooleanField(help_text="Whether the requesting user is now an upvoter.")
+
+
+class CommunitySkillRenderSerializer(serializers.Serializer):
+    variables = serializers.DictField(
+        # trim_whitespace=False so a value's exact text (multiline snippets, leading/trailing
+        # whitespace meant for the rendered output) survives into the rendered body.
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False),
+        required=False,
+        help_text=(
+            "Values for a template skill's declared variables, as a {name: value} map. Required only when "
+            "rendering a template (see the skill's `template_variables`); ignored for non-template skills."
+        ),
+    )
+
+
+class CommunitySkillRenderResponseSerializer(serializers.Serializer):
+    """A catalog entry with its template variables bound, for prefilling a create form. Nothing is
+    persisted by rendering — the caller submits the result through the product's own create path."""
+
+    slug = serializers.CharField(help_text="Slug of the rendered community skill.")
+    kind = serializers.ChoiceField(
+        choices=CommunitySkillKind.choices,
+        help_text="Whether the rendered entry is a 'skill' or a 'scout'.",
+    )
+    name = serializers.CharField(help_text="Display name of the community skill.")
+    description = serializers.CharField(help_text="What the skill does and when to use it.")
+    body = serializers.CharField(help_text="The SKILL.md instruction content, with template variables bound.")
+    scout_config = CommunitySkillScoutConfigSerializer(
+        help_text="Schedule, emit posture and tags to prefill a scout with. Empty object for a skill."
+    )
+    variable_bindings = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        help_text="The {name: value} map the body was rendered with. Empty for a non-template skill.",
+    )

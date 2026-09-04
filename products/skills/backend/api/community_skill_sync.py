@@ -11,7 +11,8 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 from posthog.egress.github.transport import github_request
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
-from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
+from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillKind, CommunitySkillTrustTier
+from .community_scout_config import validate_shareable_scout_config
 from .skill_serializers import validate_skill_file_path
 from .skill_services import (
     MAX_SKILL_BODY_BYTES,
@@ -24,6 +25,7 @@ from .skill_services import (
 logger = structlog.get_logger(__name__)
 
 _VALID_TRUST_TIERS = set(CommunitySkillTrustTier.values)
+_VALID_KINDS = set(CommunitySkillKind.values)
 DEFAULT_FILE_CONTENT_TYPE = "text/plain"
 # CharField columns that raise DataError past their max_length — checked before persisting.
 _CHECKED_CHAR_FIELDS = (
@@ -125,6 +127,24 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
         if any(any(ch.isspace() for ch in t) for t in allowed_tools):
             raise ValueError("allowed_tools names cannot contain whitespace")
 
+    kind = entry.get("kind") or CommunitySkillKind.SKILL.value
+    if kind not in _VALID_KINDS:
+        raise ValueError(f"kind '{kind}' is not one of {sorted(_VALID_KINDS)}")
+
+    scout_config = entry.get("scout_config")
+    if kind != CommunitySkillKind.SCOUT.value:
+        # A plain skill carrying scout settings is a mis-typed entry, and the store would show it as
+        # a skill while its author expected a scout. Reject it rather than dropping the settings.
+        if scout_config:
+            raise ValueError("scout_config is only valid on a 'scout' entry")
+    else:
+        validate_shareable_scout_config(scout_config)
+        # The store hands a scout to the scout-create form, which takes instructions but no bundled
+        # files. A scout that shipped them would arrive missing the references its body cites, so it
+        # is refused here rather than travelling half-complete.
+        if entry.get("files"):
+            raise ValueError("a 'scout' entry cannot bundle files")
+
 
 def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
     """Reject entries that would violate a DB constraint before persisting.
@@ -212,6 +232,8 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         # capitalized them in frontmatter (_validate_entry_shape guarantees a list of strings).
         "tags": [t.lower() for t in (entry.get("tags") or [])],
         "trust_tier": trust_tier,
+        "kind": entry.get("kind") or CommunitySkillKind.SKILL.value,
+        "scout_config": validate_shareable_scout_config(entry.get("scout_config")),
         "author_handle": _text(entry, "author_handle", "'author_handle'"),
         "github_url": _text(entry, "github_url", "'github_url'"),
         "source_sha": source_sha,

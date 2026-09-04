@@ -10,13 +10,22 @@ import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
-import { communitySkillsInstallCreate, communitySkillsList, communitySkillsVoteCreate } from './generated/api'
-import { CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
+import { INBOX_CONFIG_TAB_KEY } from 'products/signals/frontend/inbox/types'
+import { encodeScoutCreateTemplate } from 'products/signals/frontend/inbox/utils/scoutTemplateDeepLink'
+
+import {
+    communitySkillsInstallCreate,
+    communitySkillsList,
+    communitySkillsRenderCreate,
+    communitySkillsVoteCreate,
+} from './generated/api'
+import { CommunitySkillKindEnumApi, CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi, PaginatedCommunitySkillListListApi } from './generated/api.schemas'
 
 export const COMMUNITY_SKILLS_PER_PAGE = 30
 
 const TRUST_TIERS = Object.values(CommunitySkillTrustTierEnumApi)
+const KINDS = Object.values(CommunitySkillKindEnumApi)
 
 export interface CommunitySkillFilters {
     page: number
@@ -24,11 +33,17 @@ export interface CommunitySkillFilters {
     order_by: string
     tag: string
     trust_tier: CommunitySkillTrustTierEnumApi | ''
+    kind: CommunitySkillKindEnumApi | ''
 }
 
 // Filters can arrive from the URL, so anything that isn't a known tier falls back to "all tiers".
 function cleanTrustTier(value: unknown): CommunitySkillTrustTierEnumApi | '' {
     return TRUST_TIERS.find((tier) => tier === value) ?? ''
+}
+
+// Filters can arrive from the URL, so anything that isn't a known kind falls back to "everything".
+function cleanKind(value: unknown): CommunitySkillKindEnumApi | '' {
+    return KINDS.find((kind) => kind === value) ?? ''
 }
 
 function cleanFilters(values: Partial<CommunitySkillFilters>): CommunitySkillFilters {
@@ -38,6 +53,7 @@ function cleanFilters(values: Partial<CommunitySkillFilters>): CommunitySkillFil
         order_by: values.order_by || '-install_count',
         tag: String(values.tag || ''),
         trust_tier: cleanTrustTier(values.trust_tier),
+        kind: cleanKind(values.kind),
     }
 }
 
@@ -48,6 +64,7 @@ function cleanFilterUrlParams(filters: CommunitySkillFilters): Record<string, un
         order_by: filters.order_by === '-install_count' ? undefined : filters.order_by,
         tag: filters.tag || undefined,
         trust_tier: filters.trust_tier || undefined,
+        kind: filters.kind || undefined,
     }
 }
 
@@ -61,6 +78,7 @@ export interface communitySkillsLogicValues {
     installingSlugs: Record<string, boolean>
     pagination: PaginationManual
     rawFilters: Partial<CommunitySkillFilters> | null
+    settingUpSlugs: Record<string, boolean>
     skills: PaginatedCommunitySkillListListApi
     skillsLoading: boolean
     voteOverrides: Record<
@@ -119,6 +137,19 @@ export interface communitySkillsLogicActions {
         debounce: boolean
         filters: Partial<CommunitySkillFilters>
         merge: boolean
+    }
+    setUpScout: (
+        slug: string,
+        variables?: Record<string, string>
+    ) => {
+        slug: string
+        variables: Record<string, string> | undefined
+    }
+    setUpScoutFailure: (slug: string) => {
+        slug: string
+    }
+    setUpScoutSuccess: (slug: string) => {
+        slug: string
     }
     toggleVote: (slug: string) => {
         slug: string
@@ -185,6 +216,9 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
         }),
         installSkillSuccess: (slug: string) => ({ slug }),
         installSkillFailure: (slug: string) => ({ slug }),
+        setUpScout: (slug: string, variables?: Record<string, string>) => ({ slug, variables }),
+        setUpScoutSuccess: (slug: string) => ({ slug }),
+        setUpScoutFailure: (slug: string) => ({ slug }),
         toggleVote: (slug: string) => ({ slug }),
         toggleVoteSuccess: (slug: string, voteResult: { has_voted: boolean; vote_count: number }) => ({
             slug,
@@ -220,6 +254,14 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 installSkillFailure: (state, { slug }) => ({ ...state, [slug]: false }),
             },
         ],
+        settingUpSlugs: [
+            {} as Record<string, boolean>,
+            {
+                setUpScout: (state, { slug }) => ({ ...state, [slug]: true }),
+                setUpScoutSuccess: (state, { slug }) => ({ ...state, [slug]: false }),
+                setUpScoutFailure: (state, { slug }) => ({ ...state, [slug]: false }),
+            },
+        ],
         votingSlugs: [
             {} as Record<string, boolean>,
             {
@@ -244,6 +286,7 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                         order_by: filters.order_by,
                         tag: filters.tag,
                         trust_tier: filters.trust_tier || undefined,
+                        kind: filters.kind || undefined,
                         offset: Math.max(0, (filters.page - 1) * COMMUNITY_SKILLS_PER_PAGE),
                         limit: COMMUNITY_SKILLS_PER_PAGE,
                     })
@@ -307,6 +350,30 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 const detail = e instanceof ApiError ? e.detail : null
                 lemonToast.error(detail || 'Could not install the skill. Try again in a moment.')
                 actions.installSkillFailure(slug)
+            }
+        },
+
+        // A scout can't be installed as a skill — it runs on a schedule under privileged scopes. So
+        // render it server-side, then hand the result to the scout form, where a person reviews the
+        // schedule and submits it.
+        setUpScout: async ({ slug, variables }) => {
+            try {
+                const rendered = await communitySkillsRenderCreate(String(ApiConfig.getCurrentTeamId()), slug, {
+                    variables,
+                })
+                const template = encodeScoutCreateTemplate({
+                    name: rendered.slug,
+                    description: rendered.description,
+                    body: rendered.body,
+                    config: rendered.scout_config,
+                })
+                actions.setUpScoutSuccess(slug)
+                router.actions.push(urls.inbox(INBOX_CONFIG_TAB_KEY), {}, { createScout: template })
+            } catch (e) {
+                console.error('Failed to set up community scout', e)
+                const detail = e instanceof ApiError ? e.detail : null
+                lemonToast.error(detail || 'Could not open this scout. Try again in a moment.')
+                actions.setUpScoutFailure(slug)
             }
         },
 
