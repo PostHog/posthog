@@ -3256,10 +3256,10 @@ snapshots:
         hash: v1.k794b7964.33dac53a2c2f3c8945bb52917b010f00a24b8d8b213106939af1037022d4ed5e.QNBv_MCq5SJyqzj3G7AuQxGF1qLYQLIQotnO3MfqpRE
     insights-worldmap--default--light:
         hash: v1.k794b7964.a4f523dbe2e78f12ddf6c95d6e1e0b1da4457008aa42a9b83fb5e21bc4519915.sRV9jpfMOemd-Hss7Y7z4hMMwHYzM7l8Dq9i4uoJBiE
-    layout-flat-nav--default--dark:
-        hash: v1.k794b7964.03613ec62699fc27a750adf012f4225aa584569ea3efe9998858d68c85397902.PFmiNHfyolZNauCpMSOgyJTs42J32h-GlFBxyCUvgVA
-    layout-flat-nav--default--light:
-        hash: v1.k794b7964.bc199653ab101a8f2e6ef2ddc0c9d9d66b0872b48b3e4407819c85d7d1d92253.peo-D7OiW3tooIMVAqjs5IHu9cpaT_bD9AZoXj5lpG4
+    layout-flat-nav-browse--default--dark:
+        hash: v1.k794b7964.5d1f1b535bb3492e1ecdfa3e1acac30e856bcacb109136cf4b88654a8fa2bfcb.N4pOX84PDiTGfw5A6cgk634GGZ5U2Z-1QQNM82ZTp8Y
+    layout-flat-nav-browse--default--light:
+        hash: v1.k794b7964.58d96f8a2cf0909da2fee6730ca62968503d17c4985f8ef5c0955c1a5d6d0cfc.jRiRZjbhssutoU8Tl2MTPRK606wz2E-HQ7eRugf-2Dc
     layout-impersonation-reason-modal--loading--dark:
         hash: v1.k794b7964.56bc03177fcbe93f212232c9025d90ec672e9043881ce4e9a3dbbb612b501066.mkYeZ8C0UhPLy7CKjURxERYeFMjyvXrOyEpykdHmmrM
     layout-impersonation-reason-modal--loading--light:
