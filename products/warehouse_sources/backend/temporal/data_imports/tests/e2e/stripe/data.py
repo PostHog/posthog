@@ -204,3 +204,71 @@ INVOICES = [
         "lines": {"object": "list", "data": [], "has_more": False},
     },
 ]
+
+
+# Both period shapes for one field, so a wrong JSON path or a broken fallback shows up as the two
+# rows disagreeing rather than as a silent NULL. `sub_legacy` carries the flat columns basil removed;
+# `sub_relocated` carries only the per-item periods that replaced them.
+_PERIOD_START = 1743159813
+_PERIOD_END = 1745751813
+
+SUBSCRIPTIONS = [
+    {
+        "id": "sub_legacy",
+        "object": "subscription",
+        "created": 1743159800,
+        "status": "active",
+        "customer": "cus_SampleCustomerAAA",
+        "current_period_start": _PERIOD_START,
+        "current_period_end": _PERIOD_END,
+        "items": {"object": "list", "data": [], "has_more": False},
+    },
+    {
+        "id": "sub_relocated",
+        "object": "subscription",
+        "created": 1743159801,
+        "status": "active",
+        "customer": "cus_SampleCustomerAAA",
+        "items": {
+            "object": "list",
+            "has_more": False,
+            "data": [
+                {
+                    "id": "si_SampleItemAAA",
+                    "object": "subscription_item",
+                    "current_period_start": _PERIOD_START,
+                    "current_period_end": _PERIOD_END,
+                }
+            ],
+        },
+    },
+]
+
+# Same idea for invoice items: basil moved the flat unit amounts under `pricing`.
+_UNIT_AMOUNT = 1500
+
+INVOICE_ITEMS = [
+    {
+        "id": "ii_legacy",
+        "object": "invoiceitem",
+        "created": 1743159800,
+        "date": 1743159800,
+        "currency": "usd",
+        "customer": "cus_SampleCustomerAAA",
+        "unit_amount": _UNIT_AMOUNT,
+        "unit_amount_decimal": str(_UNIT_AMOUNT),
+    },
+    {
+        "id": "ii_relocated",
+        "object": "invoiceitem",
+        "created": 1743159801,
+        "date": 1743159801,
+        "currency": "usd",
+        "customer": "cus_SampleCustomerAAA",
+        "pricing": {
+            "type": "price_details",
+            "unit_amount_decimal": str(_UNIT_AMOUNT),
+            "price_details": {"price": "price_SampleAAA", "product": "prod_SampleAAA"},
+        },
+    },
+]

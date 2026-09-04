@@ -47,7 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
 )
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
-from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS, INVOICES
+from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS, INVOICE_ITEMS, INVOICES, SUBSCRIPTIONS
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -91,6 +91,28 @@ def external_data_schema_full_refresh(external_data_source, team):
 def external_data_schema_invoice(external_data_source, team):
     return ExternalDataSchema.objects.create(
         name="Invoice",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
+
+
+@pytest.fixture
+def external_data_schema_subscription(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="Subscription",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
+
+
+@pytest.fixture
+def external_data_schema_invoiceitem(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="InvoiceItem",
         team_id=team.pk,
         source_id=external_data_source.pk,
         sync_type="full_refresh",
@@ -1392,3 +1414,54 @@ async def test_invoice_reads_relocated_fields_from_the_newer_payload_shape(
     res = await sync_to_async(execute_hogql_query)("SELECT subscription_id, paid FROM stripe_invoice", team)
 
     assert res.results == [("sub_1SampleSubscriptionAA", True)]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_subscription_period_resolves_from_either_payload_shape(
+    team, mock_stripe_api, external_data_source, external_data_schema_subscription
+):
+    # One row carries the flat columns basil removed, the other only the per-item periods that
+    # replaced them. Both describe the same billing period, so a wrong JSON path or a mishandled
+    # empty item list shows up as the two disagreeing instead of as a silent NULL.
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_subscription,
+        table_name="stripe_subscription",
+        expected_rows_synced=len(SUBSCRIPTIONS),
+        expected_total_rows=len(SUBSCRIPTIONS),
+    )
+
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, current_period_start, current_period_end FROM stripe_subscription ORDER BY id", team
+    )
+    periods = {row[0]: row[1:] for row in res.results}
+
+    assert periods["sub_legacy"][0] is not None
+    assert periods["sub_relocated"] == periods["sub_legacy"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_invoice_item_unit_amount_resolves_from_either_payload_shape(
+    team, mock_stripe_api, external_data_source, external_data_schema_invoiceitem
+):
+    # basil moved the flat unit amounts under `pricing`, and the relocated value is a decimal string
+    # that has to survive the conversion back to an integer.
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_invoiceitem,
+        table_name="stripe_invoiceitem",
+        expected_rows_synced=len(INVOICE_ITEMS),
+        expected_total_rows=len(INVOICE_ITEMS),
+    )
+
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, unit_amount, unit_amount_decimal FROM stripe_invoiceitem ORDER BY id", team
+    )
+    amounts = {row[0]: row[1:] for row in res.results}
+
+    assert amounts["ii_legacy"] == (1500, "1500")
+    assert amounts["ii_relocated"] == amounts["ii_legacy"]
