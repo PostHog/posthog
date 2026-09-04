@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 import pytest
@@ -20,10 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     NotionRetryableError,
     _blocks_stream,
     _comments_stream,
+    _data_source_query_body,
+    _database_rows_stream,
+    _flatten_database_row,
     _get_headers,
     _iter_block_children,
     _iter_page_ids,
     _parse_retry_after,
+    _property_to_text,
     _request,
     _search_body,
     _search_stream,
@@ -564,11 +569,294 @@ class TestNotion:
         assert valid is False
         assert message == "boom"
 
+    @parameterized.expand(
+        [
+            ("title", {"type": "title", "title": [{"plain_text": "Ship "}, {"plain_text": "it"}]}, "Ship it"),
+            ("number", {"type": "number", "number": 42}, "42"),
+            ("select", {"type": "select", "select": {"name": "Done"}}, "Done"),
+            ("empty_select", {"type": "select", "select": None}, None),
+            (
+                "multi_select",
+                {"type": "multi_select", "multi_select": [{"name": "a"}, {"name": "b"}]},
+                "a, b",
+            ),
+            ("checkbox", {"type": "checkbox", "checkbox": False}, "false"),
+            (
+                "date_range",
+                {"type": "date", "date": {"start": "2026-01-01", "end": "2026-01-02"}},
+                "2026-01-01 → 2026-01-02",
+            ),
+            ("date_single", {"type": "date", "date": {"start": "2026-01-01", "end": None}}, "2026-01-01"),
+            ("relation", {"type": "relation", "relation": [{"id": "abc"}, {"id": "def"}]}, "abc, def"),
+            ("unique_id", {"type": "unique_id", "unique_id": {"prefix": "TASK", "number": 7}}, "TASK-7"),
+            (
+                "formula_number",
+                {"type": "formula", "formula": {"type": "number", "number": 3}},
+                "3",
+            ),
+            (
+                "people",
+                {"type": "people", "people": [{"object": "user", "id": "u1", "name": "Ada", "type": "person"}]},
+                "Ada",
+            ),
+            (
+                "rollup_array",
+                {
+                    "type": "rollup",
+                    "rollup": {
+                        "type": "array",
+                        "array": [{"type": "number", "number": 1}, {"type": "number", "number": 2}],
+                    },
+                },
+                "1, 2",
+            ),
+            (
+                "files",
+                {"type": "files", "files": [{"name": "spec.pdf", "file": {"url": "https://x/spec.pdf"}}]},
+                "spec.pdf",
+            ),
+            ("empty_rich_text", {"type": "rich_text", "rich_text": []}, None),
+            # verification carries no name/id, so without its own branch it renders to null on every
+            # wiki page. `state` is the actionable field (verified / unverified / expired).
+            (
+                "verification_verified",
+                {
+                    "type": "verification",
+                    "verification": {
+                        "state": "verified",
+                        "verified_by": {"id": "u1", "name": "Ada"},
+                        "date": {"start": "2026-01-01T00:00:00.000Z"},
+                    },
+                },
+                "verified",
+            ),
+            (
+                "verification_unverified",
+                {"type": "verification", "verification": {"state": "unverified", "verified_by": None, "date": None}},
+                "unverified",
+            ),
+            ("not_a_dict", "raw", None),
+        ]
+    )
+    def test_property_to_text_renders_scalar(self, _name: str, prop: Any, expected: str | None) -> None:
+        # database_rows shares one table across every database, so each property must reduce to a
+        # stable text cell — a regression here reshapes real user columns or breaks the Arrow schema.
+        assert _property_to_text(prop) == expected
+
+    def test_flatten_database_row_lifts_properties_and_guards_system_fields(self) -> None:
+        page = {
+            "id": "page-1",
+            "last_edited_time": "2026-01-01T00:00:00Z",
+            "url": "https://notion.so/page-1",
+            "properties": {
+                "Name": {"type": "title", "title": [{"plain_text": "Task"}]},
+                # A property named like a system field must not clobber it.
+                "url": {"type": "url", "url": "https://example.com"},
+            },
+        }
+        row = _flatten_database_row(page, "ds-9")
+
+        assert row["id"] == "page-1"
+        assert row["_data_source_id"] == "ds-9"
+        assert row["Name"] == "Task"
+        # The page's own url survives; the colliding property is preserved under a prefixed column.
+        assert row["url"] == "https://notion.so/page-1"
+        assert row["property_url"] == "https://example.com"
+        assert "properties" not in row
+
+    def test_data_source_query_body_incremental_filter(self) -> None:
+        # The last_edited_time filter is what unlocks incremental sync; its exact shape is Notion's
+        # contract, so lock it in. Without `since` there must be no filter (full refresh).
+        assert "filter" not in _data_source_query_body(None, None)
+        body = _data_source_query_body("cur", "2026-01-01T00:00:00Z")
+        assert body["filter"] == {
+            "timestamp": "last_edited_time",
+            "last_edited_time": {"on_or_after": "2026-01-01T00:00:00Z"},
+        }
+        assert body["sorts"] == [{"timestamp": "last_edited_time", "direction": "ascending"}]
+        assert body["start_cursor"] == "cur"
+
+    def test_database_rows_stream_queries_each_data_source_and_flattens(self) -> None:
+        # Full flow: enumerate data sources via search, then query each and flatten its pages into
+        # rows. Guards the wiring from the databases catalog to the row contents that was the gap.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:  # data_source enumeration
+                return _list_response([{"id": "ds-1"}, {"id": "ds-2"}], has_more=False, next_cursor=None)
+            page = {"id": f"row-{index}", "properties": {"Name": {"type": "title", "title": [{"plain_text": "x"}]}}}
+            return _list_response([page], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        tables = list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+        )
+
+        assert sum(t.num_rows for t in tables) == 2
+        # One search enumeration plus one query per data source; queries hit the data-source endpoint.
+        assert len(session.calls) == 3
+        assert session.calls[1]["url"].endswith("/v1/data_sources/ds-1/query")
+        assert session.calls[2]["url"].endswith("/v1/data_sources/ds-2/query")
+
+    def test_database_rows_stream_skips_wiki_child_data_sources(self) -> None:
+        # A wiki data source returns both pages and child data sources (nested databases). This table
+        # is one row per page, and the child data sources already sync through the `databases` stream,
+        # so a data_source object must be skipped rather than emitted as a malformed row.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "ds-1"}], has_more=False, next_cursor=None)
+            return _list_response(
+                [
+                    {
+                        "object": "page",
+                        "id": "page-1",
+                        "properties": {"Name": {"type": "title", "title": [{"plain_text": "Task"}]}},
+                    },
+                    {"object": "data_source", "id": "child-db", "title": [{"plain_text": "Nested DB"}], "properties": {}},
+                ],
+                has_more=False,
+                next_cursor=None,
+            )
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        tables = list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+        )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["page-1"]
+
+    def test_database_rows_stream_passes_incremental_watermark_to_query(self) -> None:
+        # An incremental run must send the last_edited_time filter so Notion returns only changed
+        # rows; a regression that drops it silently re-reads the whole database every sync. The
+        # watermark reaches a source as a datetime or a string depending on what the pipeline
+        # persisted, so both must produce the filter.
+        for watermark in (datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC), "2026-01-01T12:00:00Z"):
+
+            def responses(index: int) -> FakeResponse:
+                if index == 0:
+                    return _list_response([{"id": "ds-1"}], has_more=False, next_cursor=None)
+                return _list_response([{"id": "row-1", "properties": {}}], has_more=False, next_cursor=None)
+
+            session = FakeSession(responses)
+            manager = mock.MagicMock()
+            manager.can_resume.return_value = False
+
+            list(
+                _database_rows_stream(
+                    cast(requests.Session, session),
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=watermark,
+                )
+            )
+
+            assert session.calls[1]["json"]["filter"] == {
+                "timestamp": "last_edited_time",
+                "last_edited_time": {"on_or_after": "2026-01-01T12:00:00Z"},
+            }
+
+    def test_database_rows_stream_resumes_from_saved_queue(self) -> None:
+        # On retry the stream must consume the persisted data-source queue instead of re-enumerating
+        # every data source from scratch — restarting from zero was what burned API quota on retries.
+        session = FakeSession([_list_response([{"id": "row-1", "properties": {}}], has_more=False, next_cursor=None)])
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(remaining_data_source_ids=["ds-2"])
+
+        tables = list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+        )
+
+        assert sum(t.num_rows for t in tables) == 1
+        # Only the resumed data source's query runs; no /v1/search re-enumeration.
+        assert len(session.calls) == 1
+        assert session.calls[0]["url"].endswith("/v1/data_sources/ds-2/query")
+
+    def test_database_rows_stream_advances_checkpoint_across_empty_data_sources(self) -> None:
+        # On an incremental run most data sources return no rows, so the in-loop checkpoint (which
+        # only fires on a 2000-row flush) never advances. When the batcher holds nothing pending, the
+        # finished source must drop from the resume queue, or a late failure re-queries every earlier
+        # source on retry.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "ds-1"}, {"id": "ds-2"}, {"id": "ds-3"}], has_more=False, next_cursor=None)
+            return _list_response([], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2026-01-01T00:00:00Z",
+            )
+        )
+
+        saved = [call.args[0].remaining_data_source_ids for call in manager.save_state.call_args_list]
+        assert saved == [["ds-2", "ds-3"], ["ds-3"], []]
+
+    def test_database_rows_stream_keeps_buffered_source_in_checkpoint(self) -> None:
+        # A finished data source whose rows are still buffered (below the 2000-row flush) must stay in
+        # the queue — advancing past it would drop those unpersisted rows on resume. Here ds-1's one
+        # row buffers for the whole run, so the checkpoint never advances.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "ds-1"}, {"id": "ds-2"}], has_more=False, next_cursor=None)
+            if index == 1:
+                return _list_response([{"id": "row-1", "properties": {}}], has_more=False, next_cursor=None)
+            return _list_response([], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+        )
+
+        assert manager.save_state.call_args_list == []
+
 
 @pytest.mark.parametrize("endpoint", list(NOTION_ENDPOINTS.keys()))
 def test_every_endpoint_has_config(endpoint: str) -> None:
     config = NOTION_ENDPOINTS[endpoint]
     assert config.name == endpoint
-    assert config.stream_type in ("search", "users", "blocks", "comments")
+    assert config.stream_type in ("search", "users", "blocks", "comments", "database_rows")
     if config.stream_type == "search":
         assert config.object_filter in ("page", "data_source")
+    # Only database_rows can filter server-side on last_edited_time, so it is the one incremental stream.
+    assert config.supports_incremental is (endpoint == "database_rows")

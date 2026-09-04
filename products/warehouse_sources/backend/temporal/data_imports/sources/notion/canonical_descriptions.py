@@ -56,6 +56,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             is_inline="Whether the database is displayed inline within a page.",
         ),
     },
+    "database_rows": {
+        "description": "The pages inside every Notion database, one row per page, with each database "
+        "property flattened into its own text column beside the page's system fields.",
+        "docs_url": "https://developers.notion.com/reference/query-a-data-source",
+        "columns": _columns(
+            url="URL of the page in Notion.",
+            public_url="Public web URL of the page, if it has been published.",
+            icon="The page's icon (emoji or external/file image).",
+            cover="The page's cover image.",
+            in_trash="Whether the page is in the trash.",
+            _data_source_id="Id of the database (data source) this row belongs to.",
+        ),
+    },
     "users": {
         "description": "A user or bot in the Notion workspace.",
         "docs_url": "https://developers.notion.com/reference/user",

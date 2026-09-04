@@ -9,6 +9,7 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -87,6 +88,9 @@ class NotionResumeConfig:
     # page currently in progress: a retry re-processes it in full (blocks already written are deduped
     # on the primary key at merge) and continues with the rest, instead of restarting from page one.
     remaining_page_ids: list[str] | None = None
+    # The database_rows fan-out persists its queue of data sources still to query, head first, the
+    # same way. The head is re-queried in full on a retry (rows dedup on `id` at merge).
+    remaining_data_source_ids: list[str] | None = None
 
 
 class _RateLimiter:
@@ -340,31 +344,48 @@ def _users_stream(
         yield batcher.get_table()
 
 
-def _iter_page_ids(
-    session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
+def _iter_object_ids(
+    session: requests.Session,
+    object_filter: str,
+    logger: FilteringBoundLogger,
+    throttle: Optional["_RateLimiter"] = None,
 ) -> Iterator[str]:
     cursor: str | None = None
     while True:
         try:
             data = _request(
-                session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
+                session,
+                "POST",
+                "/v1/search",
+                logger,
+                json_body=_search_body(object_filter, cursor),
+                throttle=throttle,
             )
         except NotionBadRequestError as e:
             if cursor is None or not _is_invalid_start_cursor(e):
                 raise
             # A cursor can expire mid-enumeration on a large workspace; restart from the beginning
-            # rather than failing the blocks/comments fan-out. Page ids already yielded get re-yielded,
-            # which the callers tolerate (blocks/comments dedup on primary key at merge).
-            logger.warning("Notion: page-id search cursor rejected as invalid; restarting enumeration from the start")
+            # rather than failing the fan-out. Ids already yielded get re-yielded, which the callers
+            # tolerate (rows dedup on primary key at merge).
+            logger.warning(
+                "Notion: search cursor rejected as invalid; restarting enumeration from the start",
+                object_filter=object_filter,
+            )
             cursor = None
             continue
         for item in data.get("results", []):
-            # "id" is the primary key driving the blocks/comments fan-out; access it directly so a
-            # malformed response missing it surfaces loudly instead of silently dropping the page.
+            # "id" is the primary key driving each fan-out; access it directly so a malformed response
+            # missing it surfaces loudly instead of silently dropping the object.
             yield item["id"]
         if not data.get("has_more") or not data.get("next_cursor"):
             break
         cursor = data["next_cursor"]
+
+
+def _iter_page_ids(
+    session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
+) -> Iterator[str]:
+    yield from _iter_object_ids(session, "page", logger, throttle)
 
 
 def _iter_block_children(
@@ -514,12 +535,259 @@ def _comments_stream(
         yield batcher.get_table()
 
 
+# Page-level fields Notion returns on every database row. `database_rows` keeps these under their own
+# names and lifts each property beside them, so a user property that happens to share one of these
+# names is emitted as `property_<name>` instead of overwriting the system field.
+_RESERVED_ROW_KEYS = frozenset(
+    {
+        "id",
+        "object",
+        "created_time",
+        "last_edited_time",
+        "created_by",
+        "last_edited_by",
+        "cover",
+        "icon",
+        "url",
+        "public_url",
+        "archived",
+        "in_trash",
+        "parent",
+        "properties",
+        "request_id",
+        "_data_source_id",
+    }
+)
+
+
+def _rich_text_to_plain(parts: Any) -> str:
+    if not isinstance(parts, list):
+        return ""
+    return "".join(part.get("plain_text", "") for part in parts if isinstance(part, dict))
+
+
+def _reference_label(value: Any) -> str | None:
+    # A user, page, or relation reference: prefer a human name, fall back to the id.
+    if not isinstance(value, dict):
+        return None
+    return value.get("name") or value.get("id")
+
+
+def _element_to_text(value_type: str, element: Any) -> str | None:
+    if value_type == "files":
+        if not isinstance(element, dict):
+            return None
+        file_obj = element.get("external") or element.get("file")
+        url = file_obj.get("url") if isinstance(file_obj, dict) else None
+        return element.get("name") or url
+    if value_type == "rollup" and isinstance(element, dict):
+        # An array rollup holds nested property values, one per rolled-up row.
+        inner_type = element.get("type")
+        return _rendered_value(inner_type, element.get(inner_type)) if isinstance(inner_type, str) else None
+    if isinstance(element, dict):
+        return _reference_label(element)
+    if isinstance(element, bool):
+        return "true" if element else "false"
+    if isinstance(element, int | float | str):
+        return str(element)
+    return None
+
+
+def _rendered_value(value_type: str | None, value: Any) -> str | None:
+    if value is None or not isinstance(value_type, str):
+        return None
+    if value_type in ("title", "rich_text"):
+        return _rich_text_to_plain(value) or None
+    if value_type in ("select", "status"):
+        return value.get("name") if isinstance(value, dict) else None
+    if value_type == "date":
+        if not isinstance(value, dict):
+            return None
+        start, end = value.get("start"), value.get("end")
+        return f"{start} → {end}" if start and end else start
+    if value_type == "unique_id":
+        if not isinstance(value, dict) or value.get("number") is None:
+            return None
+        prefix = value.get("prefix")
+        return f"{prefix}-{value['number']}" if prefix else str(value["number"])
+    if value_type in ("formula", "rollup") and isinstance(value, dict):
+        # Both wrap a nested {type, <type>: ...} carrying the computed value.
+        inner_type = value.get("type")
+        if inner_type == "array":
+            # Route the array's items through the rollup element handler, which renders each
+            # item's nested {type, <type>} value.
+            return _rendered_value("rollup", value.get("array"))
+        return _rendered_value(inner_type, value.get(inner_type)) if isinstance(inner_type, str) else None
+    if value_type in ("created_by", "last_edited_by"):
+        return _reference_label(value)
+    if value_type == "verification":
+        # A wiki page's verification value holds {state, verified_by, date} and no name/id, so the
+        # generic dict branch below would render it to nothing. `state` (verified / unverified /
+        # expired) is the field a wiki team filters on.
+        return value.get("state") if isinstance(value, dict) else None
+    if isinstance(value, list):
+        # multi_select, people, relation, files, and array rollups.
+        rendered = [_element_to_text(value_type, element) for element in value]
+        return ", ".join(part for part in rendered if part) or None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float | str):
+        return str(value)
+    if isinstance(value, dict):
+        return _reference_label(value)
+    return None
+
+
+def _property_to_text(prop: Any) -> str | None:
+    """Reduce one Notion property value to a single text cell.
+
+    Every database_rows row lands in one shared table, so a property that two databases name the
+    same but type differently would clash as one Arrow column. Rendering every property as text
+    keeps that column's type stable while still exposing the value under its own name.
+    """
+    if not isinstance(prop, dict):
+        return None
+    prop_type = prop.get("type")
+    return _rendered_value(prop_type, prop.get(prop_type) if isinstance(prop_type, str) else None)
+
+
+def _flatten_database_row(page: dict[str, Any], data_source_id: str) -> dict[str, Any]:
+    row: dict[str, Any] = {key: value for key, value in page.items() if key != "properties"}
+    # The row's own id is the page id; keep which data source it came from, since one table holds
+    # rows from every database.
+    row["_data_source_id"] = data_source_id
+    properties = page.get("properties")
+    if isinstance(properties, dict):
+        for name, prop in properties.items():
+            column = name if name not in _RESERVED_ROW_KEYS else f"property_{name}"
+            row[column] = _property_to_text(prop)
+    return row
+
+
+def _data_source_query_body(cursor: str | None, since: str | None) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "page_size": NOTION_PAGE_SIZE,
+        "sorts": [{"timestamp": "last_edited_time", "direction": "ascending"}],
+    }
+    if since is not None:
+        body["filter"] = {"timestamp": "last_edited_time", "last_edited_time": {"on_or_after": since}}
+    if cursor:
+        body["start_cursor"] = cursor
+    return body
+
+
+def _iter_data_source_rows(
+    session: requests.Session,
+    data_source_id: str,
+    logger: FilteringBoundLogger,
+    since: str | None,
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[dict[str, Any]]:
+    cursor: str | None = None
+    while True:
+        try:
+            data = _request(
+                session,
+                "POST",
+                f"/v1/data_sources/{data_source_id}/query",
+                logger,
+                json_body=_data_source_query_body(cursor, since),
+                throttle=throttle,
+            )
+        except NotionNotFoundError:
+            # The data source was deleted or unshared between enumeration and this query. Skip it and
+            # keep syncing the rest rather than failing the whole table.
+            logger.warning(
+                "Notion: skipping missing or unshared data source while querying rows",
+                data_source_id=data_source_id,
+            )
+            return
+        except NotionBadRequestError as e:
+            if cursor is not None and _is_invalid_start_cursor(e):
+                # A query cursor can expire mid-scan; restart this data source from the beginning
+                # rather than failing the sync (rows dedup on `id` at merge).
+                logger.warning(
+                    "Notion: data-source query cursor rejected as invalid; restarting from the start",
+                    data_source_id=data_source_id,
+                )
+                cursor = None
+                continue
+            # A non-cursor 400 is a genuine bad request (e.g. a changed query contract), not a
+            # per-data-source quirk, so let it fail the sync loudly instead of silently emptying the
+            # table.
+            raise
+        for page in data.get("results", []):
+            # A wiki data source returns a polymorphic result set: its child pages and its child data
+            # sources (nested databases). Only pages are rows in this table; the child data sources
+            # already sync through the `databases` stream, so skip them here. Emitting one would land a
+            # malformed row (object="data_source", a stray title column, empty property columns).
+            if page.get("object") == "data_source":
+                continue
+            yield _flatten_database_row(page, data_source_id)
+        if not data.get("has_more") or not data.get("next_cursor"):
+            break
+        cursor = data["next_cursor"]
+
+
+def _database_rows_stream(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[Any]:
+    batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
+
+    since: str | None = None
+    if should_use_incremental_field:
+        watermark = parse_datetime_value(db_incremental_field_last_value)
+        if watermark is not None:
+            # Whole-second precision rounds the lower bound down, so a run re-reads at most the rows
+            # edited in the boundary second (merge dedupes them) rather than skipping any.
+            since = watermark.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.remaining_data_source_ids is not None:
+        # Resume the fan-out from the persisted queue rather than re-enumerating every data source.
+        data_source_ids = list(resume.remaining_data_source_ids)
+        logger.debug(f"Notion: resuming database_rows fan-out with {len(data_source_ids)} data source(s) remaining")
+    else:
+        data_source_ids = list(_iter_object_ids(session, "data_source", logger, throttle))
+
+    while data_source_ids:
+        data_source_id = data_source_ids[0]
+        remaining = data_source_ids[1:]
+        for row in _iter_data_source_rows(session, data_source_id, logger, since, throttle):
+            batcher.batch(row)
+            if batcher.should_yield():
+                yield batcher.get_table()
+                # Keep the in-progress data source at the head: a retry re-queries it in full
+                # (rows dedup on merge) and continues with the untouched rest.
+                resumable_source_manager.save_state(
+                    NotionResumeConfig(remaining_data_source_ids=[data_source_id, *remaining])
+                )
+        data_source_ids = remaining
+        # Once the batcher holds nothing pending, every row read so far is already flushed, so drop
+        # the finished data source from the resume queue. On an incremental run most data sources
+        # return no rows and never fill a 2000-row chunk, so without this a late failure makes the
+        # retry re-query every earlier data source. Skip while rows are buffered — they may belong to
+        # a finished data source, and advancing past it would lose them on resume.
+        if not batcher.should_yield(include_incomplete_chunk=True):
+            resumable_source_manager.save_state(NotionResumeConfig(remaining_data_source_ids=remaining))
+
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
 def get_rows(
     token: str,
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     api_version: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> Iterator[Any]:
     config = NOTION_ENDPOINTS[endpoint]
     session = _build_session(token, api_version)
@@ -533,6 +801,15 @@ def get_rows(
         yield from _blocks_stream(session, logger, resumable_source_manager, throttle)
     elif config.stream_type == "comments":
         yield from _comments_stream(session, logger, throttle)
+    elif config.stream_type == "database_rows":
+        yield from _database_rows_stream(
+            session,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            throttle,
+        )
     else:
         raise ValueError(f"Unknown Notion stream type: {config.stream_type}")
 
@@ -543,6 +820,8 @@ def notion_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     api_version: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = NOTION_ENDPOINTS[endpoint]
 
@@ -554,6 +833,8 @@ def notion_source(
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             api_version=api_version,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=["id"],
         partition_count=1,
@@ -561,5 +842,11 @@ def notion_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        # database_rows fans out across data sources and drains each one in turn, so the combined
+        # stream is not globally ascending by last_edited_time. "desc" defers the watermark write to
+        # successful job end (see finalize_desc_sort_incremental_value), so a failed mid-sync attempt
+        # can't advance the watermark past rows a later data source has not read yet; the next attempt
+        # re-reads from the old watermark and rows merge on id. Full-refresh streams don't checkpoint
+        # a watermark, so their sort_mode is moot.
+        sort_mode="desc" if config.supports_incremental else "asc",
     )
