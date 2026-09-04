@@ -1,3 +1,6 @@
+from typing import Any
+
+from django import forms
 from django.contrib import admin
 from django.db import models
 from django.http import HttpRequest
@@ -12,6 +15,28 @@ from .models import (
 )
 
 
+class PipelineBoundRelationsForm(forms.ModelForm):
+    """Reports a cross-pipeline relation as a field error.
+
+    `PipelineScopedModel.save()` raises `ValueError` for a relation that belongs to another
+    pipeline. Admin does not turn a save-time exception into form feedback, so without this
+    the staff user gets a 500 instead of a message about the field they picked.
+    """
+
+    def clean(self) -> dict[str, Any]:
+        super().clean()
+        cleaned_data = self.cleaned_data
+        # `pipeline` is read-only on a saved row, so it reaches clean() only on the add form.
+        pipeline = cleaned_data.get("pipeline") or getattr(self.instance, "pipeline", None)
+        if pipeline is None:
+            return cleaned_data
+        for relation_name in self.instance._pipeline_bound_relations:
+            related = cleaned_data.get(relation_name)
+            if related is not None and related.pipeline_id != pipeline.pk:
+                self.add_error(relation_name, "Pick a row that belongs to the same pipeline.")
+        return cleaned_data
+
+
 class PipelineLockedAdminMixin(admin.ModelAdmin):
     """Makes `pipeline` read-only once the row exists.
 
@@ -19,6 +44,8 @@ class PipelineLockedAdminMixin(admin.ModelAdmin):
     so moving a saved row to another pipeline would strand its referencing rows under the
     old pipeline and team.
     """
+
+    form = PipelineBoundRelationsForm
 
     def get_readonly_fields(self, request: HttpRequest, obj: models.Model | None = None) -> tuple[str, ...]:
         readonly = super().get_readonly_fields(request, obj)
@@ -174,6 +201,7 @@ class AutoresearchIterationAdmin(admin.ModelAdmin):
 
 @admin.register(AutoresearchRun)
 class AutoresearchRunAdmin(admin.ModelAdmin):
+    form = PipelineBoundRelationsForm
     list_display = ("id", "pipeline", "run_type", "status", "rows_scored", "created_at")
     list_filter = ("run_type", "status", "created_at")
     search_fields = ("pipeline__name",)

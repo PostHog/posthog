@@ -1,8 +1,12 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from django.contrib import admin as django_admin
 from django.db import IntegrityError, transaction
 from django.test import RequestFactory
+
+from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -46,6 +50,20 @@ class TestAutoresearchModels(BaseTest):
         run.refresh_from_db()
         assert run.team_id == other.team_id
 
+    def _create(self, model_cls: type[Any], **fields: Any) -> Any:
+        if model_cls is AutoresearchModel:
+            fields = {"recipe_hash": "a", "model_recipe": {}, **fields}
+        elif model_cls is AutoresearchIteration:
+            fields = {
+                "training_run": AutoresearchTrainingRun.objects.for_team(self.team.pk).create(pipeline=self.pipeline),
+                "iteration_number": 1,
+                "recipe_hash": "a",
+                "recipe_snapshot": {},
+                "status": AutoresearchIteration.Status.KEPT,
+                **fields,
+            }
+        return model_cls.objects.for_team(self.team.pk).create(pipeline=self.pipeline, **fields)
+
     def test_save_rejects_a_relation_from_another_pipeline(self) -> None:
         other = self._other_team_pipeline()
         foreign_run = AutoresearchTrainingRun.objects.for_team(other.team_id).create(pipeline=other)
@@ -77,6 +95,41 @@ class TestAutoresearchModels(BaseTest):
         pipeline.save()
         pipeline.refresh_from_db()
         assert pipeline.iteration_budget_remaining is None
+
+    @parameterized.expand(
+        [
+            (AutoresearchModel, "holdout_score", 2.0),
+            (AutoresearchModel, "realized_score", -1.0),
+            (AutoresearchTrainingRun, "best_holdout_score", 1.5),
+            (AutoresearchIteration, "holdout_score", 2.0),
+            (AutoresearchIteration, "agent_confidence", -0.5),
+        ]
+    )
+    def test_scores_outside_the_unit_interval_are_rejected(
+        self, model_cls: type[Any], field: str, value: float
+    ) -> None:
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._create(model_cls, **{field: value})
+
+    def test_admin_form_rejects_a_relation_from_another_pipeline(self) -> None:
+        other = self._other_team_pipeline()
+        foreign_model = AutoresearchModel.objects.for_team(other.team_id).create(
+            pipeline=other, recipe_hash="a", model_recipe={}
+        )
+        request = RequestFactory().get("/admin/")
+        request.user = self.user
+        model_admin = admin_module.AutoresearchRunAdmin(AutoresearchRun, django_admin.site)
+        form = model_admin.get_form(request)(
+            data={
+                "pipeline": str(self.pipeline.pk),
+                "model": str(foreign_model.pk),
+                "run_type": AutoresearchRun.RunType.INFERENCE,
+                "status": AutoresearchRun.Status.PENDING,
+                "metrics": "{}",
+            }
+        )
+        assert not form.is_valid()
+        assert "model" in form.errors
 
     def test_admin_works_without_team_context(self) -> None:
         AutoresearchRun.objects.for_team(self.team.pk).create(

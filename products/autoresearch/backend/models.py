@@ -9,6 +9,17 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, uuid7
 
+# AUC and confidence scores are probabilities: NULL until measured, otherwise in [0, 1].
+# An out-of-range score corrupts model comparison, so the database rejects it too.
+UNIT_INTERVAL_VALIDATORS = [MinValueValidator(0.0), MaxValueValidator(1.0)]
+
+
+def unit_interval_constraint(field: str, name: str) -> models.CheckConstraint:
+    return models.CheckConstraint(
+        check=models.Q(**{f"{field}__isnull": True}) | models.Q(**{f"{field}__gte": 0.0, f"{field}__lte": 1.0}),
+        name=name,
+    )
+
 
 class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     # Framework internals (admin querysets, FK form fields, raw-id widget lookups) read
@@ -72,7 +83,7 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     success_auc = models.FloatField(
         null=True,
         blank=True,
-        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        validators=UNIT_INTERVAL_VALIDATORS,
         help_text="Stop when holdout AUC reaches this threshold",
     )
     plateau_iterations = models.IntegerField(
@@ -109,10 +120,7 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
             models.CheckConstraint(
                 check=models.Q(plateau_iterations__gte=1), name="autoresearch_plateau_iterations_positive"
             ),
-            models.CheckConstraint(
-                check=models.Q(success_auc__isnull=True) | models.Q(success_auc__gte=0.0, success_auc__lte=1.0),
-                name="autoresearch_success_auc_in_unit_range",
-            ),
+            unit_interval_constraint("success_auc", "autoresearch_success_auc_in_unit_range"),
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -204,8 +212,15 @@ class AutoresearchModel(PipelineScopedModel):
     )
 
     # Performance
-    holdout_score = models.FloatField(null=True, blank=True, help_text="Offline holdout AUC")
-    realized_score = models.FloatField(null=True, blank=True, help_text="Online realized AUC once labels mature")
+    holdout_score = models.FloatField(
+        null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS, help_text="Offline holdout AUC"
+    )
+    realized_score = models.FloatField(
+        null=True,
+        blank=True,
+        validators=UNIT_INTERVAL_VALIDATORS,
+        help_text="Online realized AUC once labels mature",
+    )
     calibration_error = models.FloatField(null=True, blank=True)
     metrics = models.JSONField(default=dict, help_text="Full metrics bundle (train/holdout/realized)")
 
@@ -240,6 +255,8 @@ class AutoresearchModel(PipelineScopedModel):
                 condition=models.Q(role="champion"),
                 name="autoresearch_one_champion_per_pipeline",
             ),
+            unit_interval_constraint("holdout_score", "autoresearch_model_holdout_score_in_unit_range"),
+            unit_interval_constraint("realized_score", "autoresearch_model_realized_score_in_unit_range"),
         ]
 
     def __str__(self) -> str:
@@ -266,7 +283,7 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     iteration_budget = models.IntegerField(default=50)
     iteration_count = models.IntegerField(default=0)
-    best_holdout_score = models.FloatField(null=True, blank=True)
+    best_holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
     error = models.TextField(blank=True, default="")
     # Tier-1 cross-run learning memory: a distilled, structured summary of this run written on
     # completion. Backend derives the structural fields (champion, kept ladder, dead-ends) from the
@@ -281,6 +298,11 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     class Meta:
         ordering = ["-created_at"]
         default_manager_name = "all_teams"
+        constraints = [
+            unit_interval_constraint(
+                "best_holdout_score", "autoresearch_training_run_best_holdout_score_in_unit_range"
+            ),
+        ]
 
 
 class AutoresearchIteration(PipelineScopedModel):
@@ -301,11 +323,13 @@ class AutoresearchIteration(PipelineScopedModel):
     recipe_snapshot = models.JSONField(help_text="Compact recipe at time of iteration; full artifact in model row")
     model_spec = models.JSONField(default=dict, help_text="model_class + hyperparams tried this iteration")
 
-    train_score = models.FloatField(null=True, blank=True)
-    holdout_score = models.FloatField(null=True, blank=True)
+    train_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
+    holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
     status = models.CharField(max_length=20, choices=Status.choices)
     agent_description = models.TextField(blank=True, default="")
-    agent_confidence = models.FloatField(null=True, blank=True, help_text="Agent's self-assessed confidence 0–1")
+    agent_confidence = models.FloatField(
+        null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS, help_text="Agent's self-assessed confidence 0–1"
+    )
     parent_suggestion = models.ForeignKey(
         "autoresearch.AutoresearchSuggestion",
         on_delete=models.SET_NULL,
@@ -321,6 +345,11 @@ class AutoresearchIteration(PipelineScopedModel):
         ordering = ["iteration_number"]
         default_manager_name = "all_teams"
         unique_together = [("training_run", "iteration_number")]
+        constraints = [
+            unit_interval_constraint("train_score", "autoresearch_iteration_train_score_in_unit_range"),
+            unit_interval_constraint("holdout_score", "autoresearch_iteration_holdout_score_in_unit_range"),
+            unit_interval_constraint("agent_confidence", "autoresearch_iteration_agent_confidence_in_unit_range"),
+        ]
 
 
 class AutoresearchSuggestion(PipelineScopedModel):

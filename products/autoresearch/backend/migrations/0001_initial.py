@@ -221,7 +221,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "holdout_score",
-                    models.FloatField(blank=True, help_text="Offline holdout AUC", null=True),
+                    models.FloatField(
+                        blank=True,
+                        help_text="Offline holdout AUC",
+                        null=True,
+                        validators=[
+                            django.core.validators.MinValueValidator(0.0),
+                            django.core.validators.MaxValueValidator(1.0),
+                        ],
+                    ),
                 ),
                 (
                     "realized_score",
@@ -229,6 +237,10 @@ class Migration(migrations.Migration):
                         blank=True,
                         help_text="Online realized AUC once labels mature",
                         null=True,
+                        validators=[
+                            django.core.validators.MinValueValidator(0.0),
+                            django.core.validators.MaxValueValidator(1.0),
+                        ],
                     ),
                 ),
                 ("calibration_error", models.FloatField(blank=True, null=True)),
@@ -494,7 +506,17 @@ class Migration(migrations.Migration):
                 ),
                 ("iteration_budget", models.IntegerField(default=50)),
                 ("iteration_count", models.IntegerField(default=0)),
-                ("best_holdout_score", models.FloatField(blank=True, null=True)),
+                (
+                    "best_holdout_score",
+                    models.FloatField(
+                        blank=True,
+                        null=True,
+                        validators=[
+                            django.core.validators.MinValueValidator(0.0),
+                            django.core.validators.MaxValueValidator(1.0),
+                        ],
+                    ),
+                ),
                 ("error", models.TextField(blank=True, default="")),
                 ("summary", models.JSONField(blank=True, default=dict)),
                 ("started_at", models.DateTimeField(blank=True, null=True)),
@@ -562,8 +584,28 @@ class Migration(migrations.Migration):
                         help_text="model_class + hyperparams tried this iteration",
                     ),
                 ),
-                ("train_score", models.FloatField(blank=True, null=True)),
-                ("holdout_score", models.FloatField(blank=True, null=True)),
+                (
+                    "train_score",
+                    models.FloatField(
+                        blank=True,
+                        null=True,
+                        validators=[
+                            django.core.validators.MinValueValidator(0.0),
+                            django.core.validators.MaxValueValidator(1.0),
+                        ],
+                    ),
+                ),
+                (
+                    "holdout_score",
+                    models.FloatField(
+                        blank=True,
+                        null=True,
+                        validators=[
+                            django.core.validators.MinValueValidator(0.0),
+                            django.core.validators.MaxValueValidator(1.0),
+                        ],
+                    ),
+                ),
                 (
                     "status",
                     models.CharField(
@@ -582,6 +624,10 @@ class Migration(migrations.Migration):
                         blank=True,
                         help_text="Agent's self-assessed confidence 0–1",
                         null=True,
+                        validators=[
+                            django.core.validators.MinValueValidator(0.0),
+                            django.core.validators.MaxValueValidator(1.0),
+                        ],
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -682,6 +728,72 @@ class Migration(migrations.Migration):
                 condition=models.Q(("role", "champion")),
                 fields=("pipeline",),
                 name="autoresearch_one_champion_per_pipeline",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchmodel",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("holdout_score__isnull", True),
+                    models.Q(("holdout_score__gte", 0.0), ("holdout_score__lte", 1.0)),
+                    _connector="OR",
+                ),
+                name="autoresearch_model_holdout_score_in_unit_range",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchmodel",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("realized_score__isnull", True),
+                    models.Q(("realized_score__gte", 0.0), ("realized_score__lte", 1.0)),
+                    _connector="OR",
+                ),
+                name="autoresearch_model_realized_score_in_unit_range",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchtrainingrun",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("best_holdout_score__isnull", True),
+                    models.Q(("best_holdout_score__gte", 0.0), ("best_holdout_score__lte", 1.0)),
+                    _connector="OR",
+                ),
+                name="autoresearch_training_run_best_holdout_score_in_unit_range",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchiteration",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("train_score__isnull", True),
+                    models.Q(("train_score__gte", 0.0), ("train_score__lte", 1.0)),
+                    _connector="OR",
+                ),
+                name="autoresearch_iteration_train_score_in_unit_range",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchiteration",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("holdout_score__isnull", True),
+                    models.Q(("holdout_score__gte", 0.0), ("holdout_score__lte", 1.0)),
+                    _connector="OR",
+                ),
+                name="autoresearch_iteration_holdout_score_in_unit_range",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchiteration",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("agent_confidence__isnull", True),
+                    models.Q(("agent_confidence__gte", 0.0), ("agent_confidence__lte", 1.0)),
+                    _connector="OR",
+                ),
+                name="autoresearch_iteration_agent_confidence_in_unit_range",
             ),
         ),
         migrations.AlterUniqueTogether(

@@ -28,6 +28,9 @@ Every model carries its own `team` foreign key and sits on `TeamScopedRootMixin`
 Read through `Model.objects.for_team(team_id)` or inside a `team_scope(team_id)` block.
 The five pipeline-owned models inherit `PipelineScopedModel`, whose `save()` derives `team` from the parent pipeline unconditionally (an explicit mismatched value is overwritten) and rejects related rows that belong to another pipeline, so a create only has to pass `pipeline`.
 
+Every AUC and confidence column (`success_auc`, `holdout_score`, `realized_score`, `best_holdout_score`, `train_score`, `agent_confidence`) is NULL until measured and otherwise held to `[0, 1]` by a CHECK constraint.
+A writer that produces a raw score has to normalize it before it saves.
+
 ## Feature flag and access
 
 Gated by the `autoresearch` feature flag (`backend/access.py`).
