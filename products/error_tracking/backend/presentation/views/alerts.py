@@ -35,6 +35,11 @@ class ErrorTrackingAlertSlackConfigSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Human-readable Slack channel name, stored for display only.",
     )
+    reply_broadcast = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Also post each thread reply to the channel, so people who do not follow the thread see every update.",
+    )
 
 
 class ErrorTrackingAlertFiltersSerializer(serializers.Serializer):

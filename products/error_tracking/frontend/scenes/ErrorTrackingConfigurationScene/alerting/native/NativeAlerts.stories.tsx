@@ -35,7 +35,7 @@ const ALERTS: ErrorTrackingAlertApi[] = [
                 id: '01990000-0000-7000-8000-000000000011',
                 channel_type: 'slack',
                 integration_id: 7,
-                config: { channel: 'C0123', channel_name: '#alerts-backend' },
+                config: { channel: 'C0123', channel_name: '#alerts-backend', reply_broadcast: true },
                 last_delivered_at: '2026-09-02T10:42:00Z',
                 last_failure_at: null,
                 last_error: '',
