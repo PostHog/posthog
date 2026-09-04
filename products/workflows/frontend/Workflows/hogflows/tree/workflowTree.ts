@@ -240,3 +240,85 @@ export function countWorkflowTreeNodes(sequence: WorkflowTreeSequence): number {
         0
     )
 }
+
+function findWorkflowTreeNode(sequence: WorkflowTreeSequence, actionId: string): WorkflowTreeNode | null {
+    for (const node of sequence.nodes) {
+        if (node.action.id === actionId) {
+            return node
+        }
+
+        for (const branch of node.branches) {
+            const branchNode = findWorkflowTreeNode(branch.sequence, actionId)
+            if (branchNode) {
+                return branchNode
+            }
+        }
+    }
+
+    return null
+}
+
+function collectWorkflowTreeActionIds(sequence: WorkflowTreeSequence, actionIds: Set<string>): void {
+    for (const node of sequence.nodes) {
+        actionIds.add(node.action.id)
+        for (const branch of node.branches) {
+            collectWorkflowTreeActionIds(branch.sequence, actionIds)
+        }
+    }
+}
+
+export function computeMoveTreeBranchEdges(
+    workflow: Pick<HogFlow, 'actions' | 'edges'>,
+    movingActionId: string,
+    targetEdge: HogFlowEdge,
+    isBranchJoinDropzone: boolean
+): HogFlow['edges'] | null {
+    const branchNode = findWorkflowTreeNode(buildWorkflowTree(workflow), movingActionId)
+    const joinActionId = branchNode?.joinActionId
+
+    if (!branchNode || !joinActionId) {
+        return null
+    }
+
+    const movedActionIds = new Set([movingActionId])
+    for (const branch of branchNode.branches) {
+        collectWorkflowTreeActionIds(branch.sequence, movedActionIds)
+    }
+
+    if (movedActionIds.has(targetEdge.from) || movedActionIds.has(targetEdge.to)) {
+        return null
+    }
+
+    const terminalEdges = workflow.edges.filter((edge) => movedActionIds.has(edge.from) && edge.to === joinActionId)
+    if (terminalEdges.length === 0 || !workflow.edges.some((edge) => edge.to === movingActionId)) {
+        return null
+    }
+
+    let newEdges = workflow.edges.map((edge) => (edge.to === movingActionId ? { ...edge, to: joinActionId } : edge))
+
+    const targetEdgeIndexes = isBranchJoinDropzone
+        ? newEdges
+              .map((edge, index) => ({ edge, index }))
+              .filter(({ edge }) => edge.to === targetEdge.to && !movedActionIds.has(edge.from))
+              .map(({ index }) => index)
+        : [
+              newEdges.findIndex(
+                  (edge) =>
+                      edge.from === targetEdge.from && edge.type === targetEdge.type && edge.index === targetEdge.index
+              ),
+          ]
+
+    if (targetEdgeIndexes.length === 0 || targetEdgeIndexes.includes(-1)) {
+        return null
+    }
+
+    const edgesToSplit = targetEdgeIndexes.map((index) => newEdges[index])
+    const insertionTarget = edgesToSplit[0].to
+    targetEdgeIndexes.sort((left, right) => right - left).forEach((index) => newEdges.splice(index, 1))
+
+    const terminalEdgeSet = new Set(terminalEdges)
+    newEdges = newEdges.map((edge) => (terminalEdgeSet.has(edge) ? { ...edge, to: insertionTarget } : edge))
+    newEdges.push(...edgesToSplit.map((edge) => ({ ...edge, to: movingActionId })))
+
+    return newEdges
+}

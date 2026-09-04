@@ -1,5 +1,5 @@
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
-import { buildWorkflowTree } from './workflowTree'
+import { buildWorkflowTree, computeMoveTreeBranchEdges } from './workflowTree'
 
 const action = (id: string, type: HogFlowAction['type'] = 'function'): HogFlowAction =>
     ({ id, type, name: id, description: '', config: {} }) as HogFlowAction
@@ -86,6 +86,39 @@ describe('buildWorkflowTree', () => {
         expect(tree.nodes[1].branches.map((branch) => branch.sequence.nodes.map((node) => node.action.id))).toEqual([
             ['left-exit'],
             ['right-exit'],
+        ])
+    })
+
+    it('moves a branching action with all of its paths', () => {
+        const workflowWithJoin = workflow(
+            [
+                action('trigger', 'trigger'),
+                action('condition', 'conditional_branch'),
+                action('yes'),
+                action('no'),
+                action('shared'),
+                action('after'),
+                action('exit', 'exit'),
+            ],
+            [
+                edge('trigger', 'condition'),
+                edge('condition', 'yes', 'branch', 0),
+                edge('condition', 'no'),
+                edge('yes', 'shared'),
+                edge('no', 'shared'),
+                edge('shared', 'after'),
+                edge('after', 'exit'),
+            ]
+        )
+
+        expect(computeMoveTreeBranchEdges(workflowWithJoin, 'condition', edge('shared', 'after'), false)).toEqual([
+            edge('trigger', 'shared'),
+            edge('condition', 'yes', 'branch', 0),
+            edge('condition', 'no'),
+            edge('yes', 'after'),
+            edge('no', 'after'),
+            edge('after', 'exit'),
+            edge('shared', 'condition'),
         ])
     })
 })
