@@ -14,6 +14,7 @@ import {
   type CanvasV2Snapshot,
   type CanvasV2Theme,
   type CanvasV2Viewport,
+  estimateJsonBytes,
   fragmentsEqual,
   type HostToBoardFrameMessage,
   isField,
@@ -181,7 +182,14 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
       for (const fragment of next.fragments) {
         const before = previousFragments.get(fragment.id);
         if (before && fragmentsEqual(before, fragment)) continue;
-        post({ channel: CANVAS_V2_CHANNEL, type: "upsert-fragment", fragment });
+        post({
+          channel: CANVAS_V2_CHANNEL,
+          type: "upsert-fragment",
+          fragment:
+            before?.code === fragment.code
+              ? { ...fragment, code: undefined }
+              : fragment,
+        });
       }
       const nextIds = new Set(next.fragments.map((fragment) => fragment.id));
       for (const id of previousFragments.keys()) {
@@ -281,7 +289,10 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
     ): Promise<void> => {
       if (
         activeRequests >= MAX_PENDING_DATA_REQUESTS ||
-        !isBoundedPayload(message.payload)
+        estimateJsonBytes(message.payload) >
+          (message.method === "stateEditText"
+            ? 2 * 1024 * 1024
+            : MAX_DATA_REQUEST_BYTES)
       ) {
         reply(message.id, false, undefined, BOARD_TOO_MANY_READS_AT_ONCE);
         return;
@@ -439,13 +450,5 @@ function stableJson(value: unknown): string {
     return JSON.stringify(value ?? null) ?? "null";
   } catch {
     return "null";
-  }
-}
-
-function isBoundedPayload(payload: unknown): boolean {
-  try {
-    return JSON.stringify(payload ?? null).length <= MAX_DATA_REQUEST_BYTES;
-  } catch {
-    return false;
   }
 }

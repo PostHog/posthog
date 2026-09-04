@@ -1602,6 +1602,10 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
     const upsert = (fragment) => {
       if (!fragment || typeof fragment.id !== "string") return;
       let entry = fragments.get(fragment.id);
+      if (fragment.code === undefined) {
+        if (!entry) return;
+        fragment = { ...fragment, code: entry.code };
+      }
       if (!entry) {
         const el = document.createElement("div");
         el.className = "fragment";

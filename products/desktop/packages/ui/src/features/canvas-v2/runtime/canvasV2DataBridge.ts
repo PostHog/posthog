@@ -73,19 +73,10 @@ interface BoardBudget {
   waiting: (() => void)[];
 }
 
-interface BoardFieldMemory {
-  /** Never restarts, so one client never writes an entry id twice. */
-  counter: number;
-  fields: Map<string, CanvasV2Field>;
-}
-
-// The board snapshot reaches this file through React, so it can be one
-// keystroke behind. The last field this bridge built is merged into it, which
-// is safe because the entries commute.
-const boards = new Map<string, BoardFieldMemory>();
 const budgets = new Map<string, BoardBudget>();
 
 const BRIDGE_CLIENT_ID = globalThis.crypto.randomUUID().replace(/-/g, "");
+let entryCounter = 0;
 
 const SEED_KEY_HEAD = "d";
 const SEED_KEY_WIDTH = 4;
@@ -224,7 +215,14 @@ function editText(
   spendWrite(ctx);
   const key = readKey(payload, "ph.state.editText(key, edit) requires a key");
   const input = (payload ?? {}) as CanvasV2TextEditPayload;
-  const memory = memoryOf(ctx.boardId);
+  const next = readString(input.next);
+  if (
+    next.length > CANVAS_V2_FIELD_MAX_ENTRIES * 2 ||
+    (next.length > CANVAS_V2_FIELD_MAX_ENTRIES &&
+      Array.from(next).length > CANVAS_V2_FIELD_MAX_ENTRIES)
+  ) {
+    throw new Error(SHARED_TEXT_FULL);
+  }
   const field = readyField(ctx, key, "text");
   // One id per character, or the frame edited a text this field never held.
   const sent = {
@@ -236,14 +234,14 @@ function editText(
   const diff = diffTextToOps({
     base: base.text,
     baseIds: base.ids,
-    next: readString(input.next),
+    next,
     field,
     key,
     clientId: BRIDGE_CLIENT_ID,
-    counterStart: memory.counter,
+    counterStart: entryCounter,
   });
   refuseWhenFull(field, diff.ops);
-  memory.counter = diff.counterEnd;
+  entryCounter = diff.counterEnd;
   const after = commit(ctx, key, field, diff.ops);
   const view = materializeText(after);
   ctx.reportCaret(caretOf(key, view.ids, input.caret));
@@ -258,7 +256,7 @@ function editList(
   const key = readKey(payload, "ph.state.editList(key, edit) requires a key");
   const input = (payload ?? {}) as CanvasV2ListEditPayload;
   const field = readyField(ctx, key, "list");
-  const ops = listOps(ctx, key, field, input);
+  const ops = listOps(key, field, input);
   refuseWhenFull(field, ops);
   const after = commit(ctx, key, field, ops);
   return { items: materializeList(after) };
@@ -285,12 +283,10 @@ function idAt(ids: string[], offset: unknown): string | null {
 }
 
 function listOps(
-  ctx: CanvasV2DataBridgeContext,
   key: string,
   field: CanvasV2Field,
   input: CanvasV2ListEditPayload,
 ): CanvasV2Op[] {
-  const memory = memoryOf(ctx.boardId);
   const rows = fieldOrder(field);
   const insert: NonNullable<
     Extract<CanvasV2Op, { type: "edit_field" }>["insert"]
@@ -311,7 +307,7 @@ function listOps(
     const left = after >= 0 ? rows[after].entry.k : null;
     const right = after + 1 < rows.length ? rows[after + 1].entry.k : null;
     const entry = { k: keyBetween(left, right), v: change.value };
-    const id = newEntryId(BRIDGE_CLIENT_ID, memory.counter++);
+    const id = newEntryId(BRIDGE_CLIENT_ID, entryCounter++);
     rows.splice(after + 1, 0, { id, entry });
     insert.push({ id, k: entry.k, v: change.value });
   }
@@ -338,7 +334,6 @@ function commit(
 ): CanvasV2Field {
   if (ops.length === 0) return field;
   const after = foldField(key, field, ops);
-  memoryOf(ctx.boardId).fields.set(key, after);
   ctx.applyLocal(ops);
   return after;
 }
@@ -366,24 +361,21 @@ function readyField(
   key: string,
   kind: CanvasV2FieldKind,
 ): CanvasV2Field {
-  const memory = memoryOf(ctx.boardId);
   const live = ctx.getSnapshot().state[key];
-  if (!isField(live) && memory.fields.get(key) === undefined) {
+  if (!isField(live)) {
     const ops = seedOps(key, kind, live);
     if (ops.length > 0) {
       const opIds = ops.map((_, index) =>
         index === 0 ? `seed:${key}` : `seed:${key}:${index}`,
       );
       const seeded = foldField(key, emptyField(kind), ops);
-      memory.fields.set(key, seeded);
       ctx.applyLocal(ops, opIds);
       return seeded;
     }
   }
-  const base = isField(live) ? live : emptyField(kind);
-  const cached = memory.fields.get(key);
-  const merged = cached === undefined ? base : mergeFields(base, cached);
-  return merged[CANVAS_V2_FIELD_MARK] === kind ? merged : emptyField(kind);
+  return isField(live) && live[CANVAS_V2_FIELD_MARK] === kind
+    ? live
+    : emptyField(kind);
 }
 
 /**
@@ -443,25 +435,6 @@ function foldField(
   for (const op of ops) carrier = applyOp(carrier, op);
   const next = carrier.state[key];
   return isField(next) ? next : field;
-}
-
-function mergeFields(base: CanvasV2Field, extra: CanvasV2Field): CanvasV2Field {
-  const removed = new Set([...base.removed, ...extra.removed]);
-  const entries = { ...base.entries, ...extra.entries };
-  for (const id of removed) delete entries[id];
-  return {
-    [CANVAS_V2_FIELD_MARK]: base[CANVAS_V2_FIELD_MARK],
-    entries,
-    removed: [...removed].slice(-CANVAS_V2_FIELD_MAX_REMOVED),
-  };
-}
-
-function memoryOf(boardId: string): BoardFieldMemory {
-  const found = boards.get(boardId);
-  if (found !== undefined) return found;
-  const memory: BoardFieldMemory = { counter: 0, fields: new Map() };
-  boards.set(boardId, memory);
-  return memory;
 }
 
 function readString(value: unknown): string {

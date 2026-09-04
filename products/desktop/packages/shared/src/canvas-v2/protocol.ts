@@ -69,7 +69,7 @@ export const hostToBoardFrameMessageSchema = z.discriminatedUnion("type", [
   z.object({
     channel,
     type: z.literal("upsert-fragment"),
-    fragment: canvasV2FragmentSchema,
+    fragment: canvasV2FragmentSchema.partial({ code: true }),
   }),
   z.object({ channel, type: z.literal("remove-fragment"), id: z.string() }),
   z.object({

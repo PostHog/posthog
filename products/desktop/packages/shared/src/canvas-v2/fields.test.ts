@@ -6,6 +6,7 @@ import {
   isField,
   keyBetween,
   materializeText,
+  newEntryId,
 } from "./fields";
 import { applyOp } from "./ops";
 import { type CanvasV2Snapshot, emptyCanvasV2Snapshot } from "./schemas";
@@ -57,6 +58,23 @@ function typeInto(
 }
 
 describe("canvas v2 fields", () => {
+  it("keeps inserts from sessions with the same short prefix", () => {
+    let snapshot = emptyCanvasV2Snapshot();
+    for (const [clientId, value] of [
+      ["abcdef11111111111111111111111111", "A"],
+      ["abcdef22222222222222222222222222", "B"],
+    ]) {
+      snapshot = applyOp(snapshot, {
+        type: "edit_field",
+        key: "note",
+        kind: "text",
+        insert: [{ id: newEntryId(clientId, 0), k: "a0", v: value }],
+      });
+    }
+    expect(materializeText(snapshot.state.note as CanvasV2Field).text).toBe(
+      "AB",
+    );
+  });
   it("puts a key between two neighbors", () => {
     const a = keyBetween(null, null);
     const b = keyBetween(a, null);

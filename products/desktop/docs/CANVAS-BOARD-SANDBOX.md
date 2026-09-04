@@ -113,6 +113,13 @@ The frame has a bounded compile cache for identical source. The cache holds at
 most 2,097,152 characters of source and output. Modules remain separate for
 each fragment, so their module state is not shared. Custom code still runs while
 its fragment is outside the visible area; this change does not suspend effects.
+The host sends source code to the frame only for new fragments or source changes.
+Moves and size changes reuse the source already in the frame.
+
+Shared-field edits read the current sync state, without a second field cache.
+Entry IDs keep the full random client ID to prevent collisions between users.
+Text requests allow up to 2 MiB for text and entry IDs. The text limit remains
+20,000 characters. Other data requests keep the 64 KiB limit.
 
 Cursor coordinates are rounded to world units. Presence uses one request at a
 time and sends at most ten requests per second, including selection and caret

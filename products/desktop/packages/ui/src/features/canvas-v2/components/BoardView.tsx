@@ -118,6 +118,7 @@ export function BoardView({
     [currentUser.data],
   );
   const { state, client } = useBoardSync(boardId, api, actorUser);
+  const getSnapshot = useCallback(() => client.getState().snapshot, [client]);
 
   useBoardCache(boardId, state);
 
@@ -389,6 +390,7 @@ export function BoardView({
               boardId={boardId}
               paneRef={paneRef}
               snapshot={state.snapshot}
+              getSnapshot={getSnapshot}
               viewport={viewport}
               setViewport={setViewport}
               applyLocal={applyLocal}

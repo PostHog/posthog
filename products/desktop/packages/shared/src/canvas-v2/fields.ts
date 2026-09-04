@@ -88,7 +88,7 @@ export function materializeList<T>(
 }
 
 export function newEntryId(clientId: string, counter: number): string {
-  return `${clientId.slice(0, 6)}-${counter.toString(36)}`;
+  return `${clientId}-${counter.toString(36)}`;
 }
 
 /** Digits in ASCII order, so a plain `<` on two keys agrees with their value. */

@@ -56,6 +56,7 @@ export interface BoardStageProps {
   /** Owned by the caller, so the toolbar and the keyboard can measure the pane. */
   paneRef: React.RefObject<HTMLDivElement | null>;
   snapshot: CanvasV2Snapshot;
+  getSnapshot: () => CanvasV2Snapshot;
   viewport: CanvasV2Viewport;
   setViewport: (viewport: CanvasV2Viewport) => void;
   applyLocal: (ops: CanvasV2Op[], opIds?: string[]) => void;
@@ -82,6 +83,7 @@ export function BoardStage({
   boardId,
   paneRef,
   snapshot,
+  getSnapshot,
   viewport,
   setViewport,
   applyLocal,
@@ -118,16 +120,10 @@ export function BoardStage({
   const toggleSelection = useBoardViewStore((state) => state.toggleSelection);
   const clearSelection = useBoardViewStore((state) => state.clearSelection);
 
-  const snapshotRef = useRef(snapshot);
-  snapshotRef.current = snapshot;
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
-  const getSnapshot = useCallback(
-    (): CanvasV2Snapshot => snapshotRef.current,
-    [],
-  );
   const getSelectedIds = useCallback(
     (): readonly string[] => selectedIdsRef.current,
     [],
@@ -189,7 +185,7 @@ export function BoardStage({
     events: {
       onExitFocus: () => setFocusedId(null),
       onReady: () => {
-        syncedSnapshot.current = snapshotRef.current;
+        syncedSnapshot.current = getSnapshot();
         frameRef.current?.sendInit(viewportRef.current);
         frameRef.current?.setFocus(focusedRef.current);
       },
@@ -308,7 +304,7 @@ export function BoardStage({
 
   const bringToFront = useCallback(
     (id: string): void => {
-      const current = snapshotRef.current;
+      const current = getSnapshot();
       const targets = targetsOf(id)
         .map((target) => current.fragments.find((f) => f.id === target))
         .filter((fragment): fragment is CanvasV2Fragment => Boolean(fragment))
@@ -321,7 +317,7 @@ export function BoardStage({
         })),
       );
     },
-    [applyLocal, targetsOf],
+    [applyLocal, getSnapshot, targetsOf],
   );
 
   const removeFragment = useCallback(
@@ -339,7 +335,7 @@ export function BoardStage({
 
   const duplicateFragment = useCallback(
     (id: string): void => {
-      const current = snapshotRef.current;
+      const current = getSnapshot();
       const taken = new Set(current.fragments.map((fragment) => fragment.id));
       const ops: CanvasV2Op[] = [];
       const copyIds: string[] = [];
@@ -368,7 +364,7 @@ export function BoardStage({
       applyLocal(ops);
       setSelection(copyIds);
     },
-    [applyLocal, setSelection, targetsOf],
+    [applyLocal, getSnapshot, setSelection, targetsOf],
   );
 
   const toWorld = useCallback(
