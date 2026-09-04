@@ -1,39 +1,38 @@
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { captureSurveyResponse, layout } = vi.hoisted(() => ({
+const { captureSurveyResponse, toastSuccess } = vi.hoisted(() => ({
   captureSurveyResponse: vi.fn(),
-  layout: { enabled: false },
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ captureSurveyResponse }));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
-  useChannelsLayout: () => layout.enabled,
+vi.mock("@posthog/ui/primitives/toast", () => ({
+  toast: { success: toastSuccess },
+}));
+vi.mock("@posthog/ui/router/useAppView", () => ({
+  getAppViewSnapshot: () => ({ type: "task-detail", taskId: "task-123" }),
 }));
 
 import { FeedbackModal, type FeedbackModalMode } from "./FeedbackModal";
 
 function renderModal(mode: FeedbackModalMode | null, onFinished = vi.fn()) {
-  render(
-    <Theme>
-      <FeedbackModal mode={mode} onFinished={onFinished} />
-    </Theme>,
-  );
+  render(<FeedbackModal mode={mode} onFinished={onFinished} />);
   return onFinished;
 }
 
 describe("FeedbackModal", () => {
   beforeEach(() => {
     captureSurveyResponse.mockReset();
-    layout.enabled = false;
+    toastSuccess.mockReset();
   });
 
-  it("uses the Spaces prompt when the layout is enabled", () => {
-    layout.enabled = true;
+  it("asks for Desktop feedback", () => {
     renderModal("feedback");
-    expect(screen.getByText(/How's the Spaces experience/)).toBeInTheDocument();
+    expect(
+      screen.getByText("What should we improve in PostHog Desktop?"),
+    ).toBeInTheDocument();
   });
 
   it.each([
@@ -56,32 +55,37 @@ describe("FeedbackModal", () => {
     const user = userEvent.setup();
     renderModal("feedback");
     const submit = screen.getByRole("button", { name: "Send feedback" });
-    // The quill Button signals disabled state via aria-disabled, not the native attr.
     expect(submit).toHaveAttribute("aria-disabled", "true");
 
     await user.type(screen.getByPlaceholderText("Share your feedback"), "hi");
     expect(submit).not.toHaveAttribute("aria-disabled", "true");
   });
 
-  it("captures the trimmed response with its source and finishes on submit", async () => {
+  it("captures the response with its source and safe page context", async () => {
     const user = userEvent.setup();
-    const onFinished = renderModal("posthog-web");
+    const onFinished = renderModal("feedback");
 
     await user.type(
       screen.getByPlaceholderText("Share your feedback"),
-      "  great work  ",
+      "  improve search  ",
     );
     await user.click(screen.getByRole("button", { name: "Send feedback" }));
 
-    expect(captureSurveyResponse).toHaveBeenCalledTimes(1);
     expect(captureSurveyResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         responses: [
-          expect.objectContaining({ response: "great work" }),
-          expect.objectContaining({ response: "Visiting PostHog web" }),
+          expect.objectContaining({ response: "improve search" }),
+          expect.objectContaining({
+            response: "Generic (Leave feedback button)",
+          }),
         ],
+        additionalProperties: {
+          feedback_view: "task-detail",
+          feedback_task_id: "task-123",
+        },
       }),
     );
+    expect(toastSuccess).toHaveBeenCalledWith("Feedback sent");
     expect(onFinished).toHaveBeenCalledTimes(1);
   });
 

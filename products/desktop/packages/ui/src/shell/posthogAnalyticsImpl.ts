@@ -347,15 +347,18 @@ export function track<K extends keyof EventPropertyMap>(
 export function captureSurveyResponse({
   surveyId,
   responses,
+  additionalProperties,
 }: {
   surveyId: string;
   responses: Array<{ questionId: string; response: string }>;
+  additionalProperties?: Record<string, string>;
 }) {
   if (!isInitialized) {
     return;
   }
 
   const properties: Record<string, unknown> = {
+    ...additionalProperties,
     $survey_id: surveyId,
     $survey_questions: responses.map(({ questionId }) => ({ id: questionId })),
   };

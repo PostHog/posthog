@@ -21,10 +21,6 @@ import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
-import {
-  FeedbackModal,
-  type FeedbackModalMode,
-} from "@posthog/ui/features/canvas/components/FeedbackModal";
 import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
@@ -42,6 +38,10 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import {
+  FeedbackModal,
+  type FeedbackModalMode,
+} from "@posthog/ui/features/feedback/FeedbackModal";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";

@@ -2,6 +2,7 @@ import {
   Archive,
   ArrowSquareOut,
   Buildings,
+  ChatCircleDots,
   DiscordLogo,
   FolderSimple,
   Gear,
@@ -41,6 +42,7 @@ import {
 } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { FeedbackModal } from "@posthog/ui/features/feedback/FeedbackModal";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
@@ -74,6 +76,7 @@ export function ProjectSwitcher({
   onNavigateToSettings,
 }: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const holdPeek = useHoldSidebarPeek();
   const handleOpenChange = (next: boolean): void => {
@@ -207,6 +210,11 @@ export function ProjectSwitcher({
   const handleViewChangelog = () => {
     useWhatsNewStore.getState().open();
     setPopoverOpen(false);
+  };
+
+  const handleFeedback = () => {
+    setPopoverOpen(false);
+    setFeedbackOpen(true);
   };
 
   const handleLogout = () => {
@@ -351,6 +359,11 @@ export function ProjectSwitcher({
               View changelog
             </DropdownMenuItem>
 
+            <DropdownMenuItem onClick={handleFeedback}>
+              <ChatCircleDots size={14} className="text-gray-11" />
+              Send feedback…
+            </DropdownMenuItem>
+
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Info size={14} className="text-gray-11" />
@@ -405,6 +418,10 @@ export function ProjectSwitcher({
           </Box>
         </Box>
       </DropdownMenuContent>
+      <FeedbackModal
+        mode={feedbackOpen ? "feedback" : null}
+        onFinished={() => setFeedbackOpen(false)}
+      />
     </DropdownMenu>
   );
 }

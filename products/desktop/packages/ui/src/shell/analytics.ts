@@ -33,6 +33,7 @@ export interface AnalyticsTracker {
   captureSurveyResponse(params: {
     surveyId: string;
     responses: Array<{ questionId: string; response: string }>;
+    additionalProperties?: Record<string, string>;
   }): void;
 }
 
@@ -82,6 +83,7 @@ export function resetUser(): void {
 export function captureSurveyResponse(params: {
   surveyId: string;
   responses: Array<{ questionId: string; response: string }>;
+  additionalProperties?: Record<string, string>;
 }): void {
   resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).captureSurveyResponse(
     params,
