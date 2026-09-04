@@ -6,9 +6,11 @@ from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
     _render_signal_for_research,
+    build_actionability_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
+    build_supersede_prompt,
 )
 from products.signals.backend.temporal.types import SignalData
 
@@ -185,3 +187,25 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+
+class TestOwnPullRequestCarveOut:
+    _PR = "https://github.com/PostHog/posthog/pull/7"
+
+    def test_actionability_prompt_exempts_the_report_own_pr(self):
+        # On a re-research the in-flight check finds the draft PR this report opened last pass. Read
+        # as somebody else's work it makes the report already_addressed, and superseding never fires.
+        prompt = build_actionability_prompt(2, own_pr_url=self._PR)
+        assert self._PR in prompt
+        assert "never counts as `already_addressed`" in prompt
+
+    def test_actionability_prompt_says_nothing_without_a_pr(self):
+        prompt = build_actionability_prompt(2)
+        assert "already_addressed`" in prompt  # the general guidance survives
+        assert "github.com" not in prompt
+
+    def test_supersede_prompt_names_the_pr_and_the_summary_it_was_built_from(self):
+        prompt = build_supersede_prompt(self._PR, "the previous summary")
+        assert self._PR in prompt
+        assert "the previous summary" in prompt
+        assert "`supersede`" in prompt

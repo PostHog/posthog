@@ -209,3 +209,63 @@ class TestCloseImplementationPrForReport(BaseTest):
             assert close_implementation_pr_for_report(self.team.id, "report-1") is False
         github.comment_on_pull_request.assert_not_called()
         github.close_pull_request.assert_not_called()
+
+
+_REPLACEMENT_PR_URL = "https://github.com/PostHog/posthog/pull/456"
+
+
+class TestSupersededPrClose(BaseTest):
+    """Superseding closes the PR the caller names, not the one the report currently surfaces."""
+
+    def _github(self) -> MagicMock:
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
+        return github
+
+    def test_closes_the_named_pr_and_points_at_its_replacement(self):
+        github = self._github()
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
+                return_value={"report-1": _REPLACEMENT_PR_URL},
+            ) as mock_fetch,
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            closed = close_implementation_pr_for_report(
+                self.team.id,
+                "report-1",
+                reason="superseded",
+                pr_url=_PR_URL,
+                replacement_pr_url=_REPLACEMENT_PR_URL,
+            )
+
+        assert closed is True
+        # Resolving the report's PR here would close the replacement: by this point it is the PR the
+        # report surfaces. Passing the URL is what keeps the handover pointed at the old one.
+        mock_fetch.assert_not_called()
+        github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert _REPLACEMENT_PR_URL in comment_body
+        assert "superseded" not in comment_body
+        # Closing the replacement is the one undo the comment must never offer: the replacement is
+        # the report's newest implementation task, so closing it unmerged archives a report that is
+        # still being worked.
+        assert "Leave the replacement open" in comment_body
+
+    def test_superseded_comment_stands_alone_without_a_replacement_url(self):
+        github = self._github()
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            close_implementation_pr_for_report(self.team.id, "report-1", reason="superseded", pr_url=_PR_URL)
+
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert "a new PR replaces this one" in comment_body

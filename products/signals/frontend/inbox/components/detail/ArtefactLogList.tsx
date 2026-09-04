@@ -12,6 +12,7 @@ import {
     IconListTreeConnected,
     IconPeople,
     IconPencil,
+    IconRefresh,
     IconSearch,
     IconShield,
     IconTerminal,
@@ -44,6 +45,7 @@ import {
     CodeReferenceContent,
     CommitContent,
     DismissalContent,
+    ImplementationDecisionContent,
     LineReferenceContent,
     NoteContent,
     RelatedToContent,
@@ -128,6 +130,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
     code_review: IconListCheck,
+    implementation_decision: IconRefresh,
 }
 
 function dismissReasonLabel(reason: string): string {
@@ -384,6 +387,17 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'implementation_decision': {
+            const supersede = (content as ImplementationDecisionContent).supersede
+            if (typeof supersede !== 'boolean') {
+                return null
+            }
+            return (
+                <LemonTag size="small" type={supersede ? 'warning' : 'muted'}>
+                    {supersede ? 'Replaced' : 'Still the right fix'}
+                </LemonTag>
+            )
+        }
         default:
             return null
     }
@@ -462,6 +476,10 @@ function renderArtefactBody({
         case 'dismissal': {
             const c = content as DismissalContent
             return c.note ? <RelevanceNote note={c.note} /> : null
+        }
+        case 'implementation_decision': {
+            const c = content as ImplementationDecisionContent
+            return c.reason?.trim() ? <ReasoningBody text={c.reason} /> : null
         }
         default: {
             const value = (content as { content?: unknown })?.content

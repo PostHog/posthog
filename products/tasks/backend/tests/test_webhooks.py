@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from contextlib import ExitStack
 from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
@@ -807,6 +808,43 @@ class TestGitHubPRWebhook(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.output, {})
+
+    @parameterized.expand([("write_succeeds", True), ("write_fails", False)])
+    @patch("products.tasks.backend.webhooks._close_superseded_signal_report_prs")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_hands_over_only_once_the_pr_url_is_recorded(
+        self, _name, url_recorded, mock_capture, mock_get_secret, mock_handover
+    ):
+        # `_record_run_pr_url` swallows a failed write, and a report surfaces its PR from `output`.
+        # Closing the older PR without the replacement's URL on the run leaves the report linked to
+        # the closed PR with the replacement open and unlinked.
+        mock_get_secret.return_value = self.webhook_secret
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/handover",
+            output={},
+        )
+        pr_url = "https://github.com/posthog/posthog/pull/781"
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": False,
+                "head": {"ref": "feature/handover", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        with ExitStack() as stack:
+            if not url_recorded:
+                stack.enter_context(patch("products.tasks.backend.webhooks._append_run_pr_url", return_value=False))
+            response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_handover.called, url_recorded)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
