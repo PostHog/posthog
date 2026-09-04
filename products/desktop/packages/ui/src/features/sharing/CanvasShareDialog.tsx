@@ -13,6 +13,8 @@ import { useId } from "react";
 import { AccessSection } from "./AccessSection";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { PublicShareSection } from "./PublicShareSection";
+import { publicLinkHasUnpublishedChanges } from "./publicLink";
+import { ShareDialog } from "./ShareDialog";
 import type { ShareSurface, ShareVisibility } from "./shareTarget";
 import { useCanvasSharingQuery, useSetCanvasSharing } from "./useCanvasSharing";
 
@@ -30,7 +32,6 @@ export interface CanvasShareBodyViewProps {
   /** A build newer than the one the public link is pinned to is published. */
   newerVersionPublished: boolean;
   onToggle: (enabled: boolean) => void;
-  onUpdateLink: () => void;
   onAllowForkingChange: (allow: boolean) => void;
   onLinkCopied?: (success: boolean) => void;
   onForkLinkCopied?: (success: boolean) => void;
@@ -50,7 +51,6 @@ export function CanvasShareBodyView({
   disabledReason,
   newerVersionPublished,
   onToggle,
-  onUpdateLink,
   onAllowForkingChange,
   onLinkCopied,
   onForkLinkCopied,
@@ -90,22 +90,16 @@ export function CanvasShareBodyView({
             dataAttrPrefix="share-canvas"
             onToggle={onToggle}
           >
-            <div className="flex items-center justify-between gap-3">
-              <Text size="xs" variant="muted">
-                {newerVersionPublished
-                  ? "A newer version is published. The link still shows the version you shared."
-                  : "The link shows the latest published version."}
-              </Text>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={isPending || !newerVersionPublished}
-                onClick={onUpdateLink}
-                data-attr="share-canvas-update-public-link"
+            {newerVersionPublished && (
+              <Text
+                size="xs"
+                variant="muted"
+                data-attr="share-canvas-newer-version"
               >
-                Update public link
-              </Button>
-            </div>
+                A newer version is published. The public link still shows the
+                version you shared.
+              </Text>
+            )}
             <div className="flex items-start gap-3">
               <Switch
                 id={allowForkingId}
@@ -129,14 +123,18 @@ export function CanvasShareBodyView({
   );
 }
 
-export function CanvasShareBody({
+export function CanvasShareDialog({
   channelId,
   dashboardId,
+  name,
   surface,
+  onClose,
 }: {
   channelId: string;
   dashboardId: string;
+  name: string;
   surface: ShareSurface;
+  onClose: () => void;
 }) {
   const { channels, isLoading: channelsLoading } = useChannels();
   const channel = channels.find((candidate) => candidate.id === channelId);
@@ -161,66 +159,82 @@ export function CanvasShareBody({
   const { setEnabled, updateLink, setAllowForking, isPending } =
     useSetCanvasSharing(dashboardId);
   const newerVersionPublished =
-    !!sharing.data?.enabled &&
-    !!dashboard?.publishedBuildId &&
-    dashboard.sharedBuildId !== dashboard.publishedBuildId;
+    !!sharing.data?.enabled && publicLinkHasUnpublishedChanges(dashboard);
   const analytics = {
     surface,
     channel_id: channelId,
     dashboard_id: dashboardId,
   };
+  const publishChanges = () =>
+    void updateLink().then((result) =>
+      track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+        action_type: "public_link_updated",
+        ...analytics,
+        success: result !== null,
+      }),
+    );
 
   return (
-    <CanvasShareBodyView
-      appUrl={canvasShareUrl(channelId, dashboardId)}
-      forkUrl={canvasForkUrl(channelId, dashboardId)}
-      publicUrl={
-        sharing.data?.accessToken
-          ? sharedResourceUrl(sharing.data.accessToken)
-          : null
+    <ShareDialog
+      title="Share canvas"
+      description={name}
+      onClose={onClose}
+      action={
+        newerVersionPublished ? (
+          <Button
+            variant="primary"
+            size="sm"
+            loading={isPending}
+            onClick={publishChanges}
+            data-attr="share-canvas-publish-changes"
+          >
+            Publish changes
+          </Button>
+        ) : null
       }
-      visibility={visibility}
-      isPubliclyShareable={isPubliclyShareable}
-      sharing={sharing.data}
-      isLoading={sharing.isLoading}
-      isError={sharing.isError}
-      isPending={isPending}
-      disabledReason={disabledReason}
-      newerVersionPublished={newerVersionPublished}
-      onToggle={(enabled) =>
-        void setEnabled(enabled).then((result) =>
+    >
+      <CanvasShareBodyView
+        appUrl={canvasShareUrl(channelId, dashboardId)}
+        forkUrl={canvasForkUrl(channelId, dashboardId)}
+        publicUrl={
+          sharing.data?.accessToken
+            ? sharedResourceUrl(sharing.data.accessToken)
+            : null
+        }
+        visibility={visibility}
+        isPubliclyShareable={isPubliclyShareable}
+        sharing={sharing.data}
+        isLoading={sharing.isLoading}
+        isError={sharing.isError}
+        isPending={isPending}
+        disabledReason={disabledReason}
+        newerVersionPublished={newerVersionPublished}
+        onToggle={(enabled) =>
+          void setEnabled(enabled).then((result) =>
+            track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+              action_type: "public_share_toggled",
+              ...analytics,
+              public: enabled,
+              success: result !== null,
+            }),
+          )
+        }
+        onAllowForkingChange={(checked) => void setAllowForking(checked)}
+        onLinkCopied={(success) =>
           track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-            action_type: "public_share_toggled",
+            action_type: "link_copied",
             ...analytics,
-            public: enabled,
-            success: result !== null,
-          }),
-        )
-      }
-      onUpdateLink={() =>
-        void updateLink().then((result) =>
+            success,
+          })
+        }
+        onForkLinkCopied={(success) =>
           track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-            action_type: "public_link_updated",
+            action_type: "fork_link_copied",
             ...analytics,
-            success: result !== null,
-          }),
-        )
-      }
-      onAllowForkingChange={(checked) => void setAllowForking(checked)}
-      onLinkCopied={(success) =>
-        track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-          action_type: "link_copied",
-          ...analytics,
-          success,
-        })
-      }
-      onForkLinkCopied={(success) =>
-        track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-          action_type: "fork_link_copied",
-          ...analytics,
-          success,
-        })
-      }
-    />
+            success,
+          })
+        }
+      />
+    </ShareDialog>
   );
 }

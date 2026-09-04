@@ -62,6 +62,7 @@ import {
   MentionAvailabilityProvider,
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
+import { publicLinkHasUnpublishedChanges } from "@posthog/ui/features/sharing/publicLink";
 import { ShareModal } from "@posthog/ui/features/sharing/ShareModal";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -97,6 +98,7 @@ function FreeformEditControls({
   const { dashboard } = useDashboard(dashboardId);
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
+  const linkNeedsPublish = publicLinkHasUnpublishedChanges(dashboard);
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
   // its version history go away for everyone in the space.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -196,9 +198,20 @@ function FreeformEditControls({
             <Button
               variant="outline"
               size="icon-sm"
-              aria-label="Canvas options"
+              className="relative"
+              aria-label={
+                linkNeedsPublish
+                  ? "Canvas options, changes ready to publish to the public link"
+                  : "Canvas options"
+              }
             >
               <DotsThreeIcon size={16} weight="bold" />
+              {linkNeedsPublish && (
+                <span
+                  aria-hidden
+                  className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-red-9 ring-2 ring-background"
+                />
+              )}
             </Button>
           }
         />
@@ -217,6 +230,12 @@ function FreeformEditControls({
           <DropdownMenuItem onClick={openShare} data-attr="canvas-share-open">
             <ShareNetworkIcon size={14} />
             Share…
+            {linkNeedsPublish && (
+              <span
+                aria-hidden
+                className="ml-2 size-1.5 rounded-full bg-red-9"
+              />
+            )}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() =>

@@ -28,6 +28,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { publicLinkHasUnpublishedChanges } from "@posthog/ui/features/sharing/publicLink";
 import { ShareModal } from "@posthog/ui/features/sharing/ShareModal";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
@@ -146,6 +147,7 @@ const DashboardCard = memo(function DashboardCard({
         id={summary.id}
         name={summary.name}
         channelId={channelId}
+        linkNeedsPublish={publicLinkHasUnpublishedChanges(summary)}
       />
     </Box>
   );
@@ -166,10 +168,13 @@ function DashboardCardMenu({
   id,
   name,
   channelId,
+  linkNeedsPublish,
 }: {
   id: string;
   name: string;
   channelId: string;
+  /** A newer version is published than the one the public link shows. */
+  linkNeedsPublish: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -208,9 +213,20 @@ function DashboardCardMenu({
             <Button
               variant="outline"
               size="sm"
-              aria-label={`Options for ${name}`}
+              className="relative"
+              aria-label={
+                linkNeedsPublish
+                  ? `Options for ${name}, changes ready to publish to the public link`
+                  : `Options for ${name}`
+              }
             >
               <DotsThreeIcon size={16} weight="bold" />
+              {linkNeedsPublish && (
+                <span
+                  aria-hidden
+                  className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-red-9 ring-2 ring-background"
+                />
+              )}
             </Button>
           }
         />
@@ -218,6 +234,12 @@ function DashboardCardMenu({
           <DropdownMenuItem onClick={openShare} data-attr="canvas-share-open">
             <ShareNetworkIcon size={14} />
             Share…
+            {linkNeedsPublish && (
+              <span
+                aria-hidden
+                className="ml-2 size-1.5 rounded-full bg-red-9"
+              />
+            )}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() =>

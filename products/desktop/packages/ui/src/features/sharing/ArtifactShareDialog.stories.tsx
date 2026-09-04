@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ArtifactShareBodyView } from "./ArtifactShareBody";
-import { ShareDialog } from "./ShareModal";
+import { ArtifactShareBodyView } from "./ArtifactShareDialog";
+import { ShareDialog } from "./ShareDialog";
 
 const meta: Meta<typeof ArtifactShareBodyView> = {
-  title: "Sharing/ArtifactShareBody",
+  title: "Sharing/ArtifactShareDialog",
   component: ArtifactShareBodyView,
   args: {
     appUrl:

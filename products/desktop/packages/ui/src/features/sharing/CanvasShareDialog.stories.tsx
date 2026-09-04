@@ -1,6 +1,7 @@
+import { Button } from "@posthog/quill";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CanvasShareBodyView } from "./CanvasShareBody";
-import { ShareDialog } from "./ShareModal";
+import { CanvasShareBodyView } from "./CanvasShareDialog";
+import { ShareDialog } from "./ShareDialog";
 
 const off = {
   enabled: false,
@@ -9,8 +10,15 @@ const off = {
   allowForking: false,
 };
 
+const on = {
+  enabled: true,
+  accessToken: "9f3c1b2a7d6e4f5a",
+  passwordRequired: false,
+  allowForking: true,
+};
+
 const meta: Meta<typeof CanvasShareBodyView> = {
-  title: "Sharing/CanvasShareBody",
+  title: "Sharing/CanvasShareDialog",
   component: CanvasShareBodyView,
   args: {
     appUrl: "https://us.posthog.com/desktop/canvas/space-42/canvas-7",
@@ -24,15 +32,23 @@ const meta: Meta<typeof CanvasShareBodyView> = {
     isPending: false,
     newerVersionPublished: false,
     onToggle: () => {},
-    onUpdateLink: () => {},
     onAllowForkingChange: () => {},
   },
+  // The dialog frame the container renders around the body, with the footer
+  // action it adds once a newer version is published.
   decorators: [
-    (Story) => (
+    (Story, context) => (
       <ShareDialog
         title="Share canvas"
         description="Revenue board"
         onClose={() => {}}
+        action={
+          context.args.newerVersionPublished ? (
+            <Button variant="primary" size="sm">
+              Publish changes
+            </Button>
+          ) : null
+        }
       >
         <Story />
       </ShareDialog>
@@ -46,29 +62,19 @@ type Story = StoryObj<typeof CanvasShareBodyView>;
 /** Sharing is off: the app link, the copy link, and who they work for. */
 export const PublicOff: Story = {};
 
-/** Sharing is on: the public link appears, with the toggle that lets viewers copy. */
+/** Sharing is on and current: the public link appears, with the toggle that lets viewers copy. */
 export const PublicOn: Story = {
   args: {
     publicUrl: "https://us.posthog.com/shared/9f3c1b2a7d6e4f5a",
-    sharing: {
-      enabled: true,
-      accessToken: "9f3c1b2a7d6e4f5a",
-      passwordRequired: false,
-      allowForking: true,
-    },
+    sharing: on,
   },
 };
 
-/** A publish landed after the link was shared, so the link can be moved to it. */
+/** A publish landed after the link was shared: a note in the body and a Publish changes button. */
 export const NewerVersionPublished: Story = {
   args: {
     publicUrl: "https://us.posthog.com/shared/9f3c1b2a7d6e4f5a",
-    sharing: {
-      enabled: true,
-      accessToken: "9f3c1b2a7d6e4f5a",
-      passwordRequired: false,
-      allowForking: true,
-    },
+    sharing: on,
     newerVersionPublished: true,
   },
 };

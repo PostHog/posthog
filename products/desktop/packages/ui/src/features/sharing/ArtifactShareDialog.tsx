@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AccessSection } from "./AccessSection";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { PublicShareSection } from "./PublicShareSection";
+import { ShareDialog } from "./ShareDialog";
 import type { ShareVisibility } from "./shareTarget";
 import {
   useArtifactSharingQuery,
@@ -63,12 +64,16 @@ export function ArtifactShareBodyView({
   );
 }
 
-export function ArtifactShareBody({
+export function ArtifactShareDialog({
   taskId,
   artifactId,
+  name,
+  onClose,
 }: {
   taskId: string;
   artifactId: string;
+  name: string;
+  onClose: () => void;
 }) {
   const task = useQuery(taskDetailQuery(taskId));
   const { channels, isLoading: channelsLoading } = useChannels();
@@ -86,19 +91,21 @@ export function ArtifactShareBody({
   const { setEnabled, isPending } = useSetArtifactSharing(taskId, artifactId);
 
   return (
-    <ArtifactShareBodyView
-      appUrl={artifactShareUrl(taskId, artifactId)}
-      publicUrl={
-        sharing.data?.accessToken
-          ? sharedResourceUrl(sharing.data.accessToken)
-          : null
-      }
-      visibility={visibility}
-      sharing={sharing.data}
-      isLoading={sharing.isLoading}
-      isError={sharing.isError}
-      isPending={isPending}
-      onToggle={(enabled) => void setEnabled(enabled)}
-    />
+    <ShareDialog title="Share file" description={name} onClose={onClose}>
+      <ArtifactShareBodyView
+        appUrl={artifactShareUrl(taskId, artifactId)}
+        publicUrl={
+          sharing.data?.accessToken
+            ? sharedResourceUrl(sharing.data.accessToken)
+            : null
+        }
+        visibility={visibility}
+        sharing={sharing.data}
+        isLoading={sharing.isLoading}
+        isError={sharing.isError}
+        isPending={isPending}
+        onToggle={(enabled) => void setEnabled(enabled)}
+      />
+    </ShareDialog>
   );
 }
