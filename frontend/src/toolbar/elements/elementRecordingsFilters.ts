@@ -15,6 +15,9 @@ export function buildElementRecordingsFilters(
         date_from: commonFilters.date_from,
         date_to: commonFilters.date_to,
         filter_test_accounts: commonFilters.filter_test_accounts,
+        // Replay applies its default minimum duration to any key the link omits. Clear it, because
+        // the clickmap counts every click, including the ones in sessions shorter than that minimum.
+        duration: [],
         filter_group: {
             type: FilterLogicalOperator.And,
             values: [

@@ -17,6 +17,7 @@ describe('buildElementRecordingsFilters', () => {
 
         expect(filters.date_from).toBe('-7d')
         expect(filters.filter_test_accounts).toBe(true)
+        expect(filters.duration).toEqual([])
 
         const [event] = (filters.filter_group?.values[0] as any).values
         expect(event.id).toBe('$autocapture')
