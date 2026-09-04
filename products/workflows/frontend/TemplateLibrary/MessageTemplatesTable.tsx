@@ -33,7 +33,6 @@ export function MessageTemplatesTable(): JSX.Element {
         <div className="templates-section" data-attr="message-templates-table">
             {showProductIntroduction && (
                 <ProductIntroduction
-                    productName="Message template"
                     thingName="message template"
                     description="Create and manage reusable message templates for your workflows."
                     docsURL="https://posthog.com/docs/workflows"

@@ -61,7 +61,6 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                 />
             )}
             <ProductIntroduction
-                productName={config.title}
                 thingName="feature"
                 titleOverride={config.title}
                 description={config.description}
