@@ -50,7 +50,7 @@ import {
     DefaultRoleSelector,
     RolesAccessControls,
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
-import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
@@ -143,6 +143,8 @@ import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/Surve
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TracingDistinctIdAttributeKeys } from './environment/TracingDistinctIdAttributeKeys'
+import { TracingSessionIdAttributeKeys } from './environment/TracingSessionIdAttributeKeys'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
@@ -1335,6 +1337,47 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-tracing',
+        title: 'Tracing',
+        group: 'Products',
+        flag: ['TRACING', 'TRACING_SESSION_PERSON_LINKS'],
+        settings: [
+            {
+                id: 'tracing-distinct-id-attribute-keys',
+                title: 'Link to person',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which person a trace belongs to. A span is linked
+                        when any of these attributes holds one of the person&apos;s distinct IDs. Defaults to{' '}
+                        <code>posthogDistinctId</code>. Add keys only if your pipeline emits the person identifier under
+                        different attributes.
+                    </>
+                ),
+                searchDescription:
+                    "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
+                component: <TracingDistinctIdAttributeKeys />,
+                keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'tracing-session-id-attribute-keys',
+                title: 'Link to session',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which session a trace belongs to, checked in order
+                        with the first match winning, followed by other common session ID attributes. Defaults to{' '}
+                        <code>sessionId</code>. Add keys only if your pipeline emits the session ID under different
+                        attributes.
+                    </>
+                ),
+                searchDescription:
+                    'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
+                component: <TracingSessionIdAttributeKeys />,
+                keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         group: 'Products',
@@ -1487,6 +1530,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-activity-logs',
         title: 'Activity logs',
+        payGate: {
+            feature: AvailableFeature.AUDIT_LOGS,
+            // pinned: `pay gate shown` property value, so renaming it breaks existing insights
+            featureDetail: 'activity-log-retention',
+            bypassForImpersonation: true,
+        },
         settings: [
             {
                 id: 'activity-log-settings',
@@ -1783,7 +1832,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
-                keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
+                keywords: [
+                    'ai',
+                    'max',
+                    'llm',
+                    'artificial intelligence',
+                    'consent',
+                    'approve',
+                    'enable',
+                    'opt-in',
+                    'data sharing',
+                ],
                 searchDescription:
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
             },
@@ -1889,6 +1948,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+        keywords: ['usage', 'subscription', 'invoice', 'plan', 'payment', 'spend', 'quota', 'credits', 'card'],
     },
     {
         level: 'organization',
