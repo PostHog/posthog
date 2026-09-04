@@ -269,6 +269,7 @@ rules:
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
+                              |MCPMeasuredStats
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -321,6 +322,7 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -389,7 +391,10 @@ rules:
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardRun
+                              |WizardRunArtifact
                               |WizardSession
+                              |WizardWorker
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -703,6 +708,7 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
@@ -770,7 +776,10 @@ rules:
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardRun
+                        |WizardRunArtifact
                         |WizardSession
+                        |WizardWorker
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)

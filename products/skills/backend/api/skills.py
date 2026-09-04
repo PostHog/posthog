@@ -37,7 +37,14 @@ from posthog.renderers import SafeJSONRenderer
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_skill_bundle, load_skill_export
+from ..marketplace.adapters import (
+    MARKETPLACE_NAME,
+    PLUGIN_NAME,
+    SANDBOX_SKILLS_FEATURE_FLAG,
+    build_skill_bundle,
+    load_skill_export,
+    sandbox_skills_flag_distinct_id,
+)
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -120,9 +127,6 @@ logger = structlog.get_logger(__name__)
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
-
-
-SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
 
 
 def _file_extension(path: str) -> str:
@@ -828,7 +832,7 @@ class LLMSkillViewSet(
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
-            user.distinct_id or str(user.uuid),
+            sandbox_skills_flag_distinct_id(user),
             organization_id=self.organization.id,
             team_id=self.team.id,
         )

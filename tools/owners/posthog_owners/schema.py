@@ -7,9 +7,10 @@ treated as empty), every other field ignored.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypeGuard
+from typing import Literal, TypeGuard, get_args
 
 import yaml
 
@@ -23,6 +24,12 @@ CHANGEME_SLUG = "team-CHANGEME"
 _TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules", "teams"}
 _RULE_KEYS = {"match", "owners", "status", "inherit"}
 _TEAMS_ENTRY_KEYS = {"slack", "notifications"}
+# Automation that posts to a team's notifications channel and can be silenced on its own. A
+# producer must be named here to be nameable in `notifications:`. Lint reports a typo where lint
+# runs; where it does not, an unreadable mapping silences rather than posts (see _validate_teams).
+Producer = Literal["stamphog"]
+PRODUCERS = frozenset(get_args(Producer))
+_KNOWN_PRODUCERS = ", ".join(sorted(PRODUCERS))
 
 
 @dataclass(frozen=True)
@@ -32,12 +39,16 @@ class TeamEntry:
     ``slack`` is where people are. ``notifications`` is where automation posts, and it falls back
     to ``slack`` when a team never separates the two.
 
+    ``notifications`` may also be a mapping of producer name to channel, so a team can silence or
+    redirect one bot without doing it to all of them. A producer the mapping does not name falls
+    through to ``slack``.
+
     ``None`` means the key was not declared, which is not the same as ``False``. The first falls
     through to the next step of the lookup; the second is a decision that there is no channel.
     """
 
     slack: str | bool | None = None
-    notifications: str | bool | None = None
+    notifications: str | bool | Mapping[str, str | bool] | None = None
 
 
 class _Unset:
@@ -111,6 +122,27 @@ def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
     return raw is False or (isinstance(raw, str) and raw.startswith("#"))
 
 
+def _validate_producer_map(
+    value: dict[object, object], where: str, key: str, errors: list[str]
+) -> dict[str, str | bool]:
+    """The producers a ``notifications:`` mapping names, without the entries it rejects."""
+    if key != "notifications":
+        errors.append(f"{where}: '{key}' takes a single channel, not a per-producer mapping")
+        return {}
+    if not value:
+        errors.append(f"{where}: '{key}' mapping names no producer")
+        return {}
+    declared: dict[str, str | bool] = {}
+    for producer, raw in value.items():
+        if not isinstance(producer, str) or producer not in PRODUCERS:
+            errors.append(f"{where}: unknown producer '{producer}' (known: {_KNOWN_PRODUCERS})")
+        elif _is_valid_slack(raw):
+            declared[producer] = raw
+        else:
+            errors.append(f"{where}: '{producer}' must be a string starting with '#' or false")
+    return declared
+
+
 def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
     """Validate the root-only ``teams:`` registry, a mapping of team slug to its channels.
 
@@ -133,10 +165,19 @@ def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
         if not isinstance(entry, dict):
             errors.append(f"{where}: entry must be a mapping with a {known_keys} key")
             continue
-        declared: dict[str, str | bool] = {}
+        declared: dict[str, str | bool | Mapping[str, str | bool]] = {}
         for key, raw in entry.items():
             if not isinstance(key, str) or key not in _TEAMS_ENTRY_KEYS:
                 errors.append(f"{where}: unknown field '{key}'")
+            elif isinstance(raw, dict):
+                per_producer = _validate_producer_map(raw, where, key, errors)
+                if per_producer:
+                    declared[key] = per_producer
+                elif key == "notifications":
+                    # A mapping we could not read silences the producer. Dropping the key would
+                    # post to the channel the team asked to be left out of, and a repo we read
+                    # this file from over the API runs no lint of ours.
+                    declared[key] = False
             elif _is_valid_slack(raw):
                 declared[key] = raw
             else:
