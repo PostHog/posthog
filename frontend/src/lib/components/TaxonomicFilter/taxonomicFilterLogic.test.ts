@@ -6,9 +6,12 @@ import posthog from 'posthog-js'
 
 import {
     demoteValueShortcutGroups,
+    fillSurplusSlots,
+    injectAutoMetaGroups,
     isSkeletonItem,
     propertyTaxonomicGroupProps,
     redistributeTopMatches,
+    resolveAvailableGroupTypes,
     SKELETON_ROWS_PER_GROUP,
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -1823,5 +1826,74 @@ describe('propertyTaxonomicGroupProps', () => {
         ])('$description', ({ property, expected }) => {
             expect(getPopoverHeader!(makePropDef(property))).toBe(expected)
         })
+    })
+})
+
+describe('resolveAvailableGroupTypes', () => {
+    it('drops group types that no taxonomic group serves', () => {
+        expect(
+            resolveAvailableGroupTypes(
+                [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Cohorts],
+                new Set([TaxonomicFilterGroupType.Events])
+            )
+        ).toEqual([TaxonomicFilterGroupType.Events])
+    })
+
+    it.each([
+        {
+            description: 'drops pageview events when pageview URLs are also requested',
+            requested: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
+            expected: [TaxonomicFilterGroupType.PageviewUrls],
+        },
+        {
+            description: 'drops screen events when screens are also requested',
+            requested: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.ScreenEvents],
+            expected: [TaxonomicFilterGroupType.Screens],
+        },
+        {
+            description: 'keeps the second half of a pair when the first half is absent',
+            requested: [TaxonomicFilterGroupType.PageviewEvents],
+            expected: [TaxonomicFilterGroupType.PageviewEvents],
+        },
+    ])('$description', ({ requested, expected }) => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        try {
+            expect(resolveAvailableGroupTypes(requested, new Set(requested))).toEqual(expected)
+        } finally {
+            warnSpy.mockRestore()
+        }
+    })
+})
+
+describe('injectAutoMetaGroups', () => {
+    it('skips a meta group that no taxonomic group serves', () => {
+        expect(
+            injectAutoMetaGroups(
+                [TaxonomicFilterGroupType.Events],
+                new Set([TaxonomicFilterGroupType.RecentFilters]),
+                false
+            )
+        ).toEqual([TaxonomicFilterGroupType.RecentFilters, TaxonomicFilterGroupType.Events])
+    })
+
+    it('does not add a meta group the caller already listed', () => {
+        const groupTypes = [TaxonomicFilterGroupType.RecentFilters, TaxonomicFilterGroupType.Events]
+
+        expect(injectAutoMetaGroups(groupTypes, new Set([TaxonomicFilterGroupType.RecentFilters]), false)).toEqual(
+            groupTypes
+        )
+    })
+})
+
+describe('fillSurplusSlots', () => {
+    it('never takes a group past MAX_TOP_MATCHES_PER_GROUP', () => {
+        const groupItems: any[] = Array.from({ length: 20 }, (_, i) => ({
+            name: `ce${i + 1}`,
+            group: TaxonomicFilterGroupType.CustomEvents,
+        }))
+        const byGroup = new Map([[TaxonomicFilterGroupType.CustomEvents, groupItems]])
+        const allocated = new Map([[TaxonomicFilterGroupType.CustomEvents, groupItems.slice(0, 5)]])
+
+        expect(fillSurplusSlots(byGroup, allocated, 50).get(TaxonomicFilterGroupType.CustomEvents)).toHaveLength(10)
     })
 })
