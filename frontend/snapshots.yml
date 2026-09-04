@@ -5785,13 +5785,17 @@ snapshots:
     replay-overview-tab-experiments--current-experiment-not-exposed--light:
         hash: v1.k794b7964.3df16a2a43537af9a1c3cf4feb182529a7633cc5d4fc01011b80ee0a129281e8.YLJI9RsTHmIC0QasDoX6Djt-U_PGNo4FfTRSVKOwPLs
     replay-overview-tab-experiments--default--dark:
-        hash: v1.k794b7964.79330e398cb2b6402ab847a6ab8e2ee61e71bd531473a6db0624b0d31538ad67.VS3PPJVIbJk5jHfGaUd7LjpdfWGQApwqjdvAKZhlInA
+        hash: v1.k794b7964.cdc4c87099a9fd4cfe4b6d43d18d599d281e5f062dd0b8882b3bc16ea4662793.waPFcJx0-GOyEQz5VYGoq5B6UxXd41xpjSBJ8LjM5Ro
     replay-overview-tab-experiments--default--light:
-        hash: v1.k794b7964.40d99fa3c1d49cb1f4b21f3b9f727ad298ddf24767716bca7101ed3bf05192b4.F8N5B6OxXWv_eLUhNzKlkuuU5PqwKvSYqKb3nVLCkcs
+        hash: v1.k794b7964.ec69e95bfa93d70631455ca76e445a283951eee3ee63e44be754a15a09b2dc8d.ftOf6U1hGjd-TT6gIpWypmX6zNjLOBduD17KtLtaP5Q
     replay-overview-tab-experiments--empty--dark:
         hash: v1.k794b7964.13e51a486b40a1455fde0075af333e3dff21f25491d06cc59ab10c24200eb1d2.Fn0OHVeRm39HLB3-xcZUZavR375CxuNraJZdmfxTS-U
     replay-overview-tab-experiments--empty--light:
         hash: v1.k794b7964.34d2a031b8e3cea8e905aacec4f7d70ae9f625f56bb1649d8e95f73b1eba71a8._AeRzz6TNgrSmnERRCH2YbGUFjFBA4HPfW4wFM4uySU
+    replay-overview-tab-experiments--exposure-outside-window--dark:
+        hash: v1.k794b7964.f261f85d6665ac370b191f6c4ed20498a71abf49eb1b3d94cf840f38e650ce8e.Ub39RpdNuFjHa1mFLoCH-5YfP1GscA47Gp2yCVHzgq8
+    replay-overview-tab-experiments--exposure-outside-window--light:
+        hash: v1.k794b7964.c308cb1719304a37f4b681d01f2269a80e2a4454f5beb1a4763f8a92a6b72722.HmOtduvkvo-ibuMV8MkHjbGVZbLlqZKIG3h1q2Sz-V8
     replay-overview-tab-experiments--loading--dark:
         hash: v1.k794b7964.55ed027ece39592bf5eee139b78d0147e93849476016cd690928a1416cce057a.FCepXFnoPBB-F5-GGDsNJtwO_uHeAKixmqN28WPHZkQ
     replay-overview-tab-experiments--loading--light:
