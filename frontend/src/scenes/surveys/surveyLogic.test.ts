@@ -800,7 +800,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -850,7 +850,7 @@ describe('set response-based survey branching', () => {
             ]
 
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -886,7 +886,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -962,7 +962,74 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
+
+            // Every response is routed on both questions, and the two route into each other,
+            // so a respondent who keeps answering "Yes" never reaches an end.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 1, 1: 1 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 0, 1: SurveyQuestionBranchingType.End },
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
+
+            // "Maybe" has no destination, so it falls through to question 1, which routes back
+            // to question 0. The fall-through edge is real here and the loop must be reported.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No', 'Maybe'],
+                    question: '0',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: {
+                            0: SurveyQuestionBranchingType.End,
+                            1: SurveyQuestionBranchingType.End,
+                        },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 0, 1: 0 },
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -983,7 +1050,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -1020,7 +1087,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -1052,7 +1119,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -1098,7 +1165,7 @@ describe('set response-based survey branching', () => {
             ]
 
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -1134,7 +1201,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -1207,7 +1274,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
@@ -1262,7 +1329,59 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                logic.actions.loadSurveySuccess(SURVEY)
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            // A price ladder: question 2 steps down to the cheaper question 1 when the
+            // respondent says no. Every response is routed, so no question can fall through
+            // to the one after it, and the descending step closes no loop.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Starter', 'Pro'],
+                    question: 'plan tier',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $9 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 3 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $19 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 1 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'anything else to add',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.End,
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
                 .toMatchValues({
