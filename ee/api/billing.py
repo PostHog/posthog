@@ -1178,6 +1178,27 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         Omitting it asks for every project.
         """
         organization = self._get_org_required()
+        # The page disables the export button below editor access to exports; the same rule holds
+        # for a direct call. Export access is set per project, so it is checked on the project the
+        # person is working in, or the first of the organization's projects they can see.
+        if isinstance(request.user, User):
+            team = (
+                request.user.team
+                if request.user.team and request.user.team.organization_id == organization.id
+                else None
+            )
+            if team is None:
+                team = next(
+                    iter(
+                        visible_teams_for_user(
+                            organization, UserAccessControl(user=request.user, organization_id=str(organization.id))
+                        )
+                    ),
+                    None,
+                )
+            access = UserAccessControl(user=request.user, team=team, organization_id=str(organization.id))
+            if not access.check_access_level_for_resource("export", "editor"):
+                raise PermissionDenied("You do not have permission to export data.")
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
         self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))

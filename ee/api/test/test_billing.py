@@ -2053,6 +2053,27 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["team_id_options"], [self.team.pk])
 
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_an_export_needs_editor_access_to_exports(self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock):
+        """The page disables the export button below editor access to exports; a direct call is
+        refused the same way, before billing is asked for the file."""
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        AccessControl.objects.create(
+            team=self.team,
+            resource="export",
+            resource_id=None,
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+
+        for path in ("/api/billing/usage/export/", "/api/billing/spend/export/"):
+            response = self.client.get(f"{path}?start_date=2026-08-01&end_date=2026-08-02")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)
+        mock_get_usage_csv.assert_not_called()
+
     @patch("ee.billing.billing_manager.BillingManager.get_usage_team_options")
     @patch("ee.api.billing.posthog_feature_flag_enabled")
     def test_member_team_options_are_scoped(self, mock_flag_eval: MagicMock, mock_get_team_options: MagicMock):
