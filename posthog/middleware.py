@@ -1218,13 +1218,27 @@ class CSPMiddleware:
                 "child-src 'none'",
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # `https:` is here for the OAuth authorize page, which renders an application's icon
+                # from a URL its registrant supplied. There is no allowlist that covers those, so
+                # until we serve them ourselves the directive has to accept any host.
+                #
+                # The named origins below are the set we actually load images from, and `https:`
+                # makes them redundant. They stay so that removing `https:` is a one-line change
+                # rather than an archaeology exercise.
+                #
+                # Do not promote this to an enforced header as-is. An open `img-src` is an
+                # exfiltration channel: an attacker who injects markup but cannot run script still
+                # gets a beacon out through an image URL.
+                f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
+                # form-action has no default-src fallback, so leaving it unset lets an injected
+                # form post anywhere. Every form we serve targets a same-origin path.
+                "form-action 'self'",
             ]
 
             report_uri = csp_report_endpoint(sample_rate="0.1")
