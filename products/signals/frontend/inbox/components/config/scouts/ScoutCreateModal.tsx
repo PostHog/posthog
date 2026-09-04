@@ -196,9 +196,7 @@ export function ScoutCreateModal({
                         help="A short summary of the signal or behavior this scout investigates."
                     >
                         <LemonTextArea
-                            disabledReason={
-                                turningOn ? 'PostHog wrote this scout, so its text is read-only here' : undefined
-                            }
+                            disabled={turningOn}
                             minRows={2}
                             maxRows={4}
                             maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
@@ -241,9 +239,7 @@ export function ScoutCreateModal({
                         }
                     >
                         <LemonTextArea
-                            disabledReason={
-                                turningOn ? 'PostHog wrote this scout, so its text is read-only here' : undefined
-                            }
+                            disabled={turningOn}
                             minRows={8}
                             maxRows={16}
                             className="font-mono text-xs"

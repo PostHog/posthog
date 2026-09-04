@@ -569,6 +569,20 @@ describe('scoutCreateModalLogic', () => {
             body: 'Report signup latency spikes.',
         })
 
+        // A form opened on an existing scout keys on what it shows, so a draft persisted under one
+        // reading of the skill cannot come back over a newer reading.
+        const existing = {
+            name: 'signals-scout-web-vitals',
+            description: 'Watches web vitals.',
+            body: '# Web vitals',
+            existingConfigId: 'config-1',
+            config: { run_interval_minutes: 1440, run_cron_schedule: null },
+        }
+        const existingKey = scoutCreateModalLogicKey(existing)
+        expect(existingKey).not.toBe(scoutCreateModalLogicKey({ name: existing.name }))
+        expect(existingKey).not.toBe(scoutCreateModalLogicKey({ ...existing, body: '# Web vitals, revised' }))
+        expect(existingKey).toBe(scoutCreateModalLogicKey({ ...existing }))
+
         expect(templateKey).not.toBe(blankKey)
         expect(templateKey).not.toBe(otherTemplateKey)
         // The same payload keys the same slot, so a template keeps its own draft across a remount.

@@ -43,14 +43,17 @@ export function suggestionToCreateValues(
     item: ScoutSuggestionItemApi,
     existing: ExistingScoutForSuggestion | null = null
 ): ScoutCreateInitialValues {
+    const proposed = item.proposed_config
+    const proposesSchedule = !!proposed.run_cron_schedule || proposed.run_interval_minutes !== null
     const schedule = {
-        run_cron_schedule: item.proposed_config.run_cron_schedule ?? null,
-        run_interval_minutes: item.proposed_config.run_interval_minutes ?? DEFAULT_SUGGESTION_INTERVAL_MINUTES,
+        run_cron_schedule: proposed.run_cron_schedule ?? null,
+        run_interval_minutes: proposed.run_interval_minutes ?? DEFAULT_SUGGESTION_INTERVAL_MINUTES,
     }
     if (existing) {
-        // The pick proposes when the scout runs. Everything else the config already holds is the
-        // person's own: the emit posture, the Slack destination, tags and servers stay as they are,
-        // shown in the form so turning the scout on cannot quietly restore delivery it had before.
+        // The pick proposes when the scout runs, and a pick that names no cadence leaves the
+        // scout's own. Everything else the config already holds is the person's own: the emit
+        // posture, the Slack destination, tags and servers stay as they are, shown in the form so
+        // turning the scout on cannot quietly restore delivery it had before.
         const { config } = existing
         return {
             name: item.skill_name,
@@ -58,7 +61,12 @@ export function suggestionToCreateValues(
             body: existing.body,
             existingConfigId: config.id,
             config: {
-                ...schedule,
+                ...(proposesSchedule
+                    ? schedule
+                    : {
+                          run_cron_schedule: config.run_cron_schedule,
+                          run_interval_minutes: config.run_interval_minutes,
+                      }),
                 emit: config.emit,
                 output_destinations: config.output_destinations,
                 tags: config.tags ?? [],

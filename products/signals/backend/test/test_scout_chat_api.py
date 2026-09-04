@@ -8,6 +8,9 @@ from django.core.cache import cache
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES
 from products.signals.backend.scout_harness.suggestions import ScoutSuggestionItem, persist_suggestion_batch
 from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus  # tach-ignore
@@ -126,6 +129,38 @@ class TestScoutChatFromSuggestion(APIBaseTest):
         self.assertIn("Check the checkout funnel daily.", task.description)
         self.assertIn("Checkout converts half as often", task.description)
         self.assertEqual(TaskRun.objects.get(task=task).state.get("pending_user_message"), task.description)
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_a_task_only_key_cannot_read_a_suggestion_into_a_chat(self, mock_workflow):
+        # The primed chat copies scout evidence into the task, so a key that can only write tasks is
+        # refused, while the same key still starts a plain chat.
+        suggestion_id = self._suggestion_id()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Task-only key",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["task:write"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        primed = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
+            {"chat_type": "author_scout", "suggestion_id": suggestion_id},
+            format="json",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            plain = self.client.post(
+                f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
+                {"chat_type": "author_scout"},
+                format="json",
+            )
+
+        self.assertEqual(primed.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(plain.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).count(), 1)
         mock_workflow.assert_called_once()
 
     @parameterized.expand(

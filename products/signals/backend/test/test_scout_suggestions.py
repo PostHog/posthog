@@ -643,6 +643,29 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-checkout-drop")
         self.assertEqual(created["created_config_id"], str(config.id))
 
+    def test_a_suggestion_id_only_marks_the_draft_it_names(self):
+        # A client can send any id it holds; only the draft the new scout was made from is retired.
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-something-else",
+                "description": "Watches something else.",
+                "body": "# Something else\n\nCheck it daily.",
+                "suggestion_id": suggestion_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        row.refresh_from_db()
+        untouched = next(item for item in row.items if item["id"] == suggestion_id)
+        self.assertIsNone(untouched["created_config_id"])
+
     def test_an_unknown_suggestion_id_still_creates_the_scout(self):
         # The batch can compact a record away between the strip reading it and the create landing;
         # losing the scout over a bookkeeping id would be the worse failure.

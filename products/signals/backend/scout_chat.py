@@ -17,6 +17,7 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
@@ -169,6 +170,20 @@ class ScoutChatTaskSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="The created chat task. Open it on the task detail page to continue.")
 
 
+class ScoutChatSuggestionAccessPermission(ScoutCanonicalTeamAccessPermission):
+    """The canonical-team check, applied only to a chat primed on a suggestion.
+
+    A plain chat creates its task in the URL environment and reads nothing from the parent, so a
+    caller with access to the child alone must keep starting those. Only a `suggestion_id` reads
+    the canonical project's batch, and only then must the caller reach that team.
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not request.data.get("suggestion_id"):
+            return True
+        return super().has_permission(request, view)
+
+
 class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Kick off a scout chat task from one of the fixed Inbox templates.
 
@@ -180,7 +195,7 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     # A chat primed on a suggestion reads the canonical project's batch, so membership and token
     # scope are checked against that team too, the same as the suggestions endpoint.
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutChatSuggestionAccessPermission]
     scope_object = "task"
     serializer_class = ScoutChatTaskSerializer
     pagination_class = None
@@ -188,6 +203,13 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # No model backs this endpoint; a queryset is still required by the team/org viewset mixin
     # and `create` never reads it.
     queryset = SignalScoutConfig.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # The evidence a primed chat copies into its task is `signal_scout` data, so a token that
+        # can only write tasks does not get to read it through this endpoint.
+        if request.data.get("suggestion_id"):
+            return ["task:write", "signal_scout:read"]
+        return None
 
     @validated_request(
         request_serializer=ScoutChatTaskCreateSerializer,

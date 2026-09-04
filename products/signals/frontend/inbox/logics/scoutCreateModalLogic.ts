@@ -138,6 +138,17 @@ export function getScoutCreateFormValues(
  */
 export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues | undefined): string {
     const name = initialValues?.name?.trim()
+    if (initialValues?.existingConfigId) {
+        // A form opened on an existing scout shows that scout as it is now, read-only, so a draft
+        // persisted under the bare name must not outlive a change to the skill or the pick's cadence.
+        // Keying on the content means a fresh read always opens fresh.
+        const content = JSON.stringify([
+            initialValues.description ?? '',
+            initialValues.body ?? '',
+            initialValues.config ?? {},
+        ])
+        return `existing-${initialValues.existingConfigId}-${hashCodeForString(content)}`
+    }
     if (name) {
         return name
     }
