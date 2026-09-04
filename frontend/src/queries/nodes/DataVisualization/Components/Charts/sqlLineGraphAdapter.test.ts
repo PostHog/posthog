@@ -52,8 +52,10 @@ const ySeries = (
 const breakdownSeries = (
     breakdownValue: string,
     data: (number | null)[],
-    settings: AxisBreakdownSeries<number | null>['settings'] = {}
-): AxisBreakdownSeries<number | null> => ({ name: breakdownValue, breakdownValue, data, settings })
+    settings: AxisBreakdownSeries<number | null>['settings'] = {},
+    // seriesBreakdownLogic prefixes the y-column while more than one column is charted.
+    name: string = breakdownValue
+): AxisBreakdownSeries<number | null> => ({ name, breakdownValue, data, settings })
 
 const baseProps = (overrides: Partial<SqlChartProps>): SqlChartProps => ({
     xData: null,
@@ -388,6 +390,18 @@ describe('sqlLineGraphAdapter', () => {
             ]
             const keys = buildSeries(yData, ChartDisplayType.ActionsStackedBar).map((s) => s.key)
             expect(new Set(keys).size).toBe(yData.length)
+        })
+
+        it('does not pass a removed y-column series key to another series', () => {
+            const bothColumns = [
+                breakdownSeries('chrome', [1], {}, 'views - chrome'),
+                breakdownSeries('chrome', [2], {}, 'clicks - chrome'),
+            ]
+            const keysBefore = buildSeries(bothColumns, ChartDisplayType.ActionsStackedBar).map((s) => s.key)
+            const keysAfter = buildSeries(bothColumns.slice(1), ChartDisplayType.ActionsStackedBar).map((s) => s.key)
+            // The legend hides a series by an exact key match and keeps the key over a rerender, so
+            // the clicks series must not take the key the user hid for the views series.
+            expect(keysAfter).not.toContain(keysBefore[0])
         })
 
         it('honors a custom display label, falling back to the column name', () => {
