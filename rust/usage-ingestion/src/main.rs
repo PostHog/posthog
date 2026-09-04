@@ -71,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register("kafka_producer".to_string(), Duration::from_secs(30))
         .await;
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
+    let grpc_max_connection_age = config.grpc_max_connection_age();
     let redis_counter_config = config.redis_counter_config();
     let counters = (!config.redis_url.is_empty()).then(|| {
         Arc::new(CounterAccumulator::new(
@@ -137,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
     // synchronized reconnect shows up as a latency sawtooth.
     let mut builder = Server::builder();
-    if let Some(age) = config.grpc_max_connection_age() {
+    if let Some(age) = grpc_max_connection_age {
         builder = builder.max_connection_age(age);
     }
     builder
