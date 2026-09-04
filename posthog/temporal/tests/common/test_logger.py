@@ -31,7 +31,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, Logger, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -959,3 +959,20 @@ def test_resolve_log_source_cdc_extraction():
 
     assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_logger_produce_drops_message_when_loop_is_closed():
+    """A log line issued after the worker loop closed must not raise into the caller.
+
+    Sync activities run in worker threads that can outlive the loop captured at worker
+    startup, so `produce` used to raise `RuntimeError: Event loop is closed` into the
+    code that logged.
+    """
+    queue = QueueCapture(maxsize=0)
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    logger = Logger("test_logger_produce_closed_loop", queue=queue, loop=loop)
+    logger.produce(b'{"message": "shutdown race"}')
+
+    assert queue.entries == []
