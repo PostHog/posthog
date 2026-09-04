@@ -53,8 +53,8 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.types import (
     OBSERVATION_PHASE_INDEX,
     OBSERVATION_PHASE_ORDER,
@@ -151,11 +151,7 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
 
 
 def _has_embeddable_text(model_output: object) -> bool:
-    """Whether an observation carries text worth embedding — summarizer facets, or a `reasoning` paragraph."""
-    if isinstance(model_output, SummarizerOutput):
-        return model_output.has_any_facet()
-    reasoning = getattr(model_output, "reasoning", "")
-    return bool(reasoning and reasoning.strip())
+    return isinstance(model_output, BaseScannerOutput) and model_output.embedding_document() is not None
 
 
 # Provider-facing activities whose Temporal timeout means "provider slow", not a PostHog bug.
@@ -500,7 +496,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         timeout), so a deploy strands at most the handful of in-flight runs past this step, which the reaper
         then fails as re-runnable — accepted over carrying permanent patch gates.
         """
-        # Embed the observation's explanation text (reasoning, or summarizer facets) for natural-language search.
+        # Embed the observation's explanation text (reasoning, or the summary) for natural-language search.
         if _has_embeddable_text(model_output):
             try:
                 await wf.execute_activity(
