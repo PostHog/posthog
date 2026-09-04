@@ -52,22 +52,21 @@ func appendCleanJSON(dst []byte, value *fastjson.Value) ([]byte, bool) {
 	case fastjson.TypeArray:
 		values, _ := value.Array()
 		dst = append(dst, '[')
-		kept := 0
-		for _, child := range values {
-			itemStart := len(dst)
-			if kept > 0 {
+		for i, child := range values {
+			if i > 0 {
 				dst = append(dst, ',')
 			}
+			itemStart := len(dst)
 			var keep bool
 			dst, keep = appendCleanJSON(dst, child)
-			if keep {
-				kept++
-			} else {
+			if !keep {
 				dst = dst[:itemStart]
+				if child.Type() == fastjson.TypeObject {
+					dst = append(dst, '{', '}')
+				} else {
+					dst = child.MarshalTo(dst)
+				}
 			}
-		}
-		if kept == 0 {
-			return dst[:start], false
 		}
 		return append(dst, ']'), true
 	case fastjson.TypeNumber:
