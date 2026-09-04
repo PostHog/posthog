@@ -213,6 +213,7 @@ describe("createPiMessageTranslator", () => {
           },
         },
         false,
+        false,
         12,
       ),
     ).toMatchObject([
@@ -274,6 +275,7 @@ describe("createPiMessageTranslator", () => {
         "read-1",
         "read",
         { content },
+        false,
         false,
         2,
       ),
