@@ -296,16 +296,36 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["priority"] == "P0"
 
     @parameterized.expand([("unassigned", False), ("assigned", True)])
-    def test_retrieve_includes_channel_id(self, _name, assign):
+    def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
         channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
         report = self._create_report()
         if channel:
             self._assign_channel(report, channel)
+        expected = str(channel.id) if channel else None
 
         url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["channel_id"] == (str(channel.id) if channel else None)
+        assert response.json()["channel_id"] == expected
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(report.id))
+        assert row["channel_id"] == expected
+
+    def test_artefact_count_is_the_same_in_the_list_and_the_detail(self):
+        report = self._create_report()
+        self._priority_artefact(report, priority="P1")
+        self._actionability_artefact(report, actionability="immediately_actionable")
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(report.id))
+        assert row["artefact_count"] == 2
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["artefact_count"] == 2
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")
@@ -343,6 +363,10 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["channel_id"] is None
+
+        list_response = self.client.get(self._list_url())
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(report.id))
+        assert row["channel_id"] is None
 
     def test_filter_by_channel_id_rejects_non_uuid(self):
         response = self.client.get(self._list_url(channel_id="not-a-uuid"))
