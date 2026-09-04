@@ -283,6 +283,48 @@ describe('query', () => {
         })
     })
 
+    describe('polling a query the server has forgotten', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const submitted = (id: string): any => ({ query_status: { id, complete: false } })
+        const forgotten = (): ApiError => new ApiError('Query not found', 404, undefined, { detail: 'Query not found' })
+
+        it('runs the query again when its status has expired', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce(submitted('gone'))
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await expect(performQuery(query, undefined, 'async')).resolves.toMatchObject({
+                results: ['from the cache'],
+            })
+
+            expect(querySpy).toHaveBeenCalledTimes(2)
+            // The second submission is a new query, not the ID the server no longer knows.
+            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBeUndefined()
+        })
+
+        it('gives up when the second attempt is forgotten too', async () => {
+            jest.spyOn(api, 'query').mockResolvedValue(submitted('gone'))
+            const statusSpy = jest.spyOn(api.queryStatus, 'get').mockRejectedValue(forgotten())
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({ status: 404 })
+
+            expect(statusSpy).toHaveBeenCalledTimes(2)
+        })
+
+        it('reports the error to a caller that only has an id to poll', async () => {
+            const querySpy = jest.spyOn(api, 'query')
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await expect(
+                performQuery(query, undefined, 'async', 'handed-to-us', undefined, undefined, undefined, true)
+            ).rejects.toMatchObject({ status: 404 })
+
+            expect(querySpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('pollForResults error message parsing', () => {
         it('prefers the structured error_code from the query status over one parsed from the message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({

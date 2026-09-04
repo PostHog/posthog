@@ -181,7 +181,9 @@ async function executeQuery<N extends DataNode>(
      * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    /** Set on the one retry below, so a query the server keeps forgetting cannot loop. */
+    retriedAfterExpiry = false
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
@@ -220,7 +222,33 @@ async function executeQuery<N extends DataNode>(
         }
     }
 
-    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+    let statusResponse: QueryStatus
+    try {
+        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+    } catch (e: any) {
+        // A hidden tab holds pollForResults at waitForPageVisible without spending its deadline,
+        // so a poll can arrive after the server has dropped the query's status. That ID can no
+        // longer become anything, and the page has nothing to show for a query the user never
+        // saw fail, so ask the question again. The endpoint answers a fresh cached result
+        // straight away, which is the usual case, and recomputes only what has gone stale.
+        // Poll-only callers cannot: they were handed an ID and never had the query.
+        if (pollOnly || retriedAfterExpiry || e?.status !== 404) {
+            throw e
+        }
+        return await executeQuery(
+            queryNode,
+            methodOptions,
+            refresh,
+            undefined,
+            setPollResponse,
+            filtersOverride,
+            variablesOverride,
+            pollOnly,
+            limitContext,
+            acceptStaleCache,
+            true
+        )
+    }
     return statusResponse.results
 }
 
