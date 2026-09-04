@@ -139,7 +139,7 @@ A recurrence or escalation of an insight's anomaly you already reported is an **
 report**. Find the live report (the `report:` pointer's `report_id` → `inbox-reports-retrieve`,
 or `inbox-reports-list` by the insight), then:
 
-- **`append_note`** with the new evidence — additive, audit-friendly, and the right move on any
+- **`append_evidence`** with the new observation — additive, audit-friendly, and the right move on any
   report (even a pipeline-authored one). Build a **fresh notebook** for the new window and link
   it in the note (one notebook per window — never append a new anomaly to a prior notebook).
 - **Rewrite `title`/`summary`** only on a report you authored, and only when the framing is

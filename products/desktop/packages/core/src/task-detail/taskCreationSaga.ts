@@ -877,6 +877,9 @@ export class TaskCreationSaga extends Saga<
           signal_report_task_relationship: input.signalReportId
             ? input.signalReportTaskRelationship
             : undefined,
+          signal_report_discussion_question: input.signalReportId
+            ? input.signalReportDiscussionQuestion
+            : undefined,
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)

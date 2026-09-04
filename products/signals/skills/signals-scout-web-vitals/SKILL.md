@@ -405,7 +405,7 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
   page later re-crosses."_ One stable key per host+path+metric — update it in place,
   don't mint a dated variant.
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
-  INP finding. Edit it (append_note the fresh p75 + sample count) while the page stays
+  INP finding. Edit it (`append_evidence` with the fresh p75 + sample count) while the page stays
   slow and the report is still live and not scope-frozen; if it closed (or shipped its
   fix — `ready` with an open or merged implementation PR) and the page later re-crosses,
   that's a fresh report."_
@@ -430,7 +430,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   A page with a live report and no material change is a **skip**.
 - **Edit** (`scout-edit-report`) when a still-live report already covers the same
   page+metric problem — the page still standing in `poor`, the regression still holding,
-  the p75 deepening or recovering. `append_note` the fresh window's numbers (p75, band,
+  the p75 deepening or recovering. Add the fresh window's numbers with `append_evidence` (p75, band,
   sample count), or rewrite the title/summary on a report you authored. This is the
   default when a match exists — a chronically slow page is one report across weeks, not
   one per run. `edit-report` can't change status, so if the matched report is `resolved` /
