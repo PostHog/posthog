@@ -19,15 +19,12 @@ Order decides whether they understand the change at all.
 Form and length only decide how fast.
 So get the order right first, and never buy shape at the cost of it.
 
-Work in five passes: lead, route, cut, shape, check. Run all five.
-
-When a body already exists, start from what is there. Pass 0 says how.
+Work in five passes: lead, route, cut, shape, check. Run all five. When a body already exists, pass 0 comes first.
 
 ## Pass 0: keep what the body already holds
 
 `gh pr edit --body` replaces the whole body, so every part of your draft that has no home is gone the moment you push it.
 An existing body holds work you cannot recreate: screenshots and recordings a person uploaded, links they collected, a checkbox they ticked, a note to a named reviewer.
-Losing one of those costs the author more than a rewrite gains them.
 
 Read the current body and edit it, rather than writing a fresh one over the top:
 
@@ -37,9 +34,8 @@ gh pr view <number> --json body --jq .body > pr-body.md
 gh pr edit <number> --body-file pr-body.md
 ```
 
-Carry every image, video, link and ticked box into the new body, under the heading it belongs to.
+Carry every image, video, link and ticked box into the new body, under the heading it belongs to, and add the heading when your draft has none.
 Replace one only when the change made it wrong, and say in the body that you replaced it.
-Keep a screenshot even when your draft has no section for it, and add the section.
 
 ## Pass 1: lead with the effect
 
