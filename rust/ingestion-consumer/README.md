@@ -29,12 +29,13 @@ Null-key messages (e.g. overflow rerouting) are excluded from both checks: the p
 
 ## Offset ledger
 
-`commit_ledger.rs` drives the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
+The consumer holds the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
 Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
 A partition that settles without a frontier is not committed and stays on its last commit.
-`ingestion_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `ingestion_consumer_ledger_uncommitted_events` and `ingestion_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
-`ingestion_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
-`ingestion_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger, and the consumer keeps running.
+The ledger emits its own metrics, so any consumer built on the crate reports the same series.
+`kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
+`kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
+`kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger, and the consumer keeps running.
 
 ## Debug API
 

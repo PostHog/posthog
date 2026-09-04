@@ -50,9 +50,8 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::commit_ledger::set_held_gauges;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{AssignmentEpoch, Held, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -619,13 +618,10 @@ impl SentinelContext {
     }
 
     /// Start a new ledger generation for every partition in `tpl`, dropping
-    /// its window and zeroing its gauges.
+    /// its window.
     fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
         self.topic_offset_ledger
             .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-        for element in tpl.elements() {
-            set_held_gauges(element.topic(), element.partition(), Held::default());
-        }
     }
 }
 

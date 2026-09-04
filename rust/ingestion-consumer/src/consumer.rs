@@ -16,7 +16,6 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
-use crate::commit_ledger::CommitLedger;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
@@ -223,7 +222,10 @@ pub struct IngestionConsumer {
     commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    commit_ledger: CommitLedger,
+    /// The per-partition offset ledger the commit path reads its frontiers
+    /// from. Shared with the consumer's [`SentinelContext`], which forgets
+    /// partitions on rebalance.
+    topic_offset_ledger: Arc<TopicOffsetLedger>,
 }
 
 impl IngestionConsumer {
@@ -252,7 +254,7 @@ impl IngestionConsumer {
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
-            commit_ledger: CommitLedger::new(topic_offset_ledger),
+            topic_offset_ledger,
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -322,7 +324,7 @@ impl IngestionConsumer {
             consumer: Arc::new(consumer),
             commit_sentinel,
             debug_recorder,
-            commit_ledger: CommitLedger::new(topic_offset_ledger),
+            topic_offset_ledger,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -610,15 +612,15 @@ impl IngestionConsumer {
                         lag_ms,
                     };
                     let key = TopicPartition::new(topic.clone(), partition);
-                    let generations_version = self.commit_ledger.generations_version();
+                    let generations_version = self.topic_offset_ledger.generations_version();
                     match partitions.get_mut(&key) {
                         Some(deliveries) => deliveries.record(
                             generations_version,
-                            || self.commit_ledger.generation(&key),
+                            || self.topic_offset_ledger.generation(&key),
                             &delivery,
                         ),
                         None => {
-                            let generation = self.commit_ledger.generation(&key);
+                            let generation = self.topic_offset_ledger.generation(&key);
                             partitions.insert(
                                 key,
                                 PartitionDeliveries::new(
@@ -674,8 +676,13 @@ impl IngestionConsumer {
         // One ledger call per partition keeps the lock and the gauge labels
         // off the per-message path.
         for (topic_partition, partition) in &partitions {
-            self.commit_ledger
-                .charge(topic_partition, partition.generation, &partition.charges);
+            // The ledger counts both outcomes and publishes what the window
+            // holds, so the charge needs no follow-up here.
+            let _ = self.topic_offset_ledger.charge(
+                topic_partition,
+                partition.generation,
+                partition.charges.iter().copied(),
+            );
         }
 
         Ok(CollectedBatch {
@@ -723,22 +730,25 @@ impl IngestionConsumer {
                 .map(|(topic_partition, span)| (*topic_partition, span)),
         )?;
         for topic_partition in settled {
-            self.commit_ledger.drain(topic_partition);
+            self.topic_offset_ledger.take_frontier(topic_partition);
         }
         Ok(())
     }
 
-    /// Settle one partition's slice of a batch against the ledger.
+    /// Settle one partition's slice of a batch against the ledger. `None`
+    /// when the ledger rejected the slice, which it has already counted.
     fn settle(
         &self,
         topic_partition: &TopicPartition,
         partition: &PartitionDeliveries,
     ) -> Option<Settlement> {
-        self.commit_ledger.settle(
-            topic_partition,
-            partition.generation,
-            partition.charges.iter().map(|(offset, _)| *offset),
-        )
+        self.topic_offset_ledger
+            .settle(
+                topic_partition,
+                partition.generation,
+                partition.charges.iter().map(|(offset, _)| *offset),
+            )
+            .ok()
     }
 
     /// Validate and submit one commit to Kafka.
