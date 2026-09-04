@@ -35,8 +35,12 @@ import type { SignalScoutConfig } from './scoutFleetLogic'
 
 /** How often the list is re-read while a refresh scan runs. The scan takes minutes, not seconds. */
 const REFRESH_POLL_INTERVAL_MS = 15_000
-/** When a scan has not landed by here, stop polling. The next visit reads whatever it produced. */
-const REFRESH_POLL_TIMEOUT_MS = 10 * 60_000
+/**
+ * When a scan has not landed by here, stop polling. The next visit reads whatever it produced. The
+ * scan itself may run for up to 30 minutes and wait as long again for a worker, so this sits past
+ * both rather than giving up while the workflow is still allowed to finish.
+ */
+const REFRESH_POLL_TIMEOUT_MS = 60 * 60_000
 
 const suggestionKind = (item: ScoutSuggestionItemApi): ScoutSuggestionKind =>
     item.kind === 'canonical' ? 'canonical' : 'custom'
@@ -153,6 +157,9 @@ export interface scoutSuggestionsLogicActions {
     refreshFinished: () => {
         value: true
     }
+    refreshRequestRefused: () => {
+        value: true
+    }
     reportSuggestionsShown: (surface: ScoutSuggestionSurface) => {
         surface: ScoutSuggestionSurface
     }
@@ -263,6 +270,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         closeCreateFromSuggestion: true,
         suggestionCreated: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
         requestRefresh: true,
+        refreshRequestRefused: true,
         refreshFinished: true,
         startRefreshPolling: true,
         setCollapsed: (collapsed: boolean) => ({ collapsed }),
@@ -324,9 +332,13 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 suggestionActionFinished: (state, { suggestionId }) => state.filter((id) => id !== suggestionId),
             },
         ],
+        // True from the press until the scan settles, so the button shows loading while the request
+        // itself is still out, not only once the poll starts.
         isRefreshing: [
             false,
             {
+                requestRefresh: () => true,
+                refreshRequestRefused: () => false,
                 startRefreshPolling: () => true,
                 refreshFinished: () => false,
             },
@@ -405,13 +417,16 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         // A project that has never been scanned has nothing to show and no refresh worth offering,
         // so the roster and the empty state stay exactly as they were.
         // A scan that found nothing still counts: it has a `generated_at`, and the person needs
-        // the strip's "nothing left" line and its Refresh to ask again once data arrives.
+        // the strip's "nothing left" line and its Refresh to ask again once data arrives. So does a
+        // first scan that failed, which has no `generated_at` at all but still needs the Refresh.
         hasBatch: [
             (s) => [s.suggestionSet, s.suggestionsEnabled],
             (suggestionSet: ScoutSuggestionSetApi | null, suggestionsEnabled: boolean): boolean =>
                 suggestionsEnabled &&
                 suggestionSet !== null &&
-                (suggestionSet.generated_at !== null || suggestionSet.items.length > 0),
+                (suggestionSet.generated_at !== null ||
+                    suggestionSet.items.length > 0 ||
+                    suggestionSet.status === 'failed'),
         ],
         collapsed: [
             (s) => [s.collapsedOverride],
@@ -496,7 +511,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             try {
                 const skill = await llmSkillsNameRetrieve(String(projectId), item.skill_name)
                 actions.createFromSuggestionReady(item, {
-                    configId: config.id,
+                    config,
                     description: skill.description,
                     body: skill.body,
                 })
@@ -541,9 +556,12 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         requestRefresh: async () => {
             const teamId = values.currentTeamId
-            if (!teamId || values.isRefreshing) {
+            // The reducer already shows the button as busy; this non-reactive flag is what keeps a
+            // second press, or a press during a running poll, from sending a second request.
+            if (!teamId || cache.refreshInFlight || cache.refreshPolling) {
                 return
             }
+            cache.refreshInFlight = true
             try {
                 await signalsScoutSuggestionsRefresh(String(teamId))
                 captureScoutSuggestionsRefreshed({ outcome: 'accepted' })
@@ -557,9 +575,12 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                     return
                 }
                 captureScoutSuggestionsRefreshed({ outcome: apiError?.status === 429 ? 'capped' : 'failed' })
+                actions.refreshRequestRefused()
                 // The endpoint refuses for ordinary reasons — the daily cap, the org's AI setting,
                 // a quota — so its own message is the one worth showing.
                 lemonToast.error(apiError?.detail ?? 'Could not start a new scan')
+            } finally {
+                cache.refreshInFlight = false
             }
         },
         startRefreshPolling: () => {
@@ -569,7 +590,10 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             cache.disposables.add(() => {
                 const id = setInterval(() => {
                     if (Date.now() - startedAt >= REFRESH_POLL_TIMEOUT_MS) {
+                        // One last read, so a scan that landed while the tab was hidden shows up
+                        // now rather than on the next visit.
                         actions.refreshFinished()
+                        actions.loadSuggestions()
                         return
                     }
                     actions.loadSuggestions()
@@ -578,6 +602,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             }, 'suggestionsRefreshPoll')
             cache.refreshBaselineGeneratedAt = generatedAtBefore
             cache.refreshBaselineStatus = statusBefore
+            cache.refreshPolling = true
         },
         loadSuggestionsSuccess: ({ suggestionSet }) => {
             if (!values.isRefreshing) {
@@ -594,6 +619,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             }
         },
         refreshFinished: () => {
+            cache.refreshPolling = false
             cache.disposables.dispose('suggestionsRefreshPoll')
         },
         setFeatureFlags: () => {

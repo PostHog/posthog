@@ -9,6 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { ScoutSuggestionSurface } from '../../../inboxAnalytics'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
+import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
 import { ScoutSuggestionCard } from './ScoutSuggestionCard'
 import { ScoutSuggestionCreateHost } from './ScoutSuggestionCreateHost'
 
@@ -103,7 +104,10 @@ function StripBody(): JSX.Element {
     if (suggestions.length === 0) {
         return (
             <p className="m-0 text-xs text-secondary">
-                Nothing left to suggest right now. Refresh to scan the project again, or <SuggestWithAiLink />.
+                {batchStatus === 'failed'
+                    ? "The last scan didn't finish, so there are no picks yet. Refresh to try again, or "
+                    : 'Nothing left to suggest right now. Refresh to scan the project again, or '}
+                <SuggestWithAiLink />.
             </p>
         )
     }
@@ -112,7 +116,10 @@ function StripBody(): JSX.Element {
             <SuggestionGrid surface="strip" />
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                 {batchStatus === 'stale' && (
-                    <span>Your scouts changed since these were picked, so some may already be covered.</span>
+                    <span>
+                        Your scouts changed since these were picked, or the picks are due a refresh, so some may already
+                        be covered.
+                    </span>
                 )}
                 {batchStatus === 'failed' && (
                     <span>The last scan didn't finish, so these are the picks from before it.</span>
@@ -192,6 +199,11 @@ function SuggestionsSkeleton(): JSX.Element {
 function SuggestWithAiLink(): JSX.Element {
     const { aiConsentDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
     const { startScoutChatTask } = useActions(scoutSuggestionsLogic)
+    // The chat ends in a skill write, so it carries the same editor gate as the other authoring paths.
+    const creationDisabledReason = useScoutCreateDisabledReason()
+    if (creationDisabledReason) {
+        return <span>suggest a scout with AI once you can edit skills</span>
+    }
     if (aiConsentDisabledReason) {
         return <span>suggest a scout with AI once AI data processing is on</span>
     }

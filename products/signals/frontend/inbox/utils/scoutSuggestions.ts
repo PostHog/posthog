@@ -3,6 +3,7 @@ import { describeCron } from 'lib/cron'
 import type {
     ScoutSuggestionItemApi,
     ScoutSuggestionProposedConfigApi,
+    SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ScoutCreateInitialValues } from '../logics/scoutCreateModalLogic'
@@ -28,7 +29,7 @@ export function suggestionMetaLine(config: ScoutSuggestionProposedConfigApi): st
 
 /** The scout a canonical pick would turn on, as it exists on the project. */
 export interface ExistingScoutForSuggestion {
-    configId: string
+    config: SignalScoutConfigApi
     description: string
     body: string
 }
@@ -42,16 +43,35 @@ export function suggestionToCreateValues(
     item: ScoutSuggestionItemApi,
     existing: ExistingScoutForSuggestion | null = null
 ): ScoutCreateInitialValues {
+    const schedule = {
+        run_cron_schedule: item.proposed_config.run_cron_schedule ?? null,
+        run_interval_minutes: item.proposed_config.run_interval_minutes ?? DEFAULT_SUGGESTION_INTERVAL_MINUTES,
+    }
+    if (existing) {
+        // The pick proposes when the scout runs. Everything else the config already holds is the
+        // person's own: the emit posture, the Slack destination, tags and servers stay as they are,
+        // shown in the form so turning the scout on cannot quietly restore delivery it had before.
+        const { config } = existing
+        return {
+            name: item.skill_name,
+            description: existing.description,
+            body: existing.body,
+            existingConfigId: config.id,
+            config: {
+                ...schedule,
+                emit: config.emit,
+                output_destinations: config.output_destinations,
+                tags: config.tags ?? [],
+                mcp_gateway_server_ids: [...config.mcp_gateway_server_ids],
+            },
+            suggestionId: item.id,
+        }
+    }
     return {
         name: item.skill_name,
-        description: existing?.description ?? item.description,
-        body: existing?.body ?? item.draft_body,
-        existingConfigId: existing?.configId,
-        config: {
-            emit: item.proposed_config.emit,
-            run_cron_schedule: item.proposed_config.run_cron_schedule ?? null,
-            run_interval_minutes: item.proposed_config.run_interval_minutes ?? DEFAULT_SUGGESTION_INTERVAL_MINUTES,
-        },
+        description: item.description,
+        body: item.draft_body,
+        config: { ...schedule, emit: item.proposed_config.emit },
         suggestionId: item.id,
     }
 }

@@ -384,8 +384,19 @@ class TestPlanSuggestionRuns(BaseTest):
             last_completed_at=self.now - timedelta(days=2),
         )
 
+        # A failure replaces the stale status, so a failed row under the breaker keeps the short window.
+        failed_once = self._team("failed-once")
+        self._enable_scout(failed_once, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=failed_once,
+            status=SignalScoutSuggestionSet.Status.FAILED,
+            last_requested_at=self.now - timedelta(days=2),
+            consecutive_failures=1,
+            last_completed_at=self.now - timedelta(days=2),
+        )
+
         planned = plan_suggestion_runs(SuggestionSettings(enabled=True), self.now)
-        self.assertEqual([run.team_id for run in planned], [stale.id])
+        self.assertEqual(sorted(run.team_id for run in planned), sorted([stale.id, failed_once.id]))
 
     def test_root_source_config_does_not_hide_wider_tiers(self):
         SignalSourceConfig.objects.create(team=self.team, source_product="error_tracking", source_type="issue_created")

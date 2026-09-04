@@ -1491,9 +1491,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskFailure()
                 return
             }
+            // `runningChatType` is reactive (for the buttons) and can't tell a fresh submit from a
+            // duplicate, so this non-reactive flag is what stops a second press minting a second
+            // paid task while the first request is in flight.
+            if (cache.chatTaskStarting) {
+                return
+            }
+            cache.chatTaskStarting = true
             captureScoutChatStarted({ chatType, surface: 'fleet_list' })
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                cache.chatTaskStarting = false
                 actions.startScoutChatTaskFailure()
                 return
             }
@@ -1510,6 +1518,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
                 actions.startScoutChatTaskFailure()
+            } finally {
+                cache.chatTaskStarting = false
             }
         },
         materializeScoutFleet: sharedListeners.syncScoutFleetIfOwed,

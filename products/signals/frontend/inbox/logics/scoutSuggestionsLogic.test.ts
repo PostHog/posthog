@@ -181,10 +181,13 @@ describe('scoutSuggestionsLogic', () => {
     // A scan that found nothing has a `generated_at`; only an unscanned project has none. The first
     // still needs the strip, for its "nothing left" line and the Refresh that asks again.
     it.each([
-        ['never scanned', null, false],
-        ['scanned and found nothing', '2026-09-01T00:00:00Z', true],
-    ])('shows the strip only once the project was scanned: %s', async (_name, generatedAt, expected) => {
-        await mountWithBatch(suggestionSet({ status: 'empty', generated_at: generatedAt, items: [] }))
+        ['never scanned', 'empty', null, false],
+        ['scanned and found nothing', 'empty', '2026-09-01T00:00:00Z', true],
+        ['first scan failed', 'failed', null, true],
+    ])('shows the strip only once the project was scanned: %s', async (_name, status, generatedAt, expected) => {
+        await mountWithBatch(
+            suggestionSet({ status: status as ScoutSuggestionSetApi['status'], generated_at: generatedAt, items: [] })
+        )
 
         expect(logic.values.hasBatch).toBe(expected)
     })
@@ -227,7 +230,7 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.createFromSuggestion).toEqual({
             item: CANONICAL_ITEM,
             existing: {
-                configId: CONFIG.id,
+                config: CONFIG,
                 description: 'Watches web vitals.',
                 body: '# Web vitals\n\nCheck LCP on every run.',
             },
@@ -244,6 +247,18 @@ describe('scoutSuggestionsLogic', () => {
 
         scoutFleetLogic.actions.loadScoutConfigsSuccess([{ ...CONFIG, enabled: true }])
         expect(logic.values.suggestions.map((item) => item.id)).toEqual([CUSTOM_ITEM.id])
+    })
+
+    it('sends one refresh request however often the button is pressed while it is out', async () => {
+        await mountWithBatch()
+
+        logic.actions.requestRefresh()
+        logic.actions.requestRefresh()
+        expect(logic.values.isRefreshing).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockRefresh).toHaveBeenCalledTimes(1)
+        expect(logic.values.isRefreshing).toBe(true)
     })
 
     it('waits for the scan when a refresh is already running', async () => {

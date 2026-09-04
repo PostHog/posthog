@@ -408,10 +408,12 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
         else:
             never_generated = False
             wait_s = _wait_s(state.consecutive_failures, settings, refresh_s=refresh_s)
-            # A stale batch is due on the shorter window, but only while the project is picking up
-            # batches at all — pulling a repeatedly failing one forward would undo the breaker.
+            # A stale batch is due on the shorter window, and so is a failed one, since a failure
+            # on a stale row replaces its status and would otherwise push the retry out to the full
+            # window. Both only while the project is picking up batches at all — pulling a
+            # repeatedly failing one forward would undo the breaker.
             if (
-                state.status == SignalScoutSuggestionSet.Status.STALE
+                state.status in (SignalScoutSuggestionSet.Status.STALE, SignalScoutSuggestionSet.Status.FAILED)
                 and state.consecutive_failures < settings.failure_breaker_threshold
             ):
                 wait_s = min(wait_s, stale_refresh_s)
