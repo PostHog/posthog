@@ -4545,13 +4545,12 @@ def _extract_error_tracking_hints(payload: dict) -> int | None:
 def _handle_error_tracking_issue_action(payload: dict, action: dict) -> HttpResponse:
     """Resolve or self-assign an error tracking issue from a button on its alert thread.
 
-    Slack-side concerns only: parse the value, prove the workspace owns the integration the
-    button names, gate on org membership, then hand off to the error tracking facade, which
-    re-derives project access from the issue row. Slack expects a 200 within three seconds,
-    so the thread itself is updated by the mutation's own lifecycle reply, not here.
+    The callback only proves the workspace owns the integration the button names and then
+    defers: identity resolution can call Slack, and the mutation syncs ClickHouse and dispatches
+    alert delivery, both of which can outrun Slack's three-second acknowledgement budget. The
+    task gates on org membership and reports back with an ephemeral message.
     """
     slack_team_id = payload.get("team", {}).get("id")
-    response_url = payload.get("response_url", "")
     try:
         value = json.loads(action.get("value") or "")
         integration_id = value["integration_id"]
@@ -4559,44 +4558,32 @@ def _handle_error_tracking_issue_action(payload: dict, action: dict) -> HttpResp
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         logger.info("error_tracking_slack_action_malformed_value")
         return HttpResponse(status=200)
-    if not slack_team_id or not isinstance(integration_id, int):
+    slack_user_id = payload.get("user", {}).get("id", "")
+    channel_id = payload.get("channel", {}).get("id", "")
+    if not slack_team_id or not isinstance(integration_id, int) or not slack_user_id or not channel_id:
         return HttpResponse(status=200)
 
-    integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+    integration_exists = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
         id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
         kind=SLACK_INTEGRATION_KIND,
         integration_id=slack_team_id,
-    ).first()
-    if integration is None:
+    ).exists()
+    if not integration_exists:
         logger.info("error_tracking_slack_action_no_integration", slack_team_id=slack_team_id)
         return HttpResponse(status=200)
 
-    slack_user_id = payload.get("user", {}).get("id", "")
-    posthog_user = _is_org_member(integration, slack_user_id)
-    if posthog_user is None:
-        inbox_interactivity.post_response_url(
-            response_url,
-            {
-                "response_type": "ephemeral",
-                "replace_original": False,
-                "text": f"Only members of {_org_label(integration)} with a linked PostHog account can act on this issue from Slack.",
-            },
-        )
-        return HttpResponse(status=200)
-
     fingerprint = value.get("fingerprint")
+    team_id = value.get("team_id")
     from products.slack_app.backend.tasks import run_error_tracking_issue_action  # noqa: PLC0415
 
-    # The mutation syncs ClickHouse and dispatches alert delivery; that can outrun Slack's
-    # three-second acknowledgement budget, so it runs out of band and reports back through
-    # the response URL.
     run_error_tracking_issue_action.delay(
         action_id=action.get("action_id"),
         issue_id=str(issue_id),
         fingerprint=fingerprint if isinstance(fingerprint, str) else None,
-        integration_id=integration.id,
-        user_id=posthog_user.id,
-        response_url=response_url,
+        team_id=team_id if isinstance(team_id, int) else None,
+        integration_id=integration_id,
+        slack_user_id=slack_user_id,
+        channel_id=channel_id,
     )
     return HttpResponse(status=200)
 
