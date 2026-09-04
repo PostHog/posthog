@@ -4,11 +4,30 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
+
+// Some async asset fetches (the hedgehog-mode sprite sheet loaded by pixi.js, lazy chunk
+// imports) reject with a request-shaped failure that no error boundary can catch, so
+// autocapture reports it as an exception. Drop those `$exception` events before they leave the
+// browser — a failed download is a network condition, not an application error to track.
+export const dropChunkLoadExceptions: BeforeSendFn = (event) => {
+    if (event?.event !== '$exception') {
+        return event
+    }
+    const exceptionList = event.properties?.$exception_list
+    if (!Array.isArray(exceptionList) || exceptionList.length === 0) {
+        return event
+    }
+    const allChunkLoadErrors = exceptionList.every((exception) =>
+        isChunkLoadError({ name: exception?.type, message: exception?.value })
+    )
+    return allChunkLoadErrors ? null : event
+}
 
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
@@ -56,7 +75,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: [dropChunkLoadExceptions, ...(options.beforeSend ? [options.beforeSend].flat() : [])],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
