@@ -608,6 +608,35 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert by_id[custom_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
         assert all(result["variant"] == "test" for result in results)
 
+    def test_experiments_sharing_a_flag_clip_to_their_own_run_windows(self) -> None:
+        # Two experiments reuse one flag back to back, and the recording spans the handover.
+        # Each experiment must read only the evaluations from its own run: sharing the other
+        # run's evidence shows a false "multiple variants" warning on both, and gives the
+        # second experiment an exposure moment from before it launched.
+        self._create_recording()
+        first = self._create_experiment(name="First run", start_date=EXPERIMENT_START, end_date=RUN_BOUNDARY)
+        second = Experiment.objects.create(
+            team=self.team,
+            name="Second run",
+            feature_flag=first.feature_flag,
+            created_by=self.user,
+            start_date=RUN_BOUNDARY,
+        )
+        self._create_variant_evidence("flag_call", "test", BEFORE_BOUNDARY)
+        self._create_variant_evidence("flag_call", "control", AFTER_BOUNDARY)
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {result["experiment_id"]: result for result in response.json()["results"]}
+        assert set(by_id) == {first.id, second.id}
+        assert by_id[first.id]["variants_seen"] == ["test"]
+        assert by_id[first.id]["multiple_variants"] is False
+        assert by_id[first.id]["first_exposure_timestamp"] == BEFORE_BOUNDARY
+        assert by_id[second.id]["variants_seen"] == ["control"]
+        assert by_id[second.id]["multiple_variants"] is False
+        assert by_id[second.id]["first_exposure_timestamp"] == AFTER_BOUNDARY
+
     def test_multiple_custom_criteria_experiments_resolve_in_one_request(self) -> None:
         self._create_recording()
         # Two custom-criteria experiments force a real multi-branch UNION ALL — a single branch
