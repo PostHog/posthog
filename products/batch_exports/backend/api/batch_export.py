@@ -16,7 +16,6 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
@@ -48,6 +47,11 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
+from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
+from products.batch_exports.backend.hogql_source import (
+    UnsupportedHogQLQueryError,
+    validate_hogql_query_for_batch_export,
+)
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
     S3_FAMILY_TYPES,
@@ -56,6 +60,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportBackfill,
     BatchExportDestination,
     BatchExportRun,
+    BatchExportSource,
 )
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
@@ -786,7 +791,10 @@ class BatchExportRequestSerializer(serializers.Serializer):
     model = serializers.ChoiceField(
         choices=BatchExport.Model.choices,
         required=False,
-        help_text="Which data model to export (events, persons, sessions).",
+        help_text=(
+            "Which data model to export: events, persons, sessions, or hogql. "
+            "The hogql model exports the results of hogql_query and requires data_interval_field."
+        ),
     )
     destination = BatchExportDestinationRequestField(
         help_text="Destination configuration. Required integration_id is enforced per destination type.",
@@ -798,7 +806,21 @@ class BatchExportRequestSerializer(serializers.Serializer):
     paused = serializers.BooleanField(required=False, help_text="Whether the batch export is paused.")
     hogql_query = serializers.CharField(
         required=False,
-        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
+        allow_null=True,
+        help_text=(
+            "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. "
+            "With model 'events', it defines a custom schema of columns to export instead. "
+            "Required when model is 'hogql'."
+        ),
+    )
+    data_interval_field = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Column or alias in hogql_query that bounds each run to its data interval: a run exports the rows "
+            "where this field is greater than or equal to the run's start and less than its end. "
+            "Required when model is 'hogql'. Not supported for other models."
+        ),
     )
     filters = serializers.JSONField(
         required=False,
@@ -1021,35 +1043,33 @@ def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.An
     return (new_value, True)
 
 
-@extend_schema_field(OpenApiTypes.STR)
-class HogQLSelectQueryField(serializers.Field):
-    def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectSetQuery:
-        """Parse a HogQL SelectQuery from a string query."""
-        try:
-            parsed_query = parse_select(data)
-        except Exception:
-            raise serializers.ValidationError("Failed to parse query")
+def parse_events_hogql_query(hogql_query: str, team_id: int, user: User) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse a HogQL SelectQuery from a string query."""
+    try:
+        parsed_query = parse_select(hogql_query)
+    except Exception:
+        raise serializers.ValidationError("Failed to parse query")
 
-        try:
-            prepared_select_query: ast.SelectQuery = cast(
-                ast.SelectQuery,
-                prepare_ast_for_printing(
-                    parsed_query,
-                    context=HogQLContext(
-                        team_id=self.context["team_id"],
-                        user=self.context["request"].user,
-                        enable_select_queries=True,
-                        modifiers=HogQLQueryModifiers(
-                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                        ),
+    try:
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(
+                parsed_query,
+                context=HogQLContext(
+                    team_id=team_id,
+                    user=user,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(
+                        personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                     ),
-                    dialect="clickhouse",
                 ),
-            )
-        except errors.ExposedHogQLError as e:
-            raise serializers.ValidationError(f"Invalid HogQL query: {e}")
+                dialect="clickhouse",
+            ),
+        )
+    except errors.ExposedHogQLError as e:
+        raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
-        return prepared_select_query
+    return prepared_select_query
 
 
 class BatchExportsField(TypedDict):
@@ -1181,9 +1201,23 @@ class BatchExportSerializer(serializers.ModelSerializer):
         choices=BATCH_EXPORT_INTERVALS,
         help_text="How often the batch export should run.",
     )
-    hogql_query = HogQLSelectQueryField(
+    hogql_query = serializers.CharField(
         required=False,
-        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
+        allow_null=True,
+        help_text=(
+            "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. "
+            "With model 'events', it defines a custom schema of columns to export instead. "
+            "Required when model is 'hogql'."
+        ),
+    )
+    data_interval_field = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Column or alias in hogql_query that bounds each run to its data interval: a run exports the rows "
+            "where this field is greater than or equal to the run's start and less than its end. "
+            "Required when model is 'hogql'. Not supported for other models."
+        ),
     )
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,
@@ -1223,6 +1257,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
             "hogql_query",
+            "data_interval_field",
             "schema",
             "filters",
             "timezone",
@@ -1282,7 +1317,31 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
                 attrs["interval_offset"] = None
 
+        self._validate_model_query(attrs)
+
         return attrs
+
+    def _validate_model_query(self, attrs: dict) -> None:
+        """Validate `hogql_query` and `data_interval_field` for the model the batch export ends up with."""
+        current_model = (self.instance.model if self.instance is not None else None) or BatchExport.Model.EVENTS
+        model = attrs.get("model") or current_model
+
+        if self.instance is not None and model != current_model and BatchExport.Model.HOGQL in (model, current_model):
+            raise serializers.ValidationError(
+                {"model": "Changing the model to or from 'hogql' is not supported. Create a new batch export instead."}
+            )
+
+        if model == BatchExport.Model.HOGQL:
+            self._validate_hogql(attrs)
+            return
+
+        if attrs.get("data_interval_field") is not None:
+            raise serializers.ValidationError(
+                {"data_interval_field": "'data_interval_field' is only supported when 'model' is 'hogql'"}
+            )
+        if (hogql_query := attrs.get("hogql_query")) is not None:
+            # For events model, we need the resolved AST.
+            attrs["hogql_query"] = self._validate_events_hogql_query(hogql_query)
 
     def validate_interval(self, interval: str) -> str:
         """Validate sub-hour frequency intervals are only available when feature flag is enabled."""
@@ -1382,26 +1441,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     f"Each filter must have a 'type' of one of: {_SUPPORTED_FILTER_TYPES_DISPLAY}"
                 )
         return filters
-
-    def validate_model(self, model) -> str:
-        if model == "hogql":
-            team_id = self.context["team_id"]
-            team = Team.objects.get(id=team_id)
-            if not posthoganalytics.feature_enabled(
-                "hogql-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("HogQL batch exports are not enabled for this team.")
-
-        return model
 
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
@@ -1707,19 +1746,30 @@ class BatchExportSerializer(serializers.ModelSerializer):
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
+        model = validated_data.get("model") or BatchExport.Model.EVENTS
+        hogql_query = validated_data.pop("hogql_query", None)
+        data_interval_field = validated_data.pop("data_interval_field", None)
 
-        hogql_query = None
-        if hogql_query := validated_data.pop("hogql_query", None):
-            batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
-            validated_data["schema"] = batch_export_schema
+        source = None
+        if model == BatchExport.Model.HOGQL:
+            source = BatchExportSource(
+                team_id=team_id, hogql_query=hogql_query, data_interval_field=data_interval_field
+            )
+        elif hogql_query is not None:
+            # TODO: Migrate batch exports using a HogQL query to HogQL model.
+            validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
 
         destination = BatchExportDestination(**destination_data)
-        batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
+        batch_export = BatchExport(team_id=team_id, destination=destination, source=source, **validated_data)
 
         sync_batch_export(batch_export, created=True)
 
         with transaction.atomic():
             destination.save()
+
+            if source is not None:
+                source.save()
+
             batch_export.save()
 
         return batch_export
@@ -1783,7 +1833,54 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return batch_export_schema
 
-    def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    def _validate_hogql(self, attrs: dict[str, typing.Any]) -> None:
+        """Validate the source of a batch export with the 'hogql' model.
+
+        On update, a value missing from the request keeps the one stored in the source, and
+        the query and field are validated together because either can invalidate the other.
+        """
+        if attrs.get("filters"):
+            raise serializers.ValidationError({"filters": "'filters' are not supported when 'model' is 'hogql'"})
+
+        source = self.instance.source if self.instance is not None else None
+        if source is not None and "hogql_query" not in attrs and "data_interval_field" not in attrs:
+            return
+
+        team = self.context["get_team"]()
+        check_hogql_batch_exports_enabled(team)
+
+        hogql_query = attrs.get("hogql_query", source.hogql_query if source is not None else None)
+        if not hogql_query:
+            raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
+
+        data_interval_field = attrs.get(
+            "data_interval_field", source.data_interval_field if source is not None else None
+        )
+        if not data_interval_field:
+            raise serializers.ValidationError(
+                {"data_interval_field": "'data_interval_field' is required when 'model' is 'hogql'"}
+            )
+
+        # Two passes so the error lands on the field that caused it: the query on its own, then
+        # the query with the data interval bounds a run adds.
+        try:
+            validate_hogql_query_for_batch_export(hogql_query, team)
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError({"hogql_query": str(e)}) from e
+
+        try:
+            validate_hogql_query_for_batch_export(hogql_query, team, data_interval_field=data_interval_field)
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError(
+                {
+                    "data_interval_field": (
+                        f"'{data_interval_field}' cannot be used as the data interval field. It must be a column "
+                        f"or alias in the query. {e}"
+                    )
+                }
+            ) from e
+
+    def _validate_events_hogql_query(self, hogql_query: str) -> ast.SelectQuery:
         """Validate a HogQL query being used for events batch exports.
 
         This method essentially checks that a query is supported by batch exports:
@@ -1793,11 +1890,14 @@ class BatchExportSerializer(serializers.ModelSerializer):
         4. Subqueries in SELECT expressions are not supported.
         5. Query must select only from those fields we expose from the events table.
         """
+        parsed = parse_events_hogql_query(
+            hogql_query, team_id=self.context["team_id"], user=self.context["request"].user
+        )
 
-        if isinstance(hogql_query, ast.SelectSetQuery):
+        if isinstance(parsed, ast.SelectSetQuery):
             raise serializers.ValidationError("UNIONs are not supported")
 
-        parsed = cast(ast.SelectQuery, hogql_query)
+        parsed = cast(ast.SelectQuery, parsed)
 
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
@@ -1835,11 +1935,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 f"Supported fields are: {', '.join(sorted(EXPORTABLE_EVENTS_MODEL_FIELDS))}."
             )
 
-        return hogql_query
+        return parsed
 
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
+        hogql_query = validated_data.pop("hogql_query", None)
+        data_interval_field = validated_data.pop("data_interval_field", None)
 
         with transaction.atomic():
             if destination_data:
@@ -1852,9 +1954,17 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 integration = destination_data.get("integration", batch_export.destination.integration)
                 batch_export.destination.integration = integration
 
-            if hogql_query := validated_data.pop("hogql_query", None):
-                batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
-                validated_data["schema"] = batch_export_schema
+            if batch_export.model == BatchExport.Model.HOGQL:
+                if hogql_query is not None or data_interval_field is not None:
+                    source = batch_export.source or BatchExportSource(team_id=batch_export.team_id)
+                    if hogql_query is not None:
+                        source.hogql_query = hogql_query
+                    if data_interval_field is not None:
+                        source.data_interval_field = data_interval_field
+                    source.save()
+                    batch_export.source = source
+            elif hogql_query is not None:
+                validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
 
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
@@ -1900,7 +2010,12 @@ def recursive_dict_merge(
 )
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
-    queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
+    queryset = (
+        BatchExport.objects.exclude(deleted=True)
+        .order_by("-created_at")
+        .prefetch_related("destination", "source")
+        .all()
+    )
     serializer_class = BatchExportSerializer
     log_source = "batch_exports"
 

@@ -26,9 +26,6 @@ from temporalio.client import (
     WorkflowHandle,
 )
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.hogql import HogQLContext
-
 from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
@@ -161,6 +158,7 @@ class BatchExportModel:
     schema: BatchExportSchema | None
     filters: list[dict[str, str | list[str] | None]] | None = None
     hogql_query: str | None = None
+    data_interval_field: str | None = None
 
 
 @dataclass
@@ -1195,15 +1193,6 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         else settings.BATCH_EXPORTS_TASK_QUEUE
     )
 
-    context = HogQLContext(
-        team_id=batch_export.team.id,
-        enable_select_queries=True,
-        limit_top_select=False,
-    )
-    # Export models are only events/persons/sessions; warehouse tables and views are denied.
-    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
-    context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
-
     temporal = sync_connect()
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -1218,6 +1207,8 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                         name=batch_export.model or "events",
                         schema=batch_export.schema,
                         filters=batch_export.filters,
+                        hogql_query=batch_export.hogql_query,
+                        data_interval_field=batch_export.data_interval_field,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing

@@ -11,12 +11,11 @@ from django.shortcuts import get_object_or_404
 
 import boto3
 import structlog
-import posthoganalytics
 from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -32,6 +31,7 @@ from posthog.models import Team
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
+from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     validate_hogql_query_for_batch_export,
@@ -156,23 +156,6 @@ class FileDownloadCountRowsResponseSerializer(serializers.Serializer):
         help_text="Number of rows the query returns now. A HogQL batch export runs its query as of "
         "the time the export starts, so a run started now would export this many rows.",
     )
-
-
-def check_hogql_batch_exports_enabled(team: Team) -> None:
-    """Raise if HogQL-powered batch exports are not enabled for the team."""
-    if not posthoganalytics.feature_enabled(
-        "hogql-batch-exports",
-        str(team.uuid),
-        groups={"organization": str(team.organization.id)},
-        group_properties={
-            "organization": {
-                "id": str(team.organization.id),
-                "created_at": team.organization.created_at,
-            }
-        },
-        send_feature_flag_events=False,
-    ):
-        raise PermissionDenied("HogQL batch exports are not enabled for this team.")
 
 
 COUNT_ROWS_TIMEOUT_MESSAGE = (

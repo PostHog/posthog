@@ -707,6 +707,7 @@ def test_can_patch_hogql_query(
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         },
         "hogql_query": None,
+        "data_interval_field": None,
     }
 
 
@@ -746,6 +747,92 @@ def test_patch_returns_error_on_unsupported_hogql_query(
     }
     response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_can_patch_hogql_model_batch_export(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, hogql_batch_export_data
+):
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, hogql_batch_export_data)
+    source_id = BatchExport.objects.get(id=batch_export["id"]).source_id
+
+    # A change that does not touch the source keeps it as it is.
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"name": "renamed"})
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    renamed = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert renamed["name"] == "renamed"
+    assert renamed["hogql_query"] == hogql_batch_export_data["hogql_query"]
+    assert renamed["data_interval_field"] == "timestamp"
+
+    new_hogql_query = "SELECT uuid AS uuid, created_at AS created_at FROM events"
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"hogql_query": new_hogql_query, "data_interval_field": "created_at"},
+    )
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    updated = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert updated["hogql_query"] == new_hogql_query
+    assert updated["data_interval_field"] == "created_at"
+    assert BatchExport.objects.get(id=batch_export["id"]).source_id == source_id
+
+    schedule = describe_schedule(temporal, batch_export["id"])
+    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["batch_export_model"] == {
+        "filters": None,
+        "name": "hogql",
+        "schema": None,
+        "hogql_query": new_hogql_query,
+        "data_interval_field": "created_at",
+    }
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_patch_hogql_model_batch_export_validates_query_with_stored_data_interval_field(
+    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data
+):
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, hogql_batch_export_data)
+
+    # `persons` has no `timestamp`, which is the stored data interval field.
+    response = patch_batch_export(
+        client, team.pk, batch_export["id"], {"hogql_query": "SELECT id AS id, created_at AS created_at FROM persons"}
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == "data_interval_field"
+    assert (
+        get_batch_export_ok(client, team.pk, batch_export["id"])["hogql_query"]
+        == (hogql_batch_export_data["hogql_query"])
+    )
+
+
+@pytest.mark.parametrize("from_model,to_model", [("events", "hogql"), ("hogql", "events")])
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_patch_rejects_model_change_to_or_from_hogql(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    s3_batch_export_data,
+    hogql_batch_export_data,
+    from_model,
+    to_model,
+):
+    client.force_login(user)
+    create_data = hogql_batch_export_data if from_model == "hogql" else s3_batch_export_data
+    batch_export = create_batch_export_ok(client, team.pk, create_data)
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"model": to_model})
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == "model"
+    assert get_batch_export_ok(client, team.pk, batch_export["id"])["model"] == from_model
 
 
 @pytest.fixture
