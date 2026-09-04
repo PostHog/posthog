@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -315,11 +316,16 @@ export function buildStreamItems(messages: CompatMessage[]): StreamItem[] {
 export function TranscriptBubbleStream({
     inputs,
     outputs,
+    hideInternal = false,
 }: {
     inputs: CompatMessage[]
     outputs: CompatMessage[]
+    hideInternal?: boolean
 }): JSX.Element | null {
-    const items = useMemo(() => buildStreamItems([...inputs, ...outputs]), [inputs, outputs])
+    const items = useMemo(
+        () => buildStreamItems([...inputs, ...outputs]).filter((item) => !hideInternal || item.kind === 'bubble'),
+        [inputs, outputs, hideInternal]
+    )
 
     const capturedRef = useRef<Set<string>>(new Set())
     useEffect(() => {
@@ -345,18 +351,49 @@ export function TranscriptBubbleStream({
                         // Same user-message fill the Trace page uses, so the two sides don't blend together
                         boxClassName={item.message.role === 'user' ? 'bg-fill-tertiary' : undefined}
                     >
-                        {item.text && (
-                            // Trace content is untrusted, so external images must not auto-load.
-                            <LemonMarkdown className="whitespace-pre-wrap break-words" disableImages>
-                                {item.text}
-                            </LemonMarkdown>
-                        )}
+                        {item.text && <CollapsibleBubbleText text={item.text} />}
                         {item.nonText && <div className="italic text-muted text-xs mt-1">(has attachments)</div>}
                     </MessageTemplate>
                 ) : (
                     <InternalGroupPill key={i} messages={item.messages} labels={item.labels} role={item.role} />
                 )
             )}
+        </div>
+    )
+}
+
+// Character count approximates rendered height without measuring the DOM.
+const LONG_MESSAGE_CHARS = 1500
+const LONG_MESSAGE_LINES = 20
+
+function isLongMessage(text: string): boolean {
+    return text.length > LONG_MESSAGE_CHARS || text.split('\n').length > LONG_MESSAGE_LINES
+}
+
+function CollapsibleBubbleText({ text }: { text: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    // Trace content is untrusted, so external images must not auto-load.
+    const markdown = (
+        <LemonMarkdown className="whitespace-pre-wrap break-words" disableImages>
+            {text}
+        </LemonMarkdown>
+    )
+    if (!isLongMessage(text)) {
+        return markdown
+    }
+    const collapsed = !expanded
+    return (
+        <div className="flex flex-col gap-1">
+            <div className={collapsed ? 'max-h-60 overflow-hidden' : undefined}>{markdown}</div>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                className="self-start"
+                onClick={() => setExpanded((v) => !v)}
+                data-attr="llm-session-toggle-long-message"
+            >
+                {collapsed ? 'Show more' : 'Show less'}
+            </LemonButton>
         </div>
     )
 }
