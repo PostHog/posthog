@@ -29,6 +29,7 @@ import type { WorkflowTreeNode } from './workflowTree'
 const BRANCH_LIMIT = 6
 export function HogFlowTreeNode({
     activeDropzones,
+    branchDepth = 0,
     draggedActionId,
     node,
     onDragEnd,
@@ -36,6 +37,7 @@ export function HogFlowTreeNode({
     showIncomingConnector = true,
 }: {
     activeDropzones: boolean
+    branchDepth?: number
     draggedActionId: string | null
     node: WorkflowTreeNode
     onDragEnd: () => void
@@ -90,7 +92,7 @@ export function HogFlowTreeNode({
                 step
             ) : (
                 <Collapsible variant="folder" open={branchesOpen} onOpenChange={setBranchesOpen}>
-                    <div className="sticky top-0 z-20 bg-background">
+                    <div className="sticky top-0 bg-background" style={{ zIndex: 20 + branchDepth }}>
                         <CollapsibleHeader>{step}</CollapsibleHeader>
                         <div className="flex">
                             <CollapsibleTrigger className="ms-10 -mt-px h-6 w-auto rounded-t-none border border-border bg-card px-2 text-xxs">
@@ -159,6 +161,7 @@ export function HogFlowTreeNode({
                                             key={childNode.action.id}
                                             node={childNode}
                                             activeDropzones={activeDropzones}
+                                            branchDepth={branchDepth + 1}
                                             draggedActionId={draggedActionId}
                                             onDragStart={onDragStart}
                                             onDragEnd={onDragEnd}
