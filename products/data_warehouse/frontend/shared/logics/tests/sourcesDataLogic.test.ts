@@ -99,10 +99,12 @@ describe('sourcesDataLogic', () => {
         expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
     })
 
-    it('loads source summaries only on the sources list page', async () => {
+    it('loads source summaries on source-level pages', async () => {
         expect(shouldLoadSourceSummaries('/data-management/sources')).toBe(true)
         expect(shouldLoadSourceSummaries('/project/997/data-management/sources')).toBe(true)
-        expect(shouldLoadSourceSummaries('/data-management/revenue')).toBe(false)
+        expect(shouldLoadSourceSummaries('/data-management/revenue')).toBe(true)
+        expect(shouldLoadSourceSummaries('/project/997/data-management/revenue')).toBe(true)
+        expect(shouldLoadSourceSummaries('/sql')).toBe(false)
 
         jest.spyOn(api.externalDataSources, 'listSummaries').mockResolvedValue(emptySummaryResponse)
         jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(emptyResponse)
