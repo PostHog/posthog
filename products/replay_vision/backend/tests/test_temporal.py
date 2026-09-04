@@ -2410,9 +2410,7 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
         assert exc_info.value.__suppress_context__ is True
         # Prove it through the real capture serializer: the errno and pod address must not survive into
         # `$exception_list`, or one outage still fragments into a fresh error-tracking issue per variant.
-        serialized = exceptions_from_error_tuple(
-            (type(exc_info.value), exc_info.value, exc_info.value.__traceback__)
-        )
+        serialized = exceptions_from_error_tuple((type(exc_info.value), exc_info.value, exc_info.value.__traceback__))
         captured = " ".join(str(item.get("value")) for item in serialized)
         assert "ECONNREFUSED" not in captured
         assert "10.0.0.5" not in captured
