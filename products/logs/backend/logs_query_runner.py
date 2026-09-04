@@ -650,6 +650,25 @@ class LogsFilterBuilder:
         return ast.Constant(value=1)
 
 
+def fail_fast_aggregate_settings(
+    max_bytes_to_read: int = 10_000_000_000, *, use_uncompressed_cache: bool = False
+) -> HogQLGlobalSettings:
+    """Caps for headline aggregates: fail fast rather than scan unbounded data.
+
+    Matches the caps AlertCheckQuery uses against the same table. Runners that repeatedly
+    decompress the attribute maps over near-identical windows opt into the uncompressed
+    block cache, guarded to the runner's own read cap (see LogsGroupByQueryRunner).
+    """
+    return HogQLGlobalSettings(
+        max_execution_time=30,
+        max_bytes_to_read=max_bytes_to_read,
+        read_overflow_mode="throw",
+        use_uncompressed_cache=use_uncompressed_cache or None,
+        merge_tree_max_rows_to_use_cache=50_000_000 if use_uncompressed_cache else None,
+        merge_tree_max_bytes_to_use_cache=max_bytes_to_read if use_uncompressed_cache else None,
+    )
+
+
 class LogsQueryRunnerMixin(QueryRunner):
     # Target bucket count for the adaptive interval picker in `query_date_range`.
     # Subclasses can override per-instance to request a different resolution.
@@ -722,6 +741,24 @@ class LogsQueryRunnerMixin(QueryRunner):
 
     def where(self) -> ast.Expr:
         return self._filter_builder.where()
+
+    def where_with_timestamp_bounds(self) -> ast.Expr:
+        # LogsFilterBuilder.where() filters by toStartOfDay(time_bucket), which is
+        # day-precision; the explicit per-row bounds (half-open to avoid double-counting
+        # on boundaries) make aggregate counts match the requested window. Same pattern
+        # as AlertCheckQuery.
+        return ast.And(
+            exprs=[
+                self.where(),
+                parse_expr(
+                    "timestamp >= {date_from} AND timestamp < {date_to}",
+                    placeholders={
+                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                    },
+                ),
+            ]
+        )
 
     def resource_filter(self, *, existing_filters):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)

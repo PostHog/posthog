@@ -1,6 +1,6 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 
 import type { _LogsImpactResponseApi } from 'products/logs/frontend/generated/api.schemas'
 
@@ -29,9 +29,16 @@ export function LogsImpactCounts({ impact }: LogsImpactCountsProps): JSX.Element
     }
 
     const percentOfLogs = (count: number): string => {
-        const percent = Math.round((count / impact.total) * 100)
-        // A count only renders when it is above zero, so a rounded 0% would contradict it.
-        return percent === 0 ? '<1%' : `${percent}%`
+        const fraction = count / impact.total
+        // Rounding must not contradict the visible counts: partial coverage never reads
+        // as a flat 0% or 100%.
+        if (fraction < 0.005) {
+            return '<1%'
+        }
+        if (fraction > 0.995 && fraction < 1) {
+            return '>99%'
+        }
+        return percentage(fraction, 0)
     }
 
     return (
