@@ -9190,9 +9190,13 @@ export namespace Schemas {
 
     export interface DashboardTile {
       id?: number;
-      insight: Insight;
-      text: Text;
-      button_tile: ButtonTile;
+      /** The insight shown on this tile. Null on text, button, and widget tiles. */
+      insight?: Insight | null;
+      /** The text card shown on this tile. Null on insight, button, and widget tiles. */
+      text?: Text | null;
+      /** The button shown on this tile. Null on insight, text, and widget tiles. */
+      button_tile?: ButtonTile | null;
+      /** The widget shown on this tile. Null on insight, text, and button tiles. */
       widget?: DashboardWidget | null;
       layouts?: unknown;
       /**

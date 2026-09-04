@@ -937,10 +937,27 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
-    insight: InsightBasicSerializer = InsightSerializer()
-    text = TextSerializer()
-    button_tile = ButtonTileSerializer()
-    widget = DashboardWidgetSerializer(required=False, allow_null=True)
+    # A tile carries exactly one of these four, so the other three are null on every tile.
+    insight: InsightBasicSerializer = InsightSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The insight shown on this tile. Null on text, button, and widget tiles.",
+    )
+    text = TextSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The text card shown on this tile. Null on insight, button, and widget tiles.",
+    )
+    button_tile = ButtonTileSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The button shown on this tile. Null on insight, text, and widget tiles.",
+    )
+    widget = DashboardWidgetSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The widget shown on this tile. Null on insight, text, and button tiles.",
+    )
 
     class Meta:
         model = DashboardTile
