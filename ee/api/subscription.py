@@ -1164,7 +1164,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         contexts = validated_data.pop("contexts", [])
         with transaction.atomic():
             context_identifiers = self._context_identifiers(contexts)
-            context_change = ([], self._context_refs(context_identifiers)) if context_identifiers else None
+            context_change: tuple[list[str], list[str]] | None = (
+                ([], self._context_refs(context_identifiers)) if context_identifiers else None
+            )
             with attribute_subscription_saves(get_request_analytics_properties(request), context_change=context_change):
                 instance: Subscription = super().create(validated_data)
             self._replace_contexts(instance, contexts)
