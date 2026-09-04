@@ -47,4 +47,12 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         indexes = [
             # serves to cut lookup times for pre-existing running jobs during the preempt stage
             models.Index(fields=["team", "status"], name="datamodelingjob_team_status"),
+            # lets a DAG run read back its own children instead of every job the team ever recorded;
+            # partial because every reader filters a non-null parent, so rows without one (v1 and
+            # standalone runs) never belong in this index
+            models.Index(
+                fields=["team", "parent_workflow_id"],
+                name="datamodelingjob_team_parentwf",
+                condition=models.Q(parent_workflow_id__isnull=False),
+            ),
         ]
