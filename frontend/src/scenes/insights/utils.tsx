@@ -41,6 +41,7 @@ import {
 import {
     containsHogQLQuery,
     isDataTableNode,
+    isDataVisualizationNode,
     isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
@@ -734,8 +735,30 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
     return JSON.stringify({ query, timestamp })
 }
 
+// A wrapper node reads its `source` query downstream, so a hash that drops `source` is invalid.
+function isValidDraftQueryNode(node: unknown): node is Node<Record<string, any>> {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+        return false
+    }
+    const candidate = node as Record<string, any>
+    if (typeof candidate.kind !== 'string') {
+        return false
+    }
+    if (
+        (isInsightVizNode(candidate) || isDataTableNode(candidate) || isDataVisualizationNode(candidate)) &&
+        !candidate.source
+    ) {
+        return false
+    }
+    return true
+}
+
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    return parseQuery(query)
+    const parsed = parseQuery<Node<Record<string, any>>>(query)
+    if (parsed && !isValidDraftQueryNode(parsed)) {
+        return null
+    }
+    return parsed
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

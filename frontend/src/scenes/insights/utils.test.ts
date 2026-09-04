@@ -9,6 +9,7 @@ import {
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
+    parseDraftQueryFromURL,
 } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -812,5 +813,22 @@ describe('compareTopLevelSections()', () => {
             compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
         ).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
+    })
+})
+
+describe('parseDraftQueryFromURL()', () => {
+    it.each([
+        ['DataTableNode without source', '{"kind":"DataTableNode"}'],
+        ['InsightVizNode without source', '{"kind":"InsightVizNode"}'],
+        ['node without a kind', '{"source":{"kind":"TrendsQuery"}}'],
+        ['a JSON array', '[1,2,3]'],
+        ['unparseable JSON', '{not json'],
+    ])('returns null for %s', (_label, hash) => {
+        expect(parseDraftQueryFromURL(hash)).toBeNull()
+    })
+
+    it('returns a valid wrapper node untouched', () => {
+        const node = { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } }
+        expect(parseDraftQueryFromURL(JSON.stringify(node))).toEqual(node)
     })
 })
