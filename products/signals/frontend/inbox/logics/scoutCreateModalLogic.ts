@@ -24,12 +24,16 @@ import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import {
     dailyCronToTime,
+    dayTimeToWeeklyCron,
     DEFAULT_SCOUT_DAILY_TIME,
+    DEFAULT_SCOUT_WEEKLY_DAY,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
+    SCOUT_WEEKLY_ON_SCHEDULE_MODE,
     SIGNALS_SCOUT_SKILL_PREFIX,
     stripScoutPrefix,
     timeToDailyCron,
+    weeklyCronToDayTime,
 } from '../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
 import { scoutMcpServersLogic } from './scoutMcpServersLogic'
@@ -44,7 +48,10 @@ type ScoutCreateConfigFormValues = Required<
 
 export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'> & {
     config: ScoutCreateConfigFormValues
+    /** Run time for both the daily and the weekly mode, so switching between them keeps it. */
     dailyTime: string
+    /** Cron day-of-week the weekly mode runs on. */
+    weeklyDay: string
 }
 
 export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
@@ -63,6 +70,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
     description: '',
     body: '',
     dailyTime: DEFAULT_SCOUT_DAILY_TIME,
+    weeklyDay: DEFAULT_SCOUT_WEEKLY_DAY,
     config: {
         enabled: true,
         emit: true,
@@ -93,7 +101,11 @@ export function getScoutCreateFormValues(
             ? stripScoutPrefix((initialValues?.name ?? '').trim())
             : (initialValues?.name ?? SIGNALS_SCOUT_SKILL_PREFIX),
         config,
-        dailyTime: dailyCronToTime(config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME,
+        dailyTime:
+            dailyCronToTime(config.run_cron_schedule) ??
+            weeklyCronToDayTime(config.run_cron_schedule)?.time ??
+            DEFAULT_SCOUT_DAILY_TIME,
+        weeklyDay: weeklyCronToDayTime(config.run_cron_schedule)?.day ?? DEFAULT_SCOUT_WEEKLY_DAY,
     }
 }
 
@@ -130,6 +142,20 @@ export function scoutSkillNameFromInput(name: string): string {
 
 function isValidScoutDailyTime(dailyTime: string): boolean {
     return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)
+}
+
+function isWeeklySchedule(config: ScoutCreateConfigFormValues): boolean {
+    return weeklyCronToDayTime(config.run_cron_schedule) !== null
+}
+
+/**
+ * The day the weekly mode writes. A draft persisted before that mode existed carries no day of its
+ * own — kea-localstorage restores the stored object over the whole default rather than merging new
+ * fields — so read the saved cron first and fall back to the default.
+ */
+function scoutWeeklyDay(form: ScoutCreateFormValues): string {
+    const day = weeklyCronToDayTime(form.config.run_cron_schedule)?.day ?? form.weeklyDay
+    return day && /^[0-6]$/.test(day) ? day : DEFAULT_SCOUT_WEEKLY_DAY
 }
 
 function scoutNameError(name: string, redesign: boolean): string | undefined {
@@ -216,6 +242,9 @@ export interface scoutCreateModalLogicActions {
     setScoutCreateScheduleMode: (scheduleMode: string) => {
         scheduleMode: string
     }
+    setScoutCreateWeeklyDay: (weeklyDay: string) => {
+        weeklyDay: string
+    }
     submitScoutCreateForm: () => {
         value: boolean
     }
@@ -266,6 +295,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     actions({
         setScoutCreateScheduleMode: (scheduleMode: string) => ({ scheduleMode }),
         setScoutCreateDailyTime: (dailyTime: string) => ({ dailyTime }),
+        setScoutCreateWeeklyDay: (weeklyDay: string) => ({ weeklyDay }),
         markMcpServersDefaulted: true,
         resetMcpServersDefaulted: true,
     }),
@@ -307,7 +337,9 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                           : undefined,
                     body: !body.trim() ? 'Instructions are required' : undefined,
                     dailyTime:
-                        dailyCronToTime(config.run_cron_schedule) !== null && !isValidScoutDailyTime(dailyTime)
+                        (dailyCronToTime(config.run_cron_schedule) !== null ||
+                            weeklyCronToDayTime(config.run_cron_schedule) !== null) &&
+                        !isValidScoutDailyTime(dailyTime)
                             ? 'Run time is required'
                             : undefined,
                     config:
@@ -394,15 +426,20 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
             if (scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
                 return
             }
-            if (scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE) {
+            if (scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE || scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE) {
                 const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
                     ? values.scoutCreateForm.dailyTime
                     : DEFAULT_SCOUT_DAILY_TIME
+                const weeklyDay = scoutWeeklyDay(values.scoutCreateForm)
                 actions.setScoutCreateFormValues({
                     dailyTime,
+                    weeklyDay,
                     config: {
                         ...values.scoutCreateForm.config,
-                        run_cron_schedule: timeToDailyCron(dailyTime),
+                        run_cron_schedule:
+                            scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE
+                                ? dayTimeToWeeklyCron(weeklyDay, dailyTime)
+                                : timeToDailyCron(dailyTime),
                     },
                 })
                 return
@@ -429,7 +466,22 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 dailyTime,
                 config: {
                     ...values.scoutCreateForm.config,
-                    run_cron_schedule: timeToDailyCron(dailyTime),
+                    run_cron_schedule: isWeeklySchedule(values.scoutCreateForm.config)
+                        ? dayTimeToWeeklyCron(scoutWeeklyDay(values.scoutCreateForm), dailyTime)
+                        : timeToDailyCron(dailyTime),
+                },
+            })
+        },
+        setScoutCreateWeeklyDay: ({ weeklyDay }) => {
+            const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
+                ? values.scoutCreateForm.dailyTime
+                : DEFAULT_SCOUT_DAILY_TIME
+            actions.setScoutCreateFormValues({
+                weeklyDay,
+                dailyTime,
+                config: {
+                    ...values.scoutCreateForm.config,
+                    run_cron_schedule: dayTimeToWeeklyCron(weeklyDay, dailyTime),
                 },
             })
         },

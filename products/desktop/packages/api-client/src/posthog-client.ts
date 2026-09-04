@@ -558,6 +558,12 @@ export interface ScoutConfig {
    */
   scout_origin?: "canonical" | "custom";
   run_interval_minutes: number;
+  /**
+   * Cron schedule the scout runs on, evaluated in the project timezone. Null when
+   * the scout runs on the rolling `run_interval_minutes` cadence instead, and
+   * absent entirely on backends predating the field.
+   */
+  run_cron_schedule?: string | null;
   last_run_at: string | null;
   created_at: string;
 }
@@ -2392,6 +2398,8 @@ export class PostHogAPIClient {
       enabled?: boolean;
       emit?: boolean;
       run_interval_minutes?: number;
+      /** A cron expression puts the scout on a calendar; null returns it to the rolling cadence. */
+      run_cron_schedule?: string | null;
       auto_pause_exempt?: boolean;
     },
   ): Promise<ScoutConfig> {
