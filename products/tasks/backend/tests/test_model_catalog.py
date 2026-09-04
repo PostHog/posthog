@@ -152,3 +152,21 @@ class TestAvailableModelChoices:
             return_value=gateway,
         ):
             assert [c.model for c in available_model_choices("posthog_code")] == ["claude-fable-5"]
+
+    def test_keeps_vendor_served_models_the_catalog_routes(self) -> None:
+        # The gateway owns these under the party serving them, not the harness that drives
+        # them, so routing on the owner alone dropped every one from the web picker.
+        gateway = (
+            GatewayModel(id="deepseek-ai/deepseek-v4-flash-0731", owned_by="baseten", context_window=128000),
+            GatewayModel(id="zai-org/glm-5.3-flash", owned_by="cloudflare", context_window=128000),
+            GatewayModel(id="moonshotai/kimi-k3", owned_by="moonshotai", context_window=128000),
+        )
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=gateway,
+        ):
+            choices = available_model_choices("posthog_code")
+
+        assert [c.model for c in choices] == [m.id for m in gateway]
+        assert {c.runtime_adapter for c in choices} == {"claude"}
+        assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
