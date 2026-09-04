@@ -9507,9 +9507,7 @@ def _retain_shared_artifact_object(entry: dict, team_id: int) -> None:
     except Exception as exc:
         logger.warning(
             "task_run.shared_artifact_retain_failed",
-            storage_path=storage_path,
-            team_id=team_id,
-            error=str(exc),
+            extra={"storage_path": storage_path, "team_id": team_id, "error": str(exc)},
         )
 
 
