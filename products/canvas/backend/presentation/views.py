@@ -2107,16 +2107,14 @@ class CanvasBoardViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         """Record ops on a board's log. Resent op_ids are skipped and reported with their existing seq."""
         board = self.get_object()
         data = request.validated_data
-        rows = board_log.append_ops(
+        result = board_log.append_ops(
             board,
             data["ops"],
             data["actor"]["kind"],
             data["actor"].get("task_id"),
             self._request_user(),
-            data["base_seq"],
-            data.get("snapshot"),
         )
-        return Response(CanvasBoardAppendResultSerializer(instance={"results": rows, "head_seq": board.head_seq}).data)
+        return Response(CanvasBoardAppendResultSerializer(instance=result).data)
 
     @extend_schema(
         request=CanvasBoardPresenceSerializer,

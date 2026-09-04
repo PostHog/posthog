@@ -33,9 +33,7 @@ class TestCanvasBoardLog(BaseTest):
             {"type": "add_fragment", "fragment": fragment},
             {"type": "bring_to_front", "id": "one"},
         ]
-        append_ops(
-            board, [{"op_id": str(index), "op": op} for index, op in enumerate(ops)], "user", None, self.user, 0, None
-        )
+        append_ops(board, [{"op_id": str(index), "op": op} for index, op in enumerate(ops)], "user", None, self.user)
         board.refresh_from_db()
         snapshot = CanvasBoardSerializer(board).data["snapshot"]
         assert snapshot["fragments"][0]["z"] == 1
@@ -61,8 +59,10 @@ class TestCanvasBoardLog(BaseTest):
         snapshot = {"schemaVersion": 1, "fragments": [], "state": {"one": 1, "two": 2}}
 
         with CaptureQueriesContext(connection) as queries:
-            rows = append_ops(board, [first, first, second], "user", None, self.user, 0, snapshot)
+            result = append_ops(board, [first, first, second], "user", None, self.user)
 
+        rows = result.results
+        assert [row.op_id for row in result.replayed] == ["first"]
         assert [row.seq for row in rows] == [1, 1, 2]
         assert sum('INSERT INTO "posthog_canvas_board_op"' in query["sql"] for query in queries) == 1
         assert not any("SELECT" in query["sql"] and '"snapshot"' in query["sql"] for query in queries)
@@ -73,9 +73,10 @@ class TestCanvasBoardLog(BaseTest):
         assert CanvasBoardOp.objects.for_team(self.team.id).filter(board=board).count() == 2
 
         with CaptureQueriesContext(connection) as queries:
-            retried = append_ops(board, [first, second], "user", None, self.user, 2, snapshot)
+            retried = append_ops(board, [first, second], "user", None, self.user)
 
-        assert [row.pk for row in retried] == [rows[0].pk, rows[2].pk]
+        assert [row.pk for row in retried.results] == [rows[0].pk, rows[2].pk]
+        assert retried.replayed == retried.results
         assert not any(query["sql"].startswith(("INSERT", "UPDATE")) for query in queries)
 
         restored = {"schemaVersion": 1, "fragments": [], "state": {}}
@@ -85,8 +86,6 @@ class TestCanvasBoardLog(BaseTest):
             "user",
             None,
             self.user,
-            2,
-            None,
         )
         board.refresh_from_db()
         assert CanvasBoardSerializer(board).data["snapshot"] == restored
@@ -105,8 +104,6 @@ class TestCanvasBoardLog(BaseTest):
             "user",
             None,
             self.user,
-            0,
-            None,
         )
         append_ops(
             board,
@@ -114,8 +111,6 @@ class TestCanvasBoardLog(BaseTest):
             "user",
             None,
             self.user,
-            0,
-            None,
         )
         records = CanvasBoardRecord.objects.for_team(self.team.id).filter(board=board)
         assert records.filter(kind="source").count() == 1
@@ -129,8 +124,6 @@ class TestCanvasBoardLog(BaseTest):
                 "user",
                 None,
                 self.user,
-                0,
-                None,
             )
 
         sql = "\n".join(query["sql"] for query in queries)
@@ -185,8 +178,6 @@ class TestCanvasBoardLog(BaseTest):
             "user",
             None,
             self.user,
-            1,
-            legacy,
         )
         board.refresh_from_db()
         result = CanvasBoardSerializer(board).data

@@ -193,6 +193,7 @@ export interface CanvasV2AppendOpsInput {
 
 export interface CanvasV2AppendOpsResult {
   results: { opId: string; seq: number }[];
+  replayed?: CanvasV2LogEntry[];
   headSeq: number;
 }
 

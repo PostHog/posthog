@@ -98,6 +98,29 @@ class TestCanvasBoardValidationEndpoint(APIBaseTest):
         operations.append({"op_id": "move", "op": {"type": "update_fragment", "id": "one", "patch": {"x": 80}}})
         response = self.client.post(f"{url}ops/", {"ops": operations, "actor": {"kind": "user"}, "base_seq": 0})
         assert response.status_code == 200
+        assert response.json()["replayed"] == []
+        retry = self.client.post(
+            f"{url}ops/",
+            {
+                "ops": [
+                    {
+                        "op_id": "one",
+                        "op": {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "one", "code": "different"}},
+                    }
+                ],
+                "actor": {"kind": "agent", "task_id": "another-task"},
+                "base_seq": 0,
+            },
+            format="json",
+        )
+        assert retry.status_code == 200
+        replayed = retry.json()["replayed"]
+        assert len(replayed) == 1
+        assert replayed[0]["op"]["fragment"]["code"] == FRAGMENT["code"]
+        assert replayed[0]["op"]["fragment"]["x"] == 0
+        assert replayed[0]["actor"]["kind"] == "user"
+        assert replayed[0]["seq"] == 1
+        assert retry.json()["head_seq"] == 3
 
         compact = self.client.get(f"{url}?compact=true")
         assert compact.status_code == 200

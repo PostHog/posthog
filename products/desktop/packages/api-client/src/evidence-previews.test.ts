@@ -902,6 +902,7 @@ describe("evidence preview shaping", () => {
       {
         status: "stale",
         reason: "Rolled out to 100% for at least 30 days",
+        reason_states_rollout: true,
         rollout: {
           effectively_full_rollout: true,
           has_targeting_conditions: false,

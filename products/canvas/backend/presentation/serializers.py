@@ -1456,6 +1456,7 @@ class CanvasBoardAppendResultSerializer(serializers.Serializer):
     """Result of appending ops."""
 
     results = CanvasBoardAppendedOpSerializer(many=True, help_text="One entry per submitted op, in order.")
+    replayed = CanvasBoardLogEntrySerializer(many=True, help_text="Accepted log entries for repeated operation IDs.")
     head_seq = serializers.IntegerField(help_text="Seq of the newest op after this append.")
 
 

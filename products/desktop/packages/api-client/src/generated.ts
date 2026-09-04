@@ -14231,11 +14231,11 @@ export namespace Schemas {
          */
         effectively_full_rollout: boolean;
         /**
-         * True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base.
+         * True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list.
          */
         has_targeting_conditions: boolean;
         /**
-         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.
          */
         max_rollout_percentage: number | null;
         /**
@@ -14252,6 +14252,10 @@ export namespace Schemas {
          * Human-readable explanation of the status
          */
         reason: string;
+        /**
+         * True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it.
+         */
+        reason_states_rollout: boolean;
         /**
          * Summary of the flag's rollout configuration, for determining whether it is fully rolled out.
          */
@@ -18060,6 +18064,7 @@ export namespace Schemas {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `canvas` - Canvas
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -18083,6 +18088,7 @@ export namespace Schemas {
         | "eval_clusters"
         | "user_created"
         | "slack"
+        | "canvas"
         | "support_queue"
         | "session_summaries"
         | "posthog_ai"
@@ -20362,6 +20368,7 @@ export namespace Endpoints {
                     | "eval_clusters"
                     | "user_created"
                     | "slack"
+                    | "canvas"
                     | "support_queue"
                     | "session_summaries"
                     | "posthog_ai"

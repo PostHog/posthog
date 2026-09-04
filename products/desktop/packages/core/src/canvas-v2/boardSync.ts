@@ -510,12 +510,15 @@ export class BoardSyncClient {
     }
 
     this.pending = this.pending.filter((entry) => !sent.has(entry.opId));
-    this.log = sortLog(dedupeByOpId([...this.log, ...promoted]));
+    this.log = sortLog(
+      dedupeByOpId([...(result.replayed ?? []), ...this.log, ...promoted]),
+    );
     this.headSeq = Math.max(this.headSeq, result.headSeq, maxSeq);
     this.refreshLogComplete();
 
     if (
       input.snapshot &&
+      !result.replayed?.length &&
       batch.every(
         (entry, index) =>
           seqByOpId.get(entry.opId) === input.baseSeq + index + 1,

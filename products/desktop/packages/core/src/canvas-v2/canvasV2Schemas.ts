@@ -62,5 +62,6 @@ export const canvasV2OpsPageSchema = z.object({
 
 export const canvasV2AppendOpsResultSchema = z.object({
   results: z.array(z.object({ opId: z.string(), seq: z.number().int() })),
+  replayed: z.array(canvasV2LogEntrySchema).optional(),
   headSeq: z.number().int(),
 });

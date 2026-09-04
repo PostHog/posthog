@@ -16173,6 +16173,8 @@ export namespace Schemas {
     export interface CanvasBoardAppendResult {
       /** One entry per submitted op, in order. */
       results: CanvasBoardAppendedOp[];
+      /** Accepted log entries for repeated operation IDs. */
+      replayed: CanvasBoardLogEntry[];
       /** Seq of the newest op after this append. */
       head_seq: number;
     }

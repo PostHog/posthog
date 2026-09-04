@@ -101,6 +101,10 @@ The stream closes if the board is deleted or moves to a space the user cannot re
 The server uses a bulk insert for operation batches. A retry with no new
 operations does not update the board row. Each board uses its existing row lock
 to sequence edits. The log and current records change in the same transaction.
+Append responses return accepted log entries for repeated operation IDs. Clients
+use those entries even when another client submitted different data with the
+same ID. New operations return only their ID and sequence, without another
+copy of their source or state.
 The server applies operations to fragment and shared-state records. A normal
 move reads and writes only the affected fragment metadata, not source or state.
 The first write to an old board converts its saved snapshot and later operations.

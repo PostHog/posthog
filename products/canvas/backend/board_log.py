@@ -3,11 +3,19 @@ from typing import Any
 
 from django.db import transaction
 
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.canvas.backend import board_stream
 from products.canvas.backend.board_records import BoardRecords, hydrate_ops
 from products.canvas.backend.models import CanvasBoard, CanvasBoardOp
+
+
+@frozen
+class BoardAppendResult:
+    results: list[CanvasBoardOp]
+    replayed: list[CanvasBoardOp]
+    head_seq: int
 
 
 def board_actor_name(user: User | None) -> str | None:
@@ -34,15 +42,17 @@ def append_ops(
     actor_kind: str,
     actor_task_id: str | None,
     user: User | None,
-    base_seq: int,
-    snapshot: dict[str, Any] | None,
-) -> list[CanvasBoardOp]:
+) -> BoardAppendResult:
     appended: list[CanvasBoardOp] = []
+    replayed: dict[str, CanvasBoardOp] = {}
     with transaction.atomic():
         locked = CanvasBoard.objects.for_team(board.team_id).defer("snapshot").select_for_update().get(pk=board.pk)
         scoped_ops = CanvasBoardOp.objects.for_team(board.team_id)
         existing = {
-            row.op_id: row for row in scoped_ops.filter(board=locked, op_id__in=[entry["op_id"] for entry in ops])
+            row.op_id: row
+            for row in scoped_ops.filter(board=locked, op_id__in=[entry["op_id"] for entry in ops]).select_related(
+                "actor_user"
+            )
         }
         records = BoardRecords(locked)
         if any(entry["op_id"] not in existing for entry in ops):
@@ -53,6 +63,7 @@ def append_ops(
             op_id = entry["op_id"]
             if op_id in existing:
                 results.append(existing[op_id])
+                replayed[op_id] = existing[op_id]
                 continue
             row = CanvasBoardOp(
                 team_id=locked.team_id,
@@ -79,7 +90,7 @@ def append_ops(
             events = [_op_event(row, user) for row in appended]
             transaction.on_commit(lambda: board_stream.publish_ops(team_id, board_key, events))
     board.head_seq = locked.head_seq
-    return results
+    return BoardAppendResult(results=results, replayed=list(replayed.values()), head_seq=locked.head_seq)
 
 
 def _op_event(row: CanvasBoardOp, user: User | None) -> dict[str, Any]:

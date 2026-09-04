@@ -571,6 +571,8 @@ export interface CanvasBoardAppendedOpApi {
 export interface CanvasBoardAppendResultApi {
     /** One entry per submitted op, in order. */
     results: CanvasBoardAppendedOpApi[]
+    /** Accepted log entries for repeated operation IDs. */
+    replayed: CanvasBoardLogEntryApi[]
     /** Seq of the newest op after this append. */
     head_seq: number
 }

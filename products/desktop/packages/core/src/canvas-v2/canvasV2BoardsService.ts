@@ -76,6 +76,7 @@ interface ApiOpsPage {
 
 interface ApiAppendOpsResult {
   results: { op_id: string; seq: number }[];
+  replayed?: ApiLogEntry[];
   head_seq: number;
 }
 
@@ -276,6 +277,7 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
       },
     );
     return canvasV2AppendOpsResultSchema.parse({
+      replayed: (api.replayed ?? []).map(logEntryInput),
       results: (api.results ?? []).map((result) => ({
         opId: result.op_id,
         seq: result.seq,

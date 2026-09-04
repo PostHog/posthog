@@ -46,6 +46,37 @@ describe("BoardSyncClient", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it.each([false, true])(
+    "uses the accepted operation for a repeated ID with server snapshots %s",
+    async (serverSnapshots) => {
+      const { api, client, board } = setup();
+      board.serverSnapshots = serverSnapshots;
+      await client.load();
+      const accepted = entry(1);
+      api.appendOps.mockResolvedValue({
+        headSeq: 1,
+        results: [{ opId: accepted.opId, seq: 1 }],
+        replayed: [accepted],
+      });
+      client.applyLocal(
+        [{ type: "set_state", key: "key-1", value: "different local value" }],
+        { kind: "agent", taskId: "task" },
+        [accepted.opId],
+      );
+      await client.flush();
+      client.ingestStreamEntry(accepted);
+
+      expect(client.getState()).toMatchObject({
+        status: "synced",
+        pending: [],
+        snapshot: { state: { "key-1": 1 } },
+      });
+      expect(api.get).toHaveBeenCalledTimes(1);
+      expect(api.opsSince).not.toHaveBeenCalled();
+      expect(client.getState().log[0].actor).toEqual(accepted.actor);
+    },
+  );
+
   it("sends only operations when the server maintains snapshots", async () => {
     const { api, client, board } = setup();
     board.serverSnapshots = true;
