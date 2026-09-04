@@ -14,6 +14,7 @@ from posthog.schema import (
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelGeneratorNode, FunnelsSchemaGeneratorOutput
+from ee.hogai.chat_agent.schema_generator.parsers import parse_pydantic_structured_output
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -58,3 +59,19 @@ class TestFunnelsGeneratorNode(BaseTest):
         schema = AssistantFunnelsQuery(series=[], funnelsFilter=AssistantFunnelsFilter())
         assert schema.funnelsFilter is not None
         self.assertIsNone(schema.funnelsFilter.funnelAggregateByHogQL)
+
+    def test_schema_accepts_a_custom_name_on_an_action_step(self):
+        output = parse_pydantic_structured_output(FunnelsSchemaGeneratorOutput)(
+            {
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "ActionsNode", "id": 1, "name": "Signed up", "custom_name": "Step one"},
+                    ],
+                },
+                "name": "",
+                "description": "",
+            }
+        )
+        assert output.query is not None
+        self.assertEqual(output.query.series[0].custom_name, "Step one")

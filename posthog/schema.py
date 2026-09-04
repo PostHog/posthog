@@ -9482,6 +9482,10 @@ class AssistantFunnelsActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    custom_name: str | None = Field(
+        default=None,
+        description=("Optional custom name for the action if it is needed to be renamed."),
+    )
     id: float = Field(..., description="Action ID from the plan.")
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: AssistantFunnelsMath | None = Field(
