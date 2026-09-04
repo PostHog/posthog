@@ -23,6 +23,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorTableIsReadOnly
 from posthog.event_usage import EventSource
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -40,6 +41,7 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
+    AnalyticsDatabaseUnavailable,
     ExperimentService,
     ExperimentVersionConflict,
     _deprecated_fields_in_request,
@@ -4019,6 +4021,28 @@ class TestExperimentService(APIBaseTest):
         assert experiment.feature_flag.filters == original_filters
         assert experiment.is_exposure_frozen is False
 
+    def test_freeze_exposure_reports_retryable_message_when_scan_hits_readonly_replica(self):
+        experiment = self._create_running_experiment(name="Freeze Readonly", feature_flag_key="freeze-readonly-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # A read-only replica is transient — a retryable 503, not a 400 that a scripted caller reads
+        # as permanent, and never a 500. The message must invite a retry, not reuse the "too much
+        # data" wording that implies a permanent limit.
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            side_effect=CHQueryErrorTableIsReadOnly("Table is in readonly mode", code=242),
+        ):
+            with self.assertRaises(AnalyticsDatabaseUnavailable) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert ctx.exception.status_code == 503
+        assert "temporarily unavailable" in str(ctx.exception.detail)
+        assert "too much" not in str(ctx.exception.detail)
+
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
     @patch("products.experiments.backend.experiment_service.FREEZE_EXPOSURE_MAX_EXPOSED_USERS", 2)
     def test_freeze_exposure_rejects_when_too_many_exposed_users(self):
         experiment = self._create_running_experiment(name="Freeze Toobig", feature_flag_key="freeze-toobig-flag")
@@ -4116,14 +4140,30 @@ class TestExperimentService(APIBaseTest):
                 frozen = self._service().freeze_exposure(experiment, request=self._make_request())
                 assert frozen.is_exposure_frozen is True
 
-    def test_freeze_exposure_fails_and_cleans_up_when_cohort_population_fails(self):
-        experiment = self._create_running_experiment(name="Freeze Insert Fail", feature_flag_key="freeze-insert-flag")
+    @parameterized.expand(
+        [
+            ("generic", RuntimeError("clickhouse insert failed"), RuntimeError, None),
+            (
+                "readonly_replica",
+                CHQueryErrorTableIsReadOnly("Table is in readonly mode", code=242),
+                AnalyticsDatabaseUnavailable,
+                "temporarily unavailable",
+            ),
+        ]
+    )
+    def test_freeze_exposure_fails_and_cleans_up_when_cohort_population_fails(
+        self, _name: str, insert_error: Exception, expected_exception: type[Exception], expected_message: str | None
+    ):
+        experiment = self._create_running_experiment(
+            name=f"Freeze Insert Fail {_name}", feature_flag_key=f"freeze-insert-{_name}-flag".replace("_", "-")
+        )
         original_filters = deepcopy(experiment.feature_flag.filters)
 
         # A transient store failure mid-insert is swallowed by the cohort batching helper unless the
         # caller opts into raise_on_error. Fail the innermost batch write (not the public method) so
         # the real swallow path runs: the freeze must surface the failure and leave nothing behind,
-        # never narrow the flag to a partially populated snapshot.
+        # never narrow the flag to a partially populated snapshot. A read-only replica is retryable,
+        # so it becomes a friendly ValidationError; any other failure propagates unchanged.
         with (
             patch.object(
                 ExperimentService,
@@ -4138,11 +4178,13 @@ class TestExperimentService(APIBaseTest):
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort._insert_resolved_batch",
-                side_effect=RuntimeError("clickhouse insert failed"),
+                side_effect=insert_error,
             ),
         ):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(expected_exception) as ctx:
                 self._service().freeze_exposure(experiment, request=self._make_request())
+        if expected_message is not None:
+            assert expected_message in str(ctx.exception)
 
         # The partially populated snapshot cohort was cleaned up; the flag and experiment are untouched.
         assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
