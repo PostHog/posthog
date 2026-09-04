@@ -22,6 +22,13 @@
     }),
   )
 # ---
+# name: test_grouping_does_not_replace_different_or_nested_expressions[SELECT user_id = toString(1) AS bucket, count() FROM users GROUP BY user_id = toString(true)]
+  tuple(
+    'SELECT ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY ("users"."user_id" = CAST(true AS VARCHAR))',
+    dict({
+    }),
+  )
+# ---
 # name: test_grouping_does_not_replace_different_or_nested_expressions[SELECT user_id AS id FROM users GROUP BY concat(id, 'suffix')]
   tuple(
     'SELECT "users"."user_id" AS "id" FROM "ducklake"."analytics"."users" AS "users" GROUP BY concat(CAST("users"."user_id" AS VARCHAR), CAST(%(hogql_val_0)s AS VARCHAR))',
@@ -42,6 +49,13 @@
     'SELECT concat(CAST("users"."user_id" AS VARCHAR), CAST(%(hogql_val_0)s AS VARCHAR)) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({
       'hogql_val_0': 'suffix',
+    }),
+  )
+# ---
+# name: test_grouping_reuses_projected_expression[integer_alias]
+  tuple(
+    'SELECT 2 AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
+    dict({
     }),
   )
 # ---
@@ -66,6 +80,13 @@
     'SELECT CAST(date_trunc(\'month\', at_timezone(with_timezone(CAST("users"."created_at" AS TIMESTAMP), \'UTC\'), %(hogql_val_0)s)) AS DATE) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({
       'hogql_val_0': 'UTC',
+    }),
+  )
+# ---
+# name: test_grouping_reuses_projected_expression[zero_alias]
+  tuple(
+    'SELECT 0 AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
+    dict({
     }),
   )
 # ---
@@ -159,6 +180,20 @@
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, row_number() OVER (ORDER BY created_at) AS position FROM users QUALIFY position = 1 ORDER BY created_at DESC LIMIT 3]
   tuple(
     'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."position" FROM (SELECT "users"."user_id", row_number() OVER (ORDER BY "users"."created_at" ASC) AS "position", "users"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."position" = 1) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 3',
+    dict({
+    }),
+  )
+# ---
+# name: test_wrapper_sort_projections_preserve_output[SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn FROM users QUALIFY rn > 0 ORDER BY user_id = toString(1.0) DESC LIMIT 1]
+  tuple(
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(1.0 AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
+    dict({
+    }),
+  )
+# ---
+# name: test_wrapper_sort_projections_preserve_output[SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true) DESC LIMIT 1]
+  tuple(
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(true AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
     dict({
     }),
   )

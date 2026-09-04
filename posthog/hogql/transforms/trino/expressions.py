@@ -9,6 +9,12 @@ class _ExpressionIdentity(CloningVisitor):
     def visit_alias(self, node: ast.Alias) -> ast.Expr:
         return self.visit(node.expr)
 
+    def visit_constant(self, node: ast.Constant) -> ast.Constant:
+        constant = super().visit_constant(node)
+        # Python considers 1, True, and 1.0 equal, but SQL casts distinguish their literal types.
+        constant.value = (type(node.value), node.value)
+        return constant
+
     def visit_field(self, node: ast.Field) -> ast.Field:
         field_type = node.type
         while isinstance(field_type, ast.FieldAliasType):

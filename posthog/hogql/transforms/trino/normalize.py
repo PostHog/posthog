@@ -113,11 +113,11 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         outer_aliases = self.aliases
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
         lowered = super().visit_select_query(node)
-        if lowered.group_by is not None and lowered.group_by_mode is None:
+        if node.group_by is not None and lowered.group_by is not None and lowered.group_by_mode is None:
             projections = [expression_identity(expr) for expr in lowered.select]
             # Separate parameter occurrences are not identical grouping expressions in Trino.
             for index, expr in enumerate(lowered.group_by):
-                if positional_index(expr) is not None:
+                if positional_index(node.group_by[index]) is not None:
                     continue
                 identity = expression_identity(expr)
                 if identity in projections:

@@ -63,6 +63,14 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
                 ),
             ),
         )
+        finder = _WindowFunctionFinder()
+        finder.visit(row_number.over_expr)
+        if finder.found:
+            raise TrinoLoweringError(
+                "TRINO_LIMIT_BY_WINDOW_UNSUPPORTED",
+                "LIMIT BY partition or ordering containing a window expression",
+                node,
+            )
         node.select.append(ast.Alias(alias=helper_name, expr=row_number))
         node.limit_by = None
         predicate: ast.Expr = ast.CompareOperation(

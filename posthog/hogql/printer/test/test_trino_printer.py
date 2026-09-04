@@ -971,6 +971,10 @@ def test_rejects_source_ast_with_clickhouse_settings() -> None:
         "SELECT user_id, row_number() OVER (ORDER BY created_at) AS position "
         "FROM users QUALIFY position = 1 ORDER BY created_at DESC LIMIT 3",
         "SELECT user_id, count() AS total FROM users GROUP BY user_id ORDER BY max(created_at) DESC LIMIT 2 BY user_id",
+        "SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn "
+        "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true) DESC LIMIT 1",
+        "SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn "
+        "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(1.0) DESC LIMIT 1",
     ],
 )
 def test_wrapper_sort_projections_preserve_output(query: str, snapshot: SnapshotAssertion) -> None:
@@ -1005,6 +1009,23 @@ def test_wrapper_sort_projections_preserve_output(query: str, snapshot: Snapshot
         ),
         ("SELECT user_id FROM users ORDER BY 2 LIMIT 1 BY user_id", "TRINO_POSITIONAL_REFERENCE_INVALID"),
         ("SELECT user_id FROM users LIMIT 1 BY 2", "TRINO_POSITIONAL_REFERENCE_INVALID"),
+        (
+            "SELECT DISTINCT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn "
+            "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true)",
+            "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
+        ),
+        (
+            "SELECT user_id FROM users ORDER BY row_number() OVER (ORDER BY created_at) LIMIT 1 BY user_id",
+            "TRINO_LIMIT_BY_WINDOW_UNSUPPORTED",
+        ),
+        (
+            "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users ORDER BY 2 LIMIT 1 BY user_id",
+            "TRINO_LIMIT_BY_WINDOW_UNSUPPORTED",
+        ),
+        (
+            "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users LIMIT 1 BY rn",
+            "TRINO_LIMIT_BY_WINDOW_UNSUPPORTED",
+        ),
     ],
 )
 def test_wrapper_rejects_unsafe_sort_or_partition(query: str, feature_code: str) -> None:
@@ -1017,18 +1038,24 @@ def test_wrapper_rejects_unsafe_sort_or_partition(query: str, feature_code: str)
 
 
 @pytest.mark.parametrize(
-    "expression",
+    ("expression", "group_by"),
     [
-        "properties.color",
-        "toStartOfMonth(toTimeZone(created_at, 'UTC'))",
-        "notEmpty(properties.color)",
-        "concat(user_id, 'suffix')",
+        pytest.param("properties.color", "properties.color", id="properties.color"),
+        pytest.param(
+            "toStartOfMonth(toTimeZone(created_at, 'UTC'))",
+            "toStartOfMonth(toTimeZone(created_at, 'UTC'))",
+            id="toStartOfMonth(toTimeZone(created_at, 'UTC'))",
+        ),
+        pytest.param("notEmpty(properties.color)", "notEmpty(properties.color)", id="notEmpty(properties.color)"),
+        pytest.param("concat(user_id, 'suffix')", "concat(user_id, 'suffix')", id="concat(user_id, 'suffix')"),
+        pytest.param("2", "dimension", id="integer_alias"),
+        pytest.param("0", "dimension", id="zero_alias"),
     ],
 )
-def test_grouping_reuses_projected_expression(expression: str, snapshot: SnapshotAssertion) -> None:
+def test_grouping_reuses_projected_expression(expression: str, group_by: str, snapshot: SnapshotAssertion) -> None:
     context = _context_with_trino_table()
     sql, node = prepare_and_print_ast(
-        parse_select(f"SELECT {expression} AS dimension, count() FROM users GROUP BY {expression}"),
+        parse_select(f"SELECT {expression} AS dimension, count() FROM users GROUP BY {group_by}"),
         context,
         "trino",
     )
@@ -1064,6 +1091,7 @@ def test_lowered_property_timestamp_is_not_constant(snapshot: SnapshotAssertion)
         "SELECT properties.color, count() FROM users GROUP BY properties.shape",
         "SELECT user_id, count() FROM users GROUP BY ROLLUP(user_id)",
         "SELECT 2, count() FROM users GROUP BY 2",
+        "SELECT user_id = toString(1) AS bucket, count() FROM users GROUP BY user_id = toString(true)",
     ],
 )
 def test_grouping_does_not_replace_different_or_nested_expressions(query: str, snapshot: SnapshotAssertion) -> None:
