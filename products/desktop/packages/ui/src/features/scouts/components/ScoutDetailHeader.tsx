@@ -1,7 +1,7 @@
 import { ArrowSquareOutIcon, GearSixIcon } from "@phosphor-icons/react";
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import {
-  formatRunIntervalShort,
+  formatScoutScheduleShort,
   type ScoutRollup,
 } from "@posthog/core/scouts/scoutPresentation";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
@@ -74,8 +74,8 @@ export function ScoutDetailHeader({
             </a>
           </Tooltip>
         ) : null}
-        <Text className="whitespace-nowrap text-[12px] text-gray-10">
-          {formatRunIntervalShort(config.run_interval_minutes)}
+        <Text className="max-w-[14rem] truncate text-[12px] text-gray-10">
+          {formatScoutScheduleShort(config)}
         </Text>
         <span className="flex-1" />
         <ScoutChatButton skillName={config.skill_name} surface="scout_detail" />
