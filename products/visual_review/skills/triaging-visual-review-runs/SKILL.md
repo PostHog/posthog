@@ -164,9 +164,12 @@ trust your verdict without opening the VR UI themselves.
 
 ### Flake check: "Has this story been changing?"
 
-Once you have a suspect snapshot identifier:
+Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`:
 
-`posthog:visual-review-runs-snapshot-history-list { id: <snapshot_id> }` → returns prior outcomes for the same story.
+`posthog:visual-review-runs-snapshot-history-list { id: <run_id>, identifier: <identifier> }` → returns prior
+outcomes for the same story. Both parameters are required. Copy them from that row: its `run_id` goes in `id`,
+and its `identifier` goes in `identifier`. The snapshot's own `id` is not a run id, and a call that sends it fails.
+`visual-review-runs-tolerated-hashes-list` takes the same two parameters.
 
 Verdicts:
 
