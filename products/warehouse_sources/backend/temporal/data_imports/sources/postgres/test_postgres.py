@@ -3544,6 +3544,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         has_id_column: bool = False,
         has_duplicate_pks: bool = False,
         is_xmin: bool = False,
+        activity_attempt: int = 1,
     ) -> list[int]:
         @contextmanager
         def fake_tunnel():
@@ -3599,6 +3600,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 xmin_last_value=self._XMIN_BOUNDS.lower if is_xmin else None,
+                activity_attempt=activity_attempt,
             )
             return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
 
@@ -3649,6 +3651,18 @@ class TestChunkedRereadAfterRecoveryConflict:
     def test_full_refresh_stays_retryable_when_rows_are_already_written(self):
         with pytest.raises(psycopg.errors.SerializationFailure):
             self._read_ids(should_use_incremental_field=False, rows_before_conflict=2, primary_keys=["id"])
+
+    def test_retried_full_refresh_seeks_instead_of_reopening_the_cursor(self):
+        # The first attempt re-raised past its first row, so a second server cursor conflicts at the
+        # same place. The named cursor here would raise again after two rows; the seek never opens it.
+        ids = self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=2,
+            primary_keys=["id"],
+            activity_attempt=2,
+        )
+
+        assert sorted(ids) == [row[0] for row in self._ROWS]
 
     @pytest.mark.parametrize(
         "rows_before_conflict,nullable_value,has_id_column,has_duplicate_pks",

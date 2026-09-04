@@ -173,7 +173,6 @@ pub async fn rebuild_partition_fences(
         if partition_for_person(team_id as i64, person_id, num_partitions) != partition {
             continue;
         }
-        let op_id: Uuid = row.get("op_id");
         let op_type: String = row.get("op_type");
         fences.insert(
             PersonCacheKey {
@@ -181,7 +180,7 @@ pub async fn rebuild_partition_fences(
                 person_id,
             },
             FenceState {
-                op_id,
+                op_id: row.get("op_id"),
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
             },
         );

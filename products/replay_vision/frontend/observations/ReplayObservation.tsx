@@ -69,7 +69,12 @@ import {
 import { scannerLabel } from '../utils/observation'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
-import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
+import {
+    neighborFilterParams,
+    observationDetailUrl,
+    replayObservationLogic,
+    scannerReturnParams,
+} from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export const scene: SceneExport = {
@@ -218,7 +223,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    const observationUrl = (id: string): string => observationDetailUrl(id, neighborParams)
+    // Prev/next keeps the return params too, so back still lands on the list view the reader came from.
+    const observationUrl = (id: string): string =>
+        observationDetailUrl(id, { ...neighborParams, ...scannerReturnParams(searchParams) })
 
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {

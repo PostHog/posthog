@@ -346,6 +346,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+        indexes = [
+            # The HogQL database build reads a team's live tables ordered by created_at DESC on
+            # every query. ~Q(deleted=True) compiles to the same SQL as .exclude(deleted=True),
+            # so the planner matches the partial predicate without proving implication.
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwtable_team_live_created",
+                condition=~models.Q(deleted=True),
+            )
+        ]
 
     def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
         if not internally_computed_url_pattern:
