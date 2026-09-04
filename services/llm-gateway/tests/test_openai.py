@@ -8,12 +8,14 @@ from llm_gateway.main import RequestLoggingMiddleware
 from llm_gateway.request_context import get_posthog_properties
 from tests.conftest import create_test_app
 
-DANGEROUS_PARAMS: list[tuple[str, str]] = [
+DANGEROUS_PARAMS: list[tuple[str, Any]] = [
     ("api_key", "sk-stolen-key"),
     ("api_base", "https://attacker.example.com"),
     ("base_url", "https://attacker.example.com"),
     ("api_version", "2024-10-01"),
     ("organization", "org-attacker"),
+    ("headers", {"Authorization": "Bearer attacker", "OpenAI-Organization": "org-attacker"}),
+    ("extra_headers", {"Authorization": "Bearer attacker", "OpenAI-Organization": "org-attacker"}),
 ]
 
 
@@ -188,7 +190,7 @@ class TestChatCompletionsEndpoint:
         valid_request_body: dict,
         mock_openai_response: dict,
         param_name: str,
-        param_value: str,
+        param_value: Any,
     ) -> None:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=mock_openai_response)
@@ -377,10 +379,41 @@ class TestChatCompletionsEndpoint:
         mock_make_call.assert_not_called()
 
 
-# CF-served models (@cf/...) on the Responses endpoint must route through the CF responses adapter,
-# not litellm.aresponses (which prefixes openai/ and hits the real OpenAI Responses API ->
-# model_not_supported). This is the codex/Responses gap that left every GLM-routed scout run making
-# zero generations.
+class TestResponsesEndpoint:
+    @pytest.mark.parametrize(
+        "param_name,param_value",
+        [
+            pytest.param("headers", {"Authorization": "Bearer attacker"}, id="headers"),
+            pytest.param("extra_headers", {"OpenAI-Organization": "org-attacker"}, id="extra_headers"),
+        ],
+    )
+    @patch("llm_gateway.api.openai.make_openai_responses_call")
+    def test_dangerous_headers_not_forwarded_to_llm(
+        self,
+        mock_make_call: MagicMock,
+        authenticated_client: TestClient,
+        param_name: str,
+        param_value: dict[str, str],
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {"id": "resp_1", "output": []}
+        llm_call = AsyncMock(return_value=mock_response)
+        mock_make_call.return_value = llm_call
+
+        response = authenticated_client.post(
+            "/v1/responses",
+            json={"model": "gpt-4.1", "input": "Hello", param_name: param_value},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_args = llm_call.await_args
+        assert call_args is not None
+        assert param_name not in call_args.kwargs
+
+
+# CF-served models (@cf/...) must use the CF adapter; litellm's native Responses path
+# would prefix openai/ and send them to the real OpenAI endpoint.
 class TestResponsesRoutedModels:
     @patch("llm_gateway.api.openai.litellm.aresponses")
     @patch("llm_gateway.inference_routing.make_cloudflare_responses_call")

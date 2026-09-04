@@ -28,6 +28,7 @@ from llm_gateway.circuit_breaker import build_anthropic_circuit_breaker, publish
 from llm_gateway.config import Settings, get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
+from llm_gateway.openai_credentials import verify_openai_credentials
 from llm_gateway.rate_limiting.billable_credits_throttle import BillableCreditThrottle
 from llm_gateway.rate_limiting.cost_gauge_publisher import publish_product_cost_gauges_loop
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
@@ -158,6 +159,7 @@ def export_provider_credentials(settings: Settings) -> None:
     if settings.openai_api_base_url:
         os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
     if settings.openai_organization:
+        os.environ["OPENAI_ORGANIZATION"] = settings.openai_organization
         os.environ["OPENAI_ORG_ID"] = settings.openai_organization
     if settings.openrouter_api_key:
         os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
@@ -174,6 +176,7 @@ def export_provider_credentials(settings: Settings) -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     export_provider_credentials(settings)
+    await verify_openai_credentials(settings)
 
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(

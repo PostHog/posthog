@@ -11,6 +11,7 @@ from llm_gateway.api.handler import (
     handle_llm_request,
     normalize_litellm_model_name,
 )
+from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.inference_routing import (
     is_inference_routed_model,
@@ -20,6 +21,7 @@ from llm_gateway.inference_routing import (
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.modal_routing import send_modal_chat_completions, send_modal_responses
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
+from llm_gateway.openai_credentials import make_openai_responses_call
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import apply_posthog_context_from_headers
 
@@ -107,7 +109,7 @@ async def _handle_responses(
         model=normalized_model,
         is_streaming=body.stream or False,
         provider_config=OPENAI_RESPONSES_CONFIG,
-        llm_call=litellm.aresponses,
+        llm_call=make_openai_responses_call(get_settings()),
         product=product,
     )
 
