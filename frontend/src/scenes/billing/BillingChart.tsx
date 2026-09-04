@@ -15,7 +15,7 @@ import { makeChartErrorHandler } from 'products/product_analytics/frontend/insig
 
 import { BillingPeriodMarkers } from './BillingPeriodMarkers'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
-import { MAX_CHARTED_BILLING_SERIES } from './constants'
+import { FOLDED_SERIES_LABEL, MAX_CHARTED_BILLING_SERIES } from './constants'
 import type { BillingChartType } from './types'
 
 export interface BillingSeriesType {
@@ -57,6 +57,26 @@ const CUMULATIVE_AXIS_ID = 'cumulative'
 /** Off the series palette, so it cannot be taken for one of the projects. */
 const CUMULATIVE_COLOR = 'var(--text-3000)'
 
+/** The series billing folds the projects beyond the cap into; its label starts with the folded name. */
+function isFoldedSeries(s: BillingSeriesType): boolean {
+    return s.label.startsWith(FOLDED_SERIES_LABEL)
+}
+
+/**
+ * The series to draw, largest first, the folded "all other projects" series last, at most `maxSeries`.
+ *
+ * Datasets stack in this order, so a stacked bar reads the same whatever order the response came
+ * in: the biggest segment sits on the axis and the folded series sits on top whatever its size.
+ * The cap keeps the largest.
+ */
+export function orderSeriesForDrawing(series: BillingSeriesType[], maxSeries: number): BillingSeriesType[] {
+    return series
+        .map((s) => ({ s, total: s.data.reduce((sum, value) => sum + value, 0), folded: isFoldedSeries(s) }))
+        .sort((a, b) => Number(a.folded) - Number(b.folded) || b.total - a.total)
+        .slice(0, maxSeries)
+        .map(({ s }) => s)
+}
+
 /** Per-period sum of the series, then a running sum across the range. */
 export function runningTotal(series: BillingSeriesType[], periods: number): number[] {
     const perPeriod = new Array<number>(periods).fill(0)
@@ -97,14 +117,7 @@ export function BillingChart({
     }>(() => {
         const hidden = new Set(hiddenSeries)
         const visible = series.filter((s) => !hidden.has(s.id))
-        const drawn =
-            visible.length > maxSeries
-                ? visible
-                      .map((s) => ({ s, total: s.data.reduce((sum, value) => sum + value, 0) }))
-                      .sort((a, b) => b.total - a.total)
-                      .slice(0, maxSeries)
-                      .map(({ s }) => s)
-                : visible
+        const drawn = orderSeriesForDrawing(visible, maxSeries)
 
         const chartSeries: Series[] = drawn.map((s) => ({
             key: String(s.id),

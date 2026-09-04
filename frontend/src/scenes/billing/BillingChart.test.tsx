@@ -11,7 +11,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { initKeaTests } from '~/test/init'
 
-import { BillingChart, type BillingSeriesType, runningTotal } from './BillingChart'
+import { BillingChart, orderSeriesForDrawing, runningTotal, type BillingSeriesType } from './BillingChart'
 
 // jsdom has no CSS custom properties, so the real `getSeriesColor` resolves every index to the
 // same fallback color, which would mask a regression where colouring switches from series id to
@@ -158,6 +158,22 @@ describe('BillingChart', () => {
             data: [id, id],
             dates: DATES,
         }))
+
+        it('stacks the largest series first and the folded series last, whatever the order it came in', () => {
+            const folded: BillingSeriesType = { id: 9, label: 'All other projects (40)', data: [50, 50], dates: DATES }
+            const drawn = orderSeriesForDrawing([MANY[1], folded, MANY[3], MANY[0], MANY[2]], 10)
+            expect(drawn.map((s) => s.label)).toEqual([
+                'Project 3',
+                'Project 2',
+                'Project 1',
+                'Project 0',
+                'All other projects (40)',
+            ])
+            expect(orderSeriesForDrawing([folded, MANY[3], MANY[2]], 2).map((s) => s.label)).toEqual([
+                'Project 3',
+                'Project 2',
+            ])
+        })
 
         it('draws no more than the cap and says how many it left out', async () => {
             render(<BillingChart series={MANY} dates={DATES} hiddenSeries={[]} maxSeries={2} />)
