@@ -24,7 +24,7 @@ from posthog.dags.person_overrides import (
     squash_person_overrides,
     wait_for_overrides_delete_mutations,
 )
-from posthog.models.deletion_targets import EVENTS_JSON, TargetPlacement
+from posthog.models.deletion_targets import EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
 
 
 def test_full_job(cluster: ClickhouseCluster):
@@ -52,8 +52,18 @@ def test_full_job(cluster: ClickhouseCluster):
                 ("c", UUID(int=0), timestamp - timedelta(hours=12), 1),  # 0: {"a", "c"}
                 ("e", UUID(int=3), timestamp - timedelta(hours=6), 1),  # 3: {"d", "e"}
                 ("d", UUID(int=1), timestamp - timedelta(hours=5), 1),  # 1: {"b", "d"}
-                ("e", UUID(int=1), timestamp - timedelta(hours=5), 2),  # 1: {"b", "d", "e"}
-                ("z", UUID(int=0), timestamp + timedelta(hours=1), 1),  # arrived after timestamp, ignored this run
+                (
+                    "e",
+                    UUID(int=1),
+                    timestamp - timedelta(hours=5),
+                    2,
+                ),  # 1: {"b", "d", "e"}
+                (
+                    "z",
+                    UUID(int=0),
+                    timestamp + timedelta(hours=1),
+                    1,
+                ),  # arrived after timestamp, ignored this run
             ],
         )
 
@@ -80,7 +90,12 @@ def test_full_job(cluster: ClickhouseCluster):
         UUID(int=4): {"e"},
         UUID(int=100): {"z"},
     }
-    assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"c", "d", "e", "z"}
+    assert cluster.any_host(get_distinct_ids_with_overrides).result() == {
+        "c",
+        "d",
+        "e",
+        "z",
+    }
 
     # run with limit
     limited_run_result = squash_person_overrides.execute_in_process(
@@ -161,14 +176,19 @@ def _create_snapshot_with(cluster: ClickhouseCluster, rows: list[tuple]) -> Pers
     cluster.any_host(table.create).result()
 
     def insert(client: Client) -> None:
-        client.execute(f"INSERT INTO {table.qualified_name} (team_id, distinct_id, person_id, version) VALUES", rows)
+        client.execute(
+            f"INSERT INTO {table.qualified_name} (team_id, distinct_id, person_id, version) VALUES",
+            rows,
+        )
 
     cluster.any_host(insert).result()
     return PersonOverridesSnapshotDictionary(source=table)
 
 
 @pytest.mark.django_db
-def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(cluster: ClickhouseCluster):
+def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(
+    cluster: ClickhouseCluster,
+):
     # A cluster that shares no Keeper with the job's own never receives the replicated snapshot
     # table, so it builds the dictionary from a staged object. The squash is gated on both sides
     # checksumming alike, which only means something if every column round-trips exactly. This one
@@ -193,7 +213,9 @@ def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(
 
 
 @pytest.mark.django_db
-def test_run_person_id_update_mutations_rewrites_events_json_on_its_own_cluster(cluster: ClickhouseCluster):
+def test_run_person_id_update_mutations_rewrites_events_json_on_its_own_cluster(
+    cluster: ClickhouseCluster,
+):
     # sharded_events_json may sit on a cluster whose shards only its own handle enumerates. Running
     # its rewrite over the job's handle would skip those rows, and the overrides that record the
     # correct person_id are deleted in the very next op, so the divergence would be permanent.
@@ -206,7 +228,37 @@ def test_run_person_id_update_mutations_rewrites_events_json_on_its_own_cluster(
             return_value=TargetPlacement(target=EVENTS_JSON, cluster=sibling),
         ),
         patch.object(
-            type(dictionary.events_json_update_mutation_runner), "run_on_shards", autospec=True
+            type(dictionary.events_json_update_mutation_runner),
+            "run_on_shards",
+            autospec=True,
+        ) as run_on_shards,
+    ):
+        run_person_id_update_mutations(cluster, dictionary)
+
+    dispatched = [call.args[1] for call in run_on_shards.call_args_list]
+    assert sibling in dispatched
+    cluster.any_host(dictionary.source.drop).result()
+
+
+@pytest.mark.django_db
+def test_run_person_id_update_mutations_dispatches_flag_evaluations_to_correct_cluster(
+    cluster: ClickhouseCluster,
+):
+    # sharded_flag_evaluations may sit on a cluster whose shards only its own handle enumerates. Running
+    # its rewrite over the job's handle would skip those rows, and the overrides that record the
+    # correct person_id are deleted in the very next op, so the divergence would be permanent.
+    dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3)])
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+
+    with (
+        patch(
+            "posthog.dags.person_overrides.placement_for",
+            return_value=TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
+        ),
+        patch.object(
+            type(dictionary.flag_evaluations_update_mutation_runner),
+            "run_on_shards",
+            autospec=True,
         ) as run_on_shards,
     ):
         run_person_id_update_mutations(cluster, dictionary)
