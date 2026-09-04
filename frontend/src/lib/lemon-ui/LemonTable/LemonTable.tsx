@@ -105,6 +105,11 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     pinnedColumns?: string[]
     // Max width for the column headers
     maxHeaderWidth?: string
+    /**
+     * Pixel width floor for each column that doesn't set its own `width`. A container too narrow for
+     * that floor scrolls the table horizontally instead of squashing every column to its longest word.
+     */
+    minColumnWidth?: number
     /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
     /**
@@ -157,6 +162,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     firstColumnSticky,
     pinnedColumns,
     maxHeaderWidth,
+    minColumnWidth,
     hideScrollbar,
     allowContentScroll = false,
     rowActions,
@@ -387,6 +393,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }
 
     const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
+    // Counting only the columns the browser sizes keeps the floor conservative: a column that sets its
+    // own width already resists being squashed.
+    const tableMinWidth = useMemo(
+        () =>
+            minColumnWidth === undefined
+                ? undefined
+                : columns.filter((column) => !column.isHidden && column.width === undefined).length * minColumnWidth,
+        [columns, minColumnWidth]
+    )
     // Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers while loading)
     const headerLoaderColSpan = Math.max(
         1,
@@ -423,7 +438,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                         <table
                             ref={tableRef}
                             className={tableLayout === 'fixed' ? 'table-fixed' : undefined}
-                            style={tableStyle}
+                            style={{ minWidth: tableMinWidth, ...tableStyle }}
                         >
                             <colgroup>
                                 {

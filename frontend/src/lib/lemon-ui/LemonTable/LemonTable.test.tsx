@@ -164,4 +164,24 @@ describe('LemonTable', () => {
         const spannedColumns = Array.from(groupingRow.querySelectorAll('th')).reduce((sum, th) => sum + th.colSpan, 0)
         expect(spannedColumns).toBe(3)
     })
+
+    it.each([
+        ['no floor without minColumnWidth', undefined, ''],
+        // Only the two columns the browser sizes count — the third sets its own width.
+        ['a floor per browser-sized column', 120, '240px'],
+    ])('applies %s', (_label, minColumnWidth, expectedMinWidth) => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                minColumnWidth={minColumnWidth as number | undefined}
+                columns={[
+                    { title: 'Name', key: 'name', dataIndex: 'name' as keyof Row },
+                    { title: 'Value', key: 'value', dataIndex: 'value' as keyof Row },
+                    { title: 'Id', key: 'id', dataIndex: 'id' as keyof Row, width: 40 },
+                ]}
+            />
+        )
+        expect((document.querySelector('table') as HTMLTableElement).style.minWidth).toBe(expectedMinWidth)
+    })
 })

@@ -5,7 +5,7 @@ import { compare as compareFn } from 'natural-orderby'
 import { useCallback, useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { DEFAULT_COLUMN_WIDTH, LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -521,6 +521,7 @@ export function InsightsTable({
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
+            minColumnWidth={DEFAULT_COLUMN_WIDTH}
             // Allow vertical scrolling so long tables inside constrained
             // containers (dashboards, embedded views) remain scrollable.
             allowContentScroll={isInDashboardContext || embedded}
