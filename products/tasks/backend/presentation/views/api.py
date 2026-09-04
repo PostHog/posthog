@@ -46,6 +46,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.exceptions import RequestTooLarge
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.permissions import (
@@ -1339,6 +1340,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
+    def initial(self, request, *args, **kwargs):
+        # Reject an oversized log batch on the declared length, before anything reads the body:
+        # permission checks resolve the team through `request.POST`, so the parse, and Django's
+        # `RequestDataTooBig`, happen well before `append_log` itself runs. A log batch is the
+        # largest body this API takes, so it meets the global upload ceiling first; gating at that
+        # same value keeps every batch that works today.
+        if self.action == "append_log":
+            max_bytes = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+            try:
+                content_length = int(request.META.get("CONTENT_LENGTH") or 0)
+            except (TypeError, ValueError):
+                content_length = 0
+            if content_length > max_bytes:
+                raise RequestTooLarge(
+                    f"This log batch is over {max_bytes // (1024 * 1024)} MB. Send the entries in smaller batches."
+                )
+        super().initial(request, *args, **kwargs)
+
     def _task_id(self) -> str:
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
@@ -1720,6 +1739,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid log entries"),
             404: OpenApiResponse(description="Run not found"),
+            413: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Log batch exceeds the request body limit"
+            ),
         },
         summary="Append log entries",
         description="Append one or more log entries to the task run log array",

@@ -1,3 +1,4 @@
+from django.core.exceptions import RequestDataTooBig
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -70,3 +71,14 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
             response["WWW-Authenticate"]
             == 'Bearer resource_metadata="https://us.posthog.com/.well-known/oauth-protected-resource"'
         )
+
+
+class TestExceptionHandlerRequestTooLarge(SimpleTestCase):
+    def test_oversized_body_maps_to_413(self) -> None:
+        request = RequestFactory().post("/api/projects/@current/tasks/", data={})
+        response = exception_handler(RequestDataTooBig(), {"request": request})
+        assert response is not None
+        assert response.status_code == 413
+        assert response.data["code"] == "request_too_large"
+        assert response.data["type"] == "invalid_request"
+        assert "too large" in response.data["detail"]

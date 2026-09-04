@@ -6480,6 +6480,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=1024)
+    def test_append_log_oversized_batch_returns_413(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "info", "message": "x" * 2048}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        self.assertEqual(response.json()["code"], "request_too_large")
+
     @patch("products.tasks.backend.models.TaskRun.heartbeat_workflow")
     def test_append_log_calls_heartbeat_workflow(self, mock_heartbeat):
         task = self.create_task()
