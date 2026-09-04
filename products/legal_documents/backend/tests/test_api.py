@@ -628,16 +628,23 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_uninteresting_state_event_is_noop(self) -> None:
-        # document.sent / document.viewed / etc. — we only act on draft + completed.
+    @parameterized.expand([("document.sent",), ("document.viewed",), ("document.error",)])
+    def test_uninteresting_state_event_is_noop(self, event_status: str) -> None:
+        # Only draft and completed change state; everything else is logged and dropped.
         payload = self._completed_payload()
-        payload[0]["data"]["status"] = "document.sent"
+        payload[0]["data"]["status"] = event_status
         body = json.dumps(payload).encode("utf-8")
-        with self._override():
+        with (
+            self._override(),
+            patch("products.legal_documents.backend.presentation.webhook.logger") as logger_mock,
+        ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
+        logger_mock.info.assert_any_call(
+            "pandadoc_webhook_state_ignored", status=event_status, pandadoc_document_id="doc_123"
+        )
 
     def test_draft_event_dispatches_send(self) -> None:
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -924,7 +931,7 @@ class TestLegalDocumentReconciliation(APIBaseTest):
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
     def test_reconcile_resends_stale_draft_document(self, send_mock, status_mock) -> None:
         status_mock.return_value = "document.draft"
-        LegalDocument.objects.filter(id=self.document.id).update(created_at=timezone.now() - timedelta(minutes=6))
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(minutes=6))
 
         result = legal_api.reconcile_pending_signatures()
 
@@ -946,6 +953,23 @@ class TestLegalDocumentReconciliation(APIBaseTest):
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
+    def test_reconcile_skips_draft_document_recently_updated_despite_old_created_at(
+        self, send_mock, status_mock
+    ) -> None:
+        # A re-created envelope gets its own grace window, measured from updated_at.
+        status_mock.return_value = "document.draft"
+        LegalDocument.objects.filter(id=self.document.id).update(
+            created_at=timezone.now() - timedelta(days=1),
+            updated_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        result = legal_api.reconcile_pending_signatures()
+
+        send_mock.assert_not_called()
+        self.assertEqual(result.drafts_resent, 0)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
     def test_reconcile_counts_error_when_draft_resend_fails_and_continues(self, send_mock, status_mock) -> None:
         later_org = Organization.objects.create(name="Later Co")
         later = LegalDocument.objects.create(
@@ -958,7 +982,7 @@ class TestLegalDocumentReconciliation(APIBaseTest):
             created_by=self.user,
         )
         now = timezone.now()
-        LegalDocument.objects.filter(id=self.document.id).update(created_at=now - timedelta(minutes=10))
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=now - timedelta(minutes=10))
         LegalDocument.objects.filter(id=later.id).update(created_at=now - timedelta(minutes=9))
 
         def status_side_effect(*, document_id):
@@ -1036,6 +1060,87 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertEqual(middle.status, "submitted_for_signature")
         self.assertEqual(last.status, "signed")
 
+    @parameterized.expand(
+        [
+            ("old_enough", timedelta(hours=2), 1),
+            ("too_recent", timedelta(minutes=10), 0),
+        ]
+    )
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.facade.api.capture_exception")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_recreates_envelope_when_pandadoc_reports_it_missing(
+        self, _name, age, expected_recreated, status_mock, create_mock, capture_mock
+    ) -> None:
+        from products.legal_documents.backend.logic import (
+            PandaDocEnvelopeLost,
+            pandadoc as pandadoc_module,
+        )
+
+        status_mock.return_value = None
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - age)
+
+        result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.envelopes_recreated, expected_recreated)
+        self.assertEqual(create_mock.called, bool(expected_recreated))
+        self.assertEqual(capture_mock.called, bool(expected_recreated))
+        if expected_recreated:
+            create_kwargs = create_mock.call_args.kwargs
+            self.assertEqual(create_kwargs["tokens"]["Client.Company"], self.document.company_name)
+            self.assertEqual(create_kwargs["tokens"]["Client.StreetAddress"], self.document.company_address)
+            self.assertIn(
+                self.document.representative_email,
+                [recipient.email for recipient in create_kwargs["recipients"]],
+            )
+            captured_exc = capture_mock.call_args.args[0]
+            self.assertIsInstance(captured_exc, PandaDocEnvelopeLost)
+            additional = capture_mock.call_args.kwargs["additional_properties"]
+            self.assertEqual(additional["legal_document_id"], str(self.document.id))
+            self.assertEqual(additional["pandadoc_document_id"], "doc_123")
+            self.document.refresh_from_db()
+            self.assertEqual(self.document.pandadoc_document_id, "doc_new")
+        else:
+            self.document.refresh_from_db()
+            self.assertEqual(self.document.pandadoc_document_id, "doc_123")
+
+    @parameterized.expand(
+        [
+            ("old_enough", timedelta(hours=2), 1),
+            ("too_recent", timedelta(minutes=10), 0),
+        ]
+    )
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_creates_envelope_for_row_missing_pandadoc_id(
+        self, _name, age, expected_recreated, status_mock, create_mock
+    ) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        status_mock.return_value = "document.sent"
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        org = self.create_organization_with_features([])
+        document = LegalDocument.objects.create(
+            organization=org,
+            document_type="DPA",
+            company_name="No Envelope Co",
+            company_address="Nowhere",
+            representative_email="noenv@other.example",
+            pandadoc_document_id="",
+            created_by=self.user,
+        )
+        LegalDocument.objects.filter(id=document.id).update(updated_at=timezone.now() - age)
+
+        result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.envelopes_recreated, expected_recreated)
+        self.assertEqual(create_mock.called, bool(expected_recreated))
+        document.refresh_from_db()
+        self.assertEqual(document.pandadoc_document_id, "doc_new" if expected_recreated else "")
+
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     def test_reconcile_schedules_archive_once_for_newly_signed_row(self, status_mock) -> None:
         status_mock.return_value = "document.completed"
@@ -1106,16 +1211,26 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertTrue(self.organization.is_ai_data_processing_approved)
 
     def test_reconcile_leaves_pending_document_alone_when_pandadoc_unreachable(self) -> None:
+        # A transient failure is not a gone envelope; re-creating would strand a live signer.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 
-        with patch(
-            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
-            side_effect=pandadoc_module.PandaDocError("network boom"),
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
+                side_effect=pandadoc_module.PandaDocError("network boom"),
+            ),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template"
+            ) as create_mock,
+            patch("products.legal_documents.backend.facade.api.capture_exception") as capture_mock,
         ):
             result = legal_api.reconcile_pending_signatures()
 
         self.assertEqual(result.newly_signed, 0)
+        self.assertEqual(result.envelopes_recreated, 0)
         self.assertEqual(result.errors, 0)
+        create_mock.assert_not_called()
+        capture_mock.assert_not_called()
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 

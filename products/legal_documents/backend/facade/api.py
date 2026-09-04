@@ -9,6 +9,7 @@ output, and never leaks ORM instances or QuerySets across the boundary.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 from uuid import UUID
 
 from django.db import transaction
@@ -293,6 +294,36 @@ def archive_signed_pdf(document_id: UUID) -> None:
     logic.mark_signed_pdf_stored(document)
 
 
+def _time_since_touched(document: LegalDocument) -> timedelta:
+    # updated_at is nullable on the model.
+    return timezone.now() - (document.updated_at or document.created_at)
+
+
+def _recreate_lost_envelope(document: LegalDocument) -> bool:
+    """
+    PandaDoc no longer has the envelope for a row still out for signature, so
+    the customer can never be emailed from it. Record that in error tracking,
+    then create a fresh envelope from the row's own data.
+    """
+    lost_pandadoc_document_id = document.pandadoc_document_id
+    logger.warning(
+        "legal_document_pandadoc_envelope_lost",
+        document_id=str(document.id),
+        pandadoc_document_id=lost_pandadoc_document_id,
+    )
+    capture_exception(
+        logic.PandaDocEnvelopeLost(
+            f"PandaDoc envelope {lost_pandadoc_document_id} for legal document {document.id} no longer exists"
+        ),
+        additional_properties={
+            "legal_document_id": str(document.id),
+            "pandadoc_document_id": lost_pandadoc_document_id,
+            "organization_id": str(document.organization_id),
+        },
+    )
+    return logic.retry_pandadoc_envelope(document)
+
+
 def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     """
     Safety net for the whole completion path. Polls PandaDoc for every row we
@@ -305,10 +336,12 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     Each row is processed independently: `list_pending_signature_documents` is
     ordered oldest-first, so one row that deterministically errors (a bad
     PandaDoc response, a DB hiccup) must not block every row behind it on every
-    15-minute tick.
+    15-minute tick. Also retries envelope creation for rows whose PandaDoc
+    envelope disappeared or was never created.
     """
     newly_signed = 0
     drafts_resent = 0
+    envelopes_recreated = 0
     errors = 0
     pending_seen = 0
     # PandaDoc allows 100 downloads a minute across the whole account, shared with
@@ -334,10 +367,18 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
                         signed_this_run.add(document.id)
                 elif (
                     pandadoc_status == logic.PANDADOC_DRAFT_STATUS
-                    and timezone.now() - document.created_at >= logic.RECONCILE_DRAFT_MIN_AGE
+                    and _time_since_touched(document) >= logic.RECONCILE_DRAFT_MIN_AGE
                 ):
                     if logic.send_pandadoc_envelope(document):
                         drafts_resent += 1
+                    else:
+                        errors += 1
+                elif (
+                    pandadoc_status == logic.PANDADOC_ENVELOPE_MISSING
+                    and _time_since_touched(document) >= logic.RECONCILE_RECREATE_MIN_AGE
+                ):
+                    if _recreate_lost_envelope(document):
+                        envelopes_recreated += 1
                     else:
                         errors += 1
             except Exception as exc:
@@ -354,6 +395,19 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
             processed=pending_seen,
             cap=logic.RECONCILE_MAX_PER_RUN,
         )
+
+    for document in logic.list_pending_documents_missing_envelope():
+        if _time_since_touched(document) < logic.RECONCILE_RECREATE_MIN_AGE:
+            continue
+        try:
+            if logic.retry_pandadoc_envelope(document):
+                envelopes_recreated += 1
+            else:
+                errors += 1
+        except Exception as exc:
+            errors += 1
+            logger.exception("legal_document_reconcile_missing_envelope_row_failed", document_id=str(document.id))
+            capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
 
     # Rows this run just signed and already scheduled an archive for above.
     # excluding them here is what keeps the archive from being `.delay()`'d twice.
@@ -372,5 +426,6 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
         newly_signed=newly_signed,
         archives_requeued=archives_requeued,
         drafts_resent=drafts_resent,
+        envelopes_recreated=envelopes_recreated,
         errors=errors,
     )
