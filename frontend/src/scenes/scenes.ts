@@ -92,13 +92,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Billing]: { organizationBased: true },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
     [Scene.RealTimeUsage]: { name: 'Real-time usage', organizationBased: true },
-    [Scene.Canvas]: {
-        projectBased: true,
-        name: 'Canvas',
-        description: 'You can change anything you like and it is persisted to the URL for easy sharing.',
-        layout: 'app-full-scene-height',
-        hideProjectNotice: true,
-    },
     [Scene.CLIAuthorize]: {
         name: 'Authorize CLI',
         projectBased: false,
@@ -645,6 +638,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // Canvases are gone. Shared canvas links carry their content in the URL hash, which nothing
+    // reads any more, so send the visitor to the notebook list rather than a 404.
+    '/canvas': urls.notebooks(),
     // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
     // ?review= / ?reviews_scope= deep links that PR status comments bake in
     '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
@@ -919,7 +915,6 @@ export const routes: Record<string, [Scene | string, string]> = {
 
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
-    [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.identityProviderConfig(':feature', ':configId')]: [Scene.IdentityProviderConfig, 'identityProviderConfig'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
