@@ -263,6 +263,22 @@ class QueryCoalescer:
                 pass
 
 
+def _has_non_null_key(node: object, key: str) -> bool:
+    # Null counts as absent to match the runner's gate, which checks `experiment_exposure is
+    # None`. The walk is iterative because orjson permits nesting up to 1024 levels, which is
+    # deeper than Python's default recursion limit.
+    stack: list[object] = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            if current.get(key) is not None:
+                return True
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return False
+
+
 _TEAM_ID_RE = re.compile(r"^/api/(?:environments|projects)/(\d+)/")
 
 _COALESCE_PATH_PATTERNS = [
@@ -294,9 +310,26 @@ class QueryCoalescingMiddleware:
         if not team_id:
             return self.get_response(request)
 
+        parsed_post_body: object = None
+        if request.method == "POST":
+            try:
+                parsed_post_body = orjson.loads(request.body)
+            except ValueError:
+                # DRF's parser accepts bodies orjson rejects (NaN and Infinity under
+                # STRICT_JSON=False, lone surrogates, other charsets, deeper nesting), so a
+                # body we cannot inspect can still execute a gated query. Fail closed.
+                query_coalesce_counter.labels(outcome="skipped_unparseable_body").inc()
+                return self.get_response(request)
+            # The experiment_exposure recordings filter is gated per experiment inside the
+            # query runner, which a coalescing follower never reaches. Let every such request
+            # run itself. #94639 tracks the general gap; remove this guard when it lands.
+            if self._carries_experiment_exposure(request.body, parsed_post_body):
+                query_coalesce_counter.labels(outcome="skipped_experiment_exposure").inc()
+                return self.get_response(request)
+
         enabled = posthoganalytics.feature_enabled("http-query-coalescing", str(team_id))
 
-        key = self._compute_key(team_id, request)
+        key = self._compute_key(team_id, request, parsed_post_body)
         coalescer = QueryCoalescer(key, dry_run=not enabled)
 
         try:
@@ -373,25 +406,31 @@ class QueryCoalescingMiddleware:
             return None
         return int(match.group(1))
 
+    @staticmethod
+    def _carries_experiment_exposure(body: bytes, data: object) -> bool:
+        # The byte scan keeps the tree walk off almost every request, and it is an exact upper
+        # bound: JSON spells the key's ASCII characters literally or as \u00XX escapes, so a
+        # parsed body that has the key always has one of the two substrings in its UTF-8 bytes.
+        if b'"experiment_exposure"' not in body and b"\\u00" not in body:
+            return False
+        return _has_non_null_key(data, "experiment_exposure")
+
     # Fields that are unique per request and should not affect coalescing
     _IGNORED_KEY_FIELDS = {"client_query_id", "session_id"}
 
     @staticmethod
-    def _compute_key(team_id: int, request: HttpRequest) -> str:
+    def _compute_key(team_id: int, request: HttpRequest, parsed_post_body: object) -> str:
         if request.method == "GET":
             params = parse_qs(request.META.get("QUERY_STRING", ""))
             for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
                 params.pop(field, None)
             normalized = urlencode(sorted(params.items()), doseq=True).encode()
         else:
-            try:
-                data = orjson.loads(request.body)
-                if isinstance(data, dict):
-                    for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
-                        data.pop(field, None)
-                normalized = orjson.dumps(data, option=orjson.OPT_SORT_KEYS)
-            except ValueError:
-                normalized = request.body
+            data = parsed_post_body
+            if isinstance(data, dict):
+                for field in QueryCoalescingMiddleware._IGNORED_KEY_FIELDS:
+                    data.pop(field, None)
+            normalized = orjson.dumps(data, option=orjson.OPT_SORT_KEYS)
 
         raw = f"{team_id}:{request.method}:{request.path}:{normalized.decode()}"
         return hashlib.sha256(raw.encode()).hexdigest()

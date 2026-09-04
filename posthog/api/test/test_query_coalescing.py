@@ -20,6 +20,14 @@ from posthog.api.query_coalescer import (
     QueryCoalescer,
     query_coalesce_counter,
 )
+from posthog.constants import AvailableFeature
+from posthog.models import User
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+_EVENTS_QUERY = {"kind": "EventsQuery", "select": ["event"]}
 
 
 class TestQueryCoalescer(TestCase):
@@ -252,6 +260,20 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
     def _query_payload(self):
         return {"query": {"kind": "EventsQuery", "select": ["event"]}}
 
+    def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(team=self.team, key="coalescing-exposure-flag", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team, name="coalescing exposure experiment", feature_flag=flag, created_by=self.user
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
+        )
+        return experiment, self._create_user("denied-coalescing-viewer@posthog.com")
+
     def test_leader_executes_and_stores_response(self):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
         flush_persons_and_events()
@@ -477,13 +499,16 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("query", "/api/environments/{team_id}/query/"),
-            ("insights_trend", "/api/environments/{team_id}/insights/trend/"),
-            ("insights_funnel", "/api/environments/{team_id}/insights/funnel/"),
-            ("insights_pk", "/api/environments/{team_id}/insights/123/"),
+            ("query", "/api/environments/{team_id}/query/", _EVENTS_QUERY),
+            ("insights_trend", "/api/environments/{team_id}/insights/trend/", _EVENTS_QUERY),
+            ("insights_funnel", "/api/environments/{team_id}/insights/funnel/", _EVENTS_QUERY),
+            ("insights_pk", "/api/environments/{team_id}/insights/123/", _EVENTS_QUERY),
+            # Without the exposure filter a recordings query is ordinary traffic. Catches a
+            # guard that stops coalescing recordings queries wholesale.
+            ("recordings_query_without_exposure", "/api/environments/{team_id}/query/", {"kind": "RecordingsQuery"}),
         ]
     )
-    def test_matching_paths_trigger_coalescing(self, _name, path_template):
+    def test_matching_paths_trigger_coalescing(self, _name: str, path_template: str, query: dict[str, Any]) -> None:
         path = path_template.format(team_id=self.team.id)
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = True
@@ -492,5 +517,59 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
             mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer) as mock_cls,
         ):
-            self.client.post(path, {"query": {"kind": "EventsQuery", "select": ["event"]}})
+            self.client.post(path, {"query": query})
             mock_cls.assert_called_once()
+
+    def test_experiment_exposure_query_is_never_served_a_coalesced_body(self) -> None:
+        # A denied viewer must not read the recordings of an experiment's exposed persons. The
+        # coalescing key holds no user identity, so a follower would otherwise replay the body a
+        # permitted leader produced, and the runner-level experiment check never runs for it.
+        experiment, denied_viewer = self._create_denied_experiment_and_viewer()
+        self.client.force_login(denied_viewer)
+
+        query = {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls,
+        ):
+            response = self.client.post(self._query_url(), {"query": query})
+
+        mock_cls.assert_not_called()
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Access control failure", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            # HogQLMetadata holds its inner query under `sourceQuery`, which the scope walk in
+            # posthog.api.query does not follow. A guard narrowed to that walk's `source` chain
+            # would coalesce this body.
+            (
+                "hogql_metadata_source_query",
+                b'{"query": {"kind": "HogQLMetadata", "language": "hogQL", "query": "select 1",'
+                b' "sourceQuery": {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}}}}',
+            ),
+            # The escaped and plain spellings of the key parse to the same document, so both
+            # produce the same coalescing key. A byte scan without the \u00 branch would
+            # coalesce this behind the unescaped spelling.
+            (
+                "unicode_escaped_key",
+                b'{"query": {"kind": "RecordingsQuery", "experiment_exposur\\u0065": {"experiment_id": 1}}}',
+            ),
+            # orjson rejects NaN but DRF's parser accepts it (STRICT_JSON is off), so the view
+            # can execute a body the middleware cannot inspect. The middleware must fail
+            # closed on it, not classify it as filter-free.
+            (
+                "body_only_the_view_can_parse",
+                b'{"query": {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}, "limit": NaN}}',
+            ),
+        ]
+    )
+    def test_disguised_exposure_filters_are_not_coalesced(self, _name: str, body: bytes) -> None:
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls,
+        ):
+            self.client.post(self._query_url(), body, content_type="application/json")
+
+        mock_cls.assert_not_called()
