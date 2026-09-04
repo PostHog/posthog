@@ -1,3 +1,4 @@
+import uuid
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -899,6 +900,39 @@ class SignalReportArtefact(UUIDModel):
             models.Index(fields=["team", "type", "-created_at"], name="signals_sig_team_type_ct_idx"),
             models.Index(fields=["channel"], name="signals_sig_channel_idx"),
         ]
+
+    @classmethod
+    def counts_by_report(cls, report_ids: list[str]) -> dict[str, int]:
+        """How many artefacts each report has, in one grouped query over the page.
+
+        The inbox list renders this count for every row it returns. A correlated subquery makes
+        Postgres count a report's artefacts before the page limit applies, so the whole team's
+        reports get counted to render 25. Reports with no artefacts are omitted.
+        """
+        if not report_ids:
+            return {}
+        rows = (
+            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+        )
+        return {str(row["report_id"]): row["artefact_count"] for row in rows}
+
+    @classmethod
+    def live_channel_ids_by_report(cls, report_ids: list[str]) -> dict[str, uuid.UUID]:
+        """The space each report is assigned to, in one query over the page.
+
+        The assignment is the newest `channel_assignment` artefact. A report whose newest
+        assignment points at a deleted space counts as unassigned, and is omitted like a report
+        that was never assigned.
+        """
+        if not report_ids:
+            return {}
+        rows = (
+            cls.objects.filter(report_id__in=report_ids, type=cls.ArtefactType.CHANNEL_ASSIGNMENT)
+            .order_by("report_id", "-created_at")
+            .distinct("report_id")
+            .values_list("report_id", "channel_id", "channel__deleted")
+        )
+        return {str(report_id): channel_id for report_id, channel_id, deleted in rows if deleted is False}
 
     @classmethod
     def _create(
