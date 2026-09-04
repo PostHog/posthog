@@ -19,6 +19,7 @@ import {
   promptReferencesAbsoluteFolder,
   selectEchoedOptimisticItemIds,
   selectUnseededPendingFollowups,
+  thinSupersededToolCallUpdates,
 } from "./sessionEvents";
 
 describe("isFatalSessionError", () => {
@@ -706,5 +707,136 @@ describe("collapseSupersededToolCallUpdates", () => {
     expect(sessionUpdate(last)).not.toHaveProperty("rawInput");
     expect(sessionUpdate(collapsed[0])).toHaveProperty("rawInput");
     expect(sessionUpdate(collapsed[0]).status).toBe("completed");
+  });
+});
+
+describe("thinSupersededToolCallUpdates", () => {
+  const toolUpdateFields = (
+    toolCallId: string,
+    fields: Record<string, unknown>,
+  ): AcpMessage =>
+    ({
+      type: "acp_message",
+      ts: 1,
+      message: {
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            ...fields,
+          },
+        },
+      },
+    }) as unknown as AcpMessage;
+
+  const other = (text: string): AcpMessage =>
+    ({
+      type: "acp_message",
+      ts: 1,
+      message: {
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        },
+      },
+    }) as unknown as AcpMessage;
+
+  // biome-ignore lint/suspicious/noExplicitAny: test introspection
+  const sessionUpdate = (e: AcpMessage) => (e.message as any).params.update;
+
+  it("deletes only the keys the incoming update re-sends", () => {
+    const previous = toolUpdateFields("a", {
+      rawInput: { command: "ls" },
+      content: "partial output",
+      status: "in_progress",
+    });
+    const incoming = toolUpdateFields("a", {
+      content: "full output",
+      status: "completed",
+    });
+
+    thinSupersededToolCallUpdates([other("hi"), previous], [incoming]);
+
+    expect(sessionUpdate(previous)).toEqual({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "a",
+      rawInput: { command: "ls" },
+    });
+    expect(sessionUpdate(incoming).content).toBe("full output");
+  });
+
+  it("preserves the previous event's wrapper identity and frozen-ness", () => {
+    const previous = Object.freeze(toolUpdateFields("a", { content: "old" }));
+    const existing = [previous];
+
+    thinSupersededToolCallUpdates(existing, [
+      toolUpdateFields("a", { content: "new" }),
+    ]);
+
+    expect(existing[0]).toBe(previous);
+    expect(Object.isFrozen(previous)).toBe(true);
+    expect(sessionUpdate(previous)).not.toHaveProperty("content");
+  });
+
+  it("replaying a thinned transcript merges to the same result", () => {
+    const makeRun = (): AcpMessage[] => [
+      toolUpdateFields("a", { rawInput: { command: "ls" } }),
+      toolUpdateFields("a", { title: "List files", content: "partial" }),
+      other("between"),
+      toolUpdateFields("a", { content: "done", status: "completed" }),
+    ];
+    const original = makeRun();
+
+    const thinned = makeRun();
+    thinSupersededToolCallUpdates(thinned.slice(0, 1), [thinned[1]]);
+    thinSupersededToolCallUpdates(thinned.slice(0, 3), [thinned[3]]);
+
+    const mergedOf = (events: AcpMessage[]) => {
+      const last = collapseSupersededToolCallUpdates(events).at(-1);
+      return last ? sessionUpdate(last) : undefined;
+    };
+    expect(mergedOf(thinned)).toBeDefined();
+    expect(mergedOf(thinned)).toEqual(mergedOf(original));
+  });
+
+  it("ignores tool calls of other ids and non-tool events", () => {
+    const otherTool = toolUpdateFields("b", { content: "b output" });
+    const prose = other("hi");
+
+    thinSupersededToolCallUpdates(
+      [otherTool, prose],
+      [toolUpdateFields("a", { content: "a output" })],
+    );
+
+    expect(sessionUpdate(otherTool).content).toBe("b output");
+    expect(sessionUpdate(prose).content).toEqual({ type: "text", text: "hi" });
+  });
+
+  it("does not thin snapshots beyond the bounded scan window", () => {
+    const previous = toolUpdateFields("a", { content: "far back" });
+    const filler = Array.from({ length: 400 }, (_, i) => other(`f${i}`));
+
+    thinSupersededToolCallUpdates(
+      [previous, ...filler],
+      [toolUpdateFields("a", { content: "new" })],
+    );
+
+    expect(sessionUpdate(previous).content).toBe("far back");
+  });
+
+  it("leaves a deep-frozen previous update untouched instead of throwing", () => {
+    const previous = toolUpdateFields("a", { content: "old" });
+    Object.freeze(sessionUpdate(previous));
+
+    thinSupersededToolCallUpdates(
+      [previous],
+      [toolUpdateFields("a", { content: "new" })],
+    );
+
+    expect(sessionUpdate(previous).content).toBe("old");
   });
 });

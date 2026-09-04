@@ -127,6 +127,7 @@ import {
   selectEchoedOptimisticItemIds,
   selectUnseededPendingFollowups,
   shellExecutesToContextBlocks,
+  thinSupersededToolCallUpdates,
 } from "./sessionEvents";
 import { selectSessionsToEvict } from "./sessionEviction";
 import { createBaseSession } from "./sessionFactory";
@@ -8950,6 +8951,7 @@ export class SessionService {
       ? dropEventsCoveredByTail(existingEvents, taskRunId, startEntryIndex)
       : undefined;
     if (keptEvents) {
+      thinSupersededToolCallUpdates(keptEvents, events);
       this.d.store.updateSession(taskRunId, {
         events: [...keptEvents, ...events],
         ...(options.processedLineCount !== undefined
