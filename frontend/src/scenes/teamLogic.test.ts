@@ -69,6 +69,42 @@ describe('teamLogic', () => {
         })
     })
 
+    describe('in-flight settings updates', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) },
+                    ],
+                },
+            })
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        it('tracks the field and applies the patch optimistically until the save resolves', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            expect(logic.values.currentTeam?.capture_console_log_opt_in).toBe(true)
+
+            logic.actions.updateCurrentTeam({ capture_console_log_opt_in: false })
+
+            // Reducers run synchronously, so before the request resolves only the touched field is
+            // in flight, the saved team is untouched, and the new value already shows through the
+            // overlay — so other controls stay live and dependent controls unlock at once.
+            expect(logic.values.updatingTeamFields).toEqual({ capture_console_log_opt_in: 1 })
+            expect(logic.values.currentTeam?.capture_console_log_opt_in).toBe(true)
+            expect(logic.values.teamWithPendingPatch?.capture_console_log_opt_in).toBe(false)
+
+            await expectLogic(logic).toDispatchActions(['updateCurrentTeamSuccess'])
+
+            expect(logic.values.updatingTeamFields).toEqual({})
+            expect(logic.values.pendingTeamPatch).toBeNull()
+            expect(logic.values.currentTeam?.capture_console_log_opt_in).toBe(false)
+        })
+    })
+
     describe('product intent loaders', () => {
         beforeEach(() => {
             initKeaTests()

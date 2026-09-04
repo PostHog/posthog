@@ -78,6 +78,56 @@ function withProductIntentsFrom(
     return { ...currentTeam, product_intents: response.product_intents }
 }
 
+/**
+ * Overlay a pending PATCH onto the team so settings reflect the saved value at once, before the
+ * request resolves. Nested config objects (session replay config, masking, network payload) are
+ * merged one level deep, mirroring how these settings build the config they send.
+ */
+function mergeTeamPatch(team: TeamType | TeamPublicType, patch: Partial<TeamType>): TeamType | TeamPublicType {
+    const merged: Record<string, any> = { ...team }
+    for (const [key, value] of Object.entries(patch)) {
+        const existing = (team as Record<string, any>)[key]
+        const bothPlainObjects =
+            !!value &&
+            typeof value === 'object' &&
+            !Array.isArray(value) &&
+            !!existing &&
+            typeof existing === 'object' &&
+            !Array.isArray(existing)
+        merged[key] = bothPlainObjects ? { ...existing, ...value } : value
+    }
+    return merged as TeamType | TeamPublicType
+}
+
+/** Decrement the in-flight count for each field a completed PATCH covered, dropping fields at zero. */
+function releaseUpdatingFields(state: Record<string, number>, payload?: Partial<TeamType>): Record<string, number> {
+    if (!payload) {
+        return state
+    }
+    const next = { ...state }
+    for (const key of Object.keys(payload)) {
+        const remaining = (next[key] ?? 0) - 1
+        if (remaining > 0) {
+            next[key] = remaining
+        } else {
+            delete next[key]
+        }
+    }
+    return next
+}
+
+/** Drop the fields a resolved PATCH covered from the optimistic patch, leaving any other in-flight edits. */
+function clearPatchedFields(patch: Partial<TeamType> | null, payload?: Partial<TeamType>): Partial<TeamType> | null {
+    if (!patch || !payload) {
+        return patch
+    }
+    const next = { ...patch }
+    for (const key of Object.keys(payload)) {
+        delete next[key as keyof TeamType]
+    }
+    return Object.keys(next).length ? next : null
+}
+
 export interface FrequentMistakeAdvice {
     key: string
     type: 'event' | 'person'
@@ -115,9 +165,12 @@ export interface teamLogicValues {
     hasOnboardedAnyProduct: boolean
     isCurrentTeamUnavailable: boolean
     isTeamTokenResetAvailable: boolean
+    pendingTeamPatch: Partial<TeamType> | null
     teamBeingDeleted: TeamType | null
+    teamWithPendingPatch: TeamPublicType | TeamType | null
     testAccountFilterFrequentMistakes: FrequentMistakeAdvice[]
     timezone: string
+    updatingTeamFields: Record<string, number>
     weekStartDay: number
 }
 
@@ -321,6 +374,10 @@ export interface teamLogicMeta {
         testAccountFilterFrequentMistakes: (currentTeam: TeamPublicType | TeamType | null) => FrequentMistakeAdvice[]
         baseCurrency: (currentTeam: TeamPublicType | TeamType | null) => CurrencyCode
         customerAnalyticsConfig: (currentTeam: TeamPublicType | TeamType | null) => CustomerAnalyticsConfig
+        teamWithPendingPatch: (
+            currentTeam: TeamPublicType | TeamType | null,
+            pendingTeamPatch: Partial<TeamType> | null
+        ) => TeamPublicType | TeamType | null
     }
 }
 
@@ -353,6 +410,35 @@ export const teamLogic = kea<teamLogicType>([
                 deleteTeam: (_, { team }) => team,
                 deleteTeamSuccess: () => null,
                 deleteTeamFailure: () => null,
+            },
+        ],
+        // Count of in-flight PATCHes per top-level payload field, so a setting control can show its
+        // own loading state instead of the team-wide currentTeamLoading flag freezing every control
+        // on the page while one save is in flight.
+        updatingTeamFields: [
+            {} as Record<string, number>,
+            {
+                updateCurrentTeam: (state, payload) => {
+                    const next = { ...state }
+                    for (const key of Object.keys(payload)) {
+                        next[key] = (next[key] ?? 0) + 1
+                    }
+                    return next
+                },
+                updateCurrentTeamSuccess: (state, { payload }) => releaseUpdatingFields(state, payload),
+                updateCurrentTeamFailure: () => ({}),
+            },
+        ],
+        // Optimistic patch held while a team PATCH is in flight, so settings that depend on the saved
+        // value (for example switches gated on session replay being enabled) unlock immediately.
+        pendingTeamPatch: [
+            null as Partial<TeamType> | null,
+            {
+                updateCurrentTeam: (state, payload) => ({ ...state, ...payload }),
+                updateCurrentTeamSuccess: (state, { payload }) => clearPatchedFields(state, payload),
+                // A failed save has no payload to scope by, so drop every optimistic edit and fall
+                // back to the saved team.
+                updateCurrentTeamFailure: () => null,
             },
         ],
     }),
@@ -623,6 +709,16 @@ export const teamLogic = kea<teamLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: TeamType): CustomerAnalyticsConfig =>
                 currentTeam?.customer_analytics_config ?? ({} as CustomerAnalyticsConfig),
+        ],
+        // currentTeam with any in-flight PATCH applied optimistically. Read this where a setting must
+        // reflect an edit before the save resolves; keep reading currentTeam for the saved truth.
+        teamWithPendingPatch: [
+            (s) => [s.currentTeam, s.pendingTeamPatch],
+            (
+                currentTeam: TeamPublicType | TeamType | null,
+                pendingTeamPatch: Partial<TeamType> | null
+            ): TeamPublicType | TeamType | null =>
+                currentTeam && pendingTeamPatch ? mergeTeamPatch(currentTeam, pendingTeamPatch) : currentTeam,
         ],
     })),
     listeners(({ actions }) => ({
