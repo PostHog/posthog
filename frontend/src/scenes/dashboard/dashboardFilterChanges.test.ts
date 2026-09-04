@@ -43,24 +43,24 @@ describe('getDashboardFilterChanges', () => {
         ).toEqual([
             {
                 label: 'Property filter',
-                previousValue: 'browser = Chrome',
-                value: 'browser = Firefox',
+                previousValue: ['browser = Chrome'],
+                value: ['browser = Firefox'],
                 status: 'changed',
             },
-            { label: 'Property filter', value: 'country = Canada', status: 'new' },
-            { label: 'Property filter', previousValue: 'os = macOS', status: 'removed' },
+            { label: 'Property filter', previousValue: [], value: ['country = Canada'], status: 'new' },
+            { label: 'Property filter', previousValue: ['os = macOS'], value: [], status: 'removed' },
         ])
     })
 
     it('groups date changes into one change', () => {
         expect(getDashboardFilterChanges({}, { date_from: '-1d' })).toEqual([
-            { label: 'Date range', previousValue: undefined, value: 'Last 1 day', status: 'new' },
+            { label: 'Date range', previousValue: [], value: ['Last 1 day'], status: 'new' },
         ])
     })
 
     it('lists an explicit property-filter clear', () => {
         expect(getDashboardFilterChanges({}, { properties: [] })).toEqual([
-            { label: 'Property filters', value: 'No property filters', status: 'new' },
+            { label: 'Property filters', previousValue: [], value: ['No property filters'], status: 'new' },
         ])
     })
 })
@@ -88,9 +88,9 @@ describe('getDashboardVariableChanges', () => {
                 }
             )
         ).toEqual([
-            { label: 'saved', previousValue: 'before', value: 'after', status: 'changed' },
-            { label: 'first', previousValue: 'default one', value: 'one', status: 'changed' },
-            { label: 'second', previousValue: 'default two', value: 'two', status: 'changed' },
+            { label: 'saved', previousValue: ['before'], value: ['after'], status: 'changed' },
+            { label: 'first', previousValue: ['default one'], value: ['one'], status: 'changed' },
+            { label: 'second', previousValue: ['default two'], value: ['two'], status: 'changed' },
         ])
     })
 })

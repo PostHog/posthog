@@ -30,13 +30,13 @@ function getChangeIcon(label: DashboardFilterChange['label']): JSX.Element {
     return <IconFilter />
 }
 
-function ChangeValue({ value }: { value: string | string[] | undefined }): JSX.Element | null {
-    if (!value) {
-        return null
+function ChangeValue({ value }: { value: string[] }): JSX.Element {
+    if (value.length === 0) {
+        return <span>Default</span>
     }
 
-    if (!Array.isArray(value)) {
-        return <span className="break-all">{value}</span>
+    if (value.length === 1) {
+        return <span className="break-all">{value[0]}</span>
     }
 
     return (
@@ -54,11 +54,11 @@ function renderChangeValue(change: DashboardFilterChange): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 break-words">
             <span className="min-w-0 text-muted-alt">
-                <ChangeValue value={change.previousValue ?? 'Default'} />
+                <ChangeValue value={change.previousValue} />
             </span>
             <span aria-hidden="true">→</span>
             <span className="font-medium">
-                <ChangeValue value={change.value ?? 'Default'} />
+                <ChangeValue value={change.value} />
             </span>
         </div>
     )

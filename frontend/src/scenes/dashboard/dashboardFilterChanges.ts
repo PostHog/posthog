@@ -9,22 +9,24 @@ import type { AnyPropertyFilter } from '~/types'
 
 export interface DashboardConfigurationChange {
     label: string
-    previousValue?: string | string[]
-    value?: string | string[]
+    previousValue: string[]
+    value: string[]
     status: 'new' | 'changed' | 'removed'
 }
 
 export type DashboardFilterChange = DashboardConfigurationChange
 
-function formatVariableValue(variable: { isNull?: boolean; value?: unknown } | undefined): string | undefined {
+function formatVariableValue(variable: { isNull?: boolean; value?: unknown } | undefined): string[] {
     if (variable?.isNull) {
-        return 'null'
+        return ['null']
     }
     if (variable?.value == null) {
-        return undefined
+        return []
     }
-    return String(variable.value)
+    return [String(variable.value)]
 }
+
+const changeValue = (value: string | undefined): string[] => (value ? [value] : [])
 
 export function getDashboardVariableChanges(
     previousVariables: Record<string, HogQLVariable>,
@@ -67,19 +69,20 @@ function formatDateRange(filters: DashboardFilter): string {
     return dateFilterToText(filters.date_from, filters.date_to, 'All time') || 'All time'
 }
 
-function formatBreakdown(filters: DashboardFilter): string | string[] {
+function formatBreakdown(filters: DashboardFilter): string[] {
     const { breakdown_filter } = filters
     if (!breakdown_filter?.breakdown && !breakdown_filter?.breakdowns?.length) {
-        return 'None'
+        return []
     }
 
     if (breakdown_filter.breakdowns?.length) {
         return breakdown_filter.breakdowns.map((breakdown) => String(breakdown.property))
     }
 
-    return Array.isArray(breakdown_filter.breakdown)
-        ? breakdown_filter.breakdown.map(String)
-        : String(breakdown_filter.breakdown)
+    if (Array.isArray(breakdown_filter.breakdown)) {
+        return breakdown_filter.breakdown.map(String)
+    }
+    return [String(breakdown_filter.breakdown)]
 }
 
 function formatTestAccounts(filterTestAccounts: DashboardFilter['filterTestAccounts']): string {
@@ -109,7 +112,12 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
         )
 
         if (previousIndex === -1) {
-            changes.push({ label: 'Property filter', value: formatPropertyLabel(property, {}).trim(), status: 'new' })
+            changes.push({
+                label: 'Property filter',
+                previousValue: [],
+                value: [formatPropertyLabel(property, {}).trim()],
+                status: 'new',
+            })
             return
         }
 
@@ -117,8 +125,8 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
         if (!equal(previousProperty, property)) {
             changes.push({
                 label: 'Property filter',
-                previousValue: formatPropertyLabel(previousProperty, {}).trim(),
-                value: formatPropertyLabel(property, {}).trim(),
+                previousValue: [formatPropertyLabel(previousProperty, {}).trim()],
+                value: [formatPropertyLabel(property, {}).trim()],
                 status: 'changed',
             })
         }
@@ -127,7 +135,8 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
     unmatchedPrevious.forEach((property) => {
         changes.push({
             label: 'Property filter',
-            previousValue: formatPropertyLabel(property, {}).trim(),
+            previousValue: [formatPropertyLabel(property, {}).trim()],
+            value: [],
             status: 'removed',
         })
     })
@@ -151,8 +160,8 @@ export function getDashboardFilterChanges(
     ) {
         changes.push({
             label: 'Property filters',
-            previousValue: previousPropertiesAreExplicit ? 'No property filters' : undefined,
-            value: currentPropertiesAreExplicit ? 'No property filters' : undefined,
+            previousValue: previousPropertiesAreExplicit ? ['No property filters'] : [],
+            value: currentPropertiesAreExplicit ? ['No property filters'] : [],
             status: getChangeStatus(previousPropertiesAreExplicit, currentPropertiesAreExplicit),
         })
     }
@@ -175,8 +184,8 @@ export function getDashboardFilterChanges(
     ) {
         changes.push({
             label: 'Date range',
-            previousValue: previousHasDate ? formatDateRange(previousFilters) : undefined,
-            value: currentHasDate ? formatDateRange(currentFilters) : undefined,
+            previousValue: previousHasDate ? [formatDateRange(previousFilters)] : [],
+            value: currentHasDate ? [formatDateRange(currentFilters)] : [],
             status: getChangeStatus(previousHasDate, currentHasDate),
         })
     }
@@ -184,8 +193,10 @@ export function getDashboardFilterChanges(
     if (!equal(previousFilters.interval, currentFilters.interval)) {
         changes.push({
             label: 'Grouped by',
-            previousValue: previousFilters.interval ? capitalizeFirstLetter(previousFilters.interval) : undefined,
-            value: currentFilters.interval ? capitalizeFirstLetter(currentFilters.interval) : undefined,
+            previousValue: changeValue(
+                previousFilters.interval ? capitalizeFirstLetter(previousFilters.interval) : undefined
+            ),
+            value: changeValue(currentFilters.interval ? capitalizeFirstLetter(currentFilters.interval) : undefined),
             status: getChangeStatus(!!previousFilters.interval, !!currentFilters.interval),
         })
     }
@@ -197,8 +208,8 @@ export function getDashboardFilterChanges(
             !!currentFilters.breakdown_filter?.breakdown || !!currentFilters.breakdown_filter?.breakdowns?.length
         changes.push({
             label: 'Breakdown by',
-            previousValue: previousHasBreakdown ? formatBreakdown(previousFilters) : undefined,
-            value: currentHasBreakdown ? formatBreakdown(currentFilters) : undefined,
+            previousValue: previousHasBreakdown ? formatBreakdown(previousFilters) : [],
+            value: currentHasBreakdown ? formatBreakdown(currentFilters) : [],
             status: getChangeStatus(previousHasBreakdown, currentHasBreakdown),
         })
     }
@@ -211,9 +222,9 @@ export function getDashboardFilterChanges(
         changes.push({
             label: 'Test accounts',
             previousValue: previousHasTestAccountSetting
-                ? formatTestAccounts(previousFilters.filterTestAccounts)
-                : undefined,
-            value: currentHasTestAccountSetting ? formatTestAccounts(currentFilters.filterTestAccounts) : undefined,
+                ? [formatTestAccounts(previousFilters.filterTestAccounts)]
+                : [],
+            value: currentHasTestAccountSetting ? [formatTestAccounts(currentFilters.filterTestAccounts)] : [],
             status: getChangeStatus(previousHasTestAccountSetting, currentHasTestAccountSetting),
         })
     }
