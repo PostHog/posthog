@@ -735,12 +735,12 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.cancelLayoutEdit()
-            })
-                .toNotHaveDispatchedActions(['resetIntermittentFilters', 'resetUrlFilters'])
-                .toFinishAllListeners()
+            }).toFinishAllListeners()
 
             expect(logic.values.dashboardMode).toBeNull()
-            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.dashboardConfigurationDraft?.filters).toEqual(
+                expect.objectContaining({ date_from: '-7d' })
+            )
             expect(logic.values.filtersDirty).toBe(true)
             expect(logic.values.isTemporaryFilterView).toBe(false)
         })
@@ -763,12 +763,12 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.cancelLayoutEdit()
-            })
-                .toNotHaveDispatchedActions(['resetIntermittentFilters', 'resetUrlFilters'])
-                .toFinishAllListeners()
+            }).toFinishAllListeners()
 
             expect(logic.values.dashboardMode).toBeNull()
-            expect(logic.values.intermittentFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.dashboardConfigurationDraft?.filters).toEqual(
+                expect.objectContaining({ date_from: '-7d' })
+            )
             expect(logic.values.filtersDirty).toBe(true)
 
             payloadSpy.mockRestore()
@@ -882,7 +882,7 @@ describe('dashboardLogic', () => {
                 persisted_filters: { date_from: '-1d' },
             })
             await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
+                logic.actions.saveDashboardChanges()
             }).toFinishAllListeners()
 
             expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-1d' })
@@ -956,12 +956,11 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.cancelLayoutEdit()
-            })
-                .toNotHaveDispatchedActions(['resetIntermittentFilters', 'resetUrlFilters'])
-                .toFinishAllListeners()
+            }).toFinishAllListeners()
 
-            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
-            expect(logic.values.intermittentFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.dashboardConfigurationDraft?.filters).toEqual(
+                expect.objectContaining({ date_from: '-7d' })
+            )
 
             await expectLogic(logic, () => {
                 logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
@@ -984,9 +983,12 @@ describe('dashboardLogic', () => {
                 changedLayouts.sm?.[0] ? { sm: changedLayouts.sm[0] } : {}
             )
 
-            ;(api.update as jest.Mock).mockResolvedValueOnce(nineTileDashboard)
+            ;(api.update as jest.Mock).mockResolvedValueOnce({
+                ...nineTileDashboard,
+                persisted_filters: { date_from: '-7d' },
+            })
             await expectLogic(logic, () => {
-                logic.actions.saveLayout()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenLastCalledWith(
@@ -2891,7 +2893,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.isTemporaryFilterView).toBe(false)
         })
 
-        it('clears temporary filters without clearing URL variable overrides', async () => {
+        it('discards filter and SQL variable changes and restores the saved configuration', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
             router.actions.push('/', {
                 [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
@@ -2899,45 +2901,43 @@ describe('dashboardLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderOverridesBanner)
+                logic.actions.setDates('-30d', null)
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+                logic.actions.discardDashboardChanges()
             }).toFinishAllListeners()
 
-            expect(router.values.searchParams).toEqual({
-                [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({ organization: 'url-val' }),
-            })
+            expect(router.values.searchParams).toEqual({})
+            expect(logic.values.effectiveDashboardConfiguration).toEqual({ filters: {}, variables: {} })
         })
 
-        it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
+        it('saves filter and SQL variable edits in one dashboard update', async () => {
             await mountDashboardWithVariable({
                 urlValue: 'url-override',
                 dashboardOverride: { value: 'persisted', isNull: false },
             })
-
-            await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
-            })
-                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
-                .toFinishAllListeners()
-        })
-
-        it('saving variable changes does not persist temporary filters', async () => {
-            await mountDashboardWithVariable({
-                urlValue: 'url-override',
-                dashboardOverride: { value: 'persisted', isNull: false },
-            })
-            const update = jest.spyOn(api, 'update')
+            const updatedDashboard = {
+                ...logic.values.dashboard!,
+                persisted_filters: { date_from: '-7d', date_to: null },
+                persisted_variables: {
+                    [variableId]: { ...baseVariable, value: 'edited', isNull: false },
+                },
+            }
+            const update = jest.spyOn(api, 'update').mockResolvedValue(updatedDashboard)
 
             await expectLogic(logic, () => {
                 logic.actions.setDates('-7d', null)
-                logic.actions.saveEditModeChanges()
-            })
-                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
-                .toFinishAllListeners()
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
 
-            expect(update).toHaveBeenCalledWith(
-                expect.any(String),
-                expect.not.objectContaining({ filters: expect.anything() })
-            )
+            expect(update).toHaveBeenCalledWith(expect.any(String), {
+                filters: { date_from: '-7d', date_to: null },
+                variables: {
+                    [variableId]: expect.objectContaining({ value: 'edited' }),
+                },
+            })
+            expect(router.values.searchParams).toEqual({})
+            expect(logic.values.dashboardConfigurationState).toBe('saved')
         })
 
         it('applying a variable value refreshes every tile with the new value attached to the request', async () => {

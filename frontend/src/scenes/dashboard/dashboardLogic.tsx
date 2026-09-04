@@ -133,7 +133,12 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
-import { getDashboardFilterChanges, type DashboardFilterChange } from './dashboardFilterChanges'
+import {
+    getDashboardFilterChanges,
+    getDashboardVariableChanges,
+    type DashboardConfigurationChange,
+    type DashboardFilterChange,
+} from './dashboardFilterChanges'
 import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 import {
     BREAKPOINT_COLUMN_COUNTS,
@@ -207,6 +212,13 @@ export interface PendingInsertion {
     // Width override for the full-width fallback when the hovered column can't anchor the tile; else null.
     w: number | null
 }
+
+export interface DashboardConfiguration {
+    filters: DashboardFilter
+    variables: Record<string, HogQLVariable>
+}
+
+export type DashboardConfigurationState = 'temporaryView' | 'unsavedChanges' | 'saved'
 
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
@@ -282,6 +294,9 @@ export interface dashboardLogicValues {
     containerWidth: number | null
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType<QueryBasedInsightModel> | null
+    dashboardConfigurationChanges: DashboardConfigurationChange[]
+    dashboardConfigurationDraft: DashboardConfiguration | null
+    dashboardConfigurationState: DashboardConfigurationState
     dashboardCustomizeMenuOpen: boolean
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
@@ -300,9 +315,8 @@ export interface dashboardLogicValues {
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
     effectiveBreakdownColors: BreakdownColorConfig[]
-    effectiveDashboardVariableOverrides: {
-        [x: string]: HogQLVariable
-    }
+    effectiveDashboardConfiguration: DashboardConfiguration
+    effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
     effectiveEditBarFilters: DashboardFilter
     effectiveLastRefresh: Dayjs | null
     effectiveRefreshFilters: DashboardFilter
@@ -314,7 +328,6 @@ export interface dashboardLogicValues {
     externalFilters: DashboardFilter
     filterChanges: DashboardFilterChange[]
     filterEditModeActive: boolean
-    variablesDirty: boolean
     filtersDirty: boolean
     filtersOverrideForLoad: DashboardFilter
     hasIntermittentFilters: boolean
@@ -324,6 +337,7 @@ export interface dashboardLogicValues {
     hasUrlFilters: boolean
     hasVariables: boolean
     highlightedInsightId: any
+    initialDashboardConfigurationOverride: DashboardConfiguration
     initialVariablesLoaded: boolean
     insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     intermittentFilters: DashboardFilter
@@ -346,8 +360,8 @@ export interface dashboardLogicValues {
     nextAllowedDashboardRefresh: Dayjs | null
     oldestRefreshed: Dayjs | null
     pageVisibility: boolean
-    persistableDashboardFilters: DashboardFilter
     pendingInsertion: PendingInsertion | null
+    persistableDashboardFilters: DashboardFilter
     placement: DashboardPlacement
     projectTreeRef: ProjectTreeRef
     refreshMetrics: {
@@ -356,6 +370,7 @@ export interface dashboardLogicValues {
     }
     refreshStatus: Record<string, RefreshStatus>
     refreshTilesTotal: number | null
+    savedDashboardConfiguration: DashboardConfiguration
     scrollToBottomSignal: number
     shouldReportOnAPILoad: boolean
     shouldUseStreaming: boolean
@@ -378,6 +393,7 @@ export interface dashboardLogicValues {
     tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     urlFilters: DashboardFilter
     urlVariables: Record<string, HogQLVariable>
+    variablesDirty: boolean
     widgetRefreshStatus: Record<
         number,
         {
@@ -447,6 +463,9 @@ export interface dashboardLogicActions {
     clearAddWidgetSelectedTypes: () => {
         value: true
     }
+    clearInitialDashboardConfigurationOverride: () => {
+        value: true
+    }
     copyToDashboard: (
         tile: DashboardTile<QueryBasedInsightModel>,
         fromDashboard: number,
@@ -485,7 +504,13 @@ export interface dashboardLogicActions {
     dashboardNotFound: () => {
         value: true
     }
+    discardDashboardChanges: () => {
+        value: true
+    }
     discardDashboardFilters: () => {
+        value: true
+    }
+    discardLayoutChanges: () => {
         value: true
     }
     duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => {
@@ -614,6 +639,9 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
+    previewDashboardChanges: () => {
+        value: true
+    }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
         tile: any
@@ -688,6 +716,15 @@ export interface dashboardLogicActions {
             themeId: number | null
         } | null
     }
+    saveDashboardChanges: () => {
+        value: true
+    }
+    saveDashboardChangesFailure: (error: string) => {
+        error: string
+    }
+    saveDashboardChangesSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+    }
     saveDashboardFilters: () => {
         value: true
     }
@@ -721,6 +758,9 @@ export interface dashboardLogicActions {
     saveLayout: () => {
         value: true
     }
+    saveLayoutChanges: () => {
+        value: true
+    }
     scheduleRefreshDashboardWidgets: (tileId: number) => {
         tileId: number
     }
@@ -745,6 +785,9 @@ export interface dashboardLogicActions {
     }
     setButtonTileId: (buttonTileId: number | 'new' | null) => {
         buttonTileId: number | 'new' | null
+    }
+    setDashboardConfigurationDraft: (configuration: DashboardConfiguration | null) => {
+        configuration: DashboardConfiguration | null
     }
     setDashboardCustomizeMenuOpen: (open: boolean) => {
         open: boolean
@@ -805,6 +848,9 @@ export interface dashboardLogicActions {
     }
     setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
         filterTestAccounts: boolean | null
+    }
+    setInitialDashboardConfigurationOverride: (configuration: DashboardConfiguration) => {
+        configuration: DashboardConfiguration
     }
     setInitialLoadResponseBytes: (responseBytes: number) => {
         responseBytes: number
@@ -1022,39 +1068,55 @@ export interface dashboardLogicMeta {
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
         hasIntermittentFilters: (intermittentFilters: DashboardFilter) => boolean
         hasUrlFilters: (urlFilters: DashboardFilter) => boolean
-        isTemporaryFilterView: (
-            hasUrlFilters: boolean,
-            hasIntermittentFilters: boolean,
-            filterEditModeActive: boolean,
-            urlVariables: Record<string, HogQLVariable>
+        savedDashboardConfiguration: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        ) => DashboardConfiguration
+        effectiveDashboardConfiguration: (
+            savedDashboardConfiguration: DashboardConfiguration,
+            initialDashboardConfigurationOverride: DashboardConfiguration,
+            dashboardConfigurationDraft: DashboardConfiguration | null
+        ) => DashboardConfiguration
+        dashboardConfigurationState: (
+            dashboardConfigurationDraft: DashboardConfiguration | null,
+            savedDashboardConfiguration: DashboardConfiguration,
+            effectiveDashboardConfiguration: DashboardConfiguration,
+            initialDashboardConfigurationOverride: DashboardConfiguration
+        ) => DashboardConfigurationState
+        isTemporaryFilterView: (dashboardConfigurationState: DashboardConfigurationState) => boolean
+        showApplyFiltersBanner: (
+            canAutoPreview: boolean,
+            dashboardConfigurationState: DashboardConfigurationState
         ) => boolean
-        variablesDirty: (
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-            effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
-        ) => boolean
-        showApplyFiltersBanner: (canAutoPreview: boolean, hasIntermittentFilters: boolean) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
-        filtersOverrideForLoad: (externalFilters: DashboardFilter, urlFilters: DashboardFilter) => DashboardFilter
-        effectiveEditBarFilters: (
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+        filtersOverrideForLoad: (
             externalFilters: DashboardFilter,
-            urlFilters: DashboardFilter,
-            intermittentFilters: DashboardFilter
+            effectiveDashboardConfiguration: DashboardConfiguration
         ) => DashboardFilter
-        persistableDashboardFilters: (
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-            urlFilters: DashboardFilter,
-            intermittentFilters: DashboardFilter
+        effectiveEditBarFilters: (
+            externalFilters: DashboardFilter,
+            effectiveDashboardConfiguration: DashboardConfiguration
         ) => DashboardFilter
+        persistableDashboardFilters: (effectiveDashboardConfiguration: DashboardConfiguration) => DashboardFilter
         filtersDirty: (
+            dashboardConfigurationState: DashboardConfigurationState,
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             persistableDashboardFilters: DashboardFilter
+        ) => boolean
+        variablesDirty: (
+            dashboardConfigurationState: DashboardConfigurationState,
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
         ) => boolean
         filterChanges: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             persistableDashboardFilters: DashboardFilter
         ) => DashboardFilterChange[]
-        changedFilterCount: (filterChanges: DashboardFilterChange[]) => number
+        changedFilterCount: (filterChanges: DashboardConfigurationChange[]) => number
+        dashboardConfigurationChanges: (
+            savedDashboardConfiguration: DashboardConfiguration,
+            effectiveDashboardConfiguration: DashboardConfiguration,
+            variables: Variable[]
+        ) => DashboardConfigurationChange[]
         anyInsightExceedsRetention: (
             insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
             effectiveEditBarFilters: DashboardFilter,
@@ -1066,16 +1128,12 @@ export interface dashboardLogicMeta {
             placement: DashboardPlacement
         ) => boolean
         effectiveRefreshFilters: (
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             externalFilters: DashboardFilter,
-            urlFilters: DashboardFilter
+            effectiveDashboardConfiguration: DashboardConfiguration
         ) => DashboardFilter
         effectiveDashboardVariableOverrides: (
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-            urlVariables: Record<string, HogQLVariable>
-        ) => {
-            [x: string]: HogQLVariable
-        }
+            effectiveDashboardConfiguration: DashboardConfiguration
+        ) => Record<string, HogQLVariable>
         hasUnsavedLayoutChanges: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             dashboardLayouts: Record<
@@ -1355,6 +1413,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInterval: (interval: IntervalType | null) => ({ interval }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
+        setDashboardConfigurationDraft: (configuration: DashboardConfiguration | null) => ({ configuration }),
+        setInitialDashboardConfigurationOverride: (configuration: DashboardConfiguration) => ({ configuration }),
+        clearInitialDashboardConfigurationOverride: true,
+        previewDashboardChanges: true,
+        saveDashboardChanges: true,
+        saveDashboardChangesSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
+        saveDashboardChangesFailure: (error: string) => ({ error }),
+        discardDashboardChanges: true,
+        saveLayoutChanges: true,
+        discardLayoutChanges: true,
         saveEditModeChanges: () => true,
         saveDashboardFilters: true,
         saveDashboardFiltersSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
@@ -1482,7 +1550,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
+                        const apiUrl = values.apiUrl(
+                            'force_cache',
+                            values.filtersOverrideForLoad,
+                            values.effectiveDashboardVariableOverrides
+                        )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -1514,7 +1586,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         {
                             layoutSize: values.currentLayoutSize,
                             filtersOverride: values.filtersOverrideForLoad,
-                            variablesOverride: values.urlVariables,
+                            variablesOverride: values.effectiveDashboardVariableOverrides,
                         },
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
@@ -1562,14 +1634,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return null
                         }
 
-                        const persistedVariables = currentDashboard.persisted_variables || {}
                         const persistedBreakdownColors = currentDashboard.breakdown_colors || []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
-                        const variablesChanged = !equal(
-                            persistedVariables,
-                            values.effectiveDashboardVariableOverrides || {}
-                        )
                         // While tiles are still loading, or an errored/aborted tile is missing its
                         // results, the visible breakdown values are incomplete, so fresh auto
                         // assignments and stale-entry pruning would both act on partial data.
@@ -1590,19 +1657,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return !equal(originalLayouts || {}, updatedLayouts || {})
                         })
 
-                        if (!variablesChanged && !breakdownColorsChanged && !themeChanged && !layoutsChanged) {
+                        if (!breakdownColorsChanged && !themeChanged && !layoutsChanged) {
                             return currentDashboard
                         }
 
                         breakpoint()
 
-                        // Saved variables affect every tile, so refresh them after the save completes.
-                        const shouldRefreshTilesAfterSave = variablesChanged
-
                         const updatedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: breakdownColorsToSave,
                                 data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
@@ -1621,10 +1684,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 values.dashboard,
                                 values.dataColorThemeId
                             )
-                        }
-                        actions.resetUrlVariables()
-                        if (shouldRefreshTilesAfterSave) {
-                            cache.shouldRefreshTilesAfterSave = true
                         }
                         cache.dashboardChangesPersisted = true
                         return getQueryBasedDashboard(updatedDashboard)
@@ -1854,6 +1913,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 saveDashboardFilters: () => true,
                 saveDashboardFiltersSuccess: () => false,
                 saveDashboardFiltersFailure: () => false,
+                saveDashboardChanges: () => true,
+                saveDashboardChangesSuccess: () => false,
+                saveDashboardChangesFailure: () => false,
             },
         ],
         dashboardStreaming: [
@@ -2084,6 +2146,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 saveDashboardFiltersSuccess: (state, { dashboard }) =>
                     state && dashboard ? { ...state, persisted_filters: dashboard.persisted_filters } : state,
+                saveDashboardChangesSuccess: (state, { dashboard }) =>
+                    state && dashboard
+                        ? {
+                              ...state,
+                              persisted_filters: dashboard.persisted_filters,
+                              persisted_variables: dashboard.persisted_variables,
+                          }
+                        : state,
                 [insightsModel.actionTypes.renameInsightSuccess]: (
                     state,
                     { item }
@@ -2398,6 +2468,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
 
+        dashboardConfigurationDraft: [
+            null as DashboardConfiguration | null,
+            {
+                setDashboardConfigurationDraft: (_, { configuration }) => configuration,
+                saveDashboardChangesSuccess: () => null,
+                discardDashboardChanges: () => null,
+            },
+        ],
+        initialDashboardConfigurationOverride: [
+            {
+                filters: parseURLFilters(router.values.searchParams),
+                variables: {},
+            } as DashboardConfiguration,
+            {
+                setInitialDashboardConfigurationOverride: (_, { configuration }) => configuration,
+                clearInitialDashboardConfigurationOverride: () => ({ filters: {}, variables: {} }),
+            },
+        ],
+
         intermittentFilters: [
             {
                 date_from: undefined,
@@ -2583,66 +2672,104 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // `{"properties":[]}` in the URL. Counting keys reads that as an active override, so the dashboard
         // announces overrides while showing exactly its saved state.
         hasUrlFilters: [(s) => [s.urlFilters], (urlFilters: DashboardFilter) => !isDashboardFilterEmpty(urlFilters)],
-        isTemporaryFilterView: [
-            (s) => [s.hasUrlFilters, s.hasIntermittentFilters, s.filterEditModeActive, s.urlVariables],
+        savedDashboardConfiguration: [
+            (s) => [s.dashboard],
+            (dashboard: DashboardType<QueryBasedInsightModel> | null): DashboardConfiguration => ({
+                filters: dashboard?.persisted_filters || {},
+                variables: dashboard?.persisted_variables || {},
+            }),
+        ],
+        effectiveDashboardConfiguration: [
+            (s) => [
+                s.savedDashboardConfiguration,
+                s.initialDashboardConfigurationOverride,
+                s.dashboardConfigurationDraft,
+            ],
             (
-                hasUrlFilters: boolean,
-                hasIntermittentFilters: boolean,
-                filterEditModeActive: boolean,
-                urlVariables: Record<string, HogQLVariable>
-            ): boolean =>
-                (hasUrlFilters && !hasIntermittentFilters && !filterEditModeActive) ||
-                (Object.keys(urlVariables).length > 0 && !filterEditModeActive),
+                saved: DashboardConfiguration,
+                initialOverride: DashboardConfiguration,
+                draft: DashboardConfiguration | null
+            ): DashboardConfiguration =>
+                draft || {
+                    filters: combineDashboardFilters(saved.filters, initialOverride.filters),
+                    variables: { ...saved.variables, ...initialOverride.variables },
+                },
+        ],
+        dashboardConfigurationState: [
+            (s) => [
+                s.dashboardConfigurationDraft,
+                s.savedDashboardConfiguration,
+                s.effectiveDashboardConfiguration,
+                s.initialDashboardConfigurationOverride,
+            ],
+            (
+                draft: DashboardConfiguration | null,
+                saved: DashboardConfiguration,
+                effective: DashboardConfiguration,
+                initialOverride: DashboardConfiguration
+            ): DashboardConfigurationState => {
+                if (draft && !equal(saved, effective)) {
+                    return 'unsavedChanges'
+                }
+                if (draft) {
+                    return 'saved'
+                }
+                if (
+                    !isDashboardFilterEmpty(initialOverride.filters) ||
+                    Object.keys(initialOverride.variables).length > 0
+                ) {
+                    return 'temporaryView'
+                }
+                return 'saved'
+            },
+        ],
+        isTemporaryFilterView: [
+            (s) => [s.dashboardConfigurationState],
+            (state: DashboardConfigurationState): boolean => state === 'temporaryView',
         ],
         showApplyFiltersBanner: [
-            (s) => [s.canAutoPreview, s.hasIntermittentFilters],
-            (canAutoPreview: boolean, hasIntermittentFilters: boolean) => !canAutoPreview && hasIntermittentFilters,
+            (s) => [s.canAutoPreview, s.dashboardConfigurationState],
+            (canAutoPreview: boolean, state: DashboardConfigurationState) =>
+                !canAutoPreview && state === 'unsavedChanges',
         ],
         urlFilters: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, any>) => parseURLFilters(searchParams),
         ],
         filtersOverrideForLoad: [
-            (s) => [s.externalFilters, s.urlFilters],
-            (externalFilters: DashboardFilter, urlFilters: DashboardFilter) =>
-                combineDashboardFilters(externalFilters, urlFilters),
+            (s) => [s.externalFilters, s.effectiveDashboardConfiguration],
+            (externalFilters: DashboardFilter, configuration: DashboardConfiguration) =>
+                combineDashboardFilters(externalFilters, configuration.filters),
         ],
         effectiveEditBarFilters: [
-            (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.intermittentFilters],
-            (
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                externalFilters: DashboardFilter,
-                urlFilters: DashboardFilter,
-                intermittentFilters: DashboardFilter
-            ) => {
-                const effectiveEditBarFilters = combineDashboardFilters(
-                    dashboard?.persisted_filters || {},
-                    externalFilters,
-                    urlFilters,
-                    intermittentFilters
-                )
+            (s) => [s.externalFilters, s.effectiveDashboardConfiguration],
+            (externalFilters: DashboardFilter, configuration: DashboardConfiguration) => {
+                const effectiveEditBarFilters = combineDashboardFilters(configuration.filters, externalFilters)
                 return effectiveEditBarFilters
             },
         ],
         persistableDashboardFilters: [
-            (s) => [s.dashboard, s.urlFilters, s.intermittentFilters],
-            (
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                urlFilters: DashboardFilter,
-                intermittentFilters: DashboardFilter
-            ) => combineDashboardFilters(dashboard?.persisted_filters || {}, urlFilters, intermittentFilters),
+            (s) => [s.effectiveDashboardConfiguration],
+            (configuration: DashboardConfiguration) => configuration.filters,
         ],
         filtersDirty: [
-            (s) => [s.dashboard, s.persistableDashboardFilters],
-            (dashboard: DashboardType<QueryBasedInsightModel> | null, persistableDashboardFilters: DashboardFilter) =>
-                !equal(dashboard?.persisted_filters || {}, persistableDashboardFilters),
+            (s) => [s.dashboardConfigurationState, s.dashboard, s.persistableDashboardFilters],
+            (
+                state: DashboardConfigurationState,
+                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+                persistableDashboardFilters: DashboardFilter
+            ): boolean =>
+                state === 'unsavedChanges' && !equal(dashboard?.persisted_filters || {}, persistableDashboardFilters),
         ],
         variablesDirty: [
-            (s) => [s.dashboard, s.effectiveDashboardVariableOverrides],
+            (s) => [s.dashboardConfigurationState, s.dashboard, s.effectiveDashboardVariableOverrides],
             (
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
-            ): boolean => !equal(dashboard?.persisted_variables || {}, effectiveDashboardVariableOverrides),
+                state: DashboardConfigurationState,
+                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+                variables: {
+                    [x: string]: HogQLVariable
+                }
+            ): boolean => state === 'unsavedChanges' && !equal(dashboard?.persisted_variables || {}, variables),
         ],
         filterChanges: [
             (s) => [s.dashboard, s.persistableDashboardFilters],
@@ -2655,6 +2782,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
         changedFilterCount: [
             (s) => [s.filterChanges],
             (filterChanges: DashboardFilterChange[]): number => filterChanges.length,
+        ],
+        dashboardConfigurationChanges: [
+            (s) => [s.savedDashboardConfiguration, s.effectiveDashboardConfiguration, s.variables],
+            (
+                saved: DashboardConfiguration,
+                current: DashboardConfiguration,
+                variables: Variable[]
+            ): DashboardConfigurationChange[] => {
+                const defaults = Object.fromEntries(
+                    variables.map((variable) => [
+                        variable.id,
+                        {
+                            code_name: variable.code_name,
+                            variableId: variable.id,
+                            value: variable.default_value,
+                            isNull: variable.isNull,
+                        },
+                    ])
+                )
+                return [
+                    ...getDashboardFilterChanges(saved.filters, current.filters),
+                    ...getDashboardVariableChanges(saved.variables, current.variables, defaults),
+                ]
+            },
         ],
         // Does any tile on this dashboard reach past the team's events retention window? Runs the same date
         // precedence and the same rule the tiles do, so the banner and a tile's icon can't disagree.
@@ -2688,21 +2839,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 placement !== DashboardPlacement.Export,
         ],
         effectiveRefreshFilters: [
-            (s) => [s.dashboard, s.externalFilters, s.urlFilters],
-            (
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                externalFilters: DashboardFilter,
-                urlFilters: DashboardFilter
-            ): DashboardFilter => {
-                return combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters, urlFilters)
+            (s) => [s.externalFilters, s.effectiveDashboardConfiguration],
+            (externalFilters: DashboardFilter, configuration: DashboardConfiguration): DashboardFilter => {
+                return combineDashboardFilters(configuration.filters, externalFilters)
             },
         ],
         effectiveDashboardVariableOverrides: [
-            (s) => [s.dashboard, s.urlVariables],
-            (dashboard: DashboardType<QueryBasedInsightModel> | null, urlVariables: Record<string, HogQLVariable>) => ({
-                ...dashboard?.persisted_variables,
-                ...urlVariables,
-            }),
+            (s) => [s.effectiveDashboardConfiguration],
+            (configuration: DashboardConfiguration) => configuration.variables,
         ],
         hasUnsavedLayoutChanges: [
             (s) => [s.dashboard, s.dashboardLayouts],
@@ -3998,7 +4142,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Cache values before the long-running await — the logic may unmount
-            const { currentTeamId, effectiveRefreshFilters, urlFilters, urlVariables } = values
+            const { currentTeamId, effectiveRefreshFilters, urlFilters } = values
+            const urlVariables = values.effectiveDashboardVariableOverrides
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
@@ -4098,14 +4243,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
                 // only cancels on newer invocations, not on unmount).
-                const {
-                    currentTeamId,
-                    effectiveRefreshFilters,
-                    urlFilters,
-                    urlVariables,
-                    dashboardLoadData,
-                    lastDashboardRefresh,
-                } = values
+                const { currentTeamId, effectiveRefreshFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } =
+                    values
+                const urlVariables = values.effectiveDashboardVariableOverrides
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
@@ -4354,6 +4494,48 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.addWidgetTileFinished()
             }
         },
+        saveDashboardChanges: async () => {
+            if (!values.dashboard || !values.dashboardConfigurationDraft) {
+                actions.saveDashboardChangesSuccess(null)
+                return
+            }
+
+            const configuration = values.dashboardConfigurationDraft
+            try {
+                const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                    filters: configuration.filters,
+                    variables: configuration.variables,
+                })
+                actions.resetUrlFilters()
+                actions.resetUrlVariables()
+                actions.clearInitialDashboardConfigurationOverride()
+                actions.saveDashboardChangesSuccess(getQueryBasedDashboard(dashboard))
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
+                lemonToast.success('Dashboard changes saved')
+            } catch (error) {
+                actions.saveDashboardChangesFailure(String(error))
+                lemonToast.error('Could not save dashboard changes: ' + String(error))
+            }
+        },
+        discardDashboardChanges: () => {
+            actions.resetUrlFilters()
+            actions.resetUrlVariables()
+            actions.clearInitialDashboardConfigurationOverride()
+            actions.refreshDashboardItems({
+                action: RefreshDashboardItemsAction.Preview,
+                forceRefresh: false,
+            })
+        },
+        saveLayoutChanges: () => {
+            actions.saveEditModeChanges()
+            actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+        },
+        discardLayoutChanges: () => {
+            actions.cancelLayoutEdit()
+        },
         saveDashboardFilters: async () => {
             if (!values.dashboard || !values.filtersDirty) {
                 actions.saveDashboardFiltersSuccess(null)
@@ -4567,7 +4749,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // or the colors modal's Save button
                 // Pending name/description are included in the saveEditModeChanges PATCH
                 // to avoid a race between two concurrent PATCHes to the same endpoint.
-                actions.saveEditModeChanges()
+                actions.saveLayoutChanges()
             }
 
             if (mode || source) {
@@ -4713,7 +4895,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 forceRefresh: false,
             })
         },
+        previewDashboardChanges: () => {
+            actions.refreshDashboardItems({
+                action: RefreshDashboardItemsAction.Preview,
+                forceRefresh: false,
+            })
+        },
         setProperties: ({ properties }) => {
+            actions.setDashboardConfigurationDraft({
+                ...values.effectiveDashboardConfiguration,
+                filters: { ...values.effectiveDashboardConfiguration.filters, properties },
+            })
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'properties', {
                 property_count: properties?.length ?? 0,
             })
@@ -4725,7 +4917,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        setDates: ({ date_from, date_to }) => {
+        setDates: ({ date_from, date_to, explicitDate }) => {
+            actions.setDashboardConfigurationDraft({
+                ...values.effectiveDashboardConfiguration,
+                filters: { ...values.effectiveDashboardConfiguration.filters, date_from, date_to, explicitDate },
+            })
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'date', {
                 date_from,
                 date_to: date_to ?? null,
@@ -4739,6 +4935,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         setBreakdownFilter: ({ breakdown_filter }) => {
+            actions.setDashboardConfigurationDraft({
+                ...values.effectiveDashboardConfiguration,
+                filters: { ...values.effectiveDashboardConfiguration.filters, breakdown_filter },
+            })
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'breakdown', {
                 breakdown_type: breakdown_filter?.breakdown_type ?? null,
             })
@@ -4751,6 +4951,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         setInterval: ({ interval }) => {
+            actions.setDashboardConfigurationDraft({
+                ...values.effectiveDashboardConfiguration,
+                filters: { ...values.effectiveDashboardConfiguration.filters, interval },
+            })
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'interval', {
                 interval,
             })
@@ -4763,6 +4967,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         setFilterTestAccounts: ({ filterTestAccounts }) => {
+            actions.setDashboardConfigurationDraft({
+                ...values.effectiveDashboardConfiguration,
+                filters: { ...values.effectiveDashboardConfiguration.filters, filterTestAccounts },
+            })
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'test_accounts', {
                 filter_test_accounts: filterTestAccounts,
             })
@@ -4782,10 +4990,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        overrideVariableValue: ({ variableId }) => {
+        overrideVariableValue: ({ variableId, value, isNull }) => {
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'variable', {
                 variable_id: variableId,
             })
+
+            const variableDefinition = values.variables.find((candidate) => candidate.id === variableId)
+            const variable = variableDefinition
+                ? { code_name: variableDefinition.code_name, variableId, value, isNull }
+                : undefined
+            if (variable) {
+                actions.setDashboardConfigurationDraft({
+                    ...values.effectiveDashboardConfiguration,
+                    variables: { ...values.effectiveDashboardConfiguration.variables, [variableId]: variable },
+                })
+            }
 
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
@@ -4795,7 +5014,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardVariableOverride)
             }
         },
-        [variableDataLogic.actionTypes.loadVariablesSuccess]: () => {
+        [variableDataLogic.actionTypes.loadVariablesSuccess]: ({ variables }) => {
+            const urlVariableValues = parseURLVariables(router.values.searchParams)
+            const initialVariables = Object.fromEntries(
+                variables.flatMap((variable: Variable) => {
+                    if (!(variable.code_name in urlVariableValues)) {
+                        return []
+                    }
+                    const value = urlVariableValues[variable.code_name]
+                    return [
+                        [
+                            variable.id,
+                            {
+                                code_name: variable.code_name,
+                                variableId: variable.id,
+                                value,
+                                isNull: value === null,
+                            },
+                        ],
+                    ]
+                })
+            )
+            actions.setInitialDashboardConfigurationOverride({
+                ...values.initialDashboardConfigurationOverride,
+                variables: initialVariables,
+            })
             // Only run this handler once on startup
             // This ensures variables are loaded before the dashboard is loaded and insights are refreshed
             if (values.initialVariablesLoaded) {

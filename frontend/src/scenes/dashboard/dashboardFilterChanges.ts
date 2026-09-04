@@ -4,14 +4,51 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import type { DashboardFilter } from '~/queries/schema/schema-general'
+import type { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import type { AnyPropertyFilter } from '~/types'
 
-export interface DashboardFilterChange {
+export interface DashboardConfigurationChange {
     label: string
     previousValue?: string | string[]
     value?: string | string[]
     status: 'new' | 'changed' | 'removed'
+}
+
+export type DashboardFilterChange = DashboardConfigurationChange
+
+function formatVariableValue(variable: { isNull?: boolean; value?: unknown } | undefined): string | undefined {
+    if (variable?.isNull) {
+        return 'null'
+    }
+    if (variable?.value == null) {
+        return undefined
+    }
+    return String(variable.value)
+}
+
+export function getDashboardVariableChanges(
+    previousVariables: Record<string, HogQLVariable>,
+    currentVariables: Record<string, HogQLVariable>,
+    defaultVariables: Record<string, HogQLVariable>
+): DashboardConfigurationChange[] {
+    const variableIds = new Set([...Object.keys(previousVariables), ...Object.keys(currentVariables)])
+
+    return Array.from(variableIds).flatMap((variableId) => {
+        const previous = previousVariables[variableId] ?? defaultVariables[variableId]
+        const current = currentVariables[variableId]
+        if (equal(previous, current)) {
+            return []
+        }
+
+        return [
+            {
+                label: current?.code_name ?? previous?.code_name ?? variableId,
+                previousValue: formatVariableValue(previous),
+                value: formatVariableValue(current),
+                status: getChangeStatus(!!previous, !!current),
+            },
+        ]
+    })
 }
 
 function propertyIdentity(property: AnyPropertyFilter): string {

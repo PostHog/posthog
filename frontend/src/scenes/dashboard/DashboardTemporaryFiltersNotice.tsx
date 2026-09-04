@@ -3,37 +3,29 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-
-import type { DashboardFilterChange } from './dashboardFilterChanges'
+import type { DashboardConfigurationChange } from './dashboardFilterChanges'
 import { DashboardFilterChangesTooltip } from './DashboardFilterChangesTooltip'
-import { dashboardLogic, RefreshDashboardItemsAction } from './dashboardLogic'
+import { dashboardLogic, type DashboardConfigurationState } from './dashboardLogic'
 
-export function DashboardTemporaryFiltersNotice(): JSX.Element | null {
-    const { cancellingPreview, filterChanges, hasUrlFilters, isTemporaryFilterView, urlVariables } =
-        useValues(dashboardLogic)
-    const { refreshDashboardItems, resetUrlVariables, setDashboardMode } = useActions(dashboardLogic)
+interface DashboardTemporaryFiltersNoticeProps {
+    changes: DashboardConfigurationChange[]
+    configurationState: DashboardConfigurationState
+    hasUrlFilters: boolean
+}
 
-    if (!isTemporaryFilterView) {
+export function DashboardTemporaryFiltersNotice({
+    changes,
+    configurationState,
+    hasUrlFilters,
+}: DashboardTemporaryFiltersNoticeProps): JSX.Element | null {
+    const { cancellingPreview } = useValues(dashboardLogic)
+    const { discardDashboardChanges } = useActions(dashboardLogic)
+
+    if (configurationState !== 'temporaryView') {
         return null
     }
 
-    const hasUrlVariables = Object.keys(urlVariables).length > 0
     const label = hasUrlFilters ? 'Temporary filters' : 'Temporary variables'
-    const changes: DashboardFilterChange[] = [
-        ...filterChanges,
-        ...Object.values(urlVariables).map((variable) => ({
-            label: variable.code_name,
-            value: variable.isNull ? 'null' : String(variable.value),
-            status: 'new' as const,
-        })),
-    ]
-    const clear = hasUrlFilters
-        ? () => setDashboardMode(null, DashboardEventSource.DashboardHeaderOverridesBanner)
-        : () => {
-              resetUrlVariables()
-              refreshDashboardItems({ action: RefreshDashboardItemsAction.Preview, forceRefresh: false })
-          }
 
     return (
         <span
@@ -58,9 +50,9 @@ export function DashboardTemporaryFiltersNotice(): JSX.Element | null {
                 type="tertiary"
                 size="small"
                 className="font-semibold text-warning"
-                tooltip={`Clear ${hasUrlVariables ? 'temporary variables' : 'temporary filters'}`}
+                tooltip="Clear temporary changes"
                 loading={cancellingPreview}
-                onClick={clear}
+                onClick={discardDashboardChanges}
             >
                 Clear
             </LemonButton>
