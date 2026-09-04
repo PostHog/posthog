@@ -177,12 +177,13 @@ const MIN_TREND_POINTS = 2
 
 // SES names providers as one capitalized word, which is not how people write most of them. Only
 // the names that read wrong are listed; anything absent is shown as SES reports it, so a provider
-// added to SES_ISP_DIMENSIONS still renders without a matching entry here.
+// added to SES_ISP_DIMENSIONS still renders without a matching entry here. `__other__` is the
+// backend's name for the volume it could not attribute to any of them.
 const ISP_DISPLAY_NAMES: Record<string, string> = {
     Aol: 'AOL',
-    ExchangeOnline: 'Microsoft Exchange Online',
     Gmx: 'GMX',
     Icloud: 'Apple iCloud',
+    __other__: 'Other providers',
 }
 
 function ispDisplayName(isp: string): string {
@@ -258,9 +259,14 @@ function IspBreakdown({
                     {
                         title: 'Provider',
                         key: 'isp',
-                        render: (_, row: IspSendingHealthApi) => (
-                            <span className="font-semibold">{ispDisplayName(row.isp)}</span>
-                        ),
+                        render: (_, row: IspSendingHealthApi) =>
+                            row.isp === '__other__' ? (
+                                <Tooltip title="Mail to providers this table does not list. AWS reports it in a bucket it will not name, so this row is the domain's total minus the providers above.">
+                                    <span className="font-semibold cursor-default">{ispDisplayName(row.isp)}</span>
+                                </Tooltip>
+                            ) : (
+                                <span className="font-semibold">{ispDisplayName(row.isp)}</span>
+                            ),
                     },
                     {
                         title: 'Delivery rate',

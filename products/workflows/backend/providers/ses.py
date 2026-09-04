@@ -30,6 +30,15 @@ logger = logging.getLogger(__name__)
 # deliveries excluding recipients at ISPs it has no feedback-loop agreement with.
 ISP_METRICS: tuple[str, ...] = ("SEND", "DELIVERY", "PERMANENT_BOUNCE", "COMPLAINT", "DELIVERY_COMPLAINT")
 
+# Subject for the identity-wide queries, which carry no ISP dimension. They give the denominator
+# the per-provider rows are subtracted from.
+ISP_IDENTITY_TOTAL = "__identity_total__"
+
+# Reported provider name for that subtraction. SES has a catch-all bucket for recipients it cannot
+# attribute, and rejects its name ("Unknown ISP") as a dimension value with BadRequestException, so
+# the only way to show that volume is to derive it.
+ISP_OTHER = "__other__"
+
 # SES caps a BatchGetMetricData request at ten queries.
 METRIC_QUERY_BATCH_SIZE = 10
 
@@ -117,7 +126,7 @@ def _build_isp_queries(domains: Sequence[str], isps: Sequence[str], start: datet
     queries: list[dict[str, Any]] = []
     subjects: dict[str, IspMetric] = {}
     for domain in domains:
-        for isp in isps:
+        for isp in (*isps, ISP_IDENTITY_TOTAL):
             for metric in ISP_METRICS:
                 query_id = f"q{len(queries)}"
                 subjects[query_id] = IspMetric(isp=isp, metric=metric)
@@ -126,7 +135,11 @@ def _build_isp_queries(domains: Sequence[str], isps: Sequence[str], start: datet
                         "Id": query_id,
                         "Namespace": "VDM",
                         "Metric": metric,
-                        "Dimensions": {"EMAIL_IDENTITY": domain, "ISP": isp},
+                        "Dimensions": (
+                            {"EMAIL_IDENTITY": domain}
+                            if isp == ISP_IDENTITY_TOTAL
+                            else {"EMAIL_IDENTITY": domain, "ISP": isp}
+                        ),
                         "StartDate": start,
                         "EndDate": end,
                     }
@@ -199,8 +212,67 @@ def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[
             )
         )
 
+    other = _other_provider_row(isps, series)
+    if other is not None:
+        rows.append(other)
+
     rows.sort(key=lambda row: -row.emails_sent)
     return rows
+
+
+def _other_provider_row(isps: Sequence[str], series: IspMetricSeries) -> IspSendingMetrics | None:
+    """
+    The volume a domain sent that no named provider accounts for.
+
+    Named providers rarely cover everything a domain sends. The rest lands in a bucket SES will not
+    let us query by name, so the row is the identity-wide total minus the named providers. Without
+    it the table drops that volume without saying so, and on some domains it is most of the mail.
+
+    Returns None when the subtraction would be unsound. A named provider whose SEND query failed
+    has no counts to subtract, so its volume would surface here as unattributed.
+    """
+    if any(
+        IspMetric(isp=isp, metric=metric) in series.failed
+        for metric in ISP_METRICS
+        for isp in (*isps, ISP_IDENTITY_TOTAL)
+    ):
+        return None
+
+    def remainder(metric: str) -> dict[str, int]:
+        left = dict(series.buckets.get(IspMetric(isp=ISP_IDENTITY_TOTAL, metric=metric), {}))
+        for isp in isps:
+            for date, value in series.buckets.get(IspMetric(isp=isp, metric=metric), {}).items():
+                left[date] = left.get(date, 0) - value
+        # A negative remainder means the named rows already cover the day, so there is nothing left
+        # to report. Feedback arriving late can also push one past its own total.
+        return {date: value for date, value in left.items() if value > 0}
+
+    sent_by_date = remainder("SEND")
+    emails_sent = sum(sent_by_date.values())
+    if emails_sent == 0:
+        return None
+
+    delivered_by_date = remainder("DELIVERY")
+    bounced_by_date = remainder("PERMANENT_BOUNCE")
+    complaint_base = sum(remainder("DELIVERY_COMPLAINT").values())
+    return IspSendingMetrics(
+        isp=ISP_OTHER,
+        emails_sent=emails_sent,
+        delivery_rate=min(1.0, sum(delivered_by_date.values()) / emails_sent),
+        bounce_rate=min(1.0, sum(bounced_by_date.values()) / emails_sent),
+        complaint_rate=(
+            None if not complaint_base else min(1.0, sum(remainder("COMPLAINT").values()) / complaint_base)
+        ),
+        daily=tuple(
+            IspDailyPoint(
+                date=date,
+                emails_sent=sent,
+                delivery_rate=min(1.0, delivered_by_date.get(date, 0) / sent),
+                bounce_rate=min(1.0, bounced_by_date.get(date, 0) / sent),
+            )
+            for date, sent in sorted(sent_by_date.items())
+        ),
+    )
 
 
 class SESProvider:

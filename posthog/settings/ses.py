@@ -52,7 +52,6 @@ WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
 SES_ISP_DIMENSIONS: list[str] = [
     "Gmail",
     "Hotmail",
-    "ExchangeOnline",
     "Yahoo",
     "Icloud",
     "Aol",
