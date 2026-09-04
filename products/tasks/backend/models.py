@@ -32,6 +32,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import Team
@@ -3896,7 +3897,7 @@ def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs
         )
 
 
-class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
+class SharedTaskArtifact(UUIDModel):
     """The row a public share of a task-run artifact hangs off.
 
     Artifacts are manifest entries on ``TaskRun`` rows rather than rows of their
@@ -3904,9 +3905,22 @@ class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
     per task and name); ``run`` and ``artifact_id`` pin the upload the public
     link serves. A later upload under the same name stays private until the
     owner publishes the changes, which moves the pin.
+
+    Environment-scoped like the rows it sits between: a task, its runs, and the
+    sharing configuration all keep the environment's own team id, and refreshing
+    the share token looks the anchor up by that id. No ``RootTeamMixin`` (its
+    save() would rewrite the team to the parent project), and
+    ``EnvironmentScopedManager`` filters by the literal id, so callers pass the
+    environment's own id to ``objects.for_team()``.
     """
 
-    # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
+    # Fail-closed for explicit user code. `all_teams` is the unscoped sibling Django framework
+    # internals use (related-object access, prefetch_related, the sharing model's rotation
+    # lock), routed there by Meta's default_manager_name.
+    objects = EnvironmentScopedManager()
+    all_teams = models.Manager()
+
+    # App-level scoping is enforced by the manager; avoid locking the hot Team/User tables.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="shared_artifacts")
     run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="shared_artifacts")
@@ -3923,6 +3937,7 @@ class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_task_shared_artifact"
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["task", "name"], name="task_shared_artifact_task_name_unique"),
         ]

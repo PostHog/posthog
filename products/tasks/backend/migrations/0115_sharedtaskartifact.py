@@ -1,4 +1,5 @@
 import django.utils.timezone
+import django.db.models.manager
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
@@ -63,9 +64,13 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_task_shared_artifact",
+                "default_manager_name": "all_teams",
                 "constraints": [
                     models.UniqueConstraint(fields=("task", "name"), name="task_shared_artifact_task_name_unique"),
                 ],
             },
+            managers=[
+                ("all_teams", django.db.models.manager.Manager()),
+            ],
         ),
     ]

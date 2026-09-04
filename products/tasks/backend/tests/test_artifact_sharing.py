@@ -9,7 +9,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.api.test.test_sharing import mock_exporter_template
-from posthog.models import SharingConfiguration
+from posthog.models import SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -104,7 +104,7 @@ class TestTaskArtifactSharing(APIBaseTest):
         access_token = self._enable_sharing("art-1")
 
         with team_scope(self.team.id):
-            anchor = SharedTaskArtifact.objects.get(task=self.task, name="report.md")
+            anchor = SharedTaskArtifact.objects.for_team(self.team.id).get(task=self.task, name="report.md")
             assert anchor.artifact_id == "art-2"
             assert SharingConfiguration.objects.get(access_token=access_token).task_artifact_id == anchor.id
         state = self.client.get(self._sharing_url("art-2")).json()
@@ -200,6 +200,36 @@ class TestTaskArtifactSharing(APIBaseTest):
         response = self.client.patch(self._sharing_url(artifact_id), {"enabled": True})
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_refreshing_the_token_works_in_a_child_environment(self):
+        environment = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="staging"
+        )
+        with team_scope(environment.id):
+            channel = Channel.objects.create(team=environment, name="staging-work", created_by=self.user)
+        task = Task.objects.create(
+            team=environment,
+            created_by=self.user,
+            channel=channel,
+            title="Write the report",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        TaskRun.objects.create(
+            task=task,
+            team=environment,
+            artifacts=[
+                _entry("art-1", "report.md", "artifacts/report-v1.md", "text/markdown", "2026-01-01T00:00:00+00:00")
+            ],
+        )
+        url = f"/api/environments/{environment.id}/tasks/{task.id}/artifacts/art-1/sharing"
+        first = self.client.patch(url, {"enabled": True})
+        assert first.status_code == status.HTTP_200_OK, first.json()
+
+        refreshed = self.client.post(f"{url}/refresh")
+
+        assert refreshed.status_code == status.HTTP_200_OK, refreshed.json()
+        assert refreshed.json()["access_token"] != first.json()["access_token"]
 
     def test_someone_elses_personal_task_cannot_be_shared(self):
         owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
