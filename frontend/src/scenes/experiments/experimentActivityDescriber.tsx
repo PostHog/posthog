@@ -325,13 +325,17 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 updateLogDetail.type !== 'holdout' &&
                 updateLogDetail.type !== 'saved_metric_config'
 
-            const conclusionCommentAfter = isExperiment
-                ? changes.find((change) => change.field === 'conclusion_comment')?.after
+            const conclusionCommentChange = isExperiment
+                ? changes.find((change) => change.field === 'conclusion_comment')
                 : undefined
             const conclusionComment =
-                typeof conclusionCommentAfter === 'string' && conclusionCommentAfter.trim()
-                    ? conclusionCommentAfter
+                typeof conclusionCommentChange?.after === 'string' && conclusionCommentChange.after.trim()
+                    ? conclusionCommentChange.after
                     : undefined
+            const conclusionCommentRemoved =
+                !conclusionComment &&
+                typeof conclusionCommentChange?.before === 'string' &&
+                Boolean(conclusionCommentChange.before.trim())
 
             let listParts: (string | JSX.Element)[]
             if (changes.length === 0) {
@@ -356,12 +360,15 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             }
 
             if (isExperiment && changes.length > 0 && listParts.length === 0) {
-                if (!conclusionComment) {
+                if (conclusionComment) {
+                    // A comment-only edit still gets a row; the comment renders below it.
+                    listParts = ['changed the conclusion']
+                } else if (conclusionCommentRemoved) {
+                    listParts = ['removed the conclusion comment']
+                } else {
                     // humanize() skips log items with a null description
                     return { description: null }
                 }
-                // A comment-only edit still gets a row; the comment renders below it.
-                listParts = ['changed the conclusion']
             }
 
             if (isExperiment && changes.length > 0 && listParts.length > 0) {

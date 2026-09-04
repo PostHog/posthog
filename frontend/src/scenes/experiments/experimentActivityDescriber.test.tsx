@@ -437,5 +437,29 @@ describe('experimentActivityDescriber', () => {
             const extended = render(<>{result.extendedDescription}</>).container.textContent
             expect(extended).toContain('Variant B lifted signups by 4%.')
         })
+
+        it('keeps a row for a comment-only conclusion removal', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'conclusion_comment',
+                                before: 'Variant B lifted signups.',
+                                after: null,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).toContain('removed the conclusion comment')
+            expect(result.extendedDescription).toBeUndefined()
+        })
     })
 })
