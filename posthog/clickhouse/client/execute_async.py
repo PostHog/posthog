@@ -26,6 +26,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.query_cache.cache import QueryCache
+from posthog.renderers import SafeJSONRenderer
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -68,14 +69,6 @@ class QueryStatusManager:
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
-    # The status record is a small hash: state, timings, task id, error, and once the query
-    # finishes the cache key of its result. A query-runner result is never copied here. A poll
-    # for a finished query reads it from the query cache through that key, so the record can
-    # stay small enough to keep for a day while the result lives in the cache tier.
-    _DATETIME_FIELDS = ("start_time", "pickup_time", "end_time")
-    _INT_FIELDS = ("insight_id", "dashboard_id")
-    _STRING_FIELDS = ("task_id", "error_message", "error_code")
-
     def __init__(self, query_id: str, team_id: int):
         self.redis_client = redis.get_client()
         self.query_id = query_id
@@ -83,7 +76,7 @@ class QueryStatusManager:
 
     @property
     def status_key(self) -> str:
-        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:record"
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}"
 
     @property
     def clickhouse_query_status_key(self) -> str:
@@ -103,34 +96,17 @@ class QueryStatusManager:
         ttl_seconds: Optional[int] = None,
         cache_key: Optional[str] = None,
     ) -> None:
-        """Write the record. `results` is stored as given. A query-runner result does not go in
-        it: the caller passes its cache key and the poll reads the result from the query cache."""
+        """Write the record, replacing whatever was under this query ID.
+
+        `cache_key` is where the finished query left its result in the query cache. It rides
+        beside the status instead of on it, because QueryStatus is the body of the poll
+        response and the cache key is not part of that contract.
+        """
         ttl = ttl_seconds if ttl_seconds is not None else settings.ASYNC_QUERY_STATUS_TTL_SECONDS
+        record = query_status.model_dump()
+        record["cache_key"] = cache_key
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=ttl)
-        fields: dict[str | bytes, str] = {
-            "complete": "1" if query_status.complete else "0",
-            "error": "1" if query_status.error else "0",
-        }
-        for name in self._STRING_FIELDS:
-            value = getattr(query_status, name)
-            if value is not None:
-                fields[name] = str(value)
-        for name in self._INT_FIELDS:
-            value = getattr(query_status, name)
-            if value is not None:
-                fields[name] = str(value)
-        for name in self._DATETIME_FIELDS:
-            value = getattr(query_status, name)
-            if value is not None:
-                fields[name] = value.isoformat()
-        if query_status.labels is not None:
-            fields["labels"] = json.dumps(query_status.labels).decode("utf-8")
-        if query_status.results is not None:
-            fields["results"] = json.dumps(query_status.results).decode("utf-8")
-        if cache_key:
-            fields["cache_key"] = cache_key
-        self.redis_client.hset(self.status_key, mapping=fields)
-        self.redis_client.expire(self.status_key, ttl)
+        self.redis_client.set(self.status_key, SafeJSONRenderer().render(record), ex=ttl)
 
     def _store_clickhouse_query_progress_dict(self, query_progress_dict):
         value = json.dumps(query_progress_dict)
@@ -155,9 +131,6 @@ class QueryStatusManager:
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
         self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
 
-    def has_results(self) -> bool:
-        return self.redis_client.exists(self.status_key) == 1
-
     def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
         try:
             clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
@@ -176,62 +149,56 @@ class QueryStatusManager:
             logger.exception("Clickhouse Status Check Failed", error=e)
             return None
 
-    def _read_record(self) -> dict[str, str]:
+    def _load_record(self) -> tuple[QueryStatus, Optional[str]]:
+        """The stored status, and the cache key its result is under once the query finished."""
         try:
-            raw = self.redis_client.hgetall(self.status_key)
+            raw = self.redis_client.get(self.status_key)
         except Exception as e:
             raise QueryRetrievalError(f"Error retrieving query {self.query_id} for team {self.team_id}") from e
-        return {key.decode("utf-8"): value.decode("utf-8") for key, value in raw.items()}
 
-    def get_query_status(self, show_progress: bool = False, resolve_results: bool = True) -> QueryStatus:
-        """The status of this query.
-
-        `resolve_results=False` skips the query cache read for a finished query. Use it where only
-        the state matters (dedup at enqueue, the retry guard), so those paths never pay for a cache
-        lookup, which for large results means an S3 read.
-        """
-        record = self._read_record()
-        if not record:
+        if not raw:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
-        query_status = QueryStatus(
-            id=self.query_id,
-            team_id=self.team_id,
-            complete=record.get("complete") == "1",
-            error=record.get("error") == "1",
-            task_id=record.get("task_id"),
-            error_message=record.get("error_message"),
-            error_code=record.get("error_code"),
-            insight_id=int(record["insight_id"]) if record.get("insight_id") else None,
-            dashboard_id=int(record["dashboard_id"]) if record.get("dashboard_id") else None,
-            labels=json.loads(record["labels"]) if record.get("labels") else None,
-            start_time=self._parse_datetime(record.get("start_time")),
-            pickup_time=self._parse_datetime(record.get("pickup_time")),
-            end_time=self._parse_datetime(record.get("end_time")),
-        )
+        record = json.loads(raw)
+        # Drop unknown keys so a status written by a newer deploy (with extra fields) doesn't fail
+        # validation here — QueryStatus forbids extra fields.
+        query_status = QueryStatus(**{k: v for k, v in record.items() if k in QueryStatus.model_fields})
+        return query_status, record.get("cache_key")
 
-        if query_status.complete and not query_status.error and resolve_results:
-            if record.get("results"):
-                query_status.results = json.loads(record["results"])
-            else:
-                query_status.results = self._load_result(record.get("cache_key"))
+    def get_query_status(self, show_progress: bool = False) -> QueryStatus:
+        """The state of this query, without its result.
 
+        A query run through the query runner leaves its result in the query cache, so `results`
+        is empty here unless whoever stored the status put one in it. Callers that need the
+        result of a finished query use `get_query_status_with_result`; every other caller reads
+        state alone and does not pay for a cache lookup, which for a large result means an S3 read.
+        """
+        query_status, _ = self._load_record()
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
-
         return query_status
 
-    def _load_result(self, cache_key: Optional[str]) -> dict:
+    def get_query_status_with_result(self, show_progress: bool = False) -> QueryStatus:
+        """The state of this query with the result of a finished run attached.
+
+        The record holds the cache key rather than the result, which is what lets it stay small
+        enough to keep for a day. A result that has since left the query cache cannot be rebuilt
+        from the record, so the query has to run again.
+        """
+        query_status, cache_key = self._load_record()
+        if show_progress and not query_status.complete:
+            query_status.query_progress = self.get_clickhouse_progresses()
+        if query_status.complete and not query_status.error and query_status.results is None:
+            query_status.results = self._read_cached_result(cache_key)
+        return query_status
+
+    def _read_cached_result(self, cache_key: Optional[str]) -> dict:
         entry = QueryCache(team_id=self.team_id, cache_key=cache_key).lookup().entry if cache_key else None
         response = entry.as_full_response() if entry else None
         if response is None:
             raise QueryResultExpiredError("The result expired. Refresh to run the query again.")
         response["is_cached"] = True
         return response
-
-    @staticmethod
-    def _parse_datetime(value: Optional[str]) -> Optional[datetime.datetime]:
-        return datetime.datetime.fromisoformat(value) if value else None
 
     def delete_query_status(self) -> None:
         logger.info("Deleting redis query key %s", self.status_key)
@@ -429,15 +396,22 @@ def enqueue_process_query_task(
     if force:
         cancel_query(team.id, query_id)
 
-    if manager.has_results() and not refresh_requested:
-        # If we've seen this query before return and don't resubmit it.
-        return manager.get_query_status()
+    if not refresh_requested:
+        try:
+            # The same query ID came in again while its run is still going, so join that run.
+            # A finished record decides nothing here: a success is answered by the query cache,
+            # and whether a failure may run again is the failure breaker's call in the query runner.
+            in_flight = manager.get_query_status()
+            if not in_flight.complete:
+                return in_flight
+        except QueryNotFoundError:
+            pass
 
     try:
         if cache_key:
             existing_query_id = manager.get_running_query_by_cache_key(cache_key)
             if existing_query_id:
-                query_status = get_query_status(team.id, existing_query_id, resolve_results=False)
+                query_status = QueryStatusManager(existing_query_id, team.id).get_query_status()
                 if not query_status.complete:
                     # Only deduplicate against a query that is still in progress
                     posthoganalytics.capture(
@@ -506,14 +480,13 @@ def enqueue_process_query_task(
     return query_status
 
 
-def get_query_status(
-    team_id: int, query_id: str, show_progress: bool = False, resolve_results: bool = True
-) -> QueryStatus:
+def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -> QueryStatus:
+    """The status of a query with the result of a finished run attached.
+
+    This is what the poll endpoints answer with. Callers that only need to know whether a query
+    is still running should use `QueryStatusManager.get_query_status` instead.
     """
-    Abstracts away the manager for any caller and returns a QueryStatus object
-    """
-    manager = QueryStatusManager(query_id, team_id)
-    return manager.get_query_status(show_progress=show_progress, resolve_results=resolve_results)
+    return QueryStatusManager(query_id, team_id).get_query_status_with_result(show_progress=show_progress)
 
 
 def record_blocking_query_result(team_id: int, query_id: str, result: dict) -> None:
@@ -531,9 +504,7 @@ def record_blocking_query_result(team_id: int, query_id: str, result: dict) -> N
         error=False,
         end_time=datetime.datetime.now(datetime.UTC),
     )
-    QueryStatusManager(query_id, team_id).store_query_status(
-        query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS, cache_key=result.get("cache_key")
-    )
+    _record_blocking_query_status(team_id, query_id, query_status, cache_key=result.get("cache_key"))
 
 
 def record_blocking_query_failure(team_id: int, query_id: str, error: Exception) -> None:
@@ -545,8 +516,26 @@ def record_blocking_query_failure(team_id: int, query_id: str, error: Exception)
         end_time=datetime.datetime.now(datetime.UTC),
         error_message=_user_safe_error_message(error),
     )
-    QueryStatusManager(query_id, team_id).store_query_status(
-        query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS
+    _record_blocking_query_status(team_id, query_id, query_status, cache_key=None)
+
+
+def _record_blocking_query_status(
+    team_id: int, query_id: str, query_status: QueryStatus, cache_key: Optional[str]
+) -> None:
+    """Store the outcome under the query ID the client sent.
+
+    The client picks that ID, and an async run of the same query is filed under an ID the client
+    can also see, so the two can name the same record. A run that is still going owns it: the
+    poller is waiting for that run's outcome, and this one would answer with a different result.
+    """
+    manager = QueryStatusManager(query_id, team_id)
+    try:
+        if not manager.get_query_status().complete:
+            return
+    except QueryNotFoundError:
+        pass
+    manager.store_query_status(
+        query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS, cache_key=cache_key
     )
 
 
@@ -573,7 +562,7 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str
     message = "Query task revoked"
 
     try:
-        query_status = manager.get_query_status(resolve_results=False)
+        query_status = manager.get_query_status()
 
         if query_status.complete:
             return "Query already complete"

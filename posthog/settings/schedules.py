@@ -48,6 +48,11 @@ CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 ASYNC_QUERY_STATUS_TTL_SECONDS = get_from_env("ASYNC_QUERY_STATUS_TTL_SECONDS", 24 * 60 * 60, type_cast=int)
 BLOCKING_QUERY_STATUS_TTL_SECONDS = get_from_env("BLOCKING_QUERY_STATUS_TTL_SECONDS", 15 * 60, type_cast=int)
 
+# A blocking request only gets a record once it has run this long, because only a request the
+# ingress could have dropped needs one. Blocking requests are most of the query traffic, so
+# recording every one of them would fill the app Redis with records nothing ever reads.
+BLOCKING_QUERY_RECORD_AFTER_SECONDS = get_from_env("BLOCKING_QUERY_RECORD_AFTER_SECONDS", 60, type_cast=int)
+
 # TTL for cache entries written by API keys or OAuth clients outside any insight or dashboard.
 # retention_ttl in posthog/query_cache/cache.py decides which writes get it.
 CACHED_RESULTS_PROGRAMMATIC_TTL = get_from_env("CACHED_RESULTS_PROGRAMMATIC_TTL", 24 * 60 * 60, type_cast=int)

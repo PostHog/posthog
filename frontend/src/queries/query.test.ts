@@ -324,7 +324,7 @@ describe('query', () => {
 
             expect(statusSpy.mock.calls[0][0]).toBe(querySpy.mock.calls[0][1]?.clientQueryId)
             const completed = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
-            expect(completed[0][1]).toMatchObject({ recovered_after_drop: true, recovered_after_status: 504 })
+            expect(completed[0][1]).toMatchObject({ recovered_after_drop: true })
         })
 
         it('surfaces the recorded error of a dropped request without waiting', async () => {

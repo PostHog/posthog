@@ -1,3 +1,4 @@
+import json
 import uuid
 import datetime
 from typing import Any
@@ -25,6 +26,7 @@ from posthog.clickhouse.client.execute_async import (
     QueryResultExpiredError,
     QueryStatusManager,
     execute_process_query,
+    record_blocking_query_result,
 )
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
@@ -104,8 +106,27 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager.store_query_status(self.query_status, cache_key=cache_key)
 
         with self.assertRaises(QueryResultExpiredError):
-            self.manager.get_query_status()
-        assert self.manager.get_query_status(resolve_results=False).complete is True
+            self.manager.get_query_status_with_result()
+        assert self.manager.get_query_status().complete is True
+
+    @parameterized.expand(
+        [
+            ("nothing_under_that_id", None, True, False),
+            ("a_run_still_going", {"complete": False}, False, False),
+            ("an_earlier_run_that_failed", {"complete": True, "error": True}, True, False),
+        ]
+    )
+    def test_a_blocking_outcome_never_takes_over_a_run_that_is_still_going(
+        self, _name, existing, expected_complete, expected_error
+    ):
+        if existing is not None:
+            self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team_id, **existing))
+
+        record_blocking_query_result(self.team_id, self.query_id, {"cache_key": "cache_of_the_blocking_run"})
+
+        status = self.manager.get_query_status()
+        assert status.complete is expected_complete
+        assert status.error is expected_error
 
     def test_delete_forgets_the_query(self):
         self.manager.store_query_status(self.query_status)
@@ -113,7 +134,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager.delete_query_status()
 
         with self.assertRaises(QueryNotFoundError) as raised:
-            self.manager.get_query_status()
+            self.manager.get_query_status_with_result()
         assert not isinstance(raised.exception, QueryResultExpiredError)
 
     def test_no_status(self):
@@ -251,7 +272,7 @@ class TestExecuteProcessQuery(TestCase):
         query_status.error = False
         self.manager.store_query_status(query_status, cache_key=cache_key)
 
-        status = self.manager.get_query_status()
+        status = self.manager.get_query_status_with_result()
 
         assert status.complete is True
         assert status.error is False
@@ -268,14 +289,16 @@ class TestExecuteProcessQuery(TestCase):
 
         mock_process_query_dict.assert_called_once()
         self.assertEqual(get_query_tags().celery_task_id, task_id)
-        status = self.manager.get_query_status(resolve_results=False)
+        status = self.manager.get_query_status()
         assert status.complete is True
         assert status.error is False
         assert status.pickup_time is not None
         assert status.end_time is not None
-        record = {k.decode(): v.decode() for k, v in get_client().hgetall(self.manager.status_key).items()}
+        raw_record = get_client().get(self.manager.status_key)
+        assert raw_record is not None
+        record = json.loads(raw_record)
         assert record["cache_key"] == cache_key
-        assert "results" not in record
+        assert record["results"] is None
 
     @parameterized.expand(
         [
@@ -462,26 +485,38 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         except Exception as e:
             self.assertEqual(str(e), f"Query {query_id} not found for team {wrong_team}")
 
+    @parameterized.expand(
+        [
+            ("still_running", None, 1),
+            ("finished", False, 2),
+            ("failed", True, 2),
+        ]
+    )
     @patch("posthog.clickhouse.client.execute_process_query")
-    def test_async_query_client_is_lazy(self, execute_process_query_mock):
+    def test_async_query_client_joins_only_a_running_query(
+        self, _name, finished_with_error, expected_runs, execute_process_query_mock
+    ):
         query = build_query("SELECT 4 + 4")
         query_id = uuid.uuid4().hex
+        manager = QueryStatusManager(query_id, self.team.id)
+        client.enqueue_process_query_task(
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
+        if finished_with_error is not None:
+            status = manager.get_query_status()
+            status.complete = True
+            status.error = finished_with_error
+            manager.store_query_status(status)
+
+        # The same query ID twice more: joins the run while it is going, starts a new run once it finished
+        client.enqueue_process_query_task(
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
         client.enqueue_process_query_task(
             self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
         )
 
-        # Try the same query again
-        client.enqueue_process_query_task(
-            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
-
-        # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(
-            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
-
-        # Assert that we only called clickhouse once
-        execute_process_query_mock.assert_called_once()
+        self.assertEqual(execute_process_query_mock.call_count, expected_runs)
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_process_query_mock):

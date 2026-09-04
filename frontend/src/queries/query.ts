@@ -66,9 +66,9 @@ const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
-// The server lets a query run for this long (MAX_QUERY_TIMEOUT in posthog/api/query.py) and keeps
-// running it after the ingress drops the request, then records the outcome under the client's
-// query ID. Until then the ID can still turn into a result.
+// The server keeps running a query after the ingress drops the request, then records the outcome
+// under the client's query ID. Give it longer than a blocking query is allowed to run, and stay
+// inside the record's lifetime (BLOCKING_QUERY_STATUS_TTL_SECONDS, 15 minutes).
 const DROPPED_REQUEST_RECOVERY_DEADLINE_MS = 10 * 60 * 1000
 const DROPPED_REQUEST_RECOVERY_POLL_INTERVAL_MS = 5_000
 
@@ -77,13 +77,15 @@ export interface QueryRecoveryOutcome {
     attempted: boolean
     recovered: boolean
     waitMs: number
-    afterStatus: number | null
 }
 
-/** The request reached the server but no answer came back: a gateway timeout or a dead upstream. */
+/**
+ * The gateway gave up waiting for a response it had already accepted, so the server may still be
+ * running the query. A 502 or 503 means the request never reached a worker, and waiting on those
+ * would only add minutes of silence to an error the user should see now.
+ */
 function isDroppedRequest(error: unknown): boolean {
-    const status = (error as { status?: number } | null)?.status
-    return status === 502 || status === 503 || status === 504
+    return (error as { status?: number } | null)?.status === 504
 }
 
 function blocksOnServer(refresh: RefreshType | undefined): boolean {
@@ -278,7 +280,6 @@ async function executeQuery<N extends DataNode>(
             }
             const droppedAtMs = Date.now()
             recovery.attempted = true
-            recovery.afterStatus = e?.status ?? null
             const recorded = await waitForRecordedResult(queryId, methodOptions, requestStartedAtMs)
             if (!recorded) {
                 throw e
@@ -333,7 +334,7 @@ export async function performQuery<N extends DataNode>(
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
-    const recovery: QueryRecoveryOutcome = { attempted: false, recovered: false, waitMs: 0, afterStatus: null }
+    const recovery: QueryRecoveryOutcome = { attempted: false, recovered: false, waitMs: 0 }
 
     try {
         if (isPersonsNode(queryNode)) {
@@ -355,7 +356,6 @@ export async function performQuery<N extends DataNode>(
             if (recovery.recovered) {
                 logParams.recovered_after_drop = true
                 logParams.recovery_wait_ms = Math.round(recovery.waitMs)
-                logParams.recovered_after_status = recovery.afterStatus
             }
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse

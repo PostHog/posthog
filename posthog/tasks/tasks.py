@@ -400,7 +400,7 @@ def _process_query_task_failure(
 
     manager = QueryStatusManager(query_id, team_id)
     try:
-        query_status = manager.get_query_status(resolve_results=False)
+        query_status = manager.get_query_status()
     except QueryNotFoundError:
         return
 

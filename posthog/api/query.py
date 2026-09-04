@@ -104,6 +104,15 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 )
 
 
+def _ran_long_enough_to_be_dropped(start_time: float) -> bool:
+    """Whether the ingress could have cut this request while the server kept running the query.
+
+    A faster request reached the client with its answer, so recording its outcome would only add
+    a record nobody polls.
+    """
+    return perf_counter() - start_time >= settings.BLOCKING_QUERY_RECORD_AFTER_SECONDS
+
+
 def _extract_validation_code(error: ValidationError) -> str:
     validation_codes = error.get_codes()
     if isinstance(validation_codes, list):
@@ -323,12 +332,16 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                         analytics_props=analytics_props,
                     )
                 except Exception as e:
-                    if data.client_query_id:
+                    if data.client_query_id and _ran_long_enough_to_be_dropped(start_time):
                         record_blocking_query_failure(self.team.pk, data.client_query_id, e)
                     raise
                 if isinstance(result, BaseModel):
                     result = result.model_dump(by_alias=True)
-                if data.client_query_id and not result.get("query_status"):
+                if (
+                    data.client_query_id
+                    and not result.get("query_status")
+                    and _ran_long_enough_to_be_dropped(start_time)
+                ):
                     record_blocking_query_result(self.team.pk, data.client_query_id, result)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)

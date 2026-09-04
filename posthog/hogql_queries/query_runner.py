@@ -115,7 +115,7 @@ from posthog import settings
 from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
+from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, enqueue_process_query_task
 from posthog.clickhouse.client.limit import (
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
@@ -1880,9 +1880,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
         try:
-            query_status = get_query_status(
-                team_id=self.team.pk, query_id=self.query_id or cache_key, resolve_results=False
-            )
+            # State only: this attaches an in-flight status to a cache miss, so it must not
+            # pay for a query cache read on top of the one that just missed.
+            query_status = QueryStatusManager(self.query_id or cache_key, self.team.pk).get_query_status()
             if query_status.complete:
                 return None
             return query_status
