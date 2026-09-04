@@ -37,20 +37,24 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
             className="flex max-w-full items-center gap-1.5 rounded-full border border-warning bg-warning-highlight py-0.5 pl-2.5 pr-1 text-xs font-semibold text-warning"
         >
             <DashboardFilterChangesTooltip changes={dashboardConfigurationChanges} title="Unsaved changes">
-                <button
-                    type="button"
-                    className="flex items-center gap-1.5 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer"
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    noPadding
+                    className="text-inherit"
                     aria-label="Show dashboard changes"
                 >
-                    <span className="h-2 w-2 animate-pulse motion-reduce:animate-none rounded-full bg-warning" />
-                    <span className="@max-lg/dashboard-filters:hidden whitespace-nowrap">
-                        {`${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}`}
+                    <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 animate-pulse motion-reduce:animate-none rounded-full bg-warning" />
+                        <span className="@max-lg/dashboard-filters:hidden whitespace-nowrap">
+                            {`${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}`}
+                        </span>
+                        <span className="@min-lg/dashboard-filters:hidden whitespace-nowrap">
+                            {`${changedCount} unsaved`}
+                        </span>
+                        <IconInfo className="text-sm" />
                     </span>
-                    <span className="@min-lg/dashboard-filters:hidden whitespace-nowrap">
-                        {`${changedCount} unsaved`}
-                    </span>
-                    <IconInfo className="cursor-pointer text-sm" />
-                </button>
+                </LemonButton>
             </DashboardFilterChangesTooltip>
             <span className="flex items-center gap-1.5 @max-lg/dashboard-filters:hidden">
                 <span className="h-4 border-l border-warning" />
