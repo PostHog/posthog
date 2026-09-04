@@ -57923,7 +57923,7 @@ export namespace Schemas {
          */
       integration_id?: number | null;
       /**
-         * Optional message included in the invitation email when adding new recipients.
+         * Optional one-time note included in the invitation email sent to the recipients this request adds. The subscription does not store it, so reads never return it.
          * @nullable
          */
       invite_message?: string | null;
@@ -66832,7 +66832,7 @@ export namespace Schemas {
          */
       integration_id?: number | null;
       /**
-         * Optional message included in the invitation email when adding new recipients.
+         * Optional one-time note included in the invitation email sent to the recipients this request adds. The subscription does not store it, so reads never return it.
          * @nullable
          */
       invite_message?: string | null;

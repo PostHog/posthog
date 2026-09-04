@@ -381,8 +381,13 @@ function SubscriptionDeliveryStep({
                             />
                         )}
                     </LemonField>
-                    <LemonField name="invite_message" label="Message" showOptional>
-                        <LemonTextArea placeholder="Message for recipients" />
+                    <LemonField
+                        name="invite_message"
+                        label="Note to new recipients"
+                        showOptional
+                        help="We add this note to the first report that new recipients receive. It only goes out if 'Send a test run now' is on. It is not saved with the subscription."
+                    >
+                        <LemonTextArea placeholder="Say why you are sharing this report" />
                     </LemonField>
                 </>
             ) : null}
