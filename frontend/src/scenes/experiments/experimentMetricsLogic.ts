@@ -615,10 +615,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 /**
                  * Flags may not have resolved yet on mount. Reading the flag as off here would clear the
                  * loading state and skip the fetch, so the recalculation results never appear. Defer until
-                 * flags arrive; setFeatureFlags replays this fetch.
+                 * flags arrive; setFeatureFlags replays this fetch. Clear the loading state while deferred:
+                 * the loadLatestRecalculation action set it true, and if flags never arrive (the app renders
+                 * after appLogic's timeout with receivedFeatureFlags still false) it would otherwise strand
+                 * `isRecalculating` true, freezing the reload control and wrongly queueing config-change reruns.
                  */
                 if (!values.receivedFeatureFlags) {
                     cache.deferredLoadLatest = true
+                    actions.setRecalculationLoading(false)
                     return
                 }
                 /**

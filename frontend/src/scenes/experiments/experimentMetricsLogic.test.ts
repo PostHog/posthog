@@ -1126,6 +1126,11 @@ describe('experimentMetricsLogic', () => {
                 .toNotHaveDispatchedActions(['setCurrentRecalculation'])
             expect(latestMock).not.toHaveBeenCalled()
 
+            // While deferred, loading must clear: the loadLatestRecalculation action set it true, and if flags
+            // never arrive it would otherwise freeze the reload control and wrongly queue config-change reruns.
+            expect(logic.values.recalculationLoading).toBe(false)
+            expect(logic.values.isRecalculating).toBe(false)
+
             // Once flags arrive with the recalculation flag on, the deferred fetch replays.
             await expectLogic(logic, () => {
                 featureFlagLogic.mount()
