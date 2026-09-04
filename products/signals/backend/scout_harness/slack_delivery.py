@@ -28,10 +28,11 @@ from products.signals.backend.slack_formatting import (
     chunk_slack_text,
     escape_slack_mrkdwn,
     group_segments_to_limit,
+    prepare_slack_markdown,
     slack_channel_id_from_target,
+    slack_markdown_block,
     split_markdown_by_headings,
     strip_chart_references,
-    truncate_slack_section,
 )
 
 logger = structlog.get_logger(__name__)
@@ -167,19 +168,6 @@ def _post_scout_slack_reply(
         logger.warning("scout_slack_followup_reply_failed", channel=channel_id, exc_info=True)
 
 
-def _markdown_block(text: str) -> dict:
-    """Wrap scout-authored prose in the Slack block that renders Markdown.
-
-    Slack renders the Markdown itself, so the scout's tables, links, and emphasis arrive as written
-    and nothing converts them on the way out. The one thing prepared here is the prose's Slack
-    control syntax, which Slack still reads inside a markdown block — see `escape_slack_mrkdwn`."""
-    return {"type": "markdown", "text": text}
-
-
-def _rendered_markdown(text: str) -> str:
-    return truncate_slack_section(escape_slack_mrkdwn(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
-
-
 def _prettify_scout_name(skill_name: str) -> str:
     cleaned = skill_name.removeprefix("signals-scout-").replace("-", " ").replace("_", " ").strip()
     return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
@@ -237,9 +225,9 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
         }
     ]
 
-    rendered_description = _rendered_markdown(emission.description.strip())
+    rendered_description = prepare_slack_markdown(emission.description.strip())
     if rendered_description:
-        blocks.append(_markdown_block(rendered_description))
+        blocks.append(slack_markdown_block(rendered_description))
 
     details: list[str] = []
     if emission.severity:
@@ -358,9 +346,9 @@ def build_scout_report_slack_message(
     # Chart links in the prose still reduce to their label; the charts themselves follow the prose
     # as image blocks, the way the inbox places charts the summary doesn't reference inline.
     summary_text = strip_chart_references((report.summary or "").strip())
-    rendered_summary = _rendered_markdown(summary_text)
+    rendered_summary = prepare_slack_markdown(summary_text)
     if rendered_summary:
-        blocks.append(_markdown_block(rendered_summary))
+        blocks.append(slack_markdown_block(rendered_summary))
 
     # `render_budget` shares one render allowance across a delivery's initial build and any rebuild.
     blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
@@ -489,13 +477,13 @@ def build_scout_report_thread_slack_messages(
 
     chunks = _report_summary_chunks(report)
     if chunks:
-        lead_blocks.append(_markdown_block(chunks[0]))
+        lead_blocks.append(slack_markdown_block(chunks[0]))
     # Charts ride the lead rather than a reply: the lead is the message the channel sees, and the
     # replies only carry the summary's tail for anyone who opens the thread.
     lead_blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
     lead_blocks.append(_report_link_block(report))
 
-    reply_blocks = [[_markdown_block(chunk)] for chunk in chunks[1:]]
+    reply_blocks = [[slack_markdown_block(chunk)] for chunk in chunks[1:]]
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
     return ScoutReportThreadMessages(lead_blocks=lead_blocks, fallback=fallback, reply_blocks=reply_blocks)
 
@@ -524,9 +512,9 @@ def build_scout_report_note_slack_message(
     ]
 
     note_text = strip_chart_references(note.strip())
-    rendered_note = _rendered_markdown(note_text)
+    rendered_note = prepare_slack_markdown(note_text)
     if rendered_note:
-        blocks.append(_markdown_block(rendered_note))
+        blocks.append(slack_markdown_block(rendered_note))
 
     blocks.append(_report_link_block(report))
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"

@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.signals.backend.slack_formatting import (
-    SLACK_SECTION_TEXT_MAX_LEN,
+    SLACK_MARKDOWN_TEXT_MAX_LEN,
     chunk_slack_text,
     escape_slack_mrkdwn,
     group_segments_to_limit,
@@ -235,34 +235,35 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
         assert [segment[: len(start)] for segment, start in zip(segments[1:], expected_starts)] == expected_starts
 
 
-class TestChunkSlackMrkdwn(SimpleTestCase):
+class TestChunkSlackText(SimpleTestCase):
     def test_short_text_is_one_chunk(self) -> None:
-        assert chunk_slack_text("short") == ["short"]
+        assert chunk_slack_text("short", SLACK_MARKDOWN_TEXT_MAX_LEN) == ["short"]
 
-    def test_long_text_splits_within_the_section_limit_without_losing_the_tail(self) -> None:
-        # The bug this guards: a summary past the section cap used to be truncated with an ellipsis,
-        # dropping everything after ~2,900 characters. Chunking must keep every line.
-        lines = [f"line {index}" for index in range(600)]
-        chunks = chunk_slack_text("\n".join(lines))
+    def test_long_text_splits_within_the_limit_without_losing_the_tail(self) -> None:
+        # The bug this guards: a summary past the cap used to be truncated with an ellipsis,
+        # dropping everything after it. Chunking must keep every line. The line count comes off the
+        # limit so raising the cap cannot quietly leave this under it.
+        lines = [f"line {index}" for index in range(SLACK_MARKDOWN_TEXT_MAX_LEN // 5)]
+        chunks = chunk_slack_text("\n".join(lines), SLACK_MARKDOWN_TEXT_MAX_LEN)
 
         assert len(chunks) > 1
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         recovered = "\n".join(chunks)
         assert all(line in recovered for line in lines)
 
     @parameterized.expand(
         [
-            ("plain_run", "x" * (SLACK_SECTION_TEXT_MAX_LEN * 2 + 5)),
-            ("link_longer_than_a_section", "<https://example.com/" + "z" * (SLACK_SECTION_TEXT_MAX_LEN * 2) + "|l>"),
+            ("plain_run", "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN * 2 + 5)),
+            ("link_longer_than_a_chunk", "https://example.com/" + "z" * (SLACK_MARKDOWN_TEXT_MAX_LEN * 2)),
         ]
     )
     def test_unbreakable_run_is_hard_sliced(self, _name: str, line: str) -> None:
         # A run with no sentence, word, or token boundary has nowhere safe to break, so it is sliced
         # at the limit. Guards both halves of that fallback: it has to terminate, and it has to keep
         # every character rather than dropping the remainder.
-        chunks = chunk_slack_text(line)
+        chunks = chunk_slack_text(line, SLACK_MARKDOWN_TEXT_MAX_LEN)
 
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         assert "".join(chunks) == line
 
     @parameterized.expand(
@@ -277,21 +278,11 @@ class TestChunkSlackMrkdwn(SimpleTestCase):
         # the retry..."). Comparing word sequences catches that, because a mid-word cut turns one
         # word into two and no longer round-trips.
         line = (sentence * 400).strip()
-        chunks = chunk_slack_text(line)
+        chunks = chunk_slack_text(line, SLACK_MARKDOWN_TEXT_MAX_LEN)
 
         assert len(chunks) > 1
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         assert " ".join(chunks).split() == line.split()
-
-    def test_link_spanning_the_section_boundary_is_kept_whole(self) -> None:
-        # The bug this guards: a cut inside a converter-emitted `<url|label>` token leaves half a
-        # link in each message, and Slack renders both halves as visible junk.
-        link = "<https://example.com/a/very/long/path|the failing request>"
-        line = "x" * (SLACK_SECTION_TEXT_MAX_LEN - 20) + link + " and the prose that follows it."
-        chunks = chunk_slack_text(line)
-
-        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
-        assert any(link in chunk for chunk in chunks)
 
 
 class TestGroupSegmentsToLimit(SimpleTestCase):
