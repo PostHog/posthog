@@ -3,13 +3,8 @@ export interface EventPipelineRunnerOptions {
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
-    PERSON_MERGE_EVENTS_ENABLED: boolean
-    PERSON_MERGE_EVENTS_PARTITION_COUNT: number
-    PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
     PERSON_MERGE_FOLD_ENABLED: boolean
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
-    /** Teams whose merges run new-world: lifecycle-mark claims plus tombstone deletes: '*' for all, '' to disable, or comma-separated team IDs */
-    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     PERSON_PROPERTIES_UPDATE_ALL: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
