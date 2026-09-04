@@ -57037,6 +57037,16 @@ export namespace Schemas {
       RelatedTo: 'related_to',
     } as const;
 
+    export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
+
+
+    export const SignalActorKindEnum = {
+      User: 'user',
+      Task: 'task',
+      Agent: 'agent',
+      System: 'system',
+    } as const;
+
     export interface _User {
       readonly id: number;
       readonly uuid: string;
@@ -57054,10 +57064,17 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
-      /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+      /** Actor kind. Legacy rows without attribution are returned as system. */
+      readonly actor_kind: SignalActorKindEnum;
+      /**
+         * MCP client name when an external agent produced the artefact.
+         * @nullable
+         */
+      readonly actor_agent: string | null;
+      /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
       readonly created_by: _User | null;
       /**
-         * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+         * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
          * @nullable
          */
       readonly task_id: string | null;
@@ -57097,6 +57114,38 @@ export namespace Schemas {
       Deleted: 'deleted',
       Suppressed: 'suppressed',
     } as const;
+
+    export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
+
+
+    export const SignalReportAssignmentPrStateEnum = {
+      Unknown: 'unknown',
+      Draft: 'draft',
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
+    } as const;
+
+    export type SignalReportWorkStateEnum = typeof SignalReportWorkStateEnum[keyof typeof SignalReportWorkStateEnum];
+
+
+    export const SignalReportWorkStateEnum = {
+      Unclaimed: 'unclaimed',
+      Working: 'working',
+      InReview: 'in_review',
+      Done: 'done',
+    } as const;
+
+    export interface SignalReportAssignee {
+      kind: SignalActorKindEnum;
+      user: _User | null;
+      /** @nullable */
+      task_id: string | null;
+      /** @nullable */
+      agent: string | null;
+      /** @nullable */
+      claimed_at: string | null;
+    }
 
     /**
      * * `pr_incorrect` - PR incorrect
@@ -57235,12 +57284,18 @@ export namespace Schemas {
          */
       readonly scout_name: string | null;
       /**
-         * PR URL from the latest implementation task run, if available.
+         * Pull request attached to this report's claim, if available.
          * @nullable
          */
       readonly implementation_pr_url: string | null;
+      /** Latest known pull request state: unknown, draft, open, closed, or merged. */
+      readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
       /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
       readonly implementation_pr_merged: boolean;
+      /** Derived remediation state: unclaimed, working, in_review, or done. */
+      readonly work_state: SignalReportWorkStateEnum;
+      /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
+      readonly assignee: SignalReportAssignee | null;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -77695,6 +77750,13 @@ export namespace Schemas {
       failed_count: number;
       /** Number of requested ids not visible to the caller. */
       not_found_count: number;
+    }
+
+    export interface SignalReportClaim {
+      /** Optional GitHub pull request to attach to the claim. The report may be claimed without one. */
+      pr_url?: string;
+      /** Release ownership while preserving any attached pull request. */
+      release?: boolean;
     }
 
     export interface SignalReportFeedbackRequest {
@@ -99240,6 +99302,10 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
+     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     */
+    assignee?: SignalsReportsListAssignee;
+    /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string;
@@ -99248,7 +99314,7 @@ export namespace Schemas {
      */
     count_only?: boolean;
     /**
-     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
+     * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean;
     /**
@@ -99316,6 +99382,10 @@ export namespace Schemas {
      */
     teammate_uuid?: string;
     /**
+     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     */
+    unclaimed?: boolean;
+    /**
      * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
      */
     use_priority_preference?: boolean;
@@ -99324,6 +99394,13 @@ export namespace Schemas {
      */
     view?: string;
     };
+
+    export type SignalsReportsListAssignee = typeof SignalsReportsListAssignee[keyof typeof SignalsReportsListAssignee];
+
+
+    export const SignalsReportsListAssignee = {
+      Me: 'me',
+    } as const;
 
     export type SignalsReportArtefactsListParams = {
     /**
