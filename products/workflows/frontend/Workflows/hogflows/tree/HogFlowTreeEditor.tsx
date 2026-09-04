@@ -15,9 +15,13 @@ export function HogFlowTreeEditor(): JSX.Element {
     const activeDropzones = !!nodeToBeAdded || !!draggedActionId
 
     const onDragStart = (event: DragEvent<HTMLDivElement>, actionId: string): void => {
-        setDraggedActionId(actionId)
         event.dataTransfer.effectAllowed = 'move'
         event.dataTransfer.setData('text/plain', actionId)
+        const step = event.currentTarget.closest('[data-attr="workflow-tree-step"]')
+        if (step instanceof HTMLElement && typeof event.dataTransfer.setDragImage === 'function') {
+            event.dataTransfer.setDragImage(step, 0, step.getBoundingClientRect().height / 2)
+        }
+        setDraggedActionId(actionId)
     }
 
     return (
