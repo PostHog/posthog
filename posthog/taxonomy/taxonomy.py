@@ -243,7 +243,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals": {
             "label": "Web vitals",
-            "description": "Automatically captured web vitals data.",
+            "description": "Automatically captured web vitals data. One event only carries the metrics that were ready when it was sent, so LCP, FCP, INP, and CLS are spread over different events.",
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
@@ -2090,24 +2090,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals_FCP_value": {
             "label": "Web vitals FCP value",
+            "description": "First contentful paint, in milliseconds: the time until the browser paints the first text or image. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [800, 1500, 3000],
+            "type": "Numeric",
         },
         "$web_vitals_LCP_event": {
             "label": "Web vitals LCP measure event details",
         },
         "$web_vitals_LCP_value": {
             "label": "Web vitals LCP value",
+            "description": "Largest contentful paint, in milliseconds: the time until the largest text or image in the viewport is painted. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [1200, 2500, 4000],
+            "type": "Numeric",
         },
         "$web_vitals_INP_event": {
             "label": "Web vitals INP measure event details",
         },
         "$web_vitals_INP_value": {
             "label": "Web vitals INP value",
+            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "examples": [50, 200, 500],
+            "type": "Numeric",
         },
         "$web_vitals_CLS_event": {
             "label": "Web vitals CLS measure event details",
         },
         "$web_vitals_CLS_value": {
             "label": "Web vitals CLS value",
+            "description": "Cumulative layout shift, a score without a unit, usually between 0 and 1. Do not plot it on the same axis as the millisecond metrics, and aggregate it with a percentile such as P90 rather than a count or an average. CLS is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "examples": [0.01, 0.1, 0.25],
+            "type": "Numeric",
         },
         "$web_vitals_allowed_metrics": {
             "label": "Web vitals allowed metrics",
