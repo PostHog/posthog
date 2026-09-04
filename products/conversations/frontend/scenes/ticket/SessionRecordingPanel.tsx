@@ -1,9 +1,20 @@
+import { useActions } from 'kea'
+
+import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import {
+    SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { PersonsTabType } from '~/types'
+
+import { RecordingSummary } from 'products/replay_vision/frontend/components/RecordingSummary'
 
 interface SessionRecordingPanelProps {
     sessionContext?: {
@@ -13,12 +24,58 @@ interface SessionRecordingPanelProps {
     distinctId?: string
 }
 
+// The widget stores the replay link as a path like /replay/:recordingId, sometimes with a query string.
+// The public widget endpoint keeps non-string scalars in session_context, so guard the type here: a
+// numeric value would otherwise crash .split() and take the whole ticket scene down.
+export function recordingIdFromReplayUrl(replayUrl: unknown): string | null {
+    if (typeof replayUrl !== 'string') {
+        return null
+    }
+    return replayUrl.split('?')[0].split('/').filter(Boolean).pop() ?? null
+}
+
 export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRecordingPanelProps): JSX.Element {
-    // Extract recording ID from session_replay_url
-    // URL format: /replay/:recordingId or similar
-    const recordingId = sessionContext?.session_replay_url
-        ? sessionContext.session_replay_url.split('?')[0].split('/').filter(Boolean).pop()
-        : null
+    const recordingId = recordingIdFromReplayUrl(sessionContext?.session_replay_url)
+    const playerKey = `ticket-recording-${recordingId}`
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
+
+    const inlinePlayer = (): ReturnType<typeof sessionRecordingPlayerLogic.findMounted> =>
+        recordingId ? sessionRecordingPlayerLogic.findMounted({ sessionRecordingId: recordingId, playerKey }) : null
+
+    const expandRecording = (): void => {
+        if (!recordingId) {
+            return
+        }
+        const player = inlinePlayer()
+        // The modal is a second player for the same recording, so this one must not keep playing behind it
+        player?.actions.setPause()
+        // Open the larger view at the moment the responder scrubbed to, so it does not restart from 0:00.
+        // currentTimestamp is an absolute unix ms and reaches the modal player through ?timestamp=.
+        openSessionPlayer({ id: recordingId }, player?.values.currentTimestamp ?? null)
+    }
+
+    const openInReplay = (): void => {
+        if (!recordingId) {
+            return
+        }
+        // A new browser tab, computed on click so it carries the scrubbed position, like ViewRecordingButton.
+        const currentTimestamp = inlinePlayer()?.values.currentTimestamp
+        newInternalTab(
+            urls.replaySingle(recordingId, currentTimestamp ? { unixTimestampMillis: currentTimestamp } : undefined)
+        )
+    }
+
+    const seeAllRecordings = distinctId ? (
+        <LemonButton
+            type="tertiary"
+            size="xsmall"
+            className="ml-auto"
+            to={`${urls.personByDistinctId(distinctId)}#activeTab=${PersonsTabType.SESSION_RECORDINGS}`}
+            data-attr="ticket-recording-see-all"
+        >
+            See all recordings →
+        </LemonButton>
+    ) : null
 
     return (
         <LemonCollapse
@@ -27,29 +84,57 @@ export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRec
                 {
                     key: 'session-recording',
                     header: 'Session recording',
-                    content: (
-                        <div>
-                            {!recordingId ? (
-                                <div className="text-muted-alt text-xs">No session recording available</div>
-                            ) : (
-                                <div className="max-h-[500px] h-[500px] flex justify-center items-center">
-                                    <SessionRecordingPlayer
-                                        sessionRecordingId={recordingId}
-                                        playerKey={`ticket-recording-${recordingId}`}
-                                        autoPlay={false}
-                                    />
-                                </div>
-                            )}
-                            {distinctId && (
-                                <div className="mt-2 pt-2 border-t flex justify-end">
+                    content: recordingId ? (
+                        <div className="flex flex-col">
+                            {/* Cancels the collapse body padding so the player gets the full column width. Height follows that width, so a narrow column does not get a tall box around a tiny frame. */}
+                            <div className="flex -mx-4 -mt-4 border-b aspect-[16/11] min-h-60 max-h-[26rem]">
+                                <SessionRecordingPlayer
+                                    sessionRecordingId={recordingId}
+                                    playerKey={playerKey}
+                                    mode={SessionRecordingPlayerMode.Standard}
+                                    autoPlay={false}
+                                    noMeta
+                                    noBorder
+                                    noDock
+                                    withSidebar={false}
+                                />
+                            </div>
+                            <div className="py-3 border-b">
+                                <RecordingSummary
+                                    sessionId={recordingId}
+                                    onSeek={(timestampMs) => inlinePlayer()?.actions.seekToTime(timestampMs)}
+                                />
+                            </div>
+                            <div className="flex flex-wrap items-center justify-between gap-2 pt-3">
+                                <div className="flex flex-wrap gap-1">
                                     <LemonButton
-                                        type="tertiary"
+                                        type="secondary"
                                         size="xsmall"
-                                        to={`${urls.personByDistinctId(distinctId)}#activeTab=${PersonsTabType.SESSION_RECORDINGS}`}
+                                        icon={<IconExpand45 />}
+                                        onClick={expandRecording}
+                                        tooltip="Watch in a larger view with the activity panel"
+                                        data-attr="ticket-recording-expand"
                                     >
-                                        See all recordings →
+                                        Expand
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconExternal />}
+                                        onClick={openInReplay}
+                                        data-attr="ticket-recording-open-replay"
+                                    >
+                                        Open in replay
                                     </LemonButton>
                                 </div>
+                                {seeAllRecordings}
+                            </div>
+                        </div>
+                    ) : (
+                        <div>
+                            <div className="text-muted-alt text-xs">No recording was captured for this session.</div>
+                            {seeAllRecordings && (
+                                <div className="mt-2 pt-2 border-t flex justify-end">{seeAllRecordings}</div>
                             )}
                         </div>
                     ),
