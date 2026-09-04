@@ -2,8 +2,8 @@
 name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
-  Use before adding or substantially changing any pytest, Jest, or Playwright test — whenever an agent or engineer is about to write tests for a new feature, bugfix, or PR.
-  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from a frozen clock meeting real-clock retention).
+  Use before any change to what a pytest, Jest, or Playwright test asserts or sets up, down to one fixture or one assertion added to an existing block.
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from absolute dates left to age against the real clock).
   Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
@@ -11,6 +11,7 @@ description: >
 
 The rationale and the same rules in human-facing form live in the handbook: [Backend coding conventions › Testing](https://posthog.com/handbook/engineering/conventions/backend-coding#testing) (`docs/published/handbook/engineering/conventions/backend-coding.md`).
 This skill is the operational gate — run it before writing tests. It carries the decision procedure plus [a catalog of the bug shapes we actually ship](references/mistakes-we-make.md).
+The gate covers added coverage, not new test functions. One fixture and one assertion added to an existing block goes through the same two questions, because that is the shape this skill asks you to prefer.
 
 ## The gate: two questions
 
@@ -154,11 +155,17 @@ Escalating to the next rung is the last resort, not the default.
 - **No `time.sleep` / arbitrary waits.**
   Use fake timers, `wait_for` / `waitFor` on a real condition, or `freeze_time`.
   A sleep is a flake waiting to happen, and it slows every run.
+- **An absolute date in a test is a time bomb until you pin the clock.**
+  A fixture date keeps its meaning only while the real clock stays where you left it.
+  If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.
+  Pinning a date into application state is not pinning the clock: a test that sets an "evaluated at" value to a fixed instant, and leaves the wall clock real, still fails when real time drifts past the window, because the code re-reads `now` and the two stop agreeing.
+  Pin the process clock to the instant the fixtures speak in — `freeze_time` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` in Jest, released by `jest.useRealTimers()` in a `finally` — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
+  Pinning the clock covers only what reads it inside your process; the next rule covers the rest.
+  Ask this of every absolute date in a test, not only of an explicit `freeze_time`: _what does this assert when today is a year past it?_ If the answer is not "the same thing", fix it before you commit.
 - **A frozen clock doesn't freeze the infrastructure.**
   `freeze_time` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
   So freezing to an absolute date and then writing rows that something judges by age builds a **time bomb**: green for weeks, then red forever once wall-clock time drifts past the retention window.
   It fails on every branch at once, so it reads as though whichever PR is in front of you caused it — and that misattribution, not the fix, is where the time goes.
-  Ask it of every absolute `freeze_time`: _what happens when today is a year past this date?_ If the answer isn't "the same thing", fix it before you commit.
   Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.
   A table that hardcodes its `TTL` clause opts out of that guard — `ai_events` is one. Check rather than assume: `grep -rlE '^\s*TTL ' posthog/models/ posthog/clickhouse/ --include=*.py`.
   Make the row's lifetime independent of the ambient clock instead — pin the retention column on insert, the way `bulk_create_ai_events` writes `retention_days=10000`. Moving the frozen date forward only resets the timer.

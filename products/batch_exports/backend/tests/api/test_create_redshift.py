@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
+from products.batch_exports.backend.api.batch_export import INVALID_HOST_MESSAGE
 from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
 from products.batch_exports.backend.tests.api.operations import create_batch_export, get_batch_export_ok
 
@@ -208,6 +209,7 @@ def test_create_redshift_batch_export_rejects_invalid_authorization_type(
         "10.0.0.1",
         "169.254.0.0",
         "localhost",
+        "postgres://alice:hunter2@db.example.com/app",
     ],
 )
 def test_create_redshift_batch_export_fails_with_invalid_host(
@@ -246,7 +248,9 @@ def test_create_redshift_batch_export_fails_with_invalid_host(
         )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert f"Invalid host: '{host}'" in response.json()["detail"]
+    assert response.json()["detail"] == INVALID_HOST_MESSAGE
+    assert host not in response.content.decode()
+    assert "hunter2" not in response.content.decode()
 
 
 def test_create_redshift_batch_export_with_aws_integration(

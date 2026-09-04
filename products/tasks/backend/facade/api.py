@@ -458,7 +458,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # event wholesale, which for a Slack trigger can be a private channel's message content.
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
+# `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills"})
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -843,7 +844,9 @@ def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | Non
 
     A task's runs all carry the stage the pipeline started it for, so the newest run answers for
     the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
-    predating the stamp.
+    predating the stamp. A person-started Inbox run on a customer-created task carries the
+    ``inbox`` stamp from ``Task.create_run``; it names no pipeline identity, so stage-to-identity
+    lookups miss it.
     """
     state = (
         TaskRun.objects.filter(
@@ -2241,9 +2244,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
-        # is_interactive_signals_run reads its presence the same way, to tell a pipeline-started
-        # signals run from one a person started; forging it would move the run off the interactive
-        # budget and out of its per-run spend ceiling.
+        # is_interactive_signals_run reads it the same way, so forging it would move the run off
+        # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
@@ -3272,6 +3274,7 @@ def register_task_run_posthog_references(
         by_id = {str(entry.get("id")): entry for entry in manifest if entry.get("id")}
         reference_count = sum(1 for entry in manifest if entry.get("type") == "reference")
         now = django_timezone.now().isoformat()
+        manifest_changed = False
 
         for reference in references:
             object_kind = str(reference["object_kind"])
@@ -3289,6 +3292,7 @@ def register_task_run_posthog_references(
                 metadata["source_message_ids"] = source_message_ids
                 metadata["occurrence_count"] = len(source_message_ids)
                 existing["metadata"] = metadata
+                manifest_changed = True
                 continue
 
             if reference_count >= MAX_RUN_REFERENCE_ARTIFACTS:
@@ -3314,8 +3318,10 @@ def register_task_run_posthog_references(
             manifest.append(entry)
             by_id[artifact_id] = entry
             created.append(entry)
+            manifest_changed = True
 
-        _save_artifact_manifest(run, manifest)
+        if manifest_changed:
+            _save_artifact_manifest(run, manifest)
 
     for entry in created if attribute_as_agent else []:
         reference_metadata = entry.get("metadata")
