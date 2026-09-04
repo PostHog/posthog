@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconArchive, IconCopy, IconGraph, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCopy, IconGraph, IconSend, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -54,10 +54,15 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
+    PropertyFilterType,
+    PropertyOperator,
     Survey,
     SurveyEventName,
+    SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
+
+import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from './constants'
@@ -398,15 +403,39 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     >
                         <SurveyStatsSummary />
                         <SurveyResponsesByQuestionV2 />
-                        <LemonButton
-                            type="primary"
-                            data-attr="survey-results-explore"
-                            icon={<IconGraph />}
-                            to={surveyAsInsightURL}
-                            className="max-w-40"
-                        >
-                            Explore results
-                        </LemonButton>
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton
+                                type="primary"
+                                data-attr="survey-results-explore"
+                                icon={<IconGraph />}
+                                to={surveyAsInsightURL}
+                                className="max-w-40"
+                            >
+                                Explore results
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                data-attr="survey-results-follow-up"
+                                icon={<IconSend />}
+                                to={urlForNewWorkflowWithTrigger({
+                                    type: 'event',
+                                    filters: {
+                                        events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                                        properties: [
+                                            {
+                                                key: SurveyEventProperties.SURVEY_ID,
+                                                value: survey.id,
+                                                operator: PropertyOperator.Exact,
+                                                type: PropertyFilterType.Event,
+                                            },
+                                        ],
+                                    },
+                                })}
+                                tooltip="Start a workflow that emails people based on how they answered"
+                            >
+                                Follow up by email
+                            </LemonButton>
+                        </div>
                         {!disableEventsTable &&
                             (isInitialSurveyLoad ? (
                                 <LemonSkeleton />
