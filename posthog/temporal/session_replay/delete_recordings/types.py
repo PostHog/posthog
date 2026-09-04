@@ -114,6 +114,12 @@ class LoadRecordingError(Exception):
     pass
 
 
+class DeleteTeamMetadataInput(BaseModel):
+    """Input for the terminal metadata sweep of a team-wide deletion."""
+
+    team_id: int
+
+
 class PurgeDeletedMetadataInput(BaseModel):
     """Input for the nightly metadata purge workflow."""
 
