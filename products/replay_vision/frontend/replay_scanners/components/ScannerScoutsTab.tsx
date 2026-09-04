@@ -58,14 +58,14 @@ function ScoutTemplateCard({
                     <p className="m-0 text-xs text-muted">{template.description}</p>
                 </div>
             </div>
-            <div className="mt-auto flex items-center justify-between gap-2">
+            {/* Wraps rather than overflows: four cards across a narrow scene leave the tag and the
+                button too little room to sit on one line. */}
+            <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
                 {/* The scratch card carries the same default cron, but it isn't a ready-made scout,
                     so advertising a schedule would promise more than it hands you. */}
-                {template.key === 'scratch' ? (
-                    <span />
-                ) : (
+                {template.key !== 'scratch' && (
                     <Tooltip title={`This time is in the project timezone (${timezone}).`}>
-                        <LemonTag type="muted" size="small">
+                        <LemonTag type="muted" size="small" className="mr-auto">
                             {templateScheduleLabel(template, timezone)}
                         </LemonTag>
                     </Tooltip>
