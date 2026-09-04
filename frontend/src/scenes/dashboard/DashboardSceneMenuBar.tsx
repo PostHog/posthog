@@ -31,7 +31,6 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
@@ -88,7 +87,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
-    const { user } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -222,26 +220,24 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                 <IconDownload />
                                 PNG
                             </SceneMenuBarItem>
-                            {user?.is_staff && (
-                                <SceneMenuBarItem
-                                    onClick={() =>
-                                        startExport({
-                                            export_format: ExporterFormat.JSON,
-                                            export_context: {
-                                                localData: JSON.stringify(asDashboardTemplate),
-                                                filename: `dashboard-${slugify(
-                                                    dashboard?.name || 'nameless dashboard'
-                                                )}.json`,
-                                                mediaType: ExporterFormat.JSON,
-                                            },
-                                        })
-                                    }
-                                    data-attr={`${RESOURCE_TYPE}-menubar-export-json`}
-                                >
-                                    <IconDownload />
-                                    JSON (staff)
-                                </SceneMenuBarItem>
-                            )}
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    startExport({
+                                        export_format: ExporterFormat.JSON,
+                                        export_context: {
+                                            localData: JSON.stringify(asDashboardTemplate),
+                                            filename: `dashboard-${slugify(
+                                                dashboard?.name || 'nameless dashboard'
+                                            )}.json`,
+                                            mediaType: ExporterFormat.JSON,
+                                        },
+                                    })
+                                }
+                                data-attr={`${RESOURCE_TYPE}-menubar-export-json`}
+                            >
+                                <IconDownload />
+                                JSON
+                            </SceneMenuBarItem>
                         </SceneMenuBarSubMenu>
                     )}
                     {canShowDelete && (

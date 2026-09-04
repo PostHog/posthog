@@ -119,6 +119,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.dashboard_template_export import dashboard_to_template_payload
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
@@ -2411,6 +2412,21 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
     )
 
 
+class DashboardTemplateJSONSerializer(serializers.Serializer):
+    template_name = serializers.CharField(help_text="Name of the source dashboard. The new dashboard gets this name.")
+    dashboard_description = serializers.CharField(help_text="Description of the source dashboard.")
+    dashboard_filters = serializers.DictField(help_text="Dashboard-level filters, applied to every tile.")
+    tags = serializers.ListField(child=serializers.CharField(), help_text="Tags of the source dashboard.")
+    tiles = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="One entry per tile, of type INSIGHT, TEXT, BUTTON, or WIDGET, with its layout and color.",
+    )
+    variables = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="Always empty. Only templates in the template library define variables.",
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -2604,7 +2620,9 @@ class DashboardsViewSet(
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
 
-        if self.action != "list":
+        # template_json reads the tiles through its own queryset, which discards this prefetch and
+        # queries again. Skip the cascade so the export loads the tile graph once.
+        if self.action not in ("list", "template_json"):
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.prefetch_related(
                     Prefetch(
@@ -3568,6 +3586,22 @@ class DashboardsViewSet(
         except Exception:
             logger.warning("dashboard_run_insights_format_failed", exc_info=True, insight_id=insight.id)
             return None
+
+    @extend_schema(responses={200: DashboardTemplateJSONSerializer})
+    @action(methods=["GET"], detail=True, required_scopes=["dashboard:read"])
+    def template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Export a dashboard as a template body.
+
+        POST the body back under a `template` key to `create_from_template_json`, in this project, another
+        project, or another PostHog instance, to recreate the dashboard there.
+
+        Some references stay tied to the source project. Widget tiles keep the ids of the resources they point
+        at. Insight queries keep the ids of any action or cohort they filter on, and the names of any data
+        warehouse tables they read. Check that each of those exists in the target project before you import,
+        because an id that resolves there can point at a different object.
+        """
+        return Response(dashboard_to_template_payload(self.get_object()))
 
     @action(
         methods=["POST"],
