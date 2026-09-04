@@ -4309,6 +4309,11 @@ export class SessionService {
 
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) throw new Error("No active session for task");
+    if (session.isCloud && isTerminalStatus(session.cloudStatus)) {
+      throw new Error(
+        "This run has finished, so its sandbox is gone. Start a new run to ask again.",
+      );
+    }
     if (!sessionSupportsSideQuestion(session)) {
       throw new Error("Side questions aren't supported for this session yet.");
     }

@@ -9,6 +9,7 @@ import type {
 import type { Adapter, ModelAccess } from "./adapter";
 import type { SkillButtonId } from "./analytics-events";
 import type { TaskRunArtifact, TaskRunStatus } from "./domain-types";
+import { isTerminalStatus } from "./domain-types";
 import type { ExecutionMode } from "./exec-types";
 import type { AcpMessage } from "./session-events";
 
@@ -296,10 +297,18 @@ export function sessionSupportsNativeSteer(
  * `@posthog/agent` build, and the fork happens there against its own transcript.
  * A sandbox predating the `side_question` command rejects it, which surfaces as
  * an error on the card rather than a missing command.
+ *
+ * A cloud run that reached a terminal status has no sandbox left to fork, so the
+ * command channel answers for a server that is gone. Treat the run as incapable
+ * instead of sending a request that cannot arrive.
  */
 export function sessionSupportsSideQuestion(
-  session: Pick<AgentSession, "isCloud" | "sideQuestion" | "adapter">,
+  session: Pick<
+    AgentSession,
+    "isCloud" | "sideQuestion" | "adapter" | "cloudStatus"
+  >,
 ): boolean {
+  if (session.isCloud && isTerminalStatus(session.cloudStatus)) return false;
   if (session.sideQuestion === true) return true;
   if (session.sideQuestion === false) return false;
   return session.adapter === "claude";
