@@ -1,4 +1,4 @@
-import { deepEqual as equal } from 'fast-equals'
+import { circularDeepEqual } from 'fast-equals'
 
 export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (
@@ -6,9 +6,21 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     )
 }
 
-/** Compare objects deeply. */
+/**
+ * Compare objects deeply. The comparison recurses, so input that it cannot walk gives "not equal"
+ * instead of a stack overflow. That covers nesting deep enough to exhaust the stack. Cycles are
+ * safe too, because the comparison keeps a cache of the pairs it already visited. Callers read
+ * "not equal" as changed, so the cost is a refresh instead of a crashed page.
+ */
 export function objectsEqual(obj1: any, obj2: any): boolean {
-    return equal(obj1, obj2)
+    try {
+        return circularDeepEqual(obj1, obj2)
+    } catch (error) {
+        if (error instanceof RangeError) {
+            return false
+        }
+        throw error
+    }
 }
 
 /**
