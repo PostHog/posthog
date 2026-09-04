@@ -166,7 +166,7 @@ def _build_vision_alert(team: Team, user: User, model_cls: type[models.Model]) -
         name=f"pbt-scanner-{next(_unique_counter)}",
         scanner_type="monitor",
         scanner_config={},
-        model="gemini-3.7-flash",
+        model="gemini-3.8-flash",
     )
     manager: Any = model_cls._default_manager
     if hasattr(manager, "for_team"):

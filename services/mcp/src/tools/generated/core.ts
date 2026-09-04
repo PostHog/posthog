@@ -2,18 +2,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    OrganizationsProjectsPartialUpdateBody,
-    OrganizationsProjectsPartialUpdateParams,
-    OrganizationsProjectsRetrieveParams,
-    ProductEnablementCreateBody,
-    UploadedMediaCompleteUploadCreateParams,
-    UploadedMediaListQueryParams,
-    UploadedMediaStartUploadCreateBody,
-    UsersPartialUpdateBody,
-    UsersPartialUpdateParams,
-    UsersRetrieveParams,
-} from '@/generated/core/api'
+import * as orvalSchemas from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -25,12 +14,18 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const MediaImageUploadCompleteSchema = UploadedMediaCompleteUploadCreateParams.omit({ project_id: true })
+const MediaImageUploadCompleteSchema = () => {
+    const UploadedMediaCompleteUploadCreateParams = orvalSchemas.UploadedMediaCompleteUploadCreateParams()
+    return UploadedMediaCompleteUploadCreateParams.omit({ project_id: true })
+}
 
-const mediaImageUploadComplete = (): ToolBase<typeof MediaImageUploadCompleteSchema, Schemas.UploadedMedia> => ({
+const mediaImageUploadComplete = (): ToolBase<
+    ReturnType<typeof MediaImageUploadCompleteSchema>,
+    Schemas.UploadedMedia
+> => ({
     name: 'media-image-upload-complete',
-    schema: MediaImageUploadCompleteSchema,
-    handler: async (context: Context, params: z.infer<typeof MediaImageUploadCompleteSchema>) => {
+    schema: MediaImageUploadCompleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MediaImageUploadCompleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UploadedMedia>({
             method: 'POST',
@@ -40,12 +35,18 @@ const mediaImageUploadComplete = (): ToolBase<typeof MediaImageUploadCompleteSch
     },
 })
 
-const MediaImageUploadStartSchema = UploadedMediaStartUploadCreateBody
+const MediaImageUploadStartSchema = () => {
+    const UploadedMediaStartUploadCreateBody = orvalSchemas.UploadedMediaStartUploadCreateBody()
+    return UploadedMediaStartUploadCreateBody
+}
 
-const mediaImageUploadStart = (): ToolBase<typeof MediaImageUploadStartSchema, Schemas.UploadedMediaUploadStarted> => ({
+const mediaImageUploadStart = (): ToolBase<
+    ReturnType<typeof MediaImageUploadStartSchema>,
+    Schemas.UploadedMediaUploadStarted
+> => ({
     name: 'media-image-upload-start',
-    schema: MediaImageUploadStartSchema,
-    handler: async (context: Context, params: z.infer<typeof MediaImageUploadStartSchema>) => {
+    schema: MediaImageUploadStartSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MediaImageUploadStartSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -63,17 +64,20 @@ const mediaImageUploadStart = (): ToolBase<typeof MediaImageUploadStartSchema, S
     },
 })
 
-const MediaImagesListSchema = UploadedMediaListQueryParams.extend({
-    purpose: UploadedMediaListQueryParams.shape['purpose'].describe('The library to list, e.g. "email". Required.'),
-})
+const MediaImagesListSchema = () => {
+    const UploadedMediaListQueryParams = orvalSchemas.UploadedMediaListQueryParams()
+    return UploadedMediaListQueryParams.extend({
+        purpose: UploadedMediaListQueryParams.shape['purpose'].describe('The library to list, e.g. "email". Required.'),
+    })
+}
 
 const mediaImagesList = (): ToolBase<
-    typeof MediaImagesListSchema,
+    ReturnType<typeof MediaImagesListSchema>,
     WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedUploadedMediaList>>
 > => ({
     name: 'media-images-list',
-    schema: MediaImagesListSchema,
-    handler: async (context: Context, params: z.infer<typeof MediaImagesListSchema>) => {
+    schema: MediaImagesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MediaImagesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedUploadedMediaList>({
             method: 'GET',
@@ -92,12 +96,15 @@ const mediaImagesList = (): ToolBase<
     },
 })
 
-const ProductsEnableSchema = ProductEnablementCreateBody
+const ProductsEnableSchema = () => {
+    const ProductEnablementCreateBody = orvalSchemas.ProductEnablementCreateBody()
+    return ProductEnablementCreateBody
+}
 
-const productsEnable = (): ToolBase<typeof ProductsEnableSchema, Schemas.ProductEnablementResult> => ({
+const productsEnable = (): ToolBase<ReturnType<typeof ProductsEnableSchema>, Schemas.ProductEnablementResult> => ({
     name: 'products-enable',
-    schema: ProductsEnableSchema,
-    handler: async (context: Context, params: z.infer<typeof ProductsEnableSchema>) => {
+    schema: ProductsEnableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProductsEnableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.products !== undefined) {
@@ -112,21 +119,24 @@ const productsEnable = (): ToolBase<typeof ProductsEnableSchema, Schemas.Product
     },
 })
 
-const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-    id: z
-        .preprocess(
-            castStringToInt,
-            OrganizationsProjectsRetrieveParams.shape['id']
-                .describe("Project ID. If omitted, returns the caller's active project.")
-                .optional()
-        )
-        .optional(),
-})
+const ProjectGetSchema = () => {
+    const OrganizationsProjectsRetrieveParams = orvalSchemas.OrganizationsProjectsRetrieveParams()
+    return OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
+        id: z
+            .preprocess(
+                castStringToInt,
+                OrganizationsProjectsRetrieveParams.shape['id']
+                    .describe("Project ID. If omitted, returns the caller's active project.")
+                    .optional()
+            )
+            .optional(),
+    })
+}
 
-const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
+const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.ProjectBackwardCompat> => ({
     name: 'project-get',
-    schema: ProjectGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ProjectGetSchema>) => {
+    schema: ProjectGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProjectGetSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const id = params.id ?? (await context.stateManager.getProjectId())
         if (!id) {
@@ -146,21 +156,28 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
     },
 })
 
-const ProjectSettingsUpdateSchema = OrganizationsProjectsPartialUpdateParams.omit({ organization_id: true })
-    .extend(OrganizationsProjectsPartialUpdateBody.shape)
-    .extend({
-        id: z.preprocess(
-            castStringToInt,
-            OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
-                "Project ID, or `@current` to target the caller's active project."
-            )
-        ),
-    })
+const ProjectSettingsUpdateSchema = () => {
+    const OrganizationsProjectsPartialUpdateBody = orvalSchemas.OrganizationsProjectsPartialUpdateBody()
+    const OrganizationsProjectsPartialUpdateParams = orvalSchemas.OrganizationsProjectsPartialUpdateParams()
+    return OrganizationsProjectsPartialUpdateParams.omit({ organization_id: true })
+        .extend(OrganizationsProjectsPartialUpdateBody.shape)
+        .extend({
+            id: z.preprocess(
+                castStringToInt,
+                OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
+                    "Project ID, or `@current` to target the caller's active project."
+                )
+            ),
+        })
+}
 
-const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, Schemas.ProjectBackwardCompat> => ({
+const projectSettingsUpdate = (): ToolBase<
+    ReturnType<typeof ProjectSettingsUpdateSchema>,
+    Schemas.ProjectBackwardCompat
+> => ({
     name: 'project-settings-update',
-    schema: ProjectSettingsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ProjectSettingsUpdateSchema>) => {
+    schema: ProjectSettingsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProjectSettingsUpdateSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -168,6 +185,9 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         }
         if (params.product_description !== undefined) {
             body['product_description'] = params.product_description
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.app_urls !== undefined) {
             body['app_urls'] = params.app_urls
@@ -333,6 +353,9 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.workflows_config !== undefined) {
             body['workflows_config'] = params.workflows_config
         }
+        if (params.feature_flag_policy_config !== undefined) {
+            body['feature_flag_policy_config'] = params.feature_flag_policy_config
+        }
         if (params.base_currency !== undefined) {
             body['base_currency'] = params.base_currency
         }
@@ -375,14 +398,17 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
     },
 })
 
-const UserGetSchema = UsersRetrieveParams.extend({
-    uuid: UsersRetrieveParams.shape['uuid'].describe('User UUID, or `@me` to target the authenticated user.'),
-})
+const UserGetSchema = () => {
+    const UsersRetrieveParams = orvalSchemas.UsersRetrieveParams()
+    return UsersRetrieveParams.extend({
+        uuid: UsersRetrieveParams.shape['uuid'].describe('User UUID, or `@me` to target the authenticated user.'),
+    })
+}
 
-const userGet = (): ToolBase<typeof UserGetSchema, Schemas.User> => ({
+const userGet = (): ToolBase<ReturnType<typeof UserGetSchema>, Schemas.User> => ({
     name: 'user-get',
-    schema: UserGetSchema,
-    handler: async (context: Context, params: z.infer<typeof UserGetSchema>) => {
+    schema: UserGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserGetSchema>>) => {
         const result = await context.api.request<Schemas.User>({
             method: 'GET',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
@@ -427,14 +453,18 @@ const userGet = (): ToolBase<typeof UserGetSchema, Schemas.User> => ({
     },
 })
 
-const UserSettingsUpdateSchema = UsersPartialUpdateParams.extend(UsersPartialUpdateBody.shape).extend({
-    uuid: UsersPartialUpdateParams.shape['uuid'].describe('User UUID, or `@me` to target the authenticated user.'),
-})
+const UserSettingsUpdateSchema = () => {
+    const UsersPartialUpdateBody = orvalSchemas.UsersPartialUpdateBody()
+    const UsersPartialUpdateParams = orvalSchemas.UsersPartialUpdateParams()
+    return UsersPartialUpdateParams.extend(UsersPartialUpdateBody.shape).extend({
+        uuid: UsersPartialUpdateParams.shape['uuid'].describe('User UUID, or `@me` to target the authenticated user.'),
+    })
+}
 
-const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas.User> => ({
+const userSettingsUpdate = (): ToolBase<ReturnType<typeof UserSettingsUpdateSchema>, Schemas.User> => ({
     name: 'user-settings-update',
-    schema: UserSettingsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserSettingsUpdateSchema>) => {
+    schema: UserSettingsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserSettingsUpdateSchema>>) => {
         const body: Record<string, unknown> = {}
         if (params.first_name !== undefined) {
             body['first_name'] = params.first_name

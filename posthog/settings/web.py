@@ -88,6 +88,7 @@ PRODUCTS_APPS = [
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
+    "products.mcp_registry.backend.apps.McpRegistryConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
@@ -575,8 +576,6 @@ SPECTACULAR_SETTINGS = {
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
-            # vision_action and vision_alert both define AlertDirection.
-            "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             #
@@ -682,8 +681,15 @@ SPECTACULAR_SETTINGS = {
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
             "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
+            "ExperimentWatchCardKindEnum": ["behavior", "friction", "variant_only", "metric"],
             "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
             "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
+            "ExperimentWatchEmptyReasonEnum": [
+                "too_early",
+                "no_separation",
+                "no_recordings",
+                "no_session_linked_exposures",
+            ],
             "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
             "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
             "VerdictEnum": ["yes", "no", "inconclusive"],
@@ -1047,14 +1053,10 @@ WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES: list[str] = get_list(
 #   "shadow"  - tiers are computed and stored, and every send that a cap would have delayed is
 #               logged, but no send is delayed and no audience is rejected.
 #   "enforce" - caps apply.
-# The email worker has its own copy of these two, EMAIL_TEAM_SENDING_CAP_MODE and
-# EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER in nodejs/src/cdp/config.ts, because it never reads
-# Django settings. Set both sides together: this pair drives the batch audience cap and what the
-# workflows UI shows, and the worker's pair drives the send-time cap.
+# The email worker has its own copy, EMAIL_TEAM_SENDING_CAP_MODE in nodejs/src/cdp/config.ts,
+# because it never reads Django settings. Set both sides together: this one drives the batch
+# audience cap and what the workflows UI shows, and the worker's drives the send-time cap.
 WORKFLOWS_EMAIL_TIER_MODE = get_from_env("WORKFLOWS_EMAIL_TIER_MODE", "off")
-# Narrows enforcement to teams created on or after this date (ISO 8601, e.g. "2026-01-01"), so the
-# caps can be turned on for new projects without touching established ones. Empty means all teams.
-WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER = get_from_env("WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER", "")
 
 # Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
 # "*" for all, empty to disable feature

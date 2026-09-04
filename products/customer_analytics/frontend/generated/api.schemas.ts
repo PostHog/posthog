@@ -1142,6 +1142,46 @@ export const BounceRatePageViewModeApi = {
     UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
 } as const
 
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+    Browser: '$browser',
+    Os: '$os',
+    BrowserLanguage: '$browser_language',
+    ScreenWidth: '$screen_width',
+    ScreenHeight: '$screen_height',
+    GeoipCountryCode: '$geoip_country_code',
+    Referrer: '$referrer',
+    ReferringDomain: '$referring_domain',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotDefinitionApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    id: string
+    /** The event property this rule reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
+
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
@@ -1293,6 +1333,7 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    customBotDefinitions?: CustomBotDefinitionApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
     debug?: boolean | null
@@ -2536,8 +2577,10 @@ export interface CustomPropertyDefinitionApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
-    /** Workflows that use this property, resolved by definition id. */
+    /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
     readonly references: readonly CustomPropertyReferenceApi[]
+    /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+    readonly has_workflow_reference: boolean
 }
 
 export interface PaginatedCustomPropertyDefinitionListApi {
@@ -2608,8 +2651,10 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
-    /** Workflows that use this property, resolved by definition id. */
+    /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
     readonly references?: readonly CustomPropertyReferenceApi[]
+    /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+    readonly has_workflow_reference?: boolean
 }
 
 /**
@@ -3702,7 +3747,7 @@ export type AccountsListParams = {
      */
     ordering?: string
     /**
-     * Case-insensitive substring search across account name and external ID.
+     * Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.
      */
     search?: string
     /**

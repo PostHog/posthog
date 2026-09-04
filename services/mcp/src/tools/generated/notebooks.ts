@@ -2,20 +2,8 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    NotebooksCreateBody,
-    NotebooksDestroyParams,
-    NotebooksKernelConfigCreateBody,
-    NotebooksKernelConfigCreateParams,
-    NotebooksKernelStatusRetrieveParams,
-    NotebooksListQueryParams,
-    NotebooksPartialUpdateBody,
-    NotebooksPartialUpdateParams,
-    NotebooksRetrieveParams,
-    NotebooksSqlV2RunsInterruptCreateParams,
-    NotebooksSqlV2RunsRetrieveParams,
-    NotebooksSqlV2StateRetrieveParams,
-} from '@/generated/notebooks/api'
+import * as orvalSchemas from '@/generated/notebooks/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withInformationalResponse,
@@ -26,17 +14,46 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const NotebooksConfigureComputeSchema = NotebooksKernelConfigCreateParams.omit({ project_id: true }).extend(
-    NotebooksKernelConfigCreateBody.shape
-)
+const NotebooksComputeOptionsSchema = () => z.object({})
+
+const notebooksComputeOptions = (): ToolBase<
+    ReturnType<typeof NotebooksComputeOptionsSchema>,
+    Schemas.NotebookComputeOptionsResponse
+> => ({
+    name: 'notebooks-compute-options',
+    schema: NotebooksComputeOptionsSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof NotebooksComputeOptionsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookComputeOptionsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/kernel/compute_options/`,
+        })
+        return result
+    },
+})
+
+const NotebooksConfigureComputeSchema = () => {
+    const NotebooksKernelConfigCreateBody = orvalSchemas.NotebooksKernelConfigCreateBody()
+    const NotebooksKernelConfigCreateParams = orvalSchemas.NotebooksKernelConfigCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksKernelConfigCreateParams.omit({ project_id: true })
+            .extend(NotebooksKernelConfigCreateBody.shape)
+            .extend({
+                short_id: NotebooksKernelConfigCreateParams.shape['short_id'].describe(
+                    "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+                ),
+            })
+    )
+}
 
 const notebooksConfigureCompute = (): ToolBase<
-    typeof NotebooksConfigureComputeSchema,
+    ReturnType<typeof NotebooksConfigureComputeSchema>,
     Schemas.NotebookKernelConfigResponse
 > => ({
     name: 'notebooks-configure-compute',
-    schema: NotebooksConfigureComputeSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksConfigureComputeSchema>) => {
+    schema: NotebooksConfigureComputeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksConfigureComputeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.cpu_cores !== undefined) {
@@ -57,12 +74,15 @@ const notebooksConfigureCompute = (): ToolBase<
     },
 })
 
-const NotebooksCreateSchema = NotebooksCreateBody
+const NotebooksCreateSchema = () => {
+    const NotebooksCreateBody = orvalSchemas.NotebooksCreateBody()
+    return NotebooksCreateBody
+}
 
-const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUrl<Schemas.Notebook>> => ({
+const notebooksCreate = (): ToolBase<ReturnType<typeof NotebooksCreateSchema>, WithPostHogUrl<Schemas.Notebook>> => ({
     name: 'notebooks-create',
-    schema: NotebooksCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksCreateSchema>) => {
+    schema: NotebooksCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.title !== undefined) {
@@ -92,12 +112,22 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUr
     },
 })
 
-const NotebooksDestroySchema = NotebooksDestroyParams.omit({ project_id: true })
+const NotebooksDestroySchema = () => {
+    const NotebooksDestroyParams = orvalSchemas.NotebooksDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksDestroyParams.omit({ project_id: true }).extend({
+            short_id: NotebooksDestroyParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
+}
 
-const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Notebook> => ({
+const notebooksDestroy = (): ToolBase<ReturnType<typeof NotebooksDestroySchema>, Schemas.Notebook> => ({
     name: 'notebooks-destroy',
-    schema: NotebooksDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksDestroySchema>) => {
+    schema: NotebooksDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',
@@ -108,15 +138,25 @@ const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Not
     },
 })
 
-const NotebooksGetSchema = NotebooksSqlV2StateRetrieveParams.omit({ project_id: true })
+const NotebooksGetSchema = () => {
+    const NotebooksSqlV2StateRetrieveParams = orvalSchemas.NotebooksSqlV2StateRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksSqlV2StateRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksSqlV2StateRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
+}
 
 const notebooksGet = (): ToolBase<
-    typeof NotebooksGetSchema,
+    ReturnType<typeof NotebooksGetSchema>,
     WithInformationalResponse<WithPostHogUrl<Schemas.NotebookSQLV2StateResponse>>
 > => ({
     name: 'notebooks-get',
-    schema: NotebooksGetSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksGetSchema>) => {
+    schema: NotebooksGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.NotebookSQLV2StateResponse>({
             method: 'GET',
@@ -130,15 +170,18 @@ const notebooksGet = (): ToolBase<
     },
 })
 
-const NotebooksListSchema = NotebooksListQueryParams
+const NotebooksListSchema = () => {
+    const NotebooksListQueryParams = orvalSchemas.NotebooksListQueryParams()
+    return NotebooksListQueryParams
+}
 
 const notebooksList = (): ToolBase<
-    typeof NotebooksListSchema,
+    ReturnType<typeof NotebooksListSchema>,
     WithPostHogUrl<Schemas.PaginatedNotebookMinimalList>
 > => ({
     name: 'notebooks-list',
-    schema: NotebooksListSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksListSchema>) => {
+    schema: NotebooksListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedNotebookMinimalList>({
             method: 'GET',
@@ -157,15 +200,25 @@ const notebooksList = (): ToolBase<
     },
 })
 
-const NotebooksListFramesSchema = NotebooksKernelStatusRetrieveParams.omit({ project_id: true })
+const NotebooksListFramesSchema = () => {
+    const NotebooksKernelStatusRetrieveParams = orvalSchemas.NotebooksKernelStatusRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksKernelStatusRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksKernelStatusRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
+}
 
 const notebooksListFrames = (): ToolBase<
-    typeof NotebooksListFramesSchema,
+    ReturnType<typeof NotebooksListFramesSchema>,
     WithInformationalResponse<Schemas.NotebookKernelStatusResponse>
 > => ({
     name: 'notebooks-list-frames',
-    schema: NotebooksListFramesSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksListFramesSchema>) => {
+    schema: NotebooksListFramesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksListFramesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.NotebookKernelStatusResponse>({
             method: 'GET',
@@ -177,6 +230,9 @@ const notebooksListFrames = (): ToolBase<
             'cpu_cores',
             'memory_gb',
             'idle_timeout_seconds',
+            'backend',
+            'hourly_price',
+            'preset_key',
         ]) as typeof result
         return withInformationalResponse(
             filtered,
@@ -186,14 +242,28 @@ const notebooksListFrames = (): ToolBase<
     },
 })
 
-const NotebooksPartialUpdateSchema = NotebooksPartialUpdateParams.omit({ project_id: true }).extend(
-    NotebooksPartialUpdateBody.shape
-)
+const NotebooksPartialUpdateSchema = () => {
+    const NotebooksPartialUpdateBody = orvalSchemas.NotebooksPartialUpdateBody()
+    const NotebooksPartialUpdateParams = orvalSchemas.NotebooksPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksPartialUpdateParams.omit({ project_id: true })
+            .extend(NotebooksPartialUpdateBody.shape)
+            .extend({
+                short_id: NotebooksPartialUpdateParams.shape['short_id'].describe(
+                    "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+                ),
+            })
+    )
+}
 
-const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema, WithPostHogUrl<Schemas.Notebook>> => ({
+const notebooksPartialUpdate = (): ToolBase<
+    ReturnType<typeof NotebooksPartialUpdateSchema>,
+    WithPostHogUrl<Schemas.Notebook>
+> => ({
     name: 'notebooks-partial-update',
-    schema: NotebooksPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksPartialUpdateSchema>) => {
+    schema: NotebooksPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.title !== undefined) {
@@ -223,12 +293,25 @@ const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema,
     },
 })
 
-const NotebooksRetrieveSchema = NotebooksRetrieveParams.omit({ project_id: true })
+const NotebooksRetrieveSchema = () => {
+    const NotebooksRetrieveParams = orvalSchemas.NotebooksRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
+}
 
-const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostHogUrl<Schemas.Notebook>> => ({
+const notebooksRetrieve = (): ToolBase<
+    ReturnType<typeof NotebooksRetrieveSchema>,
+    WithPostHogUrl<Schemas.Notebook>
+> => ({
     name: 'notebooks-retrieve',
-    schema: NotebooksRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksRetrieveSchema>) => {
+    schema: NotebooksRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Notebook>({
             method: 'GET',
@@ -238,15 +321,25 @@ const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostH
     },
 })
 
-const NotebooksRunCellInterruptSchema = NotebooksSqlV2RunsInterruptCreateParams.omit({ project_id: true })
+const NotebooksRunCellInterruptSchema = () => {
+    const NotebooksSqlV2RunsInterruptCreateParams = orvalSchemas.NotebooksSqlV2RunsInterruptCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksSqlV2RunsInterruptCreateParams.omit({ project_id: true }).extend({
+            short_id: NotebooksSqlV2RunsInterruptCreateParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
+}
 
 const notebooksRunCellInterrupt = (): ToolBase<
-    typeof NotebooksRunCellInterruptSchema,
+    ReturnType<typeof NotebooksRunCellInterruptSchema>,
     Schemas.NotebookSQLV2InterruptResponse
 > => ({
     name: 'notebooks-run-cell-interrupt',
-    schema: NotebooksRunCellInterruptSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksRunCellInterruptSchema>) => {
+    schema: NotebooksRunCellInterruptSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksRunCellInterruptSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.NotebookSQLV2InterruptResponse>({
             method: 'POST',
@@ -256,15 +349,25 @@ const notebooksRunCellInterrupt = (): ToolBase<
     },
 })
 
-const NotebooksRunCellResultSchema = NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true })
+const NotebooksRunCellResultSchema = () => {
+    const NotebooksSqlV2RunsRetrieveParams = orvalSchemas.NotebooksSqlV2RunsRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksSqlV2RunsRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
+}
 
 const notebooksRunCellResult = (): ToolBase<
-    typeof NotebooksRunCellResultSchema,
+    ReturnType<typeof NotebooksRunCellResultSchema>,
     WithInformationalResponse<Schemas.NotebookSQLV2RunStatusResponse>
 > => ({
     name: 'notebooks-run-cell-result',
-    schema: NotebooksRunCellResultSchema,
-    handler: async (context: Context, params: z.infer<typeof NotebooksRunCellResultSchema>) => {
+    schema: NotebooksRunCellResultSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksRunCellResultSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.NotebookSQLV2RunStatusResponse>({
             method: 'GET',
@@ -280,6 +383,7 @@ const notebooksRunCellResult = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'notebooks-compute-options': notebooksComputeOptions,
     'notebooks-configure-compute': notebooksConfigureCompute,
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,

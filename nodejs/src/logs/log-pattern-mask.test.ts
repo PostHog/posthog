@@ -4,15 +4,18 @@ import RE2 from 're2'
 import {
     JSON_ARRAY,
     KEY_SET_MAX_KEYS,
+    type LogPatternResult,
     MASK_RULES,
     MESSAGE_KEYS,
     PATTERN_CAPS,
     PATTERN_VERSION,
-    computeLogPattern,
+    buildLogPattern,
     maskString,
 } from './log-pattern-mask'
 
 describe('log-pattern-mask', () => {
+    const patternResult = (body: string | null | undefined): LogPatternResult => buildLogPattern(body, MESSAGE_KEYS)
+
     describe('maskString', () => {
         it.each([
             ['timestamp iso Z', 'started at 2026-08-24T10:20:45.123Z ok', 'started at <TIMESTAMP> ok'],
@@ -30,10 +33,16 @@ describe('log-pattern-mask', () => {
             ],
             ['klogtime warning severity', 'W0101 00:00:00 rotating', 'W<KLOGTIME> rotating'],
             ['klogtime at the MMDD upper bound', 'F1231 23:59:59 shutdown', 'F<KLOGTIME> shutdown'],
+            ['clftime', '10.0.0.1 - - [02/Jan/2026:03:04:05 +0000] "GET /a"', '<IP> - - [<TIMESTAMP>] "GET /a"'],
+            ['ctime with a zone', 'booted Mon Jan  2 03:04:05 UTC 2026 ok', 'booted <TIMESTAMP> ok'],
+            ['ctime without a zone', 'booted Mon Jan 12 03:04:05 2026 ok', 'booted <TIMESTAMP> ok'],
+            ['httpdate', 'expires Mon, 02 Jan 2026 03:04:05 GMT now', 'expires <TIMESTAMP> now'],
+            ['syslogtime', 'Jan  2 03:04:05 host sshd: accepted', '<TIMESTAMP> host sshd: accepted'],
             ['uuid', 'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 failed', 'request <UUID> failed'],
             ['email', 'user alice@example.com rejected', 'user <EMAIL> rejected'],
             ['hex0x', 'fault at 0xdeadBEEF handler', 'fault at <HEX> handler'],
             ['hex long run', 'trace deadbeefdeadbeef00 end', 'trace <HEX> end'],
+            ['hex at the short floor', 'built sha a3f9c1d2 ok', 'built sha <HEX> ok'],
             ['ipv4', 'connection from 10.0.0.1 refused', 'connection from <IP> refused'],
             ['num', 'retry 5 of 7', 'retry <N> of <N>'],
         ])('rule %s masks the token and leaves neighbouring text intact', (_name, input, expected) => {
@@ -63,7 +72,70 @@ describe('log-pattern-mask', () => {
                 'processed 1234 12:34:56 rows',
                 'processed <N> <N>:<N>:<N> rows',
             ],
+            [
+                'a ctime line loses its weekday, which the month rule alone would strand',
+                'Mon Jan  2 03:04:05 UTC 2026 boot',
+                '<TIMESTAMP> boot',
+            ],
+            ['an http date loses its weekday too', 'Mon, 02 Jan 2026 03:04:05 GMT boot', '<TIMESTAMP> boot'],
         ])('ordering: %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        // Each name-carrying date rule needs a real date around the name, for the same reason the
+        // klog guards are asserted from the negative side: a bare month or weekday is ordinary
+        // English, and masking it would merge lines that have nothing to do with each other.
+        it.each([
+            ['a bare month name in prose', 'May retry 3 times', 'May retry <N> times'],
+            ['a bare weekday in prose', 'Mon deploy window 2', 'Mon deploy window <N>'],
+            ['a month name without a time', 'Jan 2 rows written', 'Jan <N> rows written'],
+            ['a weekday with a time but no date', 'Mon 03:04:05 tick', 'Mon <N>:<N>:<N> tick'],
+            ['a day of month above 31', 'Jan 32 03:04:05 x', 'Jan <N> <N>:<N>:<N> x'],
+            // A severity word has the shape of a zone, and a count has the shape of a year, so an
+            // open zone or year lets `ctime` take both out of the pattern and merge an ERROR line
+            // with a WARN one. The count here sits inside the year range the rule accepts, which is
+            // where an open zone alone still loses it.
+            [
+                'a severity word and the count behind it',
+                'Mon Jan  2 03:04:05 ERROR 2341 connections',
+                '<TIMESTAMP> ERROR <N> connections',
+            ],
+            [
+                'a count that reads exactly like this year',
+                'Mon Jan  2 03:04:05 WARN 2026 connections',
+                '<TIMESTAMP> WARN <N> connections',
+            ],
+            // An unlisted zone costs grouping, not correctness: the date still masks, and the zone
+            // and year stay rather than disappearing with it.
+            [
+                'a zone outside the known set, which falls to the month rule',
+                'booted Mon Jan  2 03:04:05 XYZQ 2026 ok',
+                'booted <TIMESTAMP> XYZQ <N> ok',
+            ],
+            [
+                'an impossible day in an http date',
+                'Mon, 99 Jan 2026 03:04:05 GMT open',
+                'Mon, <N> Jan <N> <N>:<N>:<N> GMT open',
+            ],
+        ])('date rules do not claim %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        it.each([
+            ['shared object files are not hosts', 'loading libssl.so failed', 'loading libssl.so failed'],
+            ['shell scripts are not hosts', 'running deploy.sh in 2s', 'running deploy.sh in <N>s'],
+        ])('%s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        // The hex rule needs a letter, which is what keeps its 8-char floor off plain numbers. Without
+        // the letter, every id, epoch, and byte count of 8 or more digits would read as `<HEX>`.
+        it.each([
+            ['a short digit run stays a number', 'offset 1724495000 read', 'offset <N> read'],
+            ['a long digit run stays a number', 'id 1234567890123456 seen', 'id <N> seen'],
+            ['a hex run under the floor is left alone', 'code abc12 seen', 'code abc12 seen'],
+            ['a hex run inside an identifier is left alone', 'key deadbeef_1 seen', 'key deadbeef_1 seen'],
+        ])('hex letter requirement: %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
 
@@ -109,6 +181,10 @@ describe('log-pattern-mask', () => {
             expect(byName).toEqual({
                 timestamp: 0,
                 klogtime: 1,
+                clftime: 0,
+                ctime: 0,
+                httpdate: 0,
+                syslogtime: 0,
                 uuid: 0,
                 email: 2,
                 host: 1,
@@ -120,7 +196,7 @@ describe('log-pattern-mask', () => {
         })
     })
 
-    describe('computeLogPattern', () => {
+    describe('buildLogPattern', () => {
         it('masks before truncating, so a UUID straddling the cut point still yields its placeholder', () => {
             // Long enough that the raw UUID crosses the output cap, short enough that `<UUID>` does not.
             // Filled with a non-hex letter, or the run itself masks to `<HEX>`.
@@ -128,19 +204,19 @@ describe('log-pattern-mask', () => {
             const body = `${head} 0f2d6faf-07e3-4cff-bf47-7efa1024aee2`
             expect(body.length).toBeGreaterThan(PATTERN_CAPS.maxOutputChars)
 
-            const result = computeLogPattern(body)
+            const result = patternResult(body)
             expect(result.pattern).toEqual(`${head} <UUID>`)
             expect(result.maskedLength).toEqual(`${head} <UUID>`.length)
         })
 
         it('reports the pre-truncation masked length and truncates the pattern', () => {
-            const result = computeLogPattern('x'.repeat(PATTERN_CAPS.maxOutputChars * 2))
+            const result = patternResult('x'.repeat(PATTERN_CAPS.maxOutputChars * 2))
             expect(result.pattern).toEqual('x'.repeat(PATTERN_CAPS.maxOutputChars))
             expect(result.maskedLength).toEqual(PATTERN_CAPS.maxOutputChars * 2)
         })
 
         it('caps the input before masking and reports it', () => {
-            const result = computeLogPattern(`${'z'.repeat(PATTERN_CAPS.maxInputChars)} 12345678`)
+            const result = patternResult(`${'z'.repeat(PATTERN_CAPS.maxInputChars)} 12345678`)
             expect(result.inputCapped).toEqual(true)
             // The number sat past the input cap, so no rule ever saw it.
             expect(result.maskedLength).toEqual(PATTERN_CAPS.maxInputChars)
@@ -149,7 +225,7 @@ describe('log-pattern-mask', () => {
 
         it('caps the raw body before the JSON parse, so an oversized JSON body is treated as truncated prose', () => {
             const body = JSON.stringify({ message: 'x'.repeat(PATTERN_CAPS.maxInputChars) })
-            const result = computeLogPattern(body)
+            const result = patternResult(body)
             expect(result.inputCapped).toEqual(true)
             expect(result.bodyKind).toEqual('plaintext')
             expect(result.pattern).toEqual(body.slice(0, PATTERN_CAPS.maxOutputChars))
@@ -173,13 +249,13 @@ describe('log-pattern-mask', () => {
             ['json number primitive', '42', 'primitive', '<N>'],
             ['prose body', 'plain text 3', 'plaintext', 'plain text <N>'],
         ])('body kind %s', (_name, body, expectedKind, expectedPattern) => {
-            const result = computeLogPattern(body)
+            const result = patternResult(body)
             expect(result.bodyKind).toEqual(expectedKind)
             expect(result.pattern).toEqual(expectedPattern)
         })
 
         describe('key-set identity for message-less JSON objects', () => {
-            const patternOf = (body: string): string => computeLogPattern(body).pattern
+            const patternOf = (body: string): string => patternResult(body).pattern
 
             it('is independent of source key order', () => {
                 expect(patternOf('{"b":1,"a":2}')).toEqual('<JSON:a,b>')
@@ -193,13 +269,13 @@ describe('log-pattern-mask', () => {
                 const expected = `<JSON:${keys.slice(0, 32).join(',')},+8>`
                 expect(patternOf(forward)).toEqual(expected)
                 expect(patternOf(reversed)).toEqual(expected)
-                expect(computeLogPattern(forward).jsonKeyCount).toEqual(40)
+                expect(patternResult(forward).jsonKeyCount).toEqual(40)
             })
 
             it('reports the key count only for key-set patterns', () => {
-                expect(computeLogPattern('{"a":1}').jsonKeyCount).toEqual(1)
-                expect(computeLogPattern('[1,2]').jsonKeyCount).toBeUndefined()
-                expect(computeLogPattern('{"message":"hi"}').jsonKeyCount).toBeUndefined()
+                expect(patternResult('{"a":1}').jsonKeyCount).toEqual(1)
+                expect(patternResult('[1,2]').jsonKeyCount).toBeUndefined()
+                expect(patternResult('{"message":"hi"}').jsonKeyCount).toBeUndefined()
             })
 
             it('renders an empty object as an empty key set', () => {
@@ -210,10 +286,22 @@ describe('log-pattern-mask', () => {
                 expect(patternOf('{"outer":{"inner":1},"other":[1,2]}')).toEqual('<JSON:other,outer>')
             })
 
-            it('never masks keys, so value-shaped keys stay verbatim', () => {
-                expect(patternOf('{"10.0.0.1":1,"7141":2,"user@example.com":3}')).toEqual(
-                    '<JSON:10.0.0.1,7141,user@example.com>'
+            it('masks keys, so a value-shaped key becomes its placeholder', () => {
+                expect(patternOf('{"10.0.0.1":1,"7141":2,"user@example.com":3}')).toEqual('<JSON:<EMAIL>,<IP>,<N>>')
+            })
+
+            it('deduplicates masked keys, so an object keyed by data is one key wide', () => {
+                const body = JSON.stringify(
+                    Object.fromEntries(Array.from({ length: 50 }, (_unused, index) => [`10.0.0.${index}`, 1]))
                 )
+                // Deduplicating before the cap is what drops the overflow suffix too: a `+18` here
+                // would carry the raw key count back into the pattern.
+                expect(patternOf(body)).toEqual('<JSON:<IP>>')
+            })
+
+            it('counts key masking in the rule fires, so the rule metric still matches what shipped', () => {
+                const ipv4 = MASK_RULES.findIndex((rule) => rule.name === 'ipv4')
+                expect(patternResult('{"10.0.0.1":1,"10.0.0.2":2}').ruleFires[ipv4]).toEqual(2)
             })
         })
     })
@@ -233,9 +321,14 @@ describe('log-pattern-mask', () => {
             'started at 2026-08-24T10:20:45.123Z ok',
             'I0827 11:39:40.307946 1 proxier.go:1484] reloading',
             'W0101 00:00:00 rotate E0102 01:02:03 retry F0103 02:03:04 exit',
+            '10.0.0.1 - - [02/Jan/2026:03:04:05 +0000] "GET /a" 200',
+            'booted Mon Jan  2 03:04:05 UTC 2026, expires Mon, 02 Jan 2026 04:05:06 GMT',
+            'Jan  2 03:04:05 host sshd: accepted',
             'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 took 7141ms',
             'mail ops@example.com via api.example.com at 10.0.0.7 slot 0xdeadbeef',
             'checksum deadbeefdeadbeef00 verified',
+            'built sha a3f9c1d2 from 1724495000',
+            '{"10.0.0.1":1,"10.0.0.2":2}',
             ...MESSAGE_KEYS.map((key) => JSON.stringify({ [key]: 'served 3 requests', level: 'info' })),
             '{"msg":"loses 2","message":"wins 1"}',
             // Reach `extractJsonMessage` itself, not just the keys it reads. Widening it to accept a
@@ -267,6 +360,7 @@ describe('log-pattern-mask', () => {
          */
         const SHAPE_DIGESTS: Record<number, string> = {
             3: 'd7b045b1054244d1',
+            4: '357baaab19f622df',
         }
 
         /**
@@ -288,7 +382,7 @@ describe('log-pattern-mask', () => {
 
         const shapeDigest = (): string =>
             createHash('sha256')
-                .update([SHAPE_INPUTS, ...CORPUS.map((body) => computeLogPattern(body).pattern)].join('\x01'))
+                .update([SHAPE_INPUTS, ...CORPUS.map((body) => patternResult(body).pattern)].join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
 
@@ -299,7 +393,7 @@ describe('log-pattern-mask', () => {
         it('reaches every mask rule, so a new rule cannot land without moving the digest', () => {
             const fires = MASK_RULES.map(() => 0)
             for (const body of CORPUS) {
-                computeLogPattern(body).ruleFires.forEach((count, index) => (fires[index] += count))
+                patternResult(body).ruleFires.forEach((count, index) => (fires[index] += count))
             }
             // Reported by pattern, not name: klogtime is four rules under one name, so a name would
             // not say which of them the corpus misses.
@@ -310,7 +404,7 @@ describe('log-pattern-mask', () => {
             // `parseLogBodyForIngestion` picks which branch of `computeLogPattern` runs, and it lives in
             // another module that neither half of the digest hashes. Reaching every kind is what makes a
             // change over there surface as a moved digest instead of as silence.
-            const kinds = [...new Set(CORPUS.map((body) => computeLogPattern(body).bodyKind))].sort()
+            const kinds = [...new Set(CORPUS.map((body) => patternResult(body).bodyKind))].sort()
             expect(kinds).toEqual(['empty', 'json_object_or_array', 'json_string', 'plaintext', 'primitive'])
         })
 
@@ -358,6 +452,13 @@ describe('log-pattern-mask', () => {
             'batch 5 7 11 done at 2026-08-24 10:20:45,001',
             'no variable parts in this line at all',
             'mixed a99@example.com then 192.168.0.1 then 99bottles@example.com',
+            // A weekday form and the month form overlap: the chain would let `syslogtime` cut the
+            // line first and strand the weekday, unless the weekday rules are listed ahead of it.
+            'Mon Jan  2 03:04:05 UTC 2026 boot complete',
+            'expires Mon, 02 Jan 2026 03:04:05 GMT',
+            '10.0.0.1 - - [02/Jan/2026:03:04:05 +0000] "GET /v0/export" 200 35',
+            'Jan  2 03:04:05 host sshd: accepted from 10.0.0.1',
+            'built sha a3f9c1d2 at 1724495000 into deadbeefdeadbeef00',
         ]
 
         it.each(corpus.map((line) => [line] as const))('%s', (line) => {

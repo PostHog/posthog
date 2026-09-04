@@ -220,6 +220,28 @@ tools:
                 description: Only return canvases of this kind. kind=component lists the component store.
             search:
                 description: Case-insensitive match on name and description — use to find store components by what they show.
+    canvas-move:
+        operation: canvases_partial_update
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Move canvas
+        description: >
+            Move a canvas to a visible destination space. The canvas and its full version history stay intact, but any
+            pin in the current space is cleared. Only the canvas creator can move it. A sandbox task can move a canvas
+            only within its own space; an attempted cross-space move returns 403.
+        include_params:
+            - channel_id
+        param_overrides:
+            id:
+                description: ID of the canvas to move.
+            channel_id:
+                description: ID of the visible destination space.
+                required: true
     canvas-promote-create:
         operation: canvases_promote_create
         enabled: true
@@ -370,9 +392,6 @@ tools:
         enabled: false
     canvases-home-create:
         operation: canvases_home_create
-        enabled: false
-    canvases-partial-update:
-        operation: canvases_partial_update
         enabled: false
     canvases-retrieve:
         operation: canvases_retrieve

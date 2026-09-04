@@ -1106,29 +1106,6 @@ export interface PatchedDataWarehouseExpressionApi {
     connection_id?: string | null
 }
 
-export interface DataWarehouseModelPathApi {
-    readonly id: string
-    readonly path: readonly string[]
-    team: number
-    /** @nullable */
-    table?: string | null
-    /** @nullable */
-    saved_query?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedDataWarehouseModelPathListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseModelPathApi[]
-}
-
 /**
  * * `Cancelled` - Cancelled
  * * `Modified` - Modified
@@ -1695,6 +1672,35 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+}
+
+/**
+ * Body of the `ancestors` and `descendants` actions.
+ */
+export interface SavedQueryLineageRequestApi {
+    /**
+     * How many hops to walk, so 1 gives the immediate neighbours. Omit to walk the whole cone.
+     * @minimum 1
+     * @nullable
+     */
+    level?: number | null
+}
+
+export interface SavedQueryAncestorsApi {
+    /** Ids of the saved queries and warehouse tables this query reads from, directly or through other queries, and the names of the PostHog tables among them. */
+    ancestors: string[]
+}
+
+export interface SavedQueryDependenciesApi {
+    /** How many tables and queries this query reads from directly. */
+    upstream_count: number
+    /** How many queries read from this query directly. */
+    downstream_count: number
+}
+
+export interface SavedQueryDescendantsApi {
+    /** Ids of the saved queries that read from this query, directly or through other queries. */
+    descendants: string[]
 }
 
 /**
@@ -3250,6 +3256,10 @@ export interface CredentialApi {
  * * `Anvil` - Anvil
  * * `Coolify` - Coolify
  * * `SocialPilot` - SocialPilot
+ * * `Strato` - Strato
+ * * `Medusa` - Medusa
+ * * `Membrain` - Membrain
+ * * `RecallAI` - RecallAI
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4580,6 +4590,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Anvil: 'Anvil',
     Coolify: 'Coolify',
     SocialPilot: 'SocialPilot',
+    Strato: 'Strato',
+    Medusa: 'Medusa',
+    Membrain: 'Membrain',
+    RecallAI: 'RecallAI',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5103,17 +5117,6 @@ export type WarehouseExpressionsListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type WarehouseModelPathsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type WarehouseSavedQueriesListParams = {

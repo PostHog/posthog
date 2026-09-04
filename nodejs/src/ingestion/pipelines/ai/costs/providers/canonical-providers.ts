@@ -1,10 +1,11 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-01 10:05:45 UTC
+// Generated at: 2026-09-03 20:02:47 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'aion-labs'
     | 'akashml-bf16'
+    | 'akashml-fp4'
     | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-fast'
@@ -21,6 +22,7 @@ export type CanonicalProvider =
     | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
+    | 'anthropic-fast'
     | 'arcee-ai'
     | 'atlas-cloud-fp4'
     | 'atlas-cloud-fp8'
@@ -96,8 +98,10 @@ export type CanonicalProvider =
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream-fp4'
+    | 'ionstream-fp8'
     | 'liquid-fp8'
     | 'makora'
+    | 'makora-fp4'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -120,7 +124,6 @@ export type CanonicalProvider =
     | 'morph-fast'
     | 'morph-fp4'
     | 'morph-fp8'
-    | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi'

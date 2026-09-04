@@ -116,6 +116,9 @@ export interface logsPatternsLogicActions {
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -230,7 +233,15 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['setDateRange', 'zoomDateRange', 'setSearchTerm', 'setFilters', 'setFilterGroup', 'setPinnedFilters'],
+            [
+                'setDateRange',
+                'zoomDateRange',
+                'setSearchTerm',
+                'setFilters',
+                'setFilterGroup',
+                'setPinnedFilters',
+                'bumpFacetRefresh',
+            ],
             logsViewerConfigLogic({ id: props.id }),
             ['setViewMode', 'setCompareEnabled', 'setBaselineMode'],
         ],
@@ -370,6 +381,20 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             setFilters: reload,
             setFilterGroup: reload,
             setPinnedFilters: reload,
+
+            // The refresh button fires `bumpFacetRefresh` through the shared filters logic. Re-mine
+            // immediately (no debounce) — it is a deliberate click, not typing — but only while
+            // Patterns is the active lens, and diff or plain to match compare mode.
+            bumpFacetRefresh: () => {
+                if (values.viewMode !== 'patterns') {
+                    return
+                }
+                if (values.compareEnabled) {
+                    actions.loadDiff()
+                } else {
+                    actions.loadPatterns()
+                }
+            },
 
             // Entering compare mode always diffs fresh; leaving it re-mines because the
             // filters may have changed while the plain response sat unused.

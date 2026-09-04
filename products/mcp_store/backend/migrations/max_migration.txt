@@ -1,1 +1,1 @@
-0026_agent_grant_scope
+0030_add_mcp_template_oauth_credentials_source

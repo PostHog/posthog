@@ -571,7 +571,7 @@ export const SurveyResults: Story = {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as any
                     const sql: string = body?.query?.query ?? ''
-                    if (sql.includes('question_id, label, cnt')) {
+                    if (body?.query?.tags?.name === 'survey_results_aggregate') {
                         return MOCK_SURVEY_AGGREGATE_RESULTS
                     }
                     if (sql.includes('BASE STATS')) {

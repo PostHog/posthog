@@ -322,6 +322,32 @@ class TestSaveSyncTypeConfigRetriesOnConnectionDrop(BaseTest):
                 schema.record_partition_measurement(123)
 
 
+class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def test_a_key_written_after_this_instance_loaded_survives(self) -> None:
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=self.source, name="users", sync_type_config={"incremental_field": "updated_at"}
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"last_full_run_at": "2026-09-03T12:00:00+00:00"})
+        stale.record_partition_measurement(4096)
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["last_full_run_at"] == "2026-09-03T12:00:00+00:00"
+        assert schema.sync_type_config["max_partition_bytes"] == 4096
+        assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+
 class TestExternalDataSchemaOOMEvent(BaseTest):
     def _source(self, team_id: int | None = None) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
