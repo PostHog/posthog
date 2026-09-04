@@ -14170,6 +14170,8 @@ export namespace Schemas {
       dedupe_key?: DedupeKeyEnum | null;
       /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
       sends_email?: boolean;
+      /** Whether this preview sizes a batch dispatch. The same count also estimates conditional-branch conditions, which no send is measured against, so only a caller that sets this is recorded as a batch audience preview. Does not change the response. */
+      previews_batch_dispatch?: boolean;
     }
 
     /**
@@ -29907,10 +29909,26 @@ export namespace Schemas {
       readonly emails_per_day: number;
       /** The largest audience this tier allows for a single batch send. */
       readonly max_batch_audience: number;
+      /** The largest audience a batch send is held to right now. Equal to max_batch_audience once the tiers are applied; the flat pre-tier limit while they are only measured. */
+      readonly effective_max_batch_audience: number;
       /** Emails sent by this project's workflows in the last hour. */
       readonly emails_sent_last_hour: number;
       /** Emails sent by this project's workflows in the last 24 hours. */
       readonly emails_sent_last_day: number;
+      /**
+         * Emails per day the next tier allows; null when the project is on the highest tier.
+         * @nullable
+         */
+      readonly next_tier_emails_per_day: number | null;
+      /**
+         * Batch audience the next tier allows; null when the project is on the highest tier.
+         * @nullable
+         */
+      readonly next_tier_max_batch_audience: number | null;
+      /** Days the project must stay on this tier before it can move up. */
+      readonly min_days_at_tier: number;
+      /** True when PostHog holds this project on its tier. Automatic promotion and demotion both skip it, so the tier does not move with the project's sending. */
+      readonly pinned: boolean;
       /** True when these allowances are applied to sends. False while they are only being measured. */
       readonly enforced: boolean;
     }

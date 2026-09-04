@@ -370,9 +370,36 @@ function TeamRatesCard({
     )
 }
 
+// Promotion needs three things: the days at the tier, clean rates, and real use of the allowance on
+// separate days. The copy names all three but not the daily volume bar, which moves with the caps
+// table and would read as a promise once stale. A pinned project is skipped by the tier sweep in
+// both directions, so it gets the support pointer instead.
+function NextTierLine({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
+    if (allowance.next_tier_emails_per_day == null || allowance.next_tier_max_batch_audience == null) {
+        return (
+            <p className="text-secondary mt-2 mb-0">
+                You are on the highest tier, so this is the largest allowance we give.
+            </p>
+        )
+    }
+    if (allowance.pinned) {
+        return <p className="text-secondary mt-2 mb-0">Contact support if you need a larger allowance.</p>
+    }
+    return (
+        <p className="text-secondary mt-2 mb-0">
+            Tier {allowance.tier + 1} allows {humanFriendlyNumber(allowance.next_tier_emails_per_day)} emails a day and
+            batches of up to {humanFriendlyNumber(allowance.next_tier_max_batch_audience)}. To reach it, stay on this
+            tier for at least {allowance.min_days_at_tier} days with low bounce and spam complaint rates. You also have
+            to use a good part of the daily allowance on separate days, so one big send is not enough.
+        </p>
+    )
+}
+
 function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
     const hourlyPercent = Math.min(100, (allowance.emails_sent_last_hour / allowance.emails_per_hour) * 100)
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
+    // While the tiers are only measured, the tier cap is not what a send is held to.
+    const batchAudience = allowance.enforced ? allowance.max_batch_audience : allowance.effective_max_batch_audience
     return (
         <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
             <div className="flex items-center gap-2">
@@ -382,11 +409,21 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         Tier {allowance.tier} of {allowance.max_tier}
                     </LemonTag>
                 </Tooltip>
+                {!allowance.enforced && (
+                    <Tooltip title="We are measuring these limits so you can see where your project stands. Your sending is not held to them yet.">
+                        <LemonTag type="completion">Not applied yet</LemonTag>
+                    </Tooltip>
+                )}
             </div>
             <p className="text-secondary mt-2 mb-0">
-                Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
-                above the allowance are not dropped, they are sent later.
+                {allowance.pinned
+                    ? 'We set this allowance for your project, so it does not change as you send.'
+                    : 'Your allowance grows as your workflows keep sending with low bounce and spam complaint rates.'}{' '}
+                {allowance.enforced
+                    ? 'Emails above the allowance are not dropped, they are sent later.'
+                    : 'We are measuring these limits and not yet applying them, so nothing you send today is held back by them.'}
             </p>
+            <NextTierLine allowance={allowance} />
             <div className="flex flex-wrap gap-8 mt-3">
                 <div className="min-w-48">
                     <MetricLabel
@@ -413,9 +450,19 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 <div>
                     <MetricLabel
                         label="Largest batch audience"
-                        tooltip="The biggest audience this tier allows for a single batch send."
+                        tooltip={
+                            allowance.enforced
+                                ? 'The biggest audience this tier allows for a single batch send.'
+                                : 'The biggest audience a single batch send can reach today. Tier limits are not applied yet.'
+                        }
                     />
-                    <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
+                    <div className="text-lg font-semibold">{humanFriendlyNumber(batchAudience)}</div>
+                    {!allowance.enforced && (
+                        <div className="text-secondary text-xs mt-1">
+                            Your tier allows {humanFriendlyNumber(allowance.max_batch_audience)} once these limits start
+                            applying.
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -449,7 +496,7 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
-            {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
+            {sendingAllowance && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}

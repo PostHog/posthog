@@ -520,7 +520,13 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     const isAccountAudience = filters?.audience_type === 'accounts'
     // Account audiences carry no person, so email dedup never applies to them.
     const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey, sendsEmail: hogFlowSendsEmail(workflow) })
+    const logic = batchTriggerLogic({
+        id: actionId,
+        filters,
+        dedupeKey,
+        sendsEmail: hogFlowSendsEmail(workflow),
+        previewsBatchDispatch: true,
+    })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {

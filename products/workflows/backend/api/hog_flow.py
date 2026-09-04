@@ -171,8 +171,14 @@ from products.workflows.backend.services.timing_reschedule import (
 )
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
-from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
+from products.workflows.backend.utils.email_sending_tiers import (
+    email_sending_tier_mode,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+    min_days_at_tier,
+    resolve_team_email_sending_tier,
+)
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -928,6 +934,12 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
         "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
+    )
+    previews_batch_dispatch = serializers.BooleanField(
+        default=False,
+        help_text="Whether this preview sizes a batch dispatch. The same count also estimates "
+        "conditional-branch conditions, which no send is measured against, so only a caller that "
+        "sets this is recorded as a batch audience preview. Does not change the response.",
     )
 
 
@@ -2113,6 +2125,10 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
 
 
 SENDING_ALLOWANCE_CACHE_SECONDS = 60
+# EmailSendingAllowance is slotted, so it pickles its state as a bare positional list. An entry
+# written by a pod running an older field list would restore into the wrong slots instead of
+# failing, and a rolling deploy has both pods reading the same Redis. Bump on any field change.
+SENDING_ALLOWANCE_CACHE_VERSION = 2
 
 
 @frozen
@@ -2124,8 +2140,19 @@ class EmailSendingAllowance:
     emails_per_hour: int
     emails_per_day: int
     max_batch_audience: int
+    # The batch ceiling that applies right now. While the tiers are only measured this is the flat
+    # pre-tier limit, not `max_batch_audience`, so the card can name the number a send is held to
+    # today without claiming the tier cap already bites.
+    effective_max_batch_audience: int
     emails_sent_last_hour: int
     emails_sent_last_day: int
+    # Null on the top tier, where there is nothing left to earn.
+    next_tier_emails_per_day: Optional[int]
+    next_tier_max_batch_audience: Optional[int]
+    min_days_at_tier: int
+    # True while staff hold the project on its tier. The sweep skips a pinned project in both
+    # directions, so the next-tier fields above describe a tier its own sending cannot reach.
+    pinned: bool
     enforced: bool
 
 
@@ -2135,21 +2162,28 @@ def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     what the rest of this page reports. Cached briefly because the endpoint reloads on every search
     keystroke while these two aggregations do not depend on the search.
     """
-    cache_key = f"workflows_email_sending_allowance_{team_id}"
+    cache_key = f"workflows_email_sending_allowance_v{SENDING_ALLOWANCE_CACHE_VERSION}_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
     resolved = resolve_team_email_sending_tier(team_id)
+    max_tier = max_email_sending_tier()
+    next_tier = get_email_sending_tier_limits(resolved.tier + 1) if resolved.tier < max_tier else None
     now = timezone.now()
     allowance = EmailSendingAllowance(
         tier=resolved.tier,
-        max_tier=max_email_sending_tier(),
+        max_tier=max_tier,
         emails_per_hour=resolved.limits.per_hour,
         emails_per_day=resolved.limits.per_day,
         max_batch_audience=resolved.limits.max_batch_audience,
+        effective_max_batch_audience=get_hogflow_batch_trigger_limit(team_id),
         emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
+        next_tier_emails_per_day=next_tier.per_day if next_tier else None,
+        next_tier_max_batch_audience=next_tier.max_batch_audience if next_tier else None,
+        min_days_at_tier=min_days_at_tier(resolved.tier),
+        pinned=resolved.pinned,
         enforced=resolved.enforced,
     )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
@@ -2161,6 +2195,24 @@ def _team_email_sends_since(team_id: int, after: datetime) -> int:
         app_source="hog_flow", name=["email_sent"], after=after, team_ids=[team_id]
     )
     return sum(counts.get("email_sent", 0) for counts in totals.get(team_id, {}).values())
+
+
+def _email_tier_event_properties(team_id: int, *, sends_email: bool) -> dict[str, object]:
+    """
+    Tier dimensions for the batch usage events.
+
+    Both caps go on the event, because they differ while the tiers are only measured: the applied
+    cap is what a send is held to today, the tier cap is what the ladder would hold it to. Without
+    both there is no way to count the projects that turning enforcement on would start blocking.
+    """
+    resolved = resolve_team_email_sending_tier(team_id)
+    return {
+        "sends_email": sends_email,
+        "batch_audience_limit": get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
+        "email_sending_tier": resolved.tier,
+        "email_sending_tier_max_batch_audience": resolved.limits.max_batch_audience,
+        "email_sending_tier_mode": email_sending_tier_mode(),
+    }
 
 
 AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
@@ -2539,11 +2591,39 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     max_batch_audience = serializers.IntegerField(
         read_only=True, help_text="The largest audience this tier allows for a single batch send."
     )
+    effective_max_batch_audience = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "The largest audience a batch send is held to right now. Equal to max_batch_audience "
+            "once the tiers are applied; the flat pre-tier limit while they are only measured."
+        ),
+    )
     emails_sent_last_hour = serializers.IntegerField(
         read_only=True, help_text="Emails sent by this project's workflows in the last hour."
     )
     emails_sent_last_day = serializers.IntegerField(
         read_only=True, help_text="Emails sent by this project's workflows in the last 24 hours."
+    )
+    next_tier_emails_per_day = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Emails per day the next tier allows; null when the project is on the highest tier.",
+    )
+    next_tier_max_batch_audience = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Batch audience the next tier allows; null when the project is on the highest tier.",
+    )
+    min_days_at_tier = serializers.IntegerField(
+        read_only=True,
+        help_text="Days the project must stay on this tier before it can move up.",
+    )
+    pinned = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when PostHog holds this project on its tier. Automatic promotion and demotion "
+            "both skip it, so the tier does not move with the project's sending."
+        ),
     )
     enforced = serializers.BooleanField(
         read_only=True,
@@ -3978,6 +4058,35 @@ class HogFlowViewSet(
             ac_resource_type=self.scope_object,
         )
 
+    def _report_audience_preview(self, audience_size: int, *, sends_email: bool, previews_batch_dispatch: bool) -> None:
+        """
+        Record the audience a batch send is sized against, next to the caps it will meet.
+
+        This is the only point that knows both numbers: the dispatch stops resolving at the cap, so
+        a truncated run cannot say how large its audience really was.
+
+        The same count also estimates conditional-branch conditions, which match arbitrary person
+        subsets no send is measured against. Recording those would count projects against the caps
+        that never dispatch a batch at all, so only a caller sizing a dispatch is recorded.
+        """
+        if not previews_batch_dispatch:
+            return
+        try:
+            report_user_action(
+                self.request.user,
+                "hog_flow_batch_audience_previewed",
+                {
+                    "audience_size": audience_size,
+                    "team_id": str(self.team_id),
+                    "organization_id": str(self.organization.id),
+                    **_email_tier_event_properties(self.team_id, sends_email=sends_email),
+                },
+                team=self.team,
+                request=self.request,
+            )
+        except Exception as e:
+            logger.warning("Failed to capture workflow audience preview event", error=str(e))
+
     def _report_workflow_action(self, event: str, instance: HogFlow, extra_properties: Optional[dict] = None) -> None:
         # report_user_action injects source and MCP-client properties from the request, so usage is
         # attributable per channel (web builder vs MCP vs raw API). Capture must never break the request.
@@ -4814,10 +4923,16 @@ class HogFlowViewSet(
             # data, so it requires the same access the audience editor requires.
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
+            affected = get_account_audience_count(self.team, filters)
+            self._report_audience_preview(
+                affected,
+                sends_email=params["sends_email"],
+                previews_batch_dispatch=params["previews_batch_dispatch"],
+            )
             return Response(
                 BlastRadiusSerializer(
                     {
-                        "affected": get_account_audience_count(self.team, filters),
+                        "affected": affected,
                         "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
                         "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
                         "dedupe_key": None,
@@ -4843,6 +4958,11 @@ class HogFlowViewSet(
         else:
             blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
 
+        self._report_audience_preview(
+            blast_radius.affected,
+            sends_email=params["sends_email"],
+            previews_batch_dispatch=params["previews_batch_dispatch"],
+        )
         return Response(
             BlastRadiusSerializer(
                 {
@@ -5359,7 +5479,15 @@ class HogFlowViewSet(
             # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
             # caller-supplied filters are never what actually runs.
             batch_job = serializer.save(filters=(hog_flow.trigger or {}).get("filters") or {})
-            self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
+            self._report_workflow_action(
+                "hog_flow_batch_job_created",
+                hog_flow,
+                {
+                    "batch_job_id": str(batch_job.id),
+                    # The dispatch caps on the live actions, so read the channel the same way.
+                    **_email_tier_event_properties(self.team_id, sends_email=hog_flow_sends_email(hog_flow.actions)),
+                },
+            )
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")

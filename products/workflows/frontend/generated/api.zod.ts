@@ -2908,6 +2908,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
+export const hogFlowsUserBlastRadiusCreateBodyPreviewsBatchDispatchDefault = false
 
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
     filters: zod.record(zod.string(), zod.unknown()).describe('Property filters to apply'),
@@ -2923,5 +2924,11 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
         .default(hogFlowsUserBlastRadiusCreateBodySendsEmailDefault)
         .describe(
             'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
+        ),
+    previews_batch_dispatch: zod
+        .boolean()
+        .default(hogFlowsUserBlastRadiusCreateBodyPreviewsBatchDispatchDefault)
+        .describe(
+            'Whether this preview sizes a batch dispatch. The same count also estimates conditional-branch conditions, which no send is measured against, so only a caller that sets this is recorded as a batch audience preview. Does not change the response.'
         ),
 })

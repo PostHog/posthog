@@ -3680,6 +3680,81 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 50000
 
+    @override_settings(
+        HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+        WORKFLOWS_EMAIL_TIER_MODE="off",
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_HOURLY_CAPS=[50, 200, 600],
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+    )
+    @patch("products.workflows.backend.api.hog_flow.report_user_action")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_batch_job_created_event_carries_both_caps(self, _mock_create_invocation, mock_report):
+        # Only the pair tells us who enforcement would start blocking: the applied cap is what a
+        # send meets today, the tier cap is what it would meet once the ladder is turned on.
+        flow_id = self._create_active_hog_flow()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {})
+
+        assert response.status_code == 200, response.json()
+        created = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_batch_job_created"]
+        assert len(created) == 1
+        properties = created[0].args[2]
+        assert properties["batch_audience_limit"] == 5000
+        assert properties["email_sending_tier"] == 0
+        assert properties["email_sending_tier_max_batch_audience"] == 100
+        assert properties["email_sending_tier_mode"] == "off"
+
+    @override_settings(
+        HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+        WORKFLOWS_EMAIL_TIER_MODE="off",
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_HOURLY_CAPS=[50, 200, 600],
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+    )
+    @patch("products.workflows.backend.api.hog_flow.report_user_action")
+    def test_audience_preview_reports_the_audience_against_the_caps(self, mock_report):
+        # The dispatch stops resolving at the cap, so the preview is the only point that knows how
+        # large the audience really is.
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_blast_radius.return_value = BlastRadiusResult(affected=88000, total=120000)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "sends_email": True, "previews_batch_dispatch": True},
+            )
+
+        assert response.status_code == 200, response.json()
+        previews = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_batch_audience_previewed"]
+        assert len(previews) == 1
+        properties = previews[0].args[2]
+        assert properties["audience_size"] == 88000
+        assert properties["sends_email"] is True
+        assert properties["batch_audience_limit"] == 5000
+        assert properties["email_sending_tier_max_batch_audience"] == 100
+
+    @patch("products.workflows.backend.api.hog_flow.report_user_action")
+    def test_audience_preview_is_not_reported_for_a_branch_condition_estimate(self, mock_report):
+        # The same endpoint sizes conditional-branch conditions, which match arbitrary person
+        # subsets no send is measured against. Recording them would count projects against the caps
+        # that never dispatch a batch, in the direction that overstates enforcement risk.
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_blast_radius.return_value = BlastRadiusResult(affected=88000, total=120000)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_batch_audience_previewed"] == []
+
     def test_programmatic_schedule_on_schedule_trigger_needs_no_audience_token(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}

@@ -34,6 +34,7 @@ const TriggerPopover = ({
             // Account audiences carry no person, so email dedup never applies to them.
             dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
             sendsEmail: hogFlowSendsEmail(workflow),
+            previewsBatchDispatch: true,
         })
     )
 
