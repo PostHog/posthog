@@ -184,12 +184,24 @@ def window_pair_predicates(column: str, *, date_to: datetime | None) -> WindowPr
     )
 
 
+# The default-branch names the two branch predicates below share, so they can never drift apart and
+# let a run fall into both scopes (or neither).
+DEFAULT_BRANCH_NAMES_SQL = "'master', 'main'"
+
+
+def default_branch_predicate(branch_column: str = "r.head_branch") -> str:
+    """True when the branch expression names the repo's default branch. The source doesn't record
+    which branch that is, so this matches the common default names — the exact complement of
+    ``non_default_branch_predicate``."""
+    return f"{branch_column} IN ({DEFAULT_BRANCH_NAMES_SQL})"
+
+
 def non_default_branch_predicate(branch_column: str = "r.head_branch") -> str:
     """True when the branch expression names a branch other than the repo's default. The source
     doesn't record which branch that is, so this excludes the common default names — the same
     approximation ``repo_overview.query_default_branch`` resolves per-repo, not reused here
     because it costs an extra query."""
-    return f"{branch_column} NOT IN ('master', 'main')"
+    return f"{branch_column} NOT IN ({DEFAULT_BRANCH_NAMES_SQL})"
 
 
 def run_scope_filter_clause(
@@ -197,16 +209,27 @@ def run_scope_filter_clause(
     *,
     branch_column: str = "r.head_branch",
     attributed_predicate: str = "r.pr_number > 0",
+    merge_queue_predicate: str = "r.is_merge_queue",
 ) -> str:
+    """The WHERE fragment that narrows a run population to one scope, or '' for ``all``.
+
+    ``pull_request`` needs all three predicates. A default-branch run can still carry a PR
+    association (its SHA matches an open PR), so attribution alone (pr_number > 0 — see the
+    workflow_runs builder docstring) does not keep trunk runs out. Gate runs are excluded because
+    ``merge_queue`` is their own scope, so the three narrow scopes never overlap: a run is either on
+    the default branch, an attributed PR-branch run, a gate run, or unattributed off-default (a fork
+    PR, a release branch) and therefore only in ``all``.
+
+    The cost queries pass the cost source's columns; there pr_number is 0→NULL normalized, so
+    "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
+    """
+    if run_scope == WorkflowHealthRunScope.DEFAULT_BRANCH:
+        return f"AND {default_branch_predicate(branch_column)}"
     if run_scope == WorkflowHealthRunScope.PULL_REQUEST:
-        # A default-branch run can still carry a PR association (its SHA matches an open PR), so
-        # attribution alone (pr_number > 0 — see the workflow_runs builder docstring) doesn't keep
-        # trunk runs out; the scope needs both predicates.
-        # The cost queries pass the cost source's columns; there pr_number is 0→NULL normalized, so
-        # "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
-        # Merge-queue gate runs stay in this scope on purpose: a gate run is CI the PR paid for on
-        # its way to landing, and the runs builder already credits it to that PR rather than to the
-        # throwaway PR the queue opened. ``is_merge_queue`` splits the two populations, on the cost
-        # view and the job-history view alike.
-        return f"AND {non_default_branch_predicate(branch_column)} AND {attributed_predicate}"
+        return (
+            f"AND {non_default_branch_predicate(branch_column)} AND {attributed_predicate} "
+            f"AND NOT {merge_queue_predicate}"
+        )
+    if run_scope == WorkflowHealthRunScope.MERGE_QUEUE:
+        return f"AND {merge_queue_predicate}"
     return ""

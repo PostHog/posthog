@@ -276,7 +276,10 @@ def query_workflow_window_costs(
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")
     run_scope_clause = run_scope_filter_clause(
-        run_scope, branch_column="c.run_head_branch", attributed_predicate="c.pr_number IS NOT NULL"
+        run_scope,
+        branch_column="c.run_head_branch",
+        attributed_predicate="c.pr_number IS NOT NULL",
+        merge_queue_predicate="c.is_merge_queue",
     )
     sql = (
         _WINDOW_COST_SELECT.replace("__COST_SOURCE__", cost_source)
@@ -550,8 +553,8 @@ def query_cost_per_merge_series(
 
 
 # Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped
-# to the page's run window (and optional branch) so the figure always answers "spend over [window]",
-# never an unbounded all-time. Grouped by the rendered (provider, os, vcpu) tier in SQL — the cost
+# to the page's run window (and optional branch or run scope) so the figure always answers "spend over
+# [window]", never an unbounded all-time. Grouped by the rendered (provider, os, vcpu) tier in SQL — the cost
 # source already classifies each job — and mapped to a display badge/label in Python.
 _RUNNER_COST_SELECT = """
     SELECT
@@ -562,7 +565,7 @@ _RUNNER_COST_SELECT = """
         __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
     WHERE c.repo_owner = {repo_owner} AND c.repo_name = {repo_name} AND c.workflow_name = {workflow_name}
-        AND c.run_started_at >= {date_from} __DATE_TO__ __BRANCH__
+        AND c.run_started_at >= {date_from} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     GROUP BY c.provider, c.os, c.vcpu
     LIMIT 1000000
 """
@@ -577,9 +580,10 @@ def query_workflow_runner_costs(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None = None,
+    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> list[WorkflowRunnerCost]:
-    """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch),
-    highest spend first. Empty when the jobs source isn't synced. Grouped by the rendered
+    """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch and
+    run scope), highest spend first. Empty when the jobs source isn't synced. Grouped by the rendered
     (provider, os, vcpu) tier and mapped to its display badge/label via ``runner_tier_descriptor``."""
     cost_source = curated.job_cost_source(created_floor=True)
     if cost_source is None:
@@ -593,11 +597,18 @@ def query_workflow_runner_costs(
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")
+    run_scope_clause = run_scope_filter_clause(
+        run_scope,
+        branch_column="c.run_head_branch",
+        attributed_predicate="c.pr_number IS NOT NULL",
+        merge_queue_predicate="c.is_merge_queue",
+    )
     sql = (
         _RUNNER_COST_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__COST_AGGREGATES__", _cost_aggregates())
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BRANCH__", branch_clause)
+        .replace("__RUN_SCOPE__", run_scope_clause)
     )
     response = curated.run(
         sql,

@@ -2,7 +2,7 @@
 
 Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
 started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
-a single ``head_branch`` and/or attributed pull-request runs. Rates are over conclusive
+a single ``head_branch`` and/or one ``run_scope`` group. Rates are over conclusive
 runs (success or a decisive failure), so skipped, cancelled, neutral, and action-required
 runs never read as failures. Duration percentiles are over successful runs only because
 cancelled, skipped, and failed runs end early and would bias a "how long does CI take"
@@ -77,7 +77,8 @@ _SELECT = f"""
         argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
         argMaxIf(id, (run_started_at, id), status = 'completed') AS latest_run_id,
         argMaxIf(run_attempt, (run_started_at, id), status = 'completed') AS latest_run_attempt,
-        countIf(run_attempt > 1) AS rerun_cycles
+        countIf(run_attempt > 1) AS rerun_cycles,
+        countIf(is_merge_queue) AS merge_queue_run_count
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name
@@ -97,6 +98,24 @@ _PREV_SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{prev_from}} AND run_started_at < {{date_from}} __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name
+"""
+
+# Merge-queue run counts over the same window with no branch/run_scope filter, so the list can rank
+# queue-gating workflows whatever scope is active. Only needed when a filter is on: without one, the
+# main query's own countIf already answers this. HAVING keeps only gating workflows, and the explicit
+# bound keeps HogQL's default 100-row cap from silently dropping some of them.
+_GATING_LIMIT = 10000
+_GATING_SELECT = f"""
+    SELECT
+        repo_owner,
+        repo_name,
+        workflow_name,
+        countIf(is_merge_queue) AS merge_queue_run_count
+    FROM __RUNS_SOURCE__ AS r
+    WHERE run_started_at >= {{date_from}} __DATE_TO__
+    GROUP BY repo_owner, repo_name, workflow_name
+    HAVING merge_queue_run_count > 0
+    LIMIT {_GATING_LIMIT}
 """
 
 _BUCKET_SELECT = f"""
@@ -334,6 +353,21 @@ def query_workflow_health(
     cost_by_workflow = query_workflow_window_costs(
         curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope, workload=workload
     )
+    # Under an active branch or scope filter the main query's merge-queue count answers the filtered
+    # population, which cannot rank workflows: under merge_queue every row would look gating, under
+    # pull_request none would. So read the count from an unfiltered scan of the same window instead.
+    gating_by_workflow: dict[tuple[str, str, str], int] | None = None
+    if branch_clause or run_scope_clause:
+        gating_response = curated.run(
+            fill(_GATING_SELECT),
+            query_type="engineering_analytics.workflow_health_gating",
+            placeholders=placeholders,
+            workload=workload,
+        )
+        gating_by_workflow = {
+            (repo_owner, repo_name, workflow_name): int(count or 0)
+            for repo_owner, repo_name, workflow_name, count in gating_response.results or []
+        }
     window = window_buckets(date_from, date_to, granularity)
     return [
         WorkflowHealthItem(
@@ -370,6 +404,11 @@ def query_workflow_health(
             ),
             rerun_cycles=rerun_cycles,
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
+            merge_queue_run_count=(
+                gating_by_workflow.get((repo_owner, repo_name, workflow_name), 0)
+                if gating_by_workflow is not None
+                else int(merge_queue_run_count or 0)
+            ),
         )
-        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
+        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles, merge_queue_run_count in response.results
     ]
