@@ -227,6 +227,8 @@ WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
 
 REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
 
+AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
+
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
@@ -436,28 +438,26 @@ class SandboxBase(ABC):
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
         binaries degrade to review-first instead of crashing at launch."""
-        result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        result = self.execute(f"grep -q autoPublish {AGENT_SERVER_BINARY_PATH}", timeout_seconds=10)
         return result.exit_code == 0
 
     def agent_server_supports_exec_permission_regex(self) -> bool:
         """Same probe as --autoPublish: check the installed binary before passing
         --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
         exec sub-tools instead of crashing at launch."""
-        result = self.execute(
-            "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
-        )
+        result = self.execute(f"grep -q posthogExecPermissionRegex {AGENT_SERVER_BINARY_PATH}", timeout_seconds=10)
         return result.exit_code == 0
 
     def agent_server_supports_pi_runtime(self) -> bool:
         result = self.execute(
-            "grep -q POSTHOG_AGENT_RUNTIME /scripts/node_modules/.bin/agent-server",
+            f"grep -q POSTHOG_AGENT_RUNTIME {AGENT_SERVER_BINARY_PATH}",
             timeout_seconds=10,
         )
         return result.exit_code == 0
 
     def agent_server_supports_prewarmed_resume_idle(self) -> bool:
         result = self.execute(
-            "grep -q prewarmedResumeIdle /scripts/node_modules/.bin/agent-server",
+            f"grep -q prewarmedResumeIdle {AGENT_SERVER_BINARY_PATH}",
             timeout_seconds=10,
         )
         return result.exit_code == 0

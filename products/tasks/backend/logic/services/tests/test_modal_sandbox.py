@@ -23,6 +23,7 @@ from requests.exceptions import ConnectionError, Timeout
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
     SandboxExecutionError,
+    SandboxMissingAgentServerError,
     SandboxNetworkPolicyError,
     SandboxProvisionError,
     SnapshotCreationError,
@@ -54,6 +55,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _session_init_probe_hosts,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    AGENT_SERVER_BINARY_PATH,
     AgentServerResult,
     ExecutionResult,
     SandboxConfig,
@@ -565,6 +567,28 @@ class TestModalSandboxAgentServer:
         assert "./node_modules/.bin/agent-server" in command
         assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)" in command
 
+    def test_start_agent_server_fails_fast_when_agent_server_is_not_installed(self, mock_sandbox: Any):
+        def execute(command: str, *args: Any, **kwargs: Any) -> ExecutionResult:
+            if AGENT_SERVER_BINARY_PATH in command and command.startswith("test -x"):
+                return ExecutionResult(stdout="", stderr="", exit_code=1, error=None)
+            return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+
+        mock_sandbox.execute = MagicMock(side_effect=execute)
+
+        with pytest.raises(SandboxMissingAgentServerError) as exc:
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+            )
+
+        assert exc.value.non_retryable is True
+        assert exc.value.context["agent_server_path"] == AGENT_SERVER_BINARY_PATH
+        assert not any(
+            "./node_modules/.bin/agent-server" in call.args[0] for call in mock_sandbox.execute.call_args_list
+        )
+
     def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
@@ -738,7 +762,7 @@ class TestModalSandboxAgentServer:
             return_value=ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
         )
 
-        with patch.object(mock_sandbox, "_setup_agentsh"):
+        with patch.object(mock_sandbox, "_ensure_agent_server_installed"), patch.object(mock_sandbox, "_setup_agentsh"):
             with pytest.raises(SandboxExecutionError, match="Agent-server failed to start"):
                 mock_sandbox.start_agent_server(
                     repository="posthog/posthog",
@@ -750,6 +774,7 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # agent-server install preflight
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
@@ -850,6 +875,7 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # agent-server install preflight
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe

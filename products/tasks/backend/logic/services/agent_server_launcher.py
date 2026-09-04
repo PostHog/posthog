@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxMissingAgentServerError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -35,6 +35,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
+    AGENT_SERVER_BINARY_PATH,
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
@@ -206,6 +207,17 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
             )
 
+    def _ensure_agent_server_installed(self) -> None:
+        """Fail fast when the sandbox booted without the agent-server install the launch runs."""
+        result = self.execute(f"test -x {AGENT_SERVER_BINARY_PATH}", timeout_seconds=10)
+        if result.exit_code == 0:
+            return
+        raise SandboxMissingAgentServerError(
+            f"Sandbox has no agent-server install at {AGENT_SERVER_BINARY_PATH}",
+            {"sandbox_id": self.id, "agent_server_path": AGENT_SERVER_BINARY_PATH},
+            cause=RuntimeError(f"missing agent-server binary {AGENT_SERVER_BINARY_PATH}"),
+        )
+
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""
         return (
@@ -296,6 +308,7 @@ class AgentServerLaunchMixin(SandboxBase):
         if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return 0 if wait_for_health else None
+        self._ensure_agent_server_installed()
         self._free_agent_server_port()
 
         repo_path: str | None = None
