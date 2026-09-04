@@ -282,7 +282,6 @@ class GenerateAIReportResult:
     # __post_init__ so callers only provide the richer representation.
     query_error_types: list[str] = dataclasses.field(default_factory=list)
     target_type: str = ""
-    # Appended to preserve the positional shape of this Temporal activity result.
     query_errors: list[QueryErrorDetails] = dataclasses.field(default_factory=list)
 
     def __post_init__(self) -> None:

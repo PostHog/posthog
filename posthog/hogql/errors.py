@@ -104,3 +104,5 @@ class ImpossibleASTError(InternalHogQLError):
 
 class ResolutionError(InternalHogQLError):
     """Resolution of a table/field/expression failed."""
+
+    pass
