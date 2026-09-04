@@ -23,20 +23,11 @@ from products.data_modeling.backend.facade.modeling import DataWarehouseModelPat
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
-    DataWarehouseManagedViewSet,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryColumnAnnotation,
-    Edge,
-    Node,
-    NodeType,
-)
-from products.data_modeling.backend.facade.models import (
-    DAG,
-    DataModelingJob,
     DataModelingJobEngine,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
+    Edge,
     Node,
     NodeType,
 )

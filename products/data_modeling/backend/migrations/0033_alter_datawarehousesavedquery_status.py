@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("data_modeling", "0032_datawarehousesavedquery_dwsavedquery_team_live_name")
-    ]
+    dependencies = [("data_modeling", "0032_datawarehousesavedquery_dwsavedquery_team_live_name")]
 
     operations = [
         migrations.AlterField(
