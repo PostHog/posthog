@@ -24,11 +24,14 @@ operations = [
         f"DROP TABLE IF EXISTS {KAFKA_DOCUMENT_EMBEDDINGS}",
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
+    # 0183 is the migration that creates this table, so a replay of the migration set from an empty
+    # cluster reaches this alter first. The table it creates already has the content column.
     run_sql_with_exceptions(
         ADD_CONTENT_COLUMN_SQL.format(table_name=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS),
         node_roles=[NodeRole.DATA],
-        sharded=False,
+        sharded=True,
         is_alter_on_replicated_table=True,
+        skip_if_table_missing=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
     ),
     run_sql_with_exceptions(
         ADD_CONTENT_COLUMN_SQL.format(table_name=DOCUMENT_EMBEDDING_WRITABLE),

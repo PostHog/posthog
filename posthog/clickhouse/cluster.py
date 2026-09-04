@@ -18,6 +18,7 @@ from clickhouse_pool import ChPool
 
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
+from posthog.dataclasses import frozen
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
@@ -676,6 +677,29 @@ class Query:
         else:
             params_repr = f"{_redact_parameters(self.parameters)!r}"
         return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
+
+
+@frozen
+class SkipIfTableMissing(Generic[T]):
+    """Runs the wrapped callable only on the hosts that have the table.
+
+    ClickHouse has no ALTER TABLE IF EXISTS, so the check runs on the same connection as the
+    statement. This keeps a migration that alters a table a later migration creates from stopping a
+    replay of the migration set.
+    """
+
+    table: str
+    fn: Callable[[Client], T]
+
+    def __call__(self, client: Client) -> T | None:
+        [[exists]] = client.execute(
+            "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = %(table)s",
+            {"table": self.table},
+        )
+        if not exists:
+            logger.info("Skipping %r: table %r is not on this host", self.fn, self.table)
+            return None
+        return self.fn(client)
 
 
 @dataclass
