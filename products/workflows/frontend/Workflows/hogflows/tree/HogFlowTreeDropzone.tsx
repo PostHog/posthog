@@ -15,6 +15,7 @@ export function HogFlowTreeDropzone({
     draggedActionId,
     edge,
     isBranchJoin = false,
+    joinEdges,
     showConnector = true,
     compact = false,
 }: {
@@ -22,6 +23,7 @@ export function HogFlowTreeDropzone({
     draggedActionId: string | null
     edge: HogFlowEdge
     isBranchJoin?: boolean
+    joinEdges?: HogFlowEdge[]
     showConnector?: boolean
     compact?: boolean
 }): JSX.Element {
@@ -40,17 +42,21 @@ export function HogFlowTreeDropzone({
         if (draggedActionId) {
             const action = workflow.actions.find((action) => action.id === draggedActionId)
             if (!action || !isBranchingAction(action)) {
-                moveNodeToEdge(draggedActionId, edge, isBranchJoin)
+                moveNodeToEdge(draggedActionId, edge, isBranchJoin, joinEdges)
             } else {
-                const newEdges = computeMoveTreeBranchEdges(workflow, draggedActionId, edge, isBranchJoin)
+                const newEdges = computeMoveTreeBranchEdges(workflow, draggedActionId, edge, isBranchJoin, joinEdges)
                 if (newEdges) {
                     setWorkflowInfo({ actions: workflow.actions, edges: newEdges })
                     setSelectedNodeId(draggedActionId)
                 }
             }
         } else if (isBranchJoin) {
-            setHighlightedDropzoneNodeId(`dropzone_target_${edge.to}_branch_join`)
-            onDrop(event)
+            if (joinEdges) {
+                onDrop(event, edge, joinEdges)
+            } else {
+                setHighlightedDropzoneNodeId(`dropzone_target_${edge.to}_branch_join`)
+                onDrop(event)
+            }
         } else {
             onDrop(event, edge)
         }
@@ -82,7 +88,7 @@ export function HogFlowTreeDropzone({
                         data-attr="workflow-tree-dropzone"
                     >
                         <IconPlus />
-                        Drop step here
+                        {isBranchJoin ? 'Drop after all paths' : 'Drop step here'}
                     </Button>
                     <div
                         aria-hidden="true"

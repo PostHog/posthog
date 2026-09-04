@@ -48,7 +48,7 @@ export function HogFlowTreeNode({
     const nodeRef = useRef<HTMLDivElement>(null)
     const visibleBranches = showAllBranches ? node.branches : node.branches.slice(0, BRANCH_LIMIT)
     const hiddenBranchCount = node.branches.length - visibleBranches.length
-    const joinEdge = node.branches.find((branch) => branch.sequence.trailingEdge)?.sequence.trailingEdge
+    const joinEdge = node.joinEdges[0]
     const joinAction = node.joinAction
     const branchNoun = node.action.type === 'random_cohort_branch' ? 'paths' : 'conditions'
 
@@ -246,6 +246,7 @@ export function HogFlowTreeNode({
                                 draggedActionId={draggedActionId}
                                 edge={joinEdge}
                                 isBranchJoin
+                                joinEdges={node.joinEdges}
                             />
                         </>
                     )}

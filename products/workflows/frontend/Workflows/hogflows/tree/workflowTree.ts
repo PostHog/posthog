@@ -13,6 +13,7 @@ export interface WorkflowTreeNode {
     branches: WorkflowTreeBranch[]
     joinActionId: string | null
     joinAction: HogFlowAction | null
+    joinEdges: HogFlowEdge[]
 }
 
 export interface WorkflowTreeBranch {
@@ -144,6 +145,23 @@ function findBranchJoinActionId(
     )
 }
 
+function collectBranchJoinEdges(
+    sequence: WorkflowTreeSequence,
+    joinActionId: string,
+    joinEdges: Map<string, HogFlowEdge>
+): void {
+    if (sequence.trailingEdge?.to === joinActionId) {
+        const edge = sequence.trailingEdge
+        joinEdges.set(`${edge.from}:${edge.to}:${edge.type}:${edge.index ?? ''}`, edge)
+    }
+
+    for (const node of sequence.nodes) {
+        for (const branch of node.branches) {
+            collectBranchJoinEdges(branch.sequence, joinActionId, joinEdges)
+        }
+    }
+}
+
 export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>): WorkflowTreeSequence {
     const actionsById = new Map(workflow.actions.map((action) => [action.id, action]))
     const actionOrder = new Map(workflow.actions.map((action, index) => [action.id, index]))
@@ -191,6 +209,7 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
                 branches: [],
                 joinActionId: null,
                 joinAction: null,
+                joinEdges: [],
             }
 
             if (outgoingEdges.length <= 1) {
@@ -214,6 +233,13 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
                 label: getWorkflowBranchLabel(action, edge),
                 sequence: buildSequence(edge.to, joinActionId, edge, new Set(ancestors)),
             }))
+            if (joinActionId) {
+                const joinEdges = new Map<string, HogFlowEdge>()
+                for (const branch of node.branches) {
+                    collectBranchJoinEdges(branch.sequence, joinActionId, joinEdges)
+                }
+                node.joinEdges = [...joinEdges.values()]
+            }
             nodes.push(node)
 
             if (!joinActionId) {
@@ -271,7 +297,8 @@ export function computeMoveTreeBranchEdges(
     workflow: Pick<HogFlow, 'actions' | 'edges'>,
     movingActionId: string,
     targetEdge: HogFlowEdge,
-    isBranchJoinDropzone: boolean
+    isBranchJoinDropzone: boolean,
+    joinEdges?: HogFlowEdge[]
 ): HogFlow['edges'] | null {
     const branchNode = findWorkflowTreeNode(buildWorkflowTree(workflow), movingActionId)
     const joinActionId = branchNode?.joinActionId
@@ -299,7 +326,23 @@ export function computeMoveTreeBranchEdges(
     const targetEdgeIndexes = isBranchJoinDropzone
         ? newEdges
               .map((edge, index) => ({ edge, index }))
-              .filter(({ edge }) => edge.to === targetEdge.to && !movedActionIds.has(edge.from))
+              .filter(({ edge }) => {
+                  if (movedActionIds.has(edge.from)) {
+                      return false
+                  }
+
+                  if (joinEdges) {
+                      return joinEdges.some(
+                          (joinEdge) =>
+                              edge.from === joinEdge.from &&
+                              edge.to === joinEdge.to &&
+                              edge.type === joinEdge.type &&
+                              edge.index === joinEdge.index
+                      )
+                  }
+
+                  return edge.to === targetEdge.to
+              })
               .map(({ index }) => index)
         : [
               newEdges.findIndex(

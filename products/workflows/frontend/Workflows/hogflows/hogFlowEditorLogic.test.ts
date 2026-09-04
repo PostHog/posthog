@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
-import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -75,6 +75,84 @@ describe('computeMoveEdges', () => {
     ])('$name', ({ edges, movingNodeId, targetEdge, isBranchJoin, expected }) => {
         const result = computeMoveEdges(edges, movingNodeId, targetEdge, isBranchJoin)
         expect(result).toEqual(expected)
+    })
+
+    it('inserts a step after only the nested split paths', () => {
+        const edges = [
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('onboarding', 'shared', 'continue'),
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('shared', 'exit', 'continue'),
+        ]
+
+        expect(
+            computeInsertEdges(edges, 'after-onboarding', 0, [
+                edge('guided', 'shared', 'continue'),
+                edge('self-serve', 'shared', 'continue'),
+                edge('onboarding', 'shared', 'continue'),
+            ])
+        ).toEqual([
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('shared', 'exit', 'continue'),
+            edge('onboarding', 'after-onboarding', 'continue'),
+            edge('guided', 'after-onboarding', 'continue'),
+            edge('self-serve', 'after-onboarding', 'continue'),
+            edge('after-onboarding', 'shared', 'continue'),
+        ])
+    })
+
+    it('moves a step after only the nested split paths', () => {
+        const edges = [
+            edge('trigger', 'move', 'continue'),
+            edge('move', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('onboarding', 'shared', 'continue'),
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('shared', 'exit', 'continue'),
+        ]
+        const joinEdges = [
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('onboarding', 'shared', 'continue'),
+        ]
+
+        expect(computeMoveEdges(edges, 'move', joinEdges[0], true, joinEdges)).toEqual([
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('shared', 'exit', 'continue'),
+            edge('onboarding', 'move', 'continue'),
+            edge('guided', 'move', 'continue'),
+            edge('self-serve', 'move', 'continue'),
+            edge('move', 'shared', 'continue'),
+        ])
     })
 
     it('returns null when moving node has no outgoing edge', () => {
