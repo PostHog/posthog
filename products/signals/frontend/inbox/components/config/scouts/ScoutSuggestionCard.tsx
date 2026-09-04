@@ -27,18 +27,10 @@ export interface ScoutSuggestionCardProps {
  * the switch; a custom pick is a draft, so its primary action opens the create form pre-filled.
  */
 export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps): JSX.Element {
-    const { busySuggestionIds, expandedSuggestionId, aiConsentDisabledReason } = useValues(scoutSuggestionsLogic)
-    const {
-        dismissSuggestion,
-        enableCanonicalSuggestion,
-        refineSuggestionWithAi,
-        openCreateFromSuggestion,
-        toggleSuggestionExpanded,
-    } = useActions(scoutSuggestionsLogic)
-    const creationDisabledReason = useScoutCreateDisabledReason()
+    const { busySuggestionIds, expandedSuggestionId } = useValues(scoutSuggestionsLogic)
+    const { dismissSuggestion, toggleSuggestionExpanded } = useActions(scoutSuggestionsLogic)
     const isBusy = busySuggestionIds.includes(item.id)
     const isExpanded = expandedSuggestionId === item.id
-    const isCanonical = item.kind === 'canonical'
 
     return (
         <div className="relative flex flex-col gap-2 rounded border border-primary bg-surface-primary p-3">
@@ -59,19 +51,7 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
                 aria-expanded={isExpanded}
                 data-attr="scout-suggestion-body"
             >
-                <div className="flex flex-wrap items-center gap-1.5">
-                    <LemonTag type={isCanonical ? 'completion' : 'option'} size="small">
-                        {isCanonical ? 'Turn on' : 'New draft'}
-                    </LemonTag>
-                    {item.gap && (
-                        <Tooltip title="Nothing in your current fleet covers this.">
-                            <LemonTag type="highlight" size="small">
-                                Gap
-                            </LemonTag>
-                        </Tooltip>
-                    )}
-                    <span className="text-[11px] text-muted">{item.confidence} confidence</span>
-                </div>
+                <SuggestionTags item={item} />
                 <span className="text-sm font-semibold leading-snug">{item.title}</span>
                 <p className={cn('m-0 text-xs leading-snug text-secondary', !isExpanded && 'line-clamp-2')}>
                     {item.why_here}
@@ -81,42 +61,74 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
             {/* Pushed down so every card in a row puts its buttons on the same line, however many
                 lines its evidence and cadence take. */}
             <span className="mt-auto pt-1 text-[11px] text-tertiary">{suggestionMetaLine(item.proposed_config)}</span>
-            <div className="flex flex-wrap items-center gap-1.5">
-                {isCanonical ? (
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        loading={isBusy}
-                        disabledReason={creationDisabledReason ?? undefined}
-                        onClick={() => enableCanonicalSuggestion(item, surface)}
-                        data-attr="scout-suggestion-turn-on"
-                    >
-                        Turn on
-                    </LemonButton>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        disabledReason={creationDisabledReason ?? undefined}
-                        onClick={() => openCreateFromSuggestion(item, surface)}
-                        data-attr="scout-suggestion-create"
-                    >
-                        Create scout
-                    </LemonButton>
-                )}
+            <SuggestionActions item={item} surface={surface} isBusy={isBusy} />
+        </div>
+    )
+}
+
+/** What kind of offer the card makes, and how sure the producer was. */
+function SuggestionTags({ item }: { item: ScoutSuggestionItemApi }): JSX.Element {
+    const isCanonical = item.kind === 'canonical'
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <LemonTag type={isCanonical ? 'completion' : 'option'} size="small">
+                {isCanonical ? 'Turn on' : 'New draft'}
+            </LemonTag>
+            {item.gap && (
+                <Tooltip title="Nothing in your current fleet covers this.">
+                    <LemonTag type="highlight" size="small">
+                        Gap
+                    </LemonTag>
+                </Tooltip>
+            )}
+            <span className="text-[11px] text-muted">{item.confidence} confidence</span>
+        </div>
+    )
+}
+
+/** The card's primary action, which depends on its kind, next to the chat that refines it. */
+function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps & { isBusy: boolean }): JSX.Element {
+    const { aiConsentDisabledReason } = useValues(scoutSuggestionsLogic)
+    const { enableCanonicalSuggestion, refineSuggestionWithAi, openCreateFromSuggestion } =
+        useActions(scoutSuggestionsLogic)
+    const creationDisabledReason = useScoutCreateDisabledReason()
+
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            {item.kind === 'canonical' ? (
                 <LemonButton
-                    type="secondary"
+                    type="primary"
                     size="xsmall"
-                    icon={<IconSparkles />}
-                    disabledReason={
-                        isBusy ? 'Starting a task…' : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
-                    }
-                    onClick={() => refineSuggestionWithAi(item, surface)}
-                    data-attr="scout-suggestion-refine"
+                    loading={isBusy}
+                    disabledReason={creationDisabledReason ?? undefined}
+                    onClick={() => enableCanonicalSuggestion(item, surface)}
+                    data-attr="scout-suggestion-turn-on"
                 >
-                    Refine with AI
+                    Turn on
                 </LemonButton>
-            </div>
+            ) : (
+                <LemonButton
+                    type="primary"
+                    size="xsmall"
+                    disabledReason={creationDisabledReason ?? undefined}
+                    onClick={() => openCreateFromSuggestion(item, surface)}
+                    data-attr="scout-suggestion-create"
+                >
+                    Create scout
+                </LemonButton>
+            )}
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                icon={<IconSparkles />}
+                disabledReason={
+                    isBusy ? 'Starting a task…' : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
+                }
+                onClick={() => refineSuggestionWithAi(item, surface)}
+                data-attr="scout-suggestion-refine"
+            >
+                Refine with AI
+            </LemonButton>
         </div>
     )
 }

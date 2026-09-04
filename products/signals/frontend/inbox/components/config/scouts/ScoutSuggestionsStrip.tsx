@@ -24,8 +24,7 @@ const COLLAPSED_TITLE_PREVIEW = 2
  * the picks stay valid.
  */
 export function ScoutSuggestionsStrip(): JSX.Element | null {
-    const { suggestions, hasBatch, collapsed, batchStatus, isRefreshing, suggestionSet, suggestionSetLoading } =
-        useValues(scoutSuggestionsLogic)
+    const { suggestions, hasBatch, collapsed, isRefreshing, suggestionSet } = useValues(scoutSuggestionsLogic)
     const { setCollapsed, requestRefresh } = useActions(scoutSuggestionsLogic)
     useReportSuggestionsShown('strip')
 
@@ -73,32 +72,44 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
                 </div>
             </div>
 
-            {collapsed ? (
-                <CollapsedLine titles={suggestions.map((item) => item.title)} />
-            ) : isRefreshing || (suggestionSetLoading && suggestions.length === 0) ? (
-                <SuggestionsSkeleton />
-            ) : suggestions.length === 0 ? (
-                <p className="m-0 text-xs text-secondary">
-                    Nothing left to suggest right now. Refresh to scan the project again, or <SuggestWithAiLink />.
-                </p>
-            ) : (
-                <>
-                    <SuggestionGrid surface="strip" />
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                        {batchStatus === 'stale' && (
-                            <span>Your scouts changed since these were picked, so some may already be covered.</span>
-                        )}
-                        {batchStatus === 'failed' && (
-                            <span>The last scan didn't finish, so these are the picks from before it.</span>
-                        )}
-                        <span>
-                            Want something else? <SuggestWithAiLink />.
-                        </span>
-                    </div>
-                </>
-            )}
+            <StripBody />
             <ScoutSuggestionCreateHost surface="strip" />
         </section>
+    )
+}
+
+/** Whichever of the strip's four states applies: collapsed, scanning, nothing left, or the cards. */
+function StripBody(): JSX.Element {
+    const { suggestions, collapsed, batchStatus, isRefreshing, suggestionSetLoading } = useValues(scoutSuggestionsLogic)
+
+    if (collapsed) {
+        return <CollapsedLine titles={suggestions.map((item) => item.title)} />
+    }
+    if (isRefreshing || (suggestionSetLoading && suggestions.length === 0)) {
+        return <SuggestionsSkeleton />
+    }
+    if (suggestions.length === 0) {
+        return (
+            <p className="m-0 text-xs text-secondary">
+                Nothing left to suggest right now. Refresh to scan the project again, or <SuggestWithAiLink />.
+            </p>
+        )
+    }
+    return (
+        <>
+            <SuggestionGrid surface="strip" />
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                {batchStatus === 'stale' && (
+                    <span>Your scouts changed since these were picked, so some may already be covered.</span>
+                )}
+                {batchStatus === 'failed' && (
+                    <span>The last scan didn't finish, so these are the picks from before it.</span>
+                )}
+                <span>
+                    Want something else? <SuggestWithAiLink />.
+                </span>
+            </div>
+        </>
     )
 }
 

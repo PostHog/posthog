@@ -819,9 +819,6 @@ const scoutCreateExecute = (): ToolBase<typeof ScoutCreateSchemaExecute, Schemas
         if (params.config !== undefined) {
             body['config'] = params.config
         }
-        if (params.suggestion_id !== undefined) {
-            body['suggestion_id'] = params.suggestion_id
-        }
         const result = await context.api.request<Schemas.SignalScoutCreateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/`,
