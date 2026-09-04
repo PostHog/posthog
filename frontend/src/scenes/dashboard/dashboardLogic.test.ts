@@ -794,7 +794,7 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
         })
 
-        it('saving unapplied filters refreshes tiles above the auto-preview limit', async () => {
+        it('saving unapplied dashboard settings refreshes tiles above the auto-preview limit', async () => {
             const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
 
             await expectLogic(logic).toFinishAllListeners()
@@ -805,9 +805,9 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.saveDashboardFilters()
+                logic.actions.saveDashboardChanges()
             })
-                .toDispatchActions(['saveDashboardFilters', 'saveDashboardFiltersSuccess', 'refreshDashboardItems'])
+                .toDispatchActions(['saveDashboardChanges', 'saveDashboardChangesSuccess', 'refreshDashboardItems'])
                 .toFinishAllListeners()
 
             payloadSpy.mockRestore()
@@ -2930,6 +2930,18 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
         })
 
+        it('treats selecting the SQL variable default as saved', async () => {
+            await mountDashboardWithVariable({})
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'Default org', false)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+            expect(logic.values.dashboardSettingsChanges).toEqual([])
+            expect(router.values.searchParams).toEqual({})
+        })
+
         it('discards filter and SQL variable changes and restores the saved settings', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
             router.actions.push('/', {
@@ -3029,6 +3041,29 @@ describe('dashboardLogic', () => {
             payloadSpy.mockRestore()
         })
 
+        it('makes Preview available when a SQL variable changes during an older preview', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            await mountDashboardWithVariable({})
+            let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
+                throw new Error('Preview resolver is unavailable')
+            }
+            const preview = new Promise<QueryBasedInsightModel>((resolve) => {
+                finishPreview = resolve
+            })
+            const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockReturnValue(preview)
+
+            logic.actions.previewDashboardChanges()
+            await expectLogic(logic).toMatchValues({ loadingPreview: true })
+
+            logic.actions.overrideVariableValue(variableId, 'newer value', false)
+            await expectLogic(logic).toMatchValues({ loadingPreview: false })
+
+            finishPreview(logic.values.tiles[0].insight!)
+            await expectLogic(logic).toFinishAllListeners()
+            getInsightWithRetrySpy.mockRestore()
+            payloadSpy.mockRestore()
+        })
+
         it('applying a variable value refreshes every tile with the new value attached to the request', async () => {
             await mountDashboardWithVariable({})
 
@@ -3043,6 +3078,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['overrideVariableValue', 'refreshDashboardItems'])
                     .toFinishAllListeners()
 
+                expect(logic.values.effectiveVariablesAndAssociatedInsights[0].variable.value).toBe('applied-value')
                 expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
                 const variablesOverride = getInsightWithRetrySpy.mock.calls[0][7]
                 expect(variablesOverride).toEqual({

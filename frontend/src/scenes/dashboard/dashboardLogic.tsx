@@ -137,6 +137,7 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import {
+    dashboardVariableValuesEqual,
     getDashboardFilterChanges,
     getDashboardVariableChanges,
     type DashboardSettingsChange,
@@ -1121,7 +1122,8 @@ export interface dashboardLogicMeta {
         ) => DashboardSettings
         dashboardSettingsState: (
             savedDashboardSettings: DashboardSettings,
-            currentDashboardSettings: DashboardSettings
+            currentDashboardSettings: DashboardSettings,
+            variables: Variable[]
         ) => DashboardSettingsState
         showApplyFiltersBanner: (canAutoPreview: boolean, dashboardSettingsState: DashboardSettingsState) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
@@ -1179,7 +1181,7 @@ export interface dashboardLogicMeta {
         effectiveVariablesAndAssociatedInsights: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             variables: Variable[],
-            urlVariables: Record<string, HogQLVariable>
+            currentDashboardVariables: Record<string, HogQLVariable>
         ) => {
             insightNames: string[]
             variable: Variable
@@ -1999,6 +2001,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setBreakdownFilter: () => false,
                 setInterval: () => false,
                 setFilterTestAccounts: () => false,
+                overrideVariableValue: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 applyFilters: () => true,
@@ -2785,9 +2788,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
         ],
         dashboardSettingsState: [
-            (s) => [s.savedDashboardSettings, s.currentDashboardSettings],
-            (saved: DashboardSettings, current: DashboardSettings): DashboardSettingsState => {
-                if (!equal(saved, current)) {
+            (s) => [s.savedDashboardSettings, s.currentDashboardSettings, s.variables],
+            (saved: DashboardSettings, current: DashboardSettings, variables: Variable[]): DashboardSettingsState => {
+                const variableDefaults = Object.fromEntries(
+                    variables.map((variable) => [
+                        variable.id,
+                        { value: variable.default_value, isNull: variable.isNull },
+                    ])
+                )
+                const variableIds = new Set([...Object.keys(saved.variables), ...Object.keys(current.variables)])
+                const variablesChanged = Array.from(variableIds).some(
+                    (variableId) =>
+                        !dashboardVariableValuesEqual(
+                            saved.variables[variableId] ?? variableDefaults[variableId],
+                            current.variables[variableId] ?? variableDefaults[variableId]
+                        )
+                )
+
+                if (!equal(saved.filters, current.filters) || variablesChanged) {
                     return 'unsavedChanges'
                 }
                 return 'saved'
@@ -2930,11 +2948,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         effectiveVariablesAndAssociatedInsights: [
-            (s) => [s.dashboard, s.variables, s.urlVariables],
+            (s) => [s.dashboard, s.variables, s.currentDashboardVariables],
             (
                 dashboard: DashboardType,
                 variables: Variable[],
-                urlVariables: Record<string, HogQLVariable>
+                dashboardVariables: Record<string, HogQLVariable>
             ): { variable: Variable; insightNames: string[] }[] => {
                 const dataVizNodes = (dashboard?.tiles ?? [])
                     .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
@@ -2955,14 +2973,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const effectiveVariables = uniqueVariables
                     .map((v) => {
                         const variable = variables.find((n) => n.id === v.variableId)
-                        const urlVariable = urlVariables[v.variableId]
-
                         if (!variable) {
                             return null
                         }
 
-                        const dashboardVariable = dashboard.persisted_variables?.[v.variableId]
-                        const variableSources = [urlVariable, dashboardVariable, v]
+                        const dashboardVariable = dashboardVariables[v.variableId]
+                        const variableSources = [dashboardVariable, v]
                         const valueSource = variableSources.find((source) =>
                             source ? Object.prototype.hasOwnProperty.call(source, 'value') : false
                         )
@@ -4600,6 +4616,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.saveDashboardChangesSuccess(getQueryBasedDashboard(dashboard), settings)
                 actions.clearDashboardSettingsUrlOverrides()
                 actions.clearInitialDashboardSettingsOverride()
+                if (!values.canAutoPreview) {
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
                 lemonToast.success('Dashboard changes saved')
             } catch (error) {
                 actions.saveDashboardChangesFailure(String(error))
@@ -5091,13 +5113,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
 
             const variableDefinition = values.variables.find((candidate) => candidate.id === variableId)
-            const variable = variableDefinition
-                ? { code_name: variableDefinition.code_name, variableId, value, isNull }
-                : undefined
-            if (variable) {
+            if (variableDefinition) {
+                const variable = { code_name: variableDefinition.code_name, variableId, value, isNull }
+                const variables = { ...values.currentDashboardSettings.variables }
+                if (
+                    dashboardVariableValuesEqual(variable, {
+                        value: variableDefinition.default_value,
+                        isNull: variableDefinition.isNull,
+                    })
+                ) {
+                    delete variables[variableId]
+                } else {
+                    variables[variableId] = variable
+                }
                 actions.setDashboardSettingsDraft({
                     ...values.currentDashboardSettings,
-                    variables: { ...values.currentDashboardSettings.variables, [variableId]: variable },
+                    variables,
                 })
             }
 
@@ -5268,7 +5299,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 currentLocation.hashParams,
             ]
         },
-        setDates: ({ date_from, date_to, explicit_date }) => {
+        setDates: ({ dateFrom, dateTo, explicitDate }) => {
             if (!values.canAutoPreview) {
                 return
             }
@@ -5278,9 +5309,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const urlFilters = parseURLFilters(currentLocation.searchParams)
             const newUrlFilters: DashboardFilter = {
                 ...urlFilters,
-                date_from,
-                date_to,
-                explicitDate: explicit_date ?? values.intermittentFilters.explicitDate,
+                date_from: dateFrom,
+                date_to: dateTo,
+                explicitDate,
             }
 
             return [
@@ -5362,7 +5393,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 currentLocation.hashParams,
             ]
         },
-        overrideVariableValue: ({ variableId, value }) => {
+        overrideVariableValue: ({ variableId, value, isNull }) => {
             const { currentLocation } = router.values
 
             const currentVariable = values.variables.find((variable: Variable) => variable.id === variableId)
@@ -5371,15 +5402,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
             }
 
-            const urlVariables = parseURLVariables(currentLocation.searchParams)
-            const newUrlVariables: Record<string, string> = {
-                ...urlVariables,
-                [currentVariable.code_name]: value,
+            const newUrlVariables = { ...parseURLVariables(currentLocation.searchParams) }
+            if (
+                dashboardVariableValuesEqual(
+                    { value, isNull },
+                    { value: currentVariable.default_value, isNull: currentVariable.isNull }
+                )
+            ) {
+                delete newUrlVariables[currentVariable.code_name]
+            } else {
+                newUrlVariables[currentVariable.code_name] = value
             }
 
             const newSearchParams = {
                 ...currentLocation.searchParams,
             }
+            delete newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
 
             return [
                 currentLocation.pathname,

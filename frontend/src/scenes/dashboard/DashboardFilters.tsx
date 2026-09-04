@@ -33,7 +33,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
-                        <DashboardUnsavedChangesIndicator />
+                        {placement === DashboardPlacement.Dashboard && <DashboardUnsavedChangesIndicator />}
                     </div>
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (

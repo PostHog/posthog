@@ -10,7 +10,7 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
@@ -70,14 +70,15 @@ describe('DashboardFilterBar', () => {
 
     function renderFilterBar(
         dashboardModeSource: DashboardEventSource,
-        dashboard: DashboardType<QueryBasedInsightModel> = MOCK_DASHBOARD
+        dashboard: DashboardType<QueryBasedInsightModel> = MOCK_DASHBOARD,
+        placement: DashboardPlacement = DashboardPlacement.Dashboard
     ): ReturnType<typeof dashboardLogic.build> {
-        const logic = dashboardLogic({ id: dashboard.id, dashboard })
+        const logic = dashboardLogic({ id: dashboard.id, dashboard, placement })
         logic.mount()
         logic.actions.setDashboardMode(DashboardMode.Edit, dashboardModeSource)
 
         render(
-            <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard }}>
+            <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard, placement }}>
                 <DashboardFilterBar />
             </BindLogic>
         )
@@ -260,4 +261,19 @@ describe('DashboardFilterBar', () => {
 
         logic.unmount()
     })
+
+    it.each(Object.values(DashboardPlacement).filter((placement) => placement !== DashboardPlacement.Dashboard))(
+        'does not show dashboard setting actions in the %s placement',
+        async (placement) => {
+            router.actions.push('/', {
+                [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+            })
+            const logic = renderFilterBar(DashboardEventSource.DashboardFilters, MOCK_DASHBOARD, placement)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).not.toBeInTheDocument()
+            logic.unmount()
+        }
+    )
 })

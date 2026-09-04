@@ -27,6 +27,13 @@ function formatVariableValue(variable: { isNull?: boolean; value?: unknown } | u
     return [String(variable.value)]
 }
 
+export function dashboardVariableValuesEqual(
+    previous: { isNull?: boolean; value?: unknown } | undefined,
+    current: { isNull?: boolean; value?: unknown } | undefined
+): boolean {
+    return equal(formatVariableValue(previous), formatVariableValue(current))
+}
+
 function changeValue(value: string | undefined): string[] {
     return value ? [value] : []
 }
@@ -41,7 +48,7 @@ export function getDashboardVariableChanges(
     return Array.from(variableIds).flatMap((variableId) => {
         const previous = previousVariables[variableId] ?? defaultVariables[variableId]
         const current = currentVariables[variableId]
-        if (equal(previous, current)) {
+        if (dashboardVariableValuesEqual(previous, current)) {
             return []
         }
 

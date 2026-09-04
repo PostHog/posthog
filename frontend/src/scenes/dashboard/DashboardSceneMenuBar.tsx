@@ -74,7 +74,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         asDashboardTemplate,
         canSaveProjectDashboardTemplate,
         effectiveEditBarFilters,
-        effectiveDashboardVariableOverrides,
+        currentDashboardVariables,
         tiles,
         apiUrl,
     } = useValues(dashboardLogic)
@@ -188,7 +188,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                 const url = urls.insightView(
                                     tile.insight.short_id,
                                     dashboard.id,
-                                    effectiveDashboardVariableOverrides,
+                                    currentDashboardVariables,
                                     effectiveEditBarFilters,
                                     tile?.filters_overrides
                                 )
@@ -213,7 +213,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                         dashboard: dashboard.id,
                                         export_context: {
                                             path: apiUrl(),
-                                            variables_override: effectiveDashboardVariableOverrides,
+                                            variables_override: currentDashboardVariables,
                                         },
                                     })
                                 }

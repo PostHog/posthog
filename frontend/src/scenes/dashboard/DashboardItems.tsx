@@ -94,7 +94,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboardStreaming,
         dashboardLoading,
         effectiveEditBarFilters,
-        effectiveDashboardVariableOverrides,
+        currentDashboardVariables,
         effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
@@ -613,7 +613,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                         isResizing={resizingTileId === tile.id.toString()}
                                         filtersOverride={effectiveEditBarFilters}
-                                        variablesOverride={effectiveDashboardVariableOverrides}
+                                        variablesOverride={currentDashboardVariables}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                         breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
