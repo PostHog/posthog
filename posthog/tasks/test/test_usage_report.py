@@ -303,14 +303,14 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 team=self.org_1_team_1,
                 name="Enabled scanner",
                 scanner_type=ScannerType.MONITOR,
-                model=ScannerModel.GEMINI_3_7_FLASH,
+                model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=True,
             )
             ReplayScanner.objects.create(
                 team=self.org_1_team_1,
                 name="Disabled scanner",
                 scanner_type=ScannerType.MONITOR,
-                model=ScannerModel.GEMINI_3_7_FLASH,
+                model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=False,
             )
 

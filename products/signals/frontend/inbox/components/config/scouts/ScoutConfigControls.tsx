@@ -11,7 +11,7 @@ import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
-import { ScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     dailyCronToTime,
@@ -181,8 +181,8 @@ export function ScoutConfigForm({
                     size="small"
                     value={config.network_access}
                     options={[
-                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains' },
-                        { value: ScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
+                        { value: SignalScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains' },
+                        { value: SignalScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
                     ]}
                     // Editable while the scout is disabled, unlike the schedule controls: a newly
                     // enabled scout with no prior run is immediately due, so network access must be

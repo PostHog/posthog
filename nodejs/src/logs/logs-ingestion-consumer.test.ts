@@ -33,6 +33,7 @@ import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
     type LogsIngestionConsumerDeps,
+    describeBatchPosition,
     logMessageDlqCounter,
     logMessageDroppedCounter,
     logsBillingBytesCreditedCounter,
@@ -43,6 +44,7 @@ import {
     logsRecordsBytesExceedPayloadCounter,
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
+    parseSizeHeader,
 } from './logs-ingestion-consumer'
 import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
@@ -632,9 +634,73 @@ describe('LogsIngestionConsumer', () => {
                 expect(dlqMessage.headers).toHaveProperty('error_message')
                 expect(dlqMessage.headers).toHaveProperty('error_name')
                 expect(dlqMessage.headers).toHaveProperty('failed_at')
+                // Position of the source record, so it can be read back and replayed
+                expect(dlqMessage.headers.source_topic).toEqual(messages[0].topic)
+                expect(dlqMessage.headers.source_partition).toEqual(messages[0].partition.toString())
+                expect(dlqMessage.headers.source_offset).toEqual(messages[0].offset.toString())
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
             }
+        })
+
+        it('should send a message with an unparseable size header to DLQ instead of ingesting it', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+                // NaN here would otherwise flow into the usage counters and per-team billing stats
+                bytes_uncompressed: 'not-a-number',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const produced = getProducedKafkaMessages()
+            expect(produced.filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+
+            const dlq = produced.filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)
+            expect(dlq).toHaveLength(1)
+            expect(dlq[0]?.headers?.error_message).toEqual('invalid_size_headers')
+            expect(dlq[0]?.headers?.team_id).toEqual(team.id.toString())
+        })
+
+        it('should fail the batch when the message cannot be written to the DLQ', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: 'not-a-number',
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            mockProducer.queueMessages = jest.fn().mockRejectedValue(new Error('DLQ unavailable'))
+
+            try {
+                // Resolving here would commit the source offset with no copy anywhere, so the
+                // only record of the payload would be gone.
+                await expect(consumer.processKafkaBatch(messages)).rejects.toThrow('DLQ unavailable')
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
+    })
+
+    describe('describeBatchPosition', () => {
+        it('collapses each partition to its offset span', () => {
+            const at = (partition: number, offset: number): Message => ({ partition, offset }) as Message
+
+            expect(describeBatchPosition([at(3, 1000), at(3, 1099), at(7, 42)])).toEqual({
+                '3': '1000-1099',
+                '7': '42',
+            })
+        })
+    })
+
+    describe('parseSizeHeader', () => {
+        it.each([
+            ['1234', 1234],
+            [undefined, 0],
+            ['not-a-number', null],
+            ['-5', null],
+        ])('parses %p as %p', (raw, expected) => {
+            expect(parseSizeHeader(raw)).toEqual(expected)
         })
     })
 

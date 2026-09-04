@@ -81,7 +81,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         reconcile.assert_called_once()
 
-    def test_failed_dag_sync_does_not_mint_a_v1_schedule(self):
+    def test_failed_dag_sync_leaves_nothing_materialized(self):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
             kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
@@ -96,17 +96,9 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
                 "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
                 side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
             ),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
-            ) as sync_wf,
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
         ):
             managed_viewset.sync_views()
 
-        sync_wf.assert_not_called()
         assert not DataWarehouseSavedQuery.objects.filter(
             managed_viewset=managed_viewset, is_materialized=True
         ).exists()
@@ -119,7 +111,8 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         )
 
         # Call sync_views to create the views
-        managed_viewset.sync_views()
+        with patch(SCHEDULE_MATERIALIZATION):
+            managed_viewset.sync_views()
 
         # Check that views were created
         views = DataWarehouseSavedQuery.objects.filter(

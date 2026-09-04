@@ -3,8 +3,10 @@ import type {
     Series,
     TimeSeriesBarChartConfig,
     TimeSeriesLineChartConfig,
+    TimeInterval,
     TooltipConfig,
     TrendLineConfig,
+    XAxisConfig,
     YAxisConfig,
 } from '@posthog/quill-charts'
 
@@ -91,6 +93,9 @@ export interface BuildRetentionChartConfigOpts {
     showTrendLines?: boolean
     series: Series<RetentionSeriesMeta>[]
     tooltip?: TooltipConfig
+    isIntervalView?: boolean
+    period?: string
+    timezone?: string
 }
 
 function buildTrendLines(
@@ -107,8 +112,21 @@ function buildGoalLines(goalLines: GoalLineLike[] | null | undefined): GoalLineC
     return schemaGoalLinesToConfigs(goalLines)
 }
 
+const TIME_INTERVAL_BY_RETENTION_PERIOD: Record<string, TimeInterval> = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+}
+
+function buildXAxis(opts: BuildRetentionChartConfigOpts): XAxisConfig | undefined {
+    const interval = opts.period ? TIME_INTERVAL_BY_RETENTION_PERIOD[opts.period] : undefined
+    return opts.isIntervalView && interval && opts.timezone ? { interval, timezone: opts.timezone } : undefined
+}
+
 export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesLineChartConfig {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',
@@ -124,6 +142,7 @@ export function buildRetentionBarChartConfig(
     opts: BuildRetentionChartConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',

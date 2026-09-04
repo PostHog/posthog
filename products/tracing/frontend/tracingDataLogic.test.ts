@@ -4,12 +4,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE, tracingDataLogic } from './tracingDataLogic'
+import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 

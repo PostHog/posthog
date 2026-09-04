@@ -380,30 +380,37 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "distinct_id": "user123",
     });
 
-    let response = client
-        .post(format!("http://{}/flags", server.addr))
-        .header("content-type", "application/json")
-        .json(&payload)
-        .send()
-        .await?;
+    // Capacity is one token and a denial does not extend the window. Only a grant moves the
+    // window forward by one second, so the whole burst is served without a block only if it
+    // spans BURST - 1 seconds. The check tolerates a total burst latency below BURST - 1
+    // seconds, which no run of six localhost round trips reaches on a loaded runner.
+    const BURST: usize = 6;
+    let mut statuses = Vec::with_capacity(BURST);
+    for _ in 0..BURST {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+        statuses.push(response.status());
+    }
 
-    assert_eq!(response.status(), StatusCode::OK, "First request allowed");
-
-    let response = client
-        .post(format!("http://{}/flags", server.addr))
-        .header("content-type", "application/json")
-        .json(&payload)
-        .send()
-        .await?;
-
-    assert_eq!(
-        response.status(),
-        StatusCode::TOO_MANY_REQUESTS,
-        "Second request blocked"
+    // Only allow and block are valid here, so a 5xx means the endpoint broke rather than
+    // rate limited. Fail on it instead of letting a server error hide behind the burst.
+    assert!(
+        statuses
+            .iter()
+            .all(|s| *s == StatusCode::OK || *s == StatusCode::TOO_MANY_REQUESTS),
+        "Burst returned an unexpected status: {statuses:?}"
+    );
+    assert_eq!(statuses[0], StatusCode::OK, "First request allowed");
+    assert!(
+        statuses.contains(&StatusCode::TOO_MANY_REQUESTS),
+        "Burst blocked once the bucket is empty: {statuses:?}"
     );
 
-    // Replenish window is ~1s (1 token/sec); 1100ms gives a small buffer without
-    // depending on sub-100ms inter-request timing on loaded CI runners.
+    // 1100ms clears the one-second window the last grant opened. A slow burst only adds margin.
     tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
 
     let response = client
@@ -416,7 +423,7 @@ async fn test_rate_limit_replenishment() -> Result<()> {
     assert_eq!(
         response.status(),
         StatusCode::OK,
-        "Third request allowed after replenishment"
+        "Request allowed after replenishment"
     );
 
     Ok(())

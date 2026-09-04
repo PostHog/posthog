@@ -3,7 +3,12 @@ from freezegun import freeze_time
 
 from django.db import OperationalError
 
-from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
+from products.tasks.backend.exceptions import (
+    OAuthTokenError,
+    SandboxExecutionError,
+    SandboxMissingRepositoryError,
+    SandboxTimeoutError,
+)
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -12,6 +17,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _agentsh_domains_for,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _invoke_start_agent_server,
     _is_agent_shadow_enabled,
     _launch_agent_shadow,
     _LaunchParams,
@@ -135,9 +141,12 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
         use_modal_network_allowlist=True,
         network_policy_fingerprint="policy-hash",
     )
+    sandbox = mocker.Mock()
+    sandbox.supports_combined_agent_server_start_and_health.return_value = False
+    sandbox.wait_for_agent_server_ready.side_effect = RuntimeError("health check failed")
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
-        **{"return_value.get_by_id.return_value": mocker.Mock()},
+        **{"return_value.get_by_id.return_value": sandbox},
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
@@ -145,7 +154,7 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server",
-        side_effect=RuntimeError("health check failed"),
+        return_value=None,
     )
     record_observation = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
@@ -161,6 +170,94 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
         )
 
     record_observation.assert_not_called()
+    sandbox.wait_for_agent_server_ready.assert_called_once()
+
+
+@pytest.mark.parametrize("error_type", [SandboxExecutionError, SandboxTimeoutError])
+def test_invoke_start_agent_server_preserves_process_task_error(mocker, error_type) -> None:
+    context = _context()
+    error = error_type(
+        "Agent-server failed to start",
+        {"sandbox_id": "sandbox-id", "failure_reason": "not ready"},
+        cause=RuntimeError("not ready"),
+        capture=False,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.side_effect = error
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+
+    with pytest.raises(error_type) as raised:
+        _invoke_start_agent_server(sandbox, context, mocker.Mock(agentsh_domains=None), repo_ready_file=None)
+
+    assert raised.value is error
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_statuses"),
+    [
+        (
+            SandboxExecutionError(
+                "Agent-server failed to start",
+                {"health_poll_ms": 120, "start_and_health_ms": 150},
+                cause=RuntimeError("not ready"),
+                capture=False,
+            ),
+            ["COMPLETED", "FAILED"],
+        ),
+        (
+            SandboxTimeoutError(
+                "Execution timed out",
+                {"timeout_seconds": 155},
+                cause=RuntimeError("timed out"),
+                capture=False,
+            ),
+            ["FAILED"],
+        ),
+    ],
+)
+async def test_combined_start_failure_records_step_statuses(mocker, error, expected_statuses) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.supports_combined_agent_server_start_and_health.return_value = True
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=mocker.Mock(agentsh_domains=None),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server",
+        side_effect=error,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow",
+        return_value=False,
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    record_step = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_agent_server_step_ms"
+    )
+
+    with pytest.raises(type(error)) as raised:
+        await start_agent_server(
+            StartAgentServerInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                sandbox_url="https://sandbox.example",
+                used_snapshot=True,
+            )
+        )
+
+    assert raised.value is error
+    assert [record.kwargs["status"] for record in record_step.call_args_list] == expected_statuses
+    assert all(record.kwargs["used_snapshot"] is True for record in record_step.call_args_list)
+    if len(record_step.call_args_list) == 2:
+        assert record_step.call_args_list[0].args[:2] == ("agent_server_invoke", 30)
+        assert record_step.call_args_list[1].args[:2] == ("agent_server_health", 120)
 
 
 @pytest.mark.parametrize(("attempt", "expects_relaunch"), [(1, False), (2, True), (3, True)])
@@ -668,6 +765,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.start_agent_server.return_value = 125
     sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
@@ -743,8 +841,9 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         allowed_gateway_server_ids=["srv-1"],
     )
     sandbox.start_agent_server.assert_called_once()
-    sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
-    assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is False
+    sandbox.wait_for_agent_server_ready.assert_not_called()
+    assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is True
+    assert result.health_poll_ms == 125
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
 
 

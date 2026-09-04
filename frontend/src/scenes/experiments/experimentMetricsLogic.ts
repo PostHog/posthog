@@ -20,7 +20,7 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationApi,
-    TriggerEnumApi,
+    ExperimentMetricsRecalculationTriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 type ExperimentSavedMetric = {
@@ -169,6 +169,7 @@ export interface experimentMetricsLogicValues {
     nextRetryAt: string | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
+    queuedRerun: ExperimentMetricsRecalculationTriggerEnumApi | null
     recalculatingMetricUuids: string[]
     recalculationDisplayState: 'cold' | 'initial' | 'partial' | 'refreshing' | 'resting'
     recalculationLoading: boolean
@@ -248,6 +249,9 @@ export interface experimentMetricsLogicActions {
     setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
+    setQueuedRerun: (trigger: ExperimentMetricsRecalculationTriggerEnumApi | null) => {
+        trigger: ExperimentMetricsRecalculationTriggerEnumApi | null
+    }
     setRecalculatingMetricUuids: (uuids: string[]) => {
         uuids: string[]
     }
@@ -260,8 +264,8 @@ export interface experimentMetricsLogicActions {
     setSecondaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
-    triggerRecalculation: (trigger?: TriggerEnumApi) => {
-        trigger: TriggerEnumApi
+    triggerRecalculation: (trigger?: ExperimentMetricsRecalculationTriggerEnumApi) => {
+        trigger: ExperimentMetricsRecalculationTriggerEnumApi
     }
 }
 
@@ -309,7 +313,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
         loadLatestRecalculation: true,
-        triggerRecalculation: (trigger: TriggerEnumApi = 'manual') => ({ trigger }),
+        triggerRecalculation: (trigger: ExperimentMetricsRecalculationTriggerEnumApi = 'manual') => ({ trigger }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
@@ -318,6 +322,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         setRecalculationLoading: (loading: boolean) => ({ loading }),
         // The metrics still showing a stale value while a non-cold recalc refreshes them in place.
         setRecalculatingMetricUuids: (uuids: string[]) => ({ uuids }),
+        setQueuedRerun: (trigger: ExperimentMetricsRecalculationTriggerEnumApi | null) => ({ trigger }),
     }),
     reducers({
         currentRecalculation: [
@@ -332,6 +337,16 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setRecalculationLoading: (_, { loading }) => loading,
                 loadLatestRecalculation: () => true,
                 setCurrentRecalculation: () => false,
+            },
+        ],
+        queuedRerun: [
+            null as ExperimentMetricsRecalculationTriggerEnumApi | null,
+            {
+                /**
+                 * If the state is `experiment_config_change`, it sticks.
+                 */
+                setQueuedRerun: (state, { trigger }) =>
+                    trigger === null ? null : state === 'experiment_config_change' ? state : trigger,
             },
         ],
         primaryMetricsResults: [
@@ -699,6 +714,17 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
+                 * If we have a recalculation in flight, and the user has changed the experiment or the metrics configuration,
+                 * we schedule a new recalculation with the corresponding trigger.
+                 */
+                if (
+                    (trigger === 'experiment_config_change' || trigger === 'metric_config_change') &&
+                    values.isRecalculating
+                ) {
+                    actions.setQueuedRerun(trigger)
+                    return
+                }
+                /**
                  * Dim the metrics that already show something (a value or an error) so they read as
                  * "refreshing" until the new result streams in. Cold runs have nothing prior, so nothing to dim.
                  */
@@ -810,8 +836,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 }
                 cache.activeRecalculationId = recalculationId
 
+                /**
+                 * if for any reason the recalculation workflow never reaches terminal state, we need to
+                 * stop polling, and clear recalculation state. This includes any queued rerun, that will never
+                 * be fired.
+                 */
                 if (Date.now() - (cache.recalcStartMs ?? Date.now()) > MAX_POLL_DURATION_MS) {
                     actions.setRecalculatingMetricUuids([])
+                    actions.setQueuedRerun(null)
                     lemonToast.error('Recalculation appears stuck. Please reload to try again.')
                     return
                 }
@@ -830,9 +862,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     /**
                      * Retry on transient errors, but give up after MAX_POLL_RETRIES consecutive failures so a
                      * persistently failing endpoint can't poll forever.
+                     * If we reach the retry cap, we also need to clear queued reruns that never fire.
                      */
                     cache.pollRetryCount = (cache.pollRetryCount ?? 0) + 1
                     if (cache.pollRetryCount >= MAX_POLL_RETRIES) {
+                        actions.setQueuedRerun(null)
                         lemonToast.error('Failed to load recalculation results. Please reload to try again.')
                         return
                     }
@@ -892,6 +926,17 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     lemonToast.error(
                         `${recalculation.failed_metrics} of ${recalculation.total_metrics} metrics failed to load`
                     )
+                }
+
+                /**
+                 * The user has changed the experiment or the metrics configuration while a recalculation was in flight.
+                 * We clear the flag an trigger a new recalculation to reflect the changes. Cache resolution is handled by the
+                 * durable execution backend, so we'll try to reuse the cached results.
+                 */
+                const queued = values.queuedRerun
+                if (queued) {
+                    actions.setQueuedRerun(null)
+                    actions.triggerRecalculation(queued)
                 }
             },
         }

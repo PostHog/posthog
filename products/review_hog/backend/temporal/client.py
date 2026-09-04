@@ -48,6 +48,7 @@ from products.review_hog.backend.temporal.types import (
     review_branch_workflow_id,
     review_pr_workflow_id,
 )
+from products.signals.backend.enums import ReportPriority
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ def _build_inputs(
     repository: str | None,
     head_branch: str | None,
     resolve_comments: bool | None = None,
+    signal_priority: ReportPriority | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -124,6 +126,7 @@ def _build_inputs(
         acting_user_id=acting_user_id,
         trigger_source=trigger_source,
         signal_report_id=signal_report_id,
+        signal_priority=signal_priority.value if signal_priority is not None else None,
         head_branch=head_branch,
         resolve_comments=resolve_comments,
     )
@@ -191,6 +194,7 @@ def start_review_pr_workflow(
     acting_user_id: int | None = None,
     trigger_source: str = TRIGGER_MANUAL,
     signal_report_id: str | None = None,
+    signal_priority: ReportPriority | None = None,
     repository: str | None = None,
     head_branch: str | None = None,
     resolve_comments: bool | None = None,
@@ -214,6 +218,7 @@ def start_review_pr_workflow(
         acting_user_id=acting_user_id,
         trigger_source=trigger_source,
         signal_report_id=signal_report_id,
+        signal_priority=signal_priority,
         pr_url=pr_url,
         repository=repository,
         head_branch=head_branch,

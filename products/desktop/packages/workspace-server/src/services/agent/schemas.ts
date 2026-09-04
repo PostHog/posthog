@@ -14,7 +14,7 @@ export const credentialsSchema = z.object({
 
 export type Credentials = z.infer<typeof credentialsSchema>;
 
-const codexModelAccessSchema = z.enum(["posthog-gateway", "own-subscription"]);
+const modelAccessSchema = z.enum(["posthog-gateway", "own-subscription"]);
 
 // Sized for personalization synced from an AGENTS.md/CLAUDE.md file, which
 // can be far larger than the 2000-char hand-typed settings field. Kept equal
@@ -38,7 +38,8 @@ export const startSessionInput = z.object({
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
-  codexModelAccess: codexModelAccessSchema.optional(),
+  codexModelAccess: modelAccessSchema.optional(),
+  claudeModelAccess: modelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
   /**
@@ -221,7 +222,8 @@ export const reconnectSessionInput = z.object({
   logUrl: z.string().optional(),
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
-  codexModelAccess: codexModelAccessSchema.optional(),
+  codexModelAccess: modelAccessSchema.optional(),
+  claudeModelAccess: modelAccessSchema.optional(),
   /** Additional directories Claude can access beyond cwd (for worktree support) */
   additionalDirectories: z.array(z.string()).optional(),
   permissionMode: z.string().optional(),
@@ -250,12 +252,38 @@ export const rtkStatusOutput = z.object({
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
 
 export const codexSubscriptionStatusOutput = z.object({
-  appLoggedIn: z.boolean(),
+  loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+  email: z.string().optional(),
+  subscriptionType: z.string().optional(),
 });
 
 export type CodexSubscriptionStatus = z.infer<
   typeof codexSubscriptionStatusOutput
 >;
+
+export const claudeSubscriptionStatusOutput = z.object({
+  loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+  email: z.string().optional(),
+  organization: z.string().optional(),
+  subscriptionType: z.string().optional(),
+});
+
+export type ClaudeSubscriptionStatus = z.infer<
+  typeof claudeSubscriptionStatusOutput
+>;
+
+export const claudeAuthTerminalInput = z.object({
+  action: z.enum(["login", "logout"]),
+});
+
+export const claudeAuthTerminalOutput = z.object({
+  command: z.string(),
+  cwd: z.string(),
+  additionalEnv: z.record(z.string(), z.string()),
+  unsetEnv: z.array(z.string()),
+});
+
+export type ClaudeAuthTerminal = z.infer<typeof claudeAuthTerminalOutput>;
 
 export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
@@ -370,6 +398,9 @@ export const getPiModelCatalogOutput = z.array(piModelCatalogEntrySchema);
 export const getPreviewConfigOptionsInput = z.object({
   apiHost: z.string(),
   adapter: z.enum(["claude", "codex"]),
+  // Opt-in: the model option also lists the other harness's models as a
+  // second group, so a picker can switch harness from a model pick.
+  allHarnessModels: z.boolean().optional(),
 });
 
 export const getPreviewConfigOptionsOutput = z.array(sessionConfigOptionSchema);

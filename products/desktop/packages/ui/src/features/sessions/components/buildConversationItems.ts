@@ -133,6 +133,7 @@ export interface ItemBuilder {
    *  frozen and only re-derive the active turn. */
   currentTurnStartIndex: number;
   pendingPrompts: Map<number | string, TurnState>;
+  promptDeliveryIds: Set<string>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
@@ -172,6 +173,7 @@ export function createItemBuilder(): ItemBuilder {
     currentTurn: null,
     currentTurnStartIndex: 0,
     pendingPrompts: new Map(),
+    promptDeliveryIds: new Set(),
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
@@ -584,6 +586,13 @@ function handlePromptRequest(
 
   const userPrompt = extractUserPrompt(msg.params);
   const userContent = userPrompt.content;
+  const messageId = (msg.params as { _meta?: { messageId?: unknown } } | null)
+    ?._meta?.messageId;
+  const isRedelivery =
+    typeof messageId === "string" && b.promptDeliveryIds.has(messageId);
+  if (typeof messageId === "string") {
+    b.promptDeliveryIds.add(messageId);
+  }
 
   if (userContent.trim().length === 0 && userPrompt.attachments.length === 0) {
     return;
@@ -656,7 +665,7 @@ function handlePromptRequest(
       id: `${turnId}-skill-action`,
       buttonId: skillButtonId,
     });
-  } else {
+  } else if (!isRedelivery) {
     b.items.splice(insertIndex, 0, {
       type: "user_message",
       id: `${turnId}-user`,

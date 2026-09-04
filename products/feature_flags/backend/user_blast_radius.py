@@ -10,10 +10,16 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -161,9 +167,6 @@ def recently_active_persons_count(team: Team, cutoff: Optional[datetime] = None)
     does not inflate the audience shown to a flag author (see RECENTLY_ACTIVE_DAYS). `uniq` is an
     estimate, which matches the "~" the sizing panel already renders.
     """
-    from posthog.hogql import ast
-    from posthog.hogql.parser import parse_select
-    from posthog.hogql.query import execute_hogql_query
 
     if cutoff is None:
         cutoff = _recently_active_cutoff()
@@ -182,9 +185,6 @@ def recently_active_persons_count(team: Team, cutoff: Optional[datetime] = None)
 def _matched_persons_query(team: Team, filter: Filter):
     """Subquery of the person ids matching the condition. Reuses property_to_expr in person scope,
     so it resolves cohorts, static cohorts, and group properties exactly like the person listing."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
-
     return ast.SelectQuery(
         select=[ast.Field(chain=["persons", "id"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
@@ -207,9 +207,6 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     Both counts are of persons active in the same recent window, so the matched count is never a
     different population from the total it is shown against.
     """
-    from posthog.hogql import ast
-    from posthog.hogql.query import execute_hogql_query
-
     cutoff = _recently_active_cutoff()
     properties = filter.property_groups.flat
 
@@ -255,8 +252,6 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
 
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
     """Build HogQL AST query to count or select distinct persons matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
     if return_count:
@@ -308,7 +303,6 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
 
 def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 
@@ -334,14 +328,17 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
 
     # Execute the query with OFFLINE workload (groups queries can be massive)
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # One database build shared by both counts, as in _get_person_blast_radius above.
+    database = Database.create_for(team=team)
     response = execute_hogql_query(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
+        context=HogQLContext(team_id=team.pk, database=database),
     )
 
     total_affected = response.results[0][0] if response.results else 0
-    total_groups = team.groups_seen_so_far(group_type_index)
+    total_groups = team.count_groups_seen_so_far(group_type_index, database=database)
 
     return BlastRadiusResult(affected=total_affected, total=total_groups)
 
@@ -357,8 +354,6 @@ def _build_group_query(
     cursor: Optional[str] = None,
 ):
     """Build HogQL AST query to count or select distinct groups matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT groups.key) or DISTINCT groups.key
     if return_count:
@@ -587,7 +582,6 @@ def _build_group_query(
 
 def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
     """Get distinct person IDs matching person-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
 
     # Build the SELECT query to get person IDs
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
@@ -607,7 +601,6 @@ def _get_group_blast_radius_persons(
     team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
 ) -> list[str]:
     """Get distinct group keys matching group-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 

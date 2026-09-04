@@ -341,6 +341,23 @@ CREATE TABLE posthog.writable_duplicate_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'duplicate_events');
+CREATE TABLE posthog.writable_error_tracking_fingerprint_issue_state (
+  team_id Int64,
+  fingerprint String,
+  issue_id UUID,
+  issue_name Nullable(String),
+  issue_description Nullable(String),
+  issue_status String,
+  issue_severity Nullable(String),
+  assigned_user_id Nullable(Int64),
+  assigned_role_id Nullable(UUID),
+  first_seen DateTime64(3, 'UTC'),
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_fingerprint_issue_state');
 CREATE TABLE posthog.writable_error_tracking_issue_fingerprint_embeddings (
   team_id Int64,
   model_name LowCardinality(String),
