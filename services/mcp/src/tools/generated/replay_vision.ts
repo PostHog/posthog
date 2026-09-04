@@ -250,6 +250,9 @@ const visionScannersCreate = (): ToolBase<ReturnType<typeof VisionScannersCreate
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
         }
+        if (params.creation_method !== undefined) {
+            body['creation_method'] = params.creation_method
+        }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
         }
@@ -761,6 +764,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         }
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
+        }
+        if (params.creation_method !== undefined) {
+            body['creation_method'] = params.creation_method
         }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
