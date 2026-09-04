@@ -41,10 +41,22 @@ class ExperimentBreakdownAttributionQueryBuilder:
         breakdown attributed from ``metric_events`` would reference a column no branch produces.
         Attributing a breakdown off warehouse rows needs a design this builder does not have, so
         the combination is rejected until integration adds it.
+
+        A single-step funnel is degenerate for metric-event attribution. A user reaches a named
+        bucket only by emitting the step event, which is the same event the funnel counts as the
+        conversion, so every named bucket is 100% converted and the per-bucket rate carries no
+        information. The multi-step case raises a wider statistics question (per-bucket buckets
+        condition on a post-exposure event) that the experiments team must settle before wiring;
+        the one-step case is unambiguous, so it is rejected now.
         """
         if self.context.has_data_warehouse_step():
             raise NotImplementedError(
                 "breakdowns on data-warehouse funnel steps are not yet supported for experiment funnels"
+            )
+        if self.context.is_single_step():
+            raise NotImplementedError(
+                "breakdowns on single-step funnel metrics are not supported: every named bucket would "
+                "be 100% converted by construction"
             )
 
     def build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:

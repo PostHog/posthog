@@ -296,3 +296,17 @@ class TestExperimentBreakdownAttributionQueryBuilder:
             raise AssertionError("expected NotImplementedError")
         except NotImplementedError:
             pass
+
+    def test_single_step_funnel_with_breakdown_is_rejected(self):
+        # A user reaches a named bucket only by emitting the one step event, which is the same event
+        # the funnel counts as the conversion, so every named bucket is 100% converted by
+        # construction and the per-bucket rate carries no information. It must raise.
+        metric = _funnel_metric(num_steps=1)
+        builder = _builder(metric)
+        query = _optimized_query()
+
+        try:
+            builder.inject_funnel_breakdown_columns_optimized(query)
+            raise AssertionError("expected NotImplementedError")
+        except NotImplementedError:
+            pass

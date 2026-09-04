@@ -57,6 +57,9 @@ class ExperimentBreakdownAttributionContext:
     def has_data_warehouse_step(self) -> bool:
         return any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
 
+    def is_single_step(self) -> bool:
+        return len(self.metric.series) == 1
+
     def breakdown_aliases(self) -> list[str]:
         return [f"breakdown_value_{i + 1}" for i in range(len(self.breakdowns))]
 
