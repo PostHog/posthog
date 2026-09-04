@@ -107,24 +107,33 @@ class SlackIntegration:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
-            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
-            isMember = authed_user in members_response["members"]
+            if authed_user is not None:
+                members_response = self.client.conversations_members(
+                    channel=channel_id, limit=channel["num_members"] + 1
+                )
+                if authed_user not in members_response["members"]:
+                    return None
 
-            if not isMember:
-                return None
-
-            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+            is_private_without_access = channel["is_private"] and not should_include_private_channels
 
             return {
                 "id": channel["id"],
-                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if isPrivateWithoutAccess else channel["name"],
+                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if is_private_without_access else channel["name"],
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
-                "is_private_without_access": isPrivateWithoutAccess,
+                "is_archived": channel.get("is_archived"),
+                "is_im": channel.get("is_im"),
+                "is_mpim": channel.get("is_mpim"),
+                "is_channel": channel.get("is_channel"),
+                "is_private_without_access": is_private_without_access,
             }
         except SlackApiError as e:
-            if e.response["error"] == "channel_not_found":
+            if authed_user is None or e.response["error"] == "channel_not_found":
+                return None
+            raise
+        except Exception:
+            if authed_user is None:
                 return None
             raise
 

@@ -945,7 +945,7 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
  * provision_defaults action get-or-creates the requester's personal "#me" channel and
  * the team's shared "#general" channel; creation is resolve-or-create by normalized
  * name so clients can map channel-like surfaces onto backend channels.
- * @summary Rename a public channel
+ * @summary Update a public channel
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
 
@@ -954,6 +954,8 @@ export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
 export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
 
 export const taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax = 365
+
+export const taskChannelsPartialUpdateBodySlackTaskRoutingOneSlackChannelIdMax = 64
 
 export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -977,6 +979,21 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.'
+        ),
+    slack_task_routing: zod
+        .union([
+            zod.object({
+                integration: zod.number().describe('Slack integration that owns the Slack channel.'),
+                slack_channel_id: zod
+                    .string()
+                    .max(taskChannelsPartialUpdateBodySlackTaskRoutingOneSlackChannelIdMax)
+                    .describe('Slack external channel identifier to route into this space.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Slack channel routing for new root-thread tasks. Send null to clear it. Omit this field to leave it unchanged.'
         ),
 })
 

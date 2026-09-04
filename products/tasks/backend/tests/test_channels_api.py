@@ -17,7 +17,15 @@ from posthog.models.utils import generate_random_token_personal
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
-from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import (
+    Channel,
+    ChannelFeedMessage,
+    SlackChannelSpaceBinding,
+    Task,
+    TaskActivity,
+    TaskRun,
+    TaskThreadMessage,
+)
 from products.tasks.backend.push_dispatcher import (
     notify_task_run_awaiting_input,
     notify_task_run_completed,
@@ -39,6 +47,20 @@ class ChannelsAPITestCase(TestCase):
 
         self.client = APIClient()
         self.client.force_authenticate(self.user)
+        slack_channel_lookup_patcher = patch(
+            "products.tasks.backend.presentation.views.channels_api.SlackIntegration.get_channel_by_id",
+            return_value={
+                "id": "C123",
+                "name": "builds",
+                "is_archived": False,
+                "is_private": False,
+                "is_im": False,
+                "is_mpim": False,
+                "is_channel": True,
+            },
+        )
+        self.slack_channel_lookup = slack_channel_lookup_patcher.start()
+        self.addCleanup(slack_channel_lookup_patcher.stop)
 
     def _provision(self, client=None) -> dict:
         response = (client or self.client).post(f"{self._channels_url()}provision_defaults/")
@@ -376,6 +398,104 @@ class ChannelsAPITestCase(TestCase):
         channel.refresh_from_db()
         self.assertIsNone(channel.github_integration_id)
         self.assertEqual(channel.repositories, [])
+
+    def test_project_member_can_set_keep_and_clear_slack_task_routing(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        routing = {"integration": integration.id, "slack_channel_id": "C123", "display_name": "untrusted"}
+        expected_routing = {"integration": integration.id, "slack_channel_id": "C123", "display_name": "builds"}
+        OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        member_client = APIClient()
+        member_client.force_authenticate(self.other_user)
+
+        configured = member_client.patch(
+            f"{self._channels_url()}{channel_id}/", {"slack_task_routing": routing}, format="json"
+        )
+
+        self.assertEqual(configured.status_code, status.HTTP_200_OK, configured.content)
+        self.assertEqual(configured.json()["slack_task_routing"], expected_routing)
+        self.slack_channel_lookup.assert_called_once_with("C123")
+        self.assertEqual(
+            self.client.get(f"{self._channels_url()}{channel_id}/").json()["slack_task_routing"], expected_routing
+        )
+        binding = SlackChannelSpaceBinding.objects.for_team(self.team.id).get(channel_id=channel_id)
+        self.assertEqual(binding.integration_id, integration.id)
+        self.assertEqual(binding.slack_channel_id, "C123")
+        self.assertEqual(binding.display_name, "builds")
+
+        unchanged = member_client.patch(f"{self._channels_url()}{channel_id}/", {"name": "engineering"}, format="json")
+        self.assertEqual(unchanged.status_code, status.HTTP_200_OK, unchanged.content)
+        self.assertEqual(unchanged.json()["slack_task_routing"], expected_routing)
+
+        personal_id = next(
+            space["id"] for space in self._provision(member_client)["channels"] if space["channel_type"] == "personal"
+        )
+        personal = member_client.patch(
+            f"{self._channels_url()}{personal_id}/", {"slack_task_routing": routing}, format="json"
+        )
+        self.assertEqual(personal.status_code, status.HTTP_400_BAD_REQUEST, personal.content)
+
+        cleared = member_client.patch(
+            f"{self._channels_url()}{channel_id}/", {"slack_task_routing": None}, format="json"
+        )
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.content)
+        self.assertIsNone(cleared.json()["slack_task_routing"])
+        self.assertFalse(SlackChannelSpaceBinding.objects.for_team(self.team.id).filter(channel_id=channel_id).exists())
+
+    @parameterized.expand(
+        [
+            ("private", {"is_private": True}),
+            ("direct_message", {"is_im": True}),
+            ("group_message", {"is_mpim": True}),
+            ("archived", {"is_archived": True}),
+            ("missing_or_unavailable", None),
+        ]
+    )
+    def test_slack_task_routing_rejects_nonpublic_sources(self, _name, source):
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        if source is None:
+            self.slack_channel_lookup.return_value = None
+        else:
+            self.slack_channel_lookup.return_value = {
+                "id": "C123",
+                "name": "restricted",
+                "is_archived": False,
+                "is_private": False,
+                "is_im": False,
+                "is_mpim": False,
+                "is_channel": True,
+                **source,
+            }
+
+        response = self.client.patch(
+            f"{self._channels_url()}{channel_id}/",
+            {"slack_task_routing": {"integration": integration.id, "slack_channel_id": "C123"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["detail"], "Choose an active public Slack channel.")
+        self.assertFalse(SlackChannelSpaceBinding.objects.for_team(self.team.id).filter(channel_id=channel_id).exists())
+
+    def test_slack_task_routing_returns_a_stable_conflict(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        first = self.client.post(self._channels_url(), {"name": "first"}).json()["id"]
+        second = self.client.post(self._channels_url(), {"name": "second"}).json()["id"]
+        routing = {"integration": integration.id, "slack_channel_id": "C123"}
+        self.assertEqual(
+            self.client.patch(
+                f"{self._channels_url()}{first}/", {"slack_task_routing": routing}, format="json"
+            ).status_code,
+            status.HTTP_200_OK,
+        )
+
+        conflict = self.client.patch(f"{self._channels_url()}{second}/", {"slack_task_routing": routing}, format="json")
+
+        self.assertEqual(conflict.status_code, status.HTTP_400_BAD_REQUEST, conflict.content)
+        self.assertEqual(conflict.json()["detail"], "This Slack channel already routes tasks to another space.")
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
     def test_new_tasks_inherit_channel_repositories(self, list_repositories):

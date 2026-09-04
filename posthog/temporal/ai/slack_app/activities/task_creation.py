@@ -644,17 +644,11 @@ def create_posthog_code_task_for_repo_activity(
         integration, slack_user_id, override=model_override, team_id=integration.team_id, user_id=user_id
     )
 
-    # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
-    # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
-    personal_channel_id: uuid.UUID | None = None
-    try:
-        personal_channel_id = tasks_facade.ensure_personal_channel_id(integration.team_id, user_id)
-    except Exception:
-        logger.warning(
-            "posthog_code_personal_channel_resolution_failed",
-            team_id=integration.team_id,
-            user_id=user_id,
-        )
+    conversation_type = resolve_conversation_type(slack, event, channel)
+    task_channel_id = None
+    if conversation_type == SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL:
+        task_channel_id = tasks_facade.get_slack_task_routing_channel_id(integration.team_id, integration.id, channel)
+    slack_task_routing = "bound_space" if task_channel_id is not None else "personal_fallback"
 
     # 1. Create task + run WITHOUT starting the workflow
     try:
@@ -675,7 +669,8 @@ def create_posthog_code_task_for_repo_activity(
             runtime_adapter=run_prefs.runtime_adapter,
             model=run_prefs.model,
             reasoning_effort=run_prefs.reasoning_effort,
-            channel_id=personal_channel_id,
+            channel_id=task_channel_id,
+            slack_task_routing=slack_task_routing,
         )
     except Exception as e:
         logger.exception(
@@ -747,7 +742,7 @@ def create_posthog_code_task_for_repo_activity(
                 # Decides whether the whole team may read this thread's task, so it is
                 # resolved here — once, against the live conversation — rather than
                 # re-derived on every request that gates on it.
-                "conversation_type": resolve_conversation_type(slack, event, channel),
+                "conversation_type": conversation_type,
             },
         )
         # Track the workflow to link Temporal jobs to Slack threads

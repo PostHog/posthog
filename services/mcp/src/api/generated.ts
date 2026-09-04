@@ -17025,6 +17025,18 @@ export namespace Schemas {
       General: 'general',
     } as const;
 
+    export interface SlackTaskRoutingDTO {
+      /** PostHog Slack integration that receives tasks from this Slack channel. */
+      integration: number;
+      /** Slack external channel identifier that routes new root-thread tasks here. */
+      slack_channel_id: string;
+      /**
+         * Optional Slack channel name for display. This does not affect routing.
+         * @nullable
+         */
+      display_name?: string | null;
+    }
+
     /**
      * Response shape for a task channel, read from a frozen ``ChannelDTO``.
      */
@@ -17045,6 +17057,8 @@ export namespace Schemas {
        * * `personal` - Personal
        * * `general` - General */
       readonly system_role: ChannelSystemRoleEnum | null;
+      /** Slack channel routing for new root-thread tasks. Null means this space is not configured for Slack routing. */
+      slack_task_routing?: SlackTaskRoutingDTO | null;
     }
 
     export interface ChannelDeleteConflict {
@@ -60834,6 +60848,16 @@ export namespace Schemas {
       base_version?: number | null;
     }
 
+    export interface SlackTaskRoutingWrite {
+      /** Slack integration that owns the Slack channel. */
+      integration: number;
+      /**
+         * Slack external channel identifier to route into this space.
+         * @maxLength 64
+         */
+      slack_channel_id: string;
+    }
+
     export interface PatchedChannelUpdate {
       /**
          * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
@@ -60858,6 +60882,8 @@ export namespace Schemas {
          * @nullable
          */
       auto_archive_after_days?: number | null;
+      /** Slack channel routing for new root-thread tasks. Send null to clear it. Omit this field to leave it unchanged. */
+      slack_task_routing?: SlackTaskRoutingWrite | null;
     }
 
     export type PatchedClusteringJobEventFiltersItem = { [key: string]: unknown };
