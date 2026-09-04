@@ -82,7 +82,8 @@ characters behind a "Show more" toggle. Front-load, structure, no walls:
 Cite the insight and dashboard inline as markdown links so a human pivots straight to the
 source, and close by linking the notebook: "Full write-up with charts: [notebook](url)."
 The harness prompt (_Linking what you reference_) carries the link rule: reuse the url the
-returning tool attached (`notebooks-create` returns the notebook's), else `generate-app-url`.
+returning tool attached (either notebook create tool returns the notebook's in `_posthogUrl`),
+else `generate-app-url`.
 Keep the title and the summary's first line plain text, because the inbox renders both as
 text: a link there shows up as literal markdown.
 
@@ -176,13 +177,25 @@ on a recurrence).
 
 ### Create it
 
-Call `notebooks-create` with a `title` and `content` (ProseMirror rich-text JSON). The response
-carries the new notebook's `short_id` and a clickable URL in `_posthogUrl` (the tool enriches the
-result with `/notebooks/{short_id}`) — surface that verbatim, don't hand-build it. If you ever
-need to build the link yourself, it is `generate-app-url` with `url=/notebooks/{shortId}`.
+Two notebook surfaces exist, and a feature flag decides which one your run sees. Your tool list
+carries one of them, never both. **Read the list and pick the matching path** — a call to a tool
+that isn't there fails the write-up.
+
+- **Markdown notebooks** — you have `notebooks-create-markdown` and `notebooks-add-cell`. Create
+  the notebook with a `title` and an optional `markdown` body, then append each chart and each
+  prose block as its own cell. This is the newer surface.
+- **Rich-text notebooks** — you have `notebooks-create`. Build the whole document in one call, as
+  a `title` plus `content` (ProseMirror rich-text JSON).
+
+Both create tools return the new notebook's id and a clickable URL in `_posthogUrl` — surface that
+verbatim, don't hand-build it. The id field differs by tool: `notebooks-create-markdown` returns
+`notebook_id`, `notebooks-create` returns `short_id`. Both hold the same short id, which is what an
+`evidence` `source_id` and `notebooks-destroy` take. If you ever need to build the link yourself, it
+is `generate-app-url` with `url=/notebooks/{shortId}`.
 
 - **Title** — name the metric, the direction, and the date, e.g.
-  `Anomaly: daily signups dropped ~60% (2026-06-06)`.
+  `Anomaly: daily signups dropped ~60% (2026-06-06)`. On the markdown surface the title also
+  becomes the document's leading `# heading`, so don't repeat it as a first cell.
 - **One notebook per report** — never append a new anomaly to a prior run's notebook. A
   recurrence on a later day is a new notebook, linked from the `edit_report` note.
 
@@ -193,18 +206,44 @@ Lead with the same hook the inbox sees, then the evidence the ~300-char preview 
 1. **Summary** — the quantified hook (bucket value vs baseline, robust z, priority), one or two
    sentences. Same claim as the report summary, so the notebook stands alone.
 2. **The chart** — embed the anomalous series so the spike/drop is visible, with the window wide
-   enough (e.g. `-63d`) that the baseline _and_ the break are both on screen. A `SavedInsightNode`
-   renders the insight's own saved date range and carries no date override — so use it only when
-   that saved range already shows the baseline; if the insight is saved to a short window (often
-   `-7d`), embed an inline widened `DataVisualizationNode` (or `InsightVizNode`) for the scored
-   window instead.
+   enough (e.g. `-63d`) that the baseline _and_ the break are both on screen. An embedded saved
+   insight renders the insight's own saved date range and carries no date override — so use it
+   only when that saved range already shows the baseline; if the insight is saved to a short
+   window (often `-7d`), embed a widened ad-hoc chart for the scored window instead. The recipe
+   for each surface is below.
 3. **Baseline & method** — the seasonality-matched baseline (median + MAD per bucket), the
    z-score, which detector(s) `alert-simulate` fired, and that the partial bucket was excluded.
 4. **Attribution** — which breakdown segment(s) drove the move, and whether it's broad
    (regression) or one segment (often expected).
 5. **Hypothesis & next step** — suspected cause and what to check, matching the report summary.
 
-### Embedded-chart recipe
+### Embedded-chart recipe — markdown notebooks
+
+Add one `notebooks-add-cell` call per block, in reading order. Each call appends to the end of the
+document, so the order you call them is the order the reader sees. Pass `notebook_id` (the
+`notebook_id` the create call returned) on every call.
+
+| Block                                              | Call                                                                                                                                |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| The anomalous saved insight                        | `cell_type: 'saved_insight'`, `insight_short_id: '<short_id>'`                                                                      |
+| A widened ad-hoc product-analytics chart           | `cell_type: 'component'`, `tag_name: 'Query'`, `props: {"query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", …}}}` |
+| A SQL-fallback series                              | `cell_type: 'sql'`, `code: 'SELECT …'`                                                                                              |
+| Prose (summary, baseline, attribution, hypothesis) | `cell_type: 'markdown'`, `markdown: '## Baseline & method\n…'`                                                                      |
+
+Prefer the saved insight you scored — it stays in sync with the source and is the thing the human
+will open next.
+
+Three rules the tool enforces, so don't fight them:
+
+- **A `sql` cell runs the query when you add it.** That is a real query against the project, and it
+  can fail or time out. Budget for it, and check the returned run status before you cite the chart
+  as evidence. The rich-text surface never ran anything at author time.
+- **A HogQL query is rejected as a component.** `tag_name: 'Query'` with a `HogQLQuery` source
+  throws — use `cell_type: 'sql'`, which runs the query and charts its result.
+- **A markdown cell takes no `title`.** Put the heading in the markdown itself. Every chart cell
+  should get a short `title` saying what it shows.
+
+### Embedded-chart recipe — rich-text notebooks
 
 Charts are `{type: "ph-query", attrs: {nodeId: "<unique>", query: <query>}}` nodes inside
 `content`. `query` is one of:
@@ -268,8 +307,9 @@ preflight gates and safety judge. If the report **did not surface** — `emit_re
 `skipped_reason` (dry-run `emit=false`, un-approved AI processing, or a disabled source — no
 report created), or the safety judge suppressed it (`emitted=false`) — **delete the just-created
 notebook with `notebooks-destroy`** so a non-surfacing run leaves no orphan user-facing artifact.
+`notebooks-destroy` is on both surfaces and takes the same short id either create tool returned.
 Only a notebook behind a surfaced report should survive the run. Skipping notebook _creation_ is
-acceptable only if `notebooks-create` fails — then author anyway and note the missing artifact in
+acceptable only if the create call fails — then author anyway and note the missing artifact in
 the summary.
 
 ## Worked example
