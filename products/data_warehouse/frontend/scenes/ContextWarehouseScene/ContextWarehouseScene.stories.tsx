@@ -3,12 +3,13 @@ import { useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { ContextWarehouseAppShell } from './ContextWarehouseAppShell'
 import { ContextWarehouseChangeRequest } from './ContextWarehouseChangeRequest'
 import { ContextWarehouseFindings } from './ContextWarehouseFindings'
 import { ContextWarehouseHandoff } from './ContextWarehouseHandoff'
 import { ContextWarehouseHome } from './ContextWarehouseHome'
-import { type ContextWarehouseSection } from './ContextWarehouseRail'
 import { ContextWarehouseScene } from './ContextWarehouseScene'
+import { type ContextWarehouseSection } from './ContextWarehouseSidebar'
 import { ContextWarehouseSqlWorkspace } from './ContextWarehouseSqlWorkspace'
 
 const HEALTH_CARDS = [
@@ -98,6 +99,11 @@ const HANDOFF_CONTENT: Record<
     Exclude<ContextWarehouseSection, 'home' | 'sql' | 'findings'>,
     { title: string; description: string; details: string[] }
 > = {
+    notebooks: {
+        title: 'Notebooks',
+        description: 'Explore warehouse data and document an analysis with live queries, charts, and commentary.',
+        details: ['SQL and HogQL blocks', 'Charts and commentary', 'Shared analysis'],
+    },
     sources: {
         title: 'Data sources',
         description: 'Connect imports and inspect the health of every synced schema.',
@@ -206,20 +212,22 @@ function ContextWarehouseStoryHarness({ initialView }: { initialView: HarnessVie
     }
 
     return (
-        <ContextWarehouseScene
+        <ContextWarehouseAppShell
             activeSection={activeSection}
             findingCount={ATTENTION_ITEMS.length}
             onSectionChange={navigate}
         >
-            <div className="space-y-3">
-                {lastAction ? (
-                    <LemonBanner type="success" data-attr="context-warehouse-story-action">
-                        {lastAction}. No production data changed.
-                    </LemonBanner>
-                ) : null}
-                {content}
-            </div>
-        </ContextWarehouseScene>
+            <ContextWarehouseScene>
+                <div className="space-y-3">
+                    {lastAction ? (
+                        <LemonBanner type="success" data-attr="context-warehouse-story-action">
+                            {lastAction}. No production data changed.
+                        </LemonBanner>
+                    ) : null}
+                    {content}
+                </div>
+            </ContextWarehouseScene>
+        </ContextWarehouseAppShell>
     )
 }
 
@@ -229,16 +237,10 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         testOptions: {
+            includeNavigationInSnapshot: true,
             snapshotBrowsers: ['chromium'],
         },
     },
-    decorators: [
-        (Story): JSX.Element => (
-            <div className="min-h-screen bg-bg-primary px-4">
-                <Story />
-            </div>
-        ),
-    ],
 }
 
 export default meta
@@ -247,35 +249,35 @@ type Story = StoryObj<typeof meta>
 
 export const Home: Story = {
     render: () => <ContextWarehouseStoryHarness initialView="home" />,
-    parameters: { testOptions: { viewportWidths: ['wide'] } },
+    parameters: { testOptions: { viewportWidths: ['wide', 'superwide'] } },
 }
 
 export const SqlWorkspace: Story = {
     render: () => <ContextWarehouseStoryHarness initialView="sql" />,
     parameters: {
         testOptions: {
-            viewportWidths: ['narrow', 'medium', 'wide'],
+            viewportWidths: ['wide', 'superwide'],
             waitForSelector: '.monaco-editor',
         },
     },
 }
 
+export const Notebooks: Story = {
+    render: () => <ContextWarehouseStoryHarness initialView="notebooks" />,
+    parameters: { testOptions: { viewportWidths: ['wide'] } },
+}
+
 export const ScopedFindings: Story = {
     render: () => <ContextWarehouseStoryHarness initialView="findings" />,
-    parameters: { testOptions: { viewportWidths: ['medium', 'wide'] } },
+    parameters: { testOptions: { viewportWidths: ['wide', 'superwide'] } },
 }
 
 export const ChangeRequestConcept: Story = {
     render: () => <ContextWarehouseStoryHarness initialView="change-request" />,
     parameters: {
         testOptions: {
-            viewportWidths: ['medium', 'wide'],
+            viewportWidths: ['wide', 'superwide'],
             waitForSelector: '.monaco-editor',
         },
     },
-}
-
-export const ResponsiveOverview: Story = {
-    render: () => <ContextWarehouseStoryHarness initialView="home" />,
-    parameters: { testOptions: { viewportWidths: ['narrow', 'medium', 'wide'] } },
 }
