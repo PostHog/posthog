@@ -2,6 +2,8 @@ from datetime import datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.db import models
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -150,6 +152,20 @@ class TestPrintString(BaseTest):
             escape_clickhouse_string(float("234732482374928374923")),
             "2.3473248237492837e+20",
         )
+
+    def test_sanitize_string_of_choices_member(self):
+        # Django `TextChoices` and `IntegerChoices` members are `str` and `int` subclasses, and
+        # callers pass them into constants. They must escape as their base type, not fail.
+        class Fruit(models.TextChoices):
+            BANANA = "banana", "Banana"
+
+        class Rank(models.IntegerChoices):
+            FIRST = 1, "First"
+
+        self.assertEqual(escape_clickhouse_string(Fruit.BANANA), "'banana'")
+        self.assertEqual(escape_hogql_string(Fruit.BANANA), "'banana'")
+        self.assertEqual(escape_clickhouse_string(Rank.FIRST), "1")
+        self.assertEqual(escape_hogql_string(Rank.FIRST), "1")
 
     def test_sanitize_hogql_string(self):
         self.assertEqual(escape_hogql_string("a"), "'a'")
