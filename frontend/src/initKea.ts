@@ -149,6 +149,7 @@ export function initKea({
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
+                    !(isLoadAction && error.status === 402) && // 402 payment required is handled by the paygate the loader sits behind
                     !isAccessDenied
                 ) {
                     let errorMessage = error.detail || error.statusText

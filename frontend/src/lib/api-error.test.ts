@@ -86,6 +86,7 @@ describe('api-error', () => {
         it.each([
             // Handled by something else, so reporting them only buries real crashes.
             ['a 401 the session check logs the user out of', { status: 401 }, false],
+            ['a 402 the paygate already explains', { status: 402, code: 'payment_required' }, false],
             ['an access-denied 403', { status: 403, code: 'permission_denied' }, false],
             ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],

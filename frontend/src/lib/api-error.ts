@@ -98,6 +98,8 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 401 — an authentication state rather than a crash. `apiStatusLogic` re-checks the session and
  *   logs the user out, best-effort: it bails while impersonating (where `ImpersonationNotice`
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
+ * - 402 — a billing or entitlement state (a paygate or a quota limit), not an application bug. The
+ *   paygate the request sits behind already tells the user how to upgrade.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
@@ -131,7 +133,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === undefined) {
         return true
     }
-    if (status === 401 || isTransientGatewayStatus(status)) {
+    if (status === 401 || status === 402 || isTransientGatewayStatus(status)) {
         return false
     }
     if (isAccessDeniedError(failure)) {

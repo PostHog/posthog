@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AvailableFeature, OrganizationType } from '~/types'
 
 import { organizationPersonalAPIKeysLogic } from './organizationPersonalAPIKeysLogic'
 
@@ -24,8 +29,24 @@ const MOCK_KEYS = [
     },
 ]
 
+function orgWith(level: OrganizationMembershipLevel, entitled: boolean): OrganizationType {
+    return {
+        ...MOCK_DEFAULT_ORGANIZATION,
+        membership_level: level,
+        available_product_features: entitled
+            ? [{ key: AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, name: 'Organization security settings' }]
+            : [],
+    }
+}
+
 describe('organizationPersonalAPIKeysLogic', () => {
     let logic: ReturnType<typeof organizationPersonalAPIKeysLogic.build>
+
+    function mountWith(organization: OrganizationType): void {
+        initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, organization)
+        logic = organizationPersonalAPIKeysLogic()
+        logic.mount()
+    }
 
     beforeEach(() => {
         useMocks({
@@ -38,24 +59,36 @@ describe('organizationPersonalAPIKeysLogic', () => {
                 },
             },
         })
-        initKeaTests()
-        logic = organizationPersonalAPIKeysLogic()
-        logic.mount()
     })
 
-    it('loads keys on mount', async () => {
+    it('loads keys for an admin with the security-settings entitlement', async () => {
+        mountWith(orgWith(OrganizationMembershipLevel.Admin, true))
         await expectLogic(logic).toDispatchActions(['loadKeys', 'loadKeysSuccess']).toMatchValues({
             keys: MOCK_KEYS,
             keysLoading: false,
         })
     })
 
-    it('starts with empty array and loading state', () => {
+    // The backend rejects this call with a 402 whose body is the raw upsell string; firing it
+    // anyway toasts that string on top of the paygate. The gate must keep the request from ever
+    // going out when the org is not entitled.
+    it('does not load keys when the org lacks the entitlement', async () => {
+        mountWith(orgWith(OrganizationMembershipLevel.Admin, false))
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadKeys']).toFinishAllListeners()
         expect(logic.values.keys).toEqual([])
-        expect(logic.values.keysLoading).toEqual(true)
+        expect(logic.values.keysLoading).toEqual(false)
+    })
+
+    // A below-admin member gets a 403 from the same endpoint — gate it out too.
+    it('does not load keys for a below-admin member', async () => {
+        mountWith(orgWith(OrganizationMembershipLevel.Member, true))
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadKeys']).toFinishAllListeners()
+        expect(logic.values.keys).toEqual([])
+        expect(logic.values.keysLoading).toEqual(false)
     })
 
     it('filters by owner name, email, or scope', async () => {
+        mountWith(orgWith(OrganizationMembershipLevel.Admin, true))
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.setSearch('lovelace')
