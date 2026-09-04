@@ -252,9 +252,9 @@ def _pr_body_reference(tracker: SignalReportTrackerIssue, *, pr_repository: str)
         reference = f"#{number}" if qualified.lower() == pr_repository.lower() else f"{qualified}#{number}"
         return f"Closes {reference}"
 
-    reference = issue_reference(tracker)
-    if reference and tracker.issue_url:
-        return f"Tracked in [{reference}]({tracker.issue_url})"
+    identifier = issue_reference(tracker)
+    if identifier and tracker.issue_url:
+        return f"Tracked in [{identifier}]({tracker.issue_url})"
     if tracker.issue_url:
         return f"Tracked in {tracker.issue_url}"
     return None

@@ -251,12 +251,59 @@ const ISSUE_TRACKER_LABELS: Partial<Record<IntegrationType['kind'], string>> = {
 const ISSUE_TRACKER_OFF = -1
 
 /**
+ * Where inside the chosen tracker the issues land. The shape follows the provider, so this renders
+ * one picker per provider. GitLab needs no pick at all: its integration is already bound to one
+ * project.
+ */
+function IssueTrackerTarget({
+    integration,
+    target,
+    disabled,
+    onSave,
+}: {
+    integration: IntegrationType
+    target: Record<string, string>
+    disabled: boolean
+    onSave: (config: Record<string, string>) => void
+}): JSX.Element | null {
+    if (integration.kind === 'github') {
+        return (
+            <GitHubRepositoryCombobox
+                integrationId={integration.id}
+                // Stored bare so the issue link can re-prefix the account that owns it, while the
+                // picker works in the `owner/repo` form it shows.
+                value={target.repository ? `${integration.display_name}/${target.repository}` : ''}
+                disabled={disabled}
+                placeholder="Repository"
+                onChange={(repo) => repo && onSave({ repository: repo.split('/')[1] })}
+            />
+        )
+    }
+    if (integration.kind === 'linear') {
+        return (
+            <LinearTeamPicker
+                integration={integration}
+                value={target.team_id}
+                onChange={(teamId) => teamId && onSave({ team_id: teamId })}
+            />
+        )
+    }
+    if (integration.kind === 'jira') {
+        return (
+            <JiraProjectPicker
+                integrationId={integration.id}
+                value={target.project_key ?? ''}
+                onChange={(projectKey) => projectKey && onSave({ project_key: projectKey })}
+            />
+        )
+    }
+    return <p className="text-[11px] text-tertiary leading-snug mb-0">Issues go to {integration.display_name}.</p>
+}
+
+/**
  * Per-project switch for the change-management control some teams work under: a pull request can
  * only merge when a tracked work item points at it. Off unless a tracker is picked, so one field is
  * both the switch and the target and the two can never disagree.
- *
- * The target lives inside the provider, so the second picker changes shape with the first. GitLab
- * needs no second pick: its integration is already bound to one project.
  */
 function IssueTracker(): JSX.Element {
     const { issueTrackerConfig, issueTrackerIntegrationId, selectedIssueTrackerIntegrationId, teamConfigUpdating } =
@@ -318,35 +365,13 @@ function IssueTracker(): JSX.Element {
                             disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
                             onChange={chooseTracker}
                         />
-                        {selected?.kind === 'github' && (
-                            <GitHubRepositoryCombobox
-                                integrationId={selected.id}
-                                // Stored bare so the issue link can re-prefix the account that owns it,
-                                // while the picker works in the `owner/repo` form it shows.
-                                value={target.repository ? `${selected.display_name}/${target.repository}` : ''}
-                                disabled={teamConfigUpdating}
-                                placeholder="Repository"
-                                onChange={(repo) => repo && saveTarget({ repository: repo.split('/')[1] })}
-                            />
-                        )}
-                        {selected?.kind === 'linear' && (
-                            <LinearTeamPicker
+                        {selected && (
+                            <IssueTrackerTarget
                                 integration={selected}
-                                value={target.team_id}
-                                onChange={(teamId) => teamId && saveTarget({ team_id: teamId })}
+                                target={target}
+                                disabled={teamConfigUpdating}
+                                onSave={saveTarget}
                             />
-                        )}
-                        {selected?.kind === 'jira' && (
-                            <JiraProjectPicker
-                                integrationId={selected.id}
-                                value={target.project_key ?? ''}
-                                onChange={(projectKey) => projectKey && saveTarget({ project_key: projectKey })}
-                            />
-                        )}
-                        {selected?.kind === 'gitlab' && (
-                            <p className="text-[11px] text-tertiary leading-snug mb-0">
-                                Issues go to {selected.display_name}.
-                            </p>
                         )}
                         <p className="text-[11px] text-tertiary leading-snug mb-0">
                             If the tracker fails, the PR still opens and the report shows that the issue is missing.

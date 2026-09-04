@@ -9,6 +9,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
@@ -187,7 +188,7 @@ MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
-    issue_tracking_integration = serializers.PrimaryKeyRelatedField(
+    issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.all(),
         required=False,
         allow_null=True,
@@ -301,10 +302,6 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     def validate_issue_tracking_integration(self, value: Integration | None) -> Integration | None:
         if value is None:
             return None
-        get_team = self.context.get("get_team")
-        team = get_team() if get_team else None
-        if team is not None and value.team_id != team.id:
-            raise serializers.ValidationError("Integration does not belong to this project.")
         if not is_supported_external_issue_provider(value.kind):
             raise serializers.ValidationError(
                 f"'{value.kind}' cannot track issues. Connect GitHub, GitLab, Linear, or Jira."
