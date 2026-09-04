@@ -93,7 +93,7 @@ export const fingerprintSamplesLogic = kea<fingerprintSamplesLogicType>([
                             issue.first_seen,
                             issueFingerprints.map(({ fingerprint }) => fingerprint)
                         ),
-                        { scene: 'ErrorTrackingIssueFingerprints', productKey: 'error_tracking' }
+                        { scene: 'ErrorTrackingFingerprintPreview', productKey: 'error_tracking' }
                     )
                     const samples: FingerprintSampleMap = {}
                     for (const [fingerprint, , fingerprintSamples] of response.results as [

@@ -59,7 +59,6 @@ export enum Scene {
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
-    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitions = 'EventDefinitions',
     EventDefinitionEdit = 'EventDefinitionEdit',
@@ -401,7 +400,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
-    [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
 
     // Stamphog
     [Scene.Stamphog]: AccessControlResourceType.Stamphog,

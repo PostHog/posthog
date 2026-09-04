@@ -24,6 +24,7 @@ import { TEST_EVENTS } from './__mocks__/events'
 import { results as stackFrameResults } from './__mocks__/stack_frames/batch_get'
 import { BreakdownPreset } from './components/Breakdowns/consts'
 import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic'
+import { manageFingerprintsLogic } from './components/FingerprintPreview/manageFingerprintsLogic'
 import { similarFingerprintsLogic } from './components/FingerprintPreview/similarFingerprintsLogic'
 import {
     issueFilterPreviewLogic,
@@ -121,6 +122,13 @@ const STORY_PERSON = {
     created_at: '2024-07-01T10:00:00.000Z',
     properties: { email: 'developer@example.com' },
 }
+// The manage-fingerprints pane asks for one sample event per fingerprint, with its own column set.
+const STORY_FINGERPRINT_EVENT_RESPONSE = {
+    columns: ['uuid', 'properties', 'timestamp', 'distinct_id'],
+    hasMore: false,
+    results: [[STORY_EVENT_UUIDS[0], STORY_EVENT_PROPERTIES, STORY_TIMESTAMPS[0], STORY_PERSON.distinct_id]],
+}
+
 const STORY_EVENTS_RESPONSE = {
     columns: ['*', 'timestamp', 'person'],
     hasMore: false,
@@ -516,6 +524,7 @@ const meta: Meta = {
                             kind?: string
                             issueId?: string
                             select?: string[]
+                            where?: string[]
                             maxReleases?: number
                             query?: string
                         }
@@ -532,6 +541,9 @@ const meta: Meta = {
                         ]
                     }
                     if (body.query?.kind === NodeKind.EventsQuery) {
+                        if (body.query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
+                            return [200, STORY_FINGERPRINT_EVENT_RESPONSE]
+                        }
                         return body.query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
@@ -724,6 +736,7 @@ function IssueScenePreviewStory({
     releasesViewMode,
     fingerprintsViewMode,
     openSimilarFingerprint,
+    manageFingerprintsOpen,
 }: {
     activePreview: IssueFilterPreview
     selectedEventProperties?: string
@@ -732,12 +745,14 @@ function IssueScenePreviewStory({
     releasesViewMode?: IssueReleasesViewMode
     fingerprintsViewMode?: IssueFingerprintsViewMode
     openSimilarFingerprint?: string
+    manageFingerprintsOpen?: boolean
 }): JSX.Element {
     const { applyPropertyFilter, setActivePreview, setReleasesViewMode, setFingerprintsViewMode } =
         useActions(issueFilterPreviewLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic({ id: ISSUE_ID }))
     const { openBreakdownDetails } = useActions(miniBreakdownsLogic({ issueId: ISSUE_ID }))
     const { openSimilar } = useActions(similarFingerprintsLogic({ issueId: ISSUE_ID }))
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId: FINGERPRINT_LIST_ISSUE_ID }))
 
     useLayoutEffect(() => {
         setActivePreview(activePreview)
@@ -745,6 +760,9 @@ function IssueScenePreviewStory({
         setFingerprintsViewMode(fingerprintsViewMode ?? 'list')
         if (openSimilarFingerprint) {
             openSimilar(openSimilarFingerprint, '2024-07-08T15:42:00.000Z')
+        }
+        if (manageFingerprintsOpen) {
+            openManage()
         }
         if (selectedEventProperties) {
             selectEvent({
@@ -772,6 +790,8 @@ function IssueScenePreviewStory({
         fingerprintsViewMode,
         openBreakdown,
         openBreakdownDetails,
+        manageFingerprintsOpen,
+        openManage,
         openSimilar,
         openSimilarFingerprint,
         propertyFilter,
@@ -886,6 +906,15 @@ export const GroupPageSimilarFingerprints: Story = {
     name: 'Issue scene with similar fingerprints',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="fingerprints" openSimilarFingerprint={FINGERPRINT} />,
+}
+
+export const GroupPageManageFingerprints: Story = {
+    name: 'Issue scene with manage fingerprints',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_SPLITTING],
+    },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" manageFingerprintsOpen />,
 }
 
 export const GroupPageReleases: Story = {
