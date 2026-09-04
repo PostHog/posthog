@@ -94,7 +94,7 @@ function dashboardPathWithOverrides(
 ): string {
     return combineUrl(urls.dashboard(dashboardId), {
         ...encodeURLVariableOverrides(variablesOverride ?? {}),
-        ...(isDashboardFilterEmpty(filtersOverride) ? {} : encodeURLFilters(filtersOverride ?? {})),
+        ...encodeURLFilters(filtersOverride ?? {}),
     }).url
 }
 
