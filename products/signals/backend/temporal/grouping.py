@@ -1189,6 +1189,42 @@ async def _process_signal_batch(
             )
         )
 
+        # Step 4b: Also search with each signal's own embedding. The generated
+        # queries can paraphrase away a signal's distinguishing detail, so a
+        # near-identical prior signal stays outside every query's neighborhood.
+        # Searching with the signal embedding finds that duplicate directly.
+        signal_search_results: list[Optional[RunSignalSemanticSearchOutput]] = [None] * len(batch)
+        if workflow.patched("signals-search-with-signal-embedding-2026-08"):
+            # This search only augments the generated-query candidates, so one signal's
+            # search failing must not abort the whole batch. Tolerate per-signal failures
+            # and fall back to None (generated-query candidates only) for those signals.
+            signal_search_outcomes = await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        run_signal_semantic_search_activity,
+                        RunSignalSemanticSearchInput(team_id=team_id, embedding=se.embedding, limit=10),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for se in signal_embeddings
+                ],
+                return_exceptions=True,
+            )
+            for i, outcome in enumerate(signal_search_outcomes):
+                if isinstance(outcome, RunSignalSemanticSearchOutput):
+                    signal_search_results[i] = outcome
+                elif isinstance(outcome, Exception):
+                    logger.warning(
+                        "Signal-embedding search failed; continuing with generated-query candidates only",
+                        team_id=team_id,
+                        signal_index=i,
+                        error=str(outcome),
+                    )
+                else:
+                    # Not an Exception (e.g. asyncio.CancelledError) — propagate so
+                    # workflow cancellation is not swallowed.
+                    raise outcome
+
         # Regroup flat results back to per-signal
         # Each query becomes an embedding vector for lookup
         type EmbeddingVector = list[float]
@@ -1208,8 +1244,19 @@ async def _process_signal_batch(
             per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
             per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
 
+        # Add the signal-embedding search (step 4b) as an extra query per signal.
+        for sig_idx, ssr in enumerate(signal_search_results):
+            if ssr is None:
+                continue
+            per_signal_queries[sig_idx].append(truncate_query_to_token_limit(batch[sig_idx].description))
+            per_signal_query_embeddings[sig_idx].append(signal_embeddings[sig_idx].embedding)
+            per_signal_ch_results[sig_idx].append(ssr.candidates)
+
         # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
-        all_candidate_report_ids = list({c.report_id for results in all_search_results for c in results.candidates})
+        all_candidate_report_ids = list(
+            {c.report_id for results in all_search_results for c in results.candidates}
+            | {c.report_id for ssr in signal_search_results if ssr is not None for c in ssr.candidates}
+        )
         report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
             fetch_report_contexts_activity,
             FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
