@@ -101,6 +101,21 @@ function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
     ]
 }
 
+// How far the progress dots reach: the run of already-reached steps that starts at the current one.
+// It stops at the first step that is not reached, so a goal change that inserts a step ahead of the
+// user leaves that step, and everything behind it, out of reach.
+function reachedThroughIndex(
+    steps: StepDef[],
+    currentIndex: number,
+    reachedStepIds: SelfDrivingOnboardingStepId[]
+): number {
+    let index = currentIndex
+    while (index + 1 < steps.length && reachedStepIds.includes(steps[index + 1].id)) {
+        index++
+    }
+    return index
+}
+
 // The card: chrome (sm+ panel; full-bleed on mobile) plus the content flex-column. Width varies per
 // step via StepDef.maxWidth — SelfDrivingOnboarding just provides the backdrop + logo.
 const CARD_CLASSES =
@@ -156,13 +171,11 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [step.id, reportOnboardingStepViewed])
 
-    // The furthest step reached. Steps up to it are done, so the progress dots can take the user
-    // back to one and forward again: a mis-press on Back must not cost the whole sequence.
-    const [furthestStepId, setFurthestStepId] = useState<SelfDrivingOnboardingStepId>(stepId)
-    const furthestIndex = Math.max(
-        stepIndex,
-        steps.findIndex((s) => s.id === furthestStepId)
-    )
+    // The steps already reached, kept as ids. Steps up to the furthest one are done, so the progress
+    // dots can take the user back to one and forward again: a mis-press on Back must not cost the
+    // whole sequence.
+    const [reachedStepIds, setReachedStepIds] = useState<SelfDrivingOnboardingStepId[]>([stepId])
+    const furthestIndex = reachedThroughIndex(steps, stepIndex, reachedStepIds)
 
     // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
     // (like the integration ids the GitHub callback appends).
@@ -172,9 +185,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
             return
         }
         setStepId(target.id)
-        if (index > furthestIndex) {
-            setFurthestStepId(target.id)
-        }
+        setReachedStepIds((reached) => (reached.includes(target.id) ? reached : [...reached, target.id]))
         router.actions.replace(router.values.location.pathname, {
             ...router.values.searchParams,
             step: target.id,

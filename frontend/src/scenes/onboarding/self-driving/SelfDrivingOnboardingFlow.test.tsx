@@ -41,4 +41,15 @@ describe('SelfDrivingOnboardingFlow', () => {
 
         expect(screen.queryByRole('button', { name: 'Go to Install PostHog' })).not.toBeInTheDocument()
     })
+
+    it('keeps a step a new goal adds ahead of the user out of the dots', () => {
+        router.actions.replace(urls.onboarding(), { step: 'billing' })
+        render(<SelfDrivingOnboardingFlow />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Go to Your goal' }))
+        fireEvent.click(screen.getByRole('button', { name: /Improve the customer experience/ }))
+
+        expect(screen.queryByRole('button', { name: 'Go to Your website URLs' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Go to Pick a plan' })).not.toBeInTheDocument()
+    })
 })
