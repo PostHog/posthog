@@ -36,6 +36,19 @@ import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
+// Sort by the folder label a person reads: unfiled dashboards ('—') group together, and the rest
+// order alphabetically, so folder sorting matches the cell instead of the raw `folder` value.
+function folderSortKey(folder: DashboardBasicType['folder']): string {
+    if (folder === null || folder === undefined || folder === UNFILED_DASHBOARDS_FOLDER) {
+        return ''
+    }
+    return folder || 'Project root'
+}
+
+export function folderCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
+    return folderSortKey(a.folder).localeCompare(folderSortKey(b.folder))
+}
+
 function BulkMoveToFolderButton({
     ctx,
     filedIds,
@@ -210,6 +223,7 @@ export function DashboardsTable({
                     </Tooltip>
                 )
             },
+            sorter: folderCompareFunction,
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
