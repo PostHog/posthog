@@ -68,6 +68,9 @@ export function getColumnsForQuery(query: DataTableNode): HogQLExpression[] {
 }
 
 export function extractExpressionComment(query: string): string {
+    if (!query || typeof query !== 'string') {
+        return query
+    }
     if (query.includes('--')) {
         return query.split('--').pop()?.trim() || query
     }
@@ -135,6 +138,9 @@ export function extractDisplayLabel(query: string): string {
 }
 
 export function removeExpressionComment(query: string): string {
+    if (!query || typeof query !== 'string') {
+        return query
+    }
     if (query.includes('--')) {
         return query.split('--').slice(0, -1).join('--').trim()
     }
