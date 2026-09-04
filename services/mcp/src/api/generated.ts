@@ -114,6 +114,11 @@ export namespace Schemas {
          */
       error_type: string | null;
       /**
+         * Stable query API error code when available; null on success and for unclassified errors.
+         * @nullable
+         */
+      error_code?: string | null;
+      /**
          * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
          * @nullable
          */
