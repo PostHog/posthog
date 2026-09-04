@@ -603,7 +603,8 @@ const digestScoutConfig = {
     pause_reason: null,
     source_product: 'replay_vision',
     source_id: summarizerScanner.id,
-    cron_schedule: '0 9 * * *',
+    run_cron_schedule: '0 9 * * *',
+    run_interval_minutes: 1440,
     output_destinations: [],
     created_at: '2026-05-02T09:00:00Z',
 }
