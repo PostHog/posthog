@@ -24,7 +24,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Offset, TopicOffsetLedger, TopicPartition};
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -2035,6 +2035,216 @@ async fn the_committed_offset_is_the_ledger_frontier() {
     assert_eq!(
         total, 15,
         "a committed frontier behind the accepted work would redeliver here"
+    );
+
+    harness.stop().await;
+}
+
+/// Kafka can hand the same offset to a consumer twice on a partition it holds
+/// continuously. An offset the ledger's window still holds is one the ledger
+/// already accounts for, so the consumer drops that copy and no worker ever
+/// sees it, while the partition keeps committing.
+///
+/// A broker will not repeat an offset on demand, so the test charges the
+/// offsets to the ledger before the consumer polls them, which is the state a
+/// repeat leaves behind. A worker held under a full in-flight bound keeps the
+/// consumer out of the poll loop while that happens.
+#[tokio::test]
+async fn a_redelivered_offset_never_reaches_a_worker() {
+    let topic = format!("e2e-ledger-dedup-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        1,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+    let partition = TopicPartition::new(topic.clone(), 0);
+
+    // Offsets 0..5 run through the consumer normally, so the window is empty
+    // and its base is the committed offset.
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(5, Duration::from_secs(15)).await;
+    wait_until(Duration::from_secs(10), "the first batch to commit", || {
+        harness.committed_offset(0) == Some(5)
+    })
+    .await;
+
+    // Offset 5 is held at the worker, so the consumer sits at its in-flight
+    // bound and polls nothing while the test sets the window up.
+    let guard = harness.workers[0].block().await;
+    produce(&producer, &topic, 0, "tok", "user-1", 500).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the held batch to be charged",
+        || harness.ledger.held(&partition).offsets == 1,
+    )
+    .await;
+
+    // Offsets 6..11 reach the broker and the ledger, but not the consumer.
+    // Its next poll finds them already in the window.
+    for seq in 5..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    let generation = harness.ledger.generation(&partition);
+    harness
+        .ledger
+        .charge(
+            &partition,
+            generation,
+            (6..11).map(|offset| {
+                (
+                    Offset(offset),
+                    Charge {
+                        events: 1,
+                        bytes: 1,
+                    },
+                )
+            }),
+        )
+        .expect("the window takes the offsets");
+
+    // Offset 11 follows them, so its delivery proves the consumer polled the
+    // whole redelivered range.
+    produce(&producer, &topic, 0, "tok", "user-1", 100).await;
+    drop(guard);
+
+    wait_until(
+        Duration::from_secs(30),
+        "the consumer to poll past the redelivered range",
+        || {
+            !harness.workers[0].seqs_for("user-1").is_empty() && {
+                let delivered: HashSet<usize> =
+                    harness.workers[0].seqs_for("user-1").into_iter().collect();
+                delivered.contains(&100)
+            }
+        },
+    )
+    .await;
+
+    let delivered: HashSet<usize> = harness.workers[0].seqs_for("user-1").into_iter().collect();
+    for seq in 5..10usize {
+        assert!(
+            !delivered.contains(&seq),
+            "seq {seq} was redelivered and must never reach a worker"
+        );
+    }
+    assert_eq!(
+        harness.ledger.held(&partition).offsets,
+        6,
+        "the repeats added no slot: offsets 6..11 plus the one that followed"
+    );
+
+    // The redelivered offsets were charged outside the consumer, so the test
+    // completes them; the frontier then moves over the whole range.
+    harness
+        .ledger
+        .settle(&partition, generation, (6..11).map(Offset))
+        .expect("the window completes them");
+    produce(&producer, &topic, 0, "tok", "user-1", 200).await;
+    wait_until(
+        Duration::from_secs(30),
+        "the commit to reach one past the last produced offset",
+        || harness.committed_offset(0) == Some(13),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+/// An offset below the window is one the ledger cannot place, so it resets the
+/// partition: the window goes, the generation moves, and every batch in flight
+/// settles as stale. The consumer must survive that and resume committing on
+/// the next assignment's offsets, without redelivering or losing anything the
+/// workers already took.
+#[tokio::test]
+async fn an_offset_below_the_window_resets_the_partition_and_recovers() {
+    let topic = format!("e2e-ledger-reset-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        1,
+        2,
+        128,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+    let partition = TopicPartition::new(topic.clone(), 0);
+
+    // Offsets 0..5 commit normally, so the window's base is above zero.
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(5, Duration::from_secs(15)).await;
+    wait_until(Duration::from_secs(10), "the first batch to commit", || {
+        harness.committed_offset(0) == Some(5)
+    })
+    .await;
+
+    // Offsets 5..10 are in flight at the held workers when the violation
+    // lands, so their settlement arrives after the reset.
+    let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
+    for worker in &harness.workers {
+        guards.push(Some(worker.block().await));
+    }
+    for seq in 5..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    wait_until(Duration::from_secs(15), "the batch to be charged", || {
+        harness.ledger.held(&partition).offsets == 5
+    })
+    .await;
+
+    let generation = harness.ledger.generation(&partition);
+    assert!(
+        harness
+            .ledger
+            .charge(&partition, generation, [(Offset(4), Charge::default())])
+            .is_err(),
+        "an offset below the base is a violation"
+    );
+    assert_eq!(
+        harness.ledger.generation(&partition),
+        generation + 1,
+        "the partition starts a new generation"
+    );
+    guards.clear();
+
+    // The reset costs the in-flight batch its commit, not its delivery. The
+    // next offsets found a fresh window and commit from there.
+    for seq in 10..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(30),
+        "the commit to reach one past the last produced offset",
+        || harness.committed_offset(0) == Some(15),
+    )
+    .await;
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "the consumer must survive the reset"
+    );
+
+    let delivered: Vec<usize> = harness
+        .delivery_log
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, seq)| *seq)
+        .collect();
+    let mut sorted = delivered.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        (0..15).collect::<Vec<usize>>(),
+        "every message reached a worker exactly once"
     );
 
     harness.stop().await;
